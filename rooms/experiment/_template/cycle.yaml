@@ -1,0 +1,9 @@
+# 사이클 메타데이터 — 체인의 계보는 이 파일로 추적된다.
+id: C000-slug            # 체인 내 고유 ID: C### + 짧은 슬러그
+chain: chain-name        # 소속 체인 (chains/ 아래 디렉토리명)
+parent: null             # 부모 사이클 ID. 분기면 하나, 병합이면 리스트, 최초면 null
+author: clew             # 이 사이클을 수행한 존재 (rooms/existence/의 이름)
+status: open             # open | closed
+opened: 2026-07-13       # 사이클 시작일
+closed: null             # 보고서 퍼블리시일
+title: ""                # 이 사이클이 정복하려는 가장 작은 문제 한 줄
