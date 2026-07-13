@@ -1,0 +1,10 @@
+# 검증용 가상 픽스처 — 실제 실험 기록이 아님 (lineage 테스트의 대상)
+id: C001-origin
+chain: seed
+parent: null
+lineage: []
+author: fixture
+status: closed
+opened: 2026-05-01
+closed: 2026-05-02
+title: "다른 체인이 계보로 삼을 씨앗 사이클"

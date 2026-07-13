@@ -1,0 +1,3 @@
+열림: loom/C004-git-binding
+exit code: 0
+(도구: loom/C003의 ari open — 도구가 실전에서 연 첫 사이클)

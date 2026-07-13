@@ -1,0 +1,9 @@
+id: C004-git-binding
+chain: loom
+parent: C003-open-close-porcelain
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "close가 사이클 디렉토리만을 담은 커밋과 태그를 만들면, 닫힌 사이클의 불변은 깃의 보장이 되고 변조는 기계가 탐지한다"

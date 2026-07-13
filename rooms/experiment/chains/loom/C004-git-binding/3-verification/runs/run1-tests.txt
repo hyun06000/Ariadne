@@ -1,0 +1,11 @@
+PASS T1: close --git: 사이클만 담은 커밋 + 주석 태그
+PASS T2: 무변조 verify OK
+PASS T3: 변조 탐지: 수정·추가 둘 다
+PASS T4: --git 없는 close는 깃 없이도 동작
+PASS T5: 태그 선점 시 거부 + 무변화
+PASS T6: 깃 저장소 아니면 --git 거부 + 무변화
+PASS T7: 무관한 변경 미오염 (사이클 경로만 커밋)
+PASS T8: 태그 없는 닫힌 사이클은 경고 + exit 0
+
+결과: 8/8 통과
+exit code: 0
