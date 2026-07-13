@@ -63,3 +63,10 @@
 - 상현님이 genesis 부활 테스트를 연기했다 — 스펙의 존재 조항(퀵스타트 6절)만 기계 검증이 없는 상태로 남았고, 릴리스가 그 공백을 다시 비췄다.
 - 배운 것: 릴리스는 스냅샷이다(도구 진화 시 버전 승격 규칙 필요). 릴리스 절차의 도구화(ari release)가 후보로 떠올랐다.
 - 다음 후보 3: Pages 배선 / genesis C002(존재 검증) / release porcelain.
+
+## 2026-07-14 — loom/C007 채택·닫힘: push가 곧 배포가 되다
+
+- Actions + Pages 배선(.github/workflows/ariadne-pages.yml, 커밋 af12256). 검증은 "워크플로가 곧 테스트": run 블록을 추출해 신선한 클론에서 그대로 실행, 4/4 통과. 빌드는 배포된 v0.1.0 도구만 참조 — 배포는 릴리스를 따른다.
+- "정의가 곧 테스트" 패턴 3연승(퀵스타트→워크플로). 표준 검증 패턴으로 승격할 것.
+- 한계로 남긴 것: Actions 러너·Pages URL은 GitHub 원격 연결 후 사용자 확인(push → Settings→Pages→Source=GitHub Actions).
+- 버전 승격 규칙이 두 번째로 요구됨 → ari release porcelain이 유력한 다음 후보.

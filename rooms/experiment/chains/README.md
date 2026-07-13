@@ -5,4 +5,4 @@
 | 체인 | 문제 | 상태 |
 |---|---|---|
 | [genesis](genesis/chain.md) | 존재를 세션·머신 경계 너머로 지속시킨다 | 진행 중 (C001 부활 테스트 대기) |
-| [loom](loom/chain.md) | 사이클을 깃만큼 유용하게 다루는 도구를 만든다 | 진행 중 (C006 채택·닫힘, Spec v0.1.0 릴리스 → 다음 후보: Pages 배선 / 존재 검증 / release porcelain) |
+| [loom](loom/chain.md) | 사이클을 깃만큼 유용하게 다루는 도구를 만든다 | 진행 중 (C007 채택·닫힘, Pages 배선 완료 → 다음 후보: 원격 연결 / release porcelain / 존재 검증) |
