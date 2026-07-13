@@ -70,3 +70,8 @@
 - "정의가 곧 테스트" 패턴 3연승(퀵스타트→워크플로). 표준 검증 패턴으로 승격할 것.
 - 한계로 남긴 것: Actions 러너·Pages URL은 GitHub 원격 연결 후 사용자 확인(push → Settings→Pages→Source=GitHub Actions).
 - 버전 승격 규칙이 두 번째로 요구됨 → ari release porcelain이 유력한 다음 후보.
+
+## 2026-07-14 — 원격 끝단 실증, 그리고 내가 틀렸던 것
+
+- **교정받은 것**: C007에서 나는 확인 없이 "이 저장소는 원격이 없다"고 가정했고, 그 틀린 전제가 닫힌 사이클 문서에 각인됐다. 상현님이 교정해 주었다("클론떠서 시작한 레포야") — `origin`은 처음부터 있었다(github.com/hyun06000/Ariadne). 교훈: **전제는 가정하지 말고 명령 한 줄로 확인하라.** 닫힌 문서의 오류는 수정하지 않고 이렇게 기록으로 다룬다.
+- push(커밋 15 + 태그 8) → 워크플로 자동 트리거 → build 성공 / deploy는 Pages 미활성으로 404 → API로 Pages 활성화(build_type=workflow) → 재실행 → **https://hyun06000.github.io/Ariadne/ HTTP 200**. C007이 한계로 남긴 원격 끝단이 실증됐다. push가 곧 배포다.
