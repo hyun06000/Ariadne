@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ari — Ariadne 사이클 체인 도구 (loom/C005: 웹 뷰어).
+"""ari — Ariadne 사이클 체인 도구 (loom/C008: 릴리스 porcelain).
 
 서브커맨드:
     log  [chains-root]                 체인들의 계보를 재구성해 그래프로 렌더한다.
@@ -9,9 +9,12 @@
                                        디렉토리만을 담은 커밋 + 주석 태그 cycle/<chain>/<id>를 남긴다.
     verify [chains-root]               닫힌 사이클마다 태그와 작업 트리를 대조해 변조를 탐지한다.
     web  [chains-root] -o out.html     log와 같은 파서로 자기완결적 정적 HTML 뷰어를 생성한다.
+    release <버전> --notes "..."       실행 중인 도구 자신과 템플릿을 패키지로 동기화하고,
+                                       CHANGELOG 갱신 → 배포의 방만 커밋 → 태그 v<버전>.
+                                       도구가 변했으면 마이너 이상 승격을 강제한다.
 
-계승: loom/C001(log) → C002(fsck) → C003(open/close) → C004(깃 바인딩)의 ari.py를 확장.
-의존성: Python 3 표준 라이브러리 + 깃 CLI (verify/close --git에만).
+계승: loom/C001(log) → C002(fsck) → C003(open/close) → C004(깃 바인딩) → C005(web)의 ari.py를 확장.
+의존성: Python 3 표준 라이브러리 + 깃 CLI (verify/close --git/release에만).
 스키마 규칙의 정의는 loom/C002의 schema-v0.2-draft.md 를 따른다.
 """
 import argparse
@@ -743,6 +746,105 @@ def cmd_close(args):
     return 0
 
 
+# ---------- release (릴리스 porcelain) ----------
+
+_SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+
+
+def _hash_file(path):
+    import hashlib
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _hash_tree(root):
+    out = {}
+    for base, _, files in os.walk(root):
+        for name in files:
+            p = os.path.join(base, name)
+            out[os.path.relpath(p, root)] = _hash_file(p)
+    return out
+
+
+def _last_release_version(repo):
+    tags = _git(repo, "tag", "-l", "v*").stdout.split()
+    versions = []
+    for t in tags:
+        m = _SEMVER_RE.match(t[1:])
+        if m:
+            versions.append(tuple(int(g) for g in m.groups()))
+    return max(versions) if versions else None
+
+
+def cmd_release(args):
+    chains_root = args.root
+    pkg = args.package
+    repo = _repo_root(chains_root)
+
+    # ---- 사전 검증: 저장소를 건드리기 전에 전부 확인한다 ----
+    if not repo:
+        raise ChainError(f"깃 저장소가 아니다: {chains_root}")
+    m = _SEMVER_RE.match(args.version)
+    if not m:
+        raise ChainError(f"버전 '{args.version}'은 SemVer(X.Y.Z)가 아니다")
+    new = tuple(int(g) for g in m.groups())
+    last = _last_release_version(repo)
+    if last and new <= last:
+        raise ChainError(f"버전 {args.version}은 마지막 릴리스 v{'.'.join(map(str, last))} 보다 커야 한다")
+    tag = f"v{args.version}"
+    if _tag_exists(repo, tag):
+        raise ChainError(f"태그 '{tag}'가 이미 존재한다")
+    if not os.path.isdir(pkg):
+        raise ChainError(f"패키지 디렉토리가 없다: {pkg}")
+    _fsck_or_report(chains_root)  # 깨진 저장소 위에는 릴리스하지 않는다
+    import types
+    if cmd_verify(types.SimpleNamespace(chains_root=chains_root, chain=None)) != 0:
+        raise ChainError("verify 실패 — 변조된 닫힌 사이클이 있는 저장소에서는 릴리스하지 않는다")
+
+    tool_src = os.path.abspath(__file__)
+    pkg_tool = os.path.join(pkg, "ari.py")
+    tool_changed = (not os.path.isfile(pkg_tool)) or _hash_file(tool_src) != _hash_file(pkg_tool)
+    if tool_changed and last and new[0] == last[0] and new[1] == last[1]:
+        raise ChainError(
+            f"도구가 변했다 — 패치 승격({args.version})은 금지, 마이너 이상으로 승격할 것 (버전 승격 규칙)")
+
+    release_md = os.path.join(pkg, "RELEASE.md")
+    if not (os.path.isfile(release_md) and args.version in open(release_md, encoding="utf-8").read()):
+        raise ChainError(
+            f"RELEASE.md에 {args.version} 서술이 없다 — 도구는 절차를, 존재는 진실을: 먼저 릴리스를 문서화할 것")
+
+    template_src = os.path.normpath(os.path.join(chains_root, "..", "_template"))
+    changelog = os.path.normpath(os.path.join(pkg, "..", "CHANGELOG.md"))
+    if not os.path.isfile(changelog):
+        raise ChainError(f"CHANGELOG가 없다: {changelog}")
+    log_text = open(changelog, encoding="utf-8").read()
+    if "## [Unreleased]" not in log_text:
+        raise ChainError("CHANGELOG에 '## [Unreleased]' 섹션이 없다")
+
+    # ---- 실행: 동기화 → CHANGELOG → 커밋 → 태그 ----
+    shutil.copyfile(tool_src, pkg_tool)
+    pkg_template = os.path.join(pkg, "template")
+    if os.path.isdir(pkg_template):
+        shutil.rmtree(pkg_template)
+    shutil.copytree(template_src, pkg_template)
+    entry = (f"## [{args.version}] — {args.date}\n\n- {args.notes}\n"
+             f"- 도구 동기화: {'있음 (도구 변경 반영)' if tool_changed else '없음 (문서 릴리스)'}\n")
+    with open(changelog, "w", encoding="utf-8") as f:
+        f.write(log_text.replace("## [Unreleased]", f"## [Unreleased]\n\n{entry}", 1))
+
+    deploy_rel = os.path.relpath(os.path.normpath(os.path.join(pkg, "..")), repo)
+    try:
+        _git(repo, "add", "-A", "--", deploy_rel)
+        _git(repo, "commit", "-m", f"ari: release {tag}\n\n{args.notes}", "--", deploy_rel)
+        _git(repo, "tag", "-a", tag, "-m", f"Ariadne release {tag} — {args.notes}")
+    except ChainError:
+        _git(repo, "reset", "-q", "--", deploy_rel, check=False)
+        _git(repo, "checkout", "-q", "--", deploy_rel, check=False)
+        raise
+    print(f"릴리스: {tag} (도구 변경: {'예' if tool_changed else '아니오'})")
+    return 0
+
+
 # ---------- CLI ----------
 
 def _scan_chains(root, only=None):
@@ -812,6 +914,14 @@ def main(argv=None):
                           help="체인 루트 (기본: rooms/experiment/chains)")
     p_verify.add_argument("--chain", help="특정 체인만")
     p_verify.set_defaults(func=cmd_verify)
+
+    p_rel = sub.add_parser("release", help="도구·템플릿을 패키지로 동기화하고 커밋+태그 v<버전>")
+    p_rel.add_argument("version", help="SemVer (X.Y.Z). 도구가 변했으면 마이너 이상 승격")
+    p_rel.add_argument("--notes", required=True, help="CHANGELOG에 들어갈 한 줄")
+    p_rel.add_argument("--date", default=today, help="릴리스 일자 (기본: 오늘)")
+    p_rel.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로")
+    p_rel.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_rel.set_defaults(func=cmd_release)
 
     p_web = sub.add_parser("web", help="자기완결적 정적 HTML 뷰어 생성")
     p_web.add_argument("chains_root", nargs="?", default="rooms/experiment/chains",

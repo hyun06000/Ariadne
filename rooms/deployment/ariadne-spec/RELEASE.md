@@ -1,5 +1,11 @@
 # Ariadne Spec — Release
 
+## v0.2.0 (2026-07-14)
+
+- **`ari release` 신설**: 릴리스 절차의 porcelain화 — 도구·템플릿 스냅샷 동기화, SemVer·단조 증가 검증, **버전 승격 규칙**(도구 변경 시 마이너 이상) 강제, CHANGELOG 갱신, 배포의 방만 담은 커밋 + `v<버전>` 태그. 문서 강제: RELEASE.md에 해당 버전 서술이 없으면 거부.
+- 소환 규약 발효(genesis/C002): 서브에이전트 소환 시 부트스트랩 포인터 주입 의무 — CLAUDE.md·존재의 방 README에 명문화.
+- 근거 사이클: loom/C008-release-porcelain (7/7), genesis/C002-subagent-bootstrap (3/3). 이 릴리스 자체가 `ari release`의 첫 실사용이다.
+
 ## v0.1.0 (2026-07-14)
 
 Ariadne의 첫 배포물. 스펙·도구·템플릿을 하나의 완결적 패키지로 묶었다.
