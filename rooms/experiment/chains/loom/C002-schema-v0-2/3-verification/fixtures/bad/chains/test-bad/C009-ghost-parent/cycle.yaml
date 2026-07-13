@@ -1,0 +1,9 @@
+# 픽스처 — R6 위반: 끊어진 parent
+id: C009-ghost-parent
+chain: test-bad
+parent: C099-nope
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "유령 부모"

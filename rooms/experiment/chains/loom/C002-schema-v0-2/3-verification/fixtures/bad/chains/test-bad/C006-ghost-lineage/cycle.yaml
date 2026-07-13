@@ -1,0 +1,10 @@
+# 픽스처 — R2 위반: 존재하지 않는 lineage
+id: C006-ghost-lineage
+chain: test-bad
+parent: C001-ok
+lineage: [nowhere/C001-nope]
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "유령 계보"

@@ -1,0 +1,10 @@
+# 픽스처 — R3 위반: lineage가 전역 표기가 아님
+id: C007-local-lineage
+chain: test-bad
+parent: C001-ok
+lineage: [C001-ok]
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "로컬 표기 lineage"

@@ -1,0 +1,9 @@
+# 픽스처 — R5 위반: id ≠ 디렉토리명
+id: C002-mismatch
+chain: test-bad
+parent: C001-ok
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "디렉토리명과 다른 id"

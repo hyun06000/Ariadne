@@ -1,0 +1,9 @@
+# 픽스처 — R3 위반: parent가 전역 표기
+id: C008-qualified-parent
+chain: test-bad
+parent: test-bad/C001-ok
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "전역 표기 parent"

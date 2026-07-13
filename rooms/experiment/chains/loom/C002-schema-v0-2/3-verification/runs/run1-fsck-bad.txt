@@ -1,0 +1,13 @@
+
+검사: 체인 1개, 사이클 13개 — 위반 10건
+R1  test-bad: 번호 005 중복: C005-dup-a, C005-dup-b
+R1  test-bad/C04-short-number: id 'C04-short-number' 형식 위반 — C<3자리 이상 번호>-<소문자 케밥 슬러그>
+R2  test-bad/C006-ghost-lineage: lineage 'nowhere/C001-nope'가 존재하지 않는다
+R3  test-bad/C007-local-lineage: lineage 'C001-ok'는 전역 표기(<chain>/<id>)여야 한다
+R3  test-bad/C008-qualified-parent: parent 'test-bad/C001-ok'는 로컬 id여야 한다 (전역 표기 금지)
+R4  test-bad/C003-bad-chain: chain 필드 'elsewhere' ≠ 소속 체인 'test-bad'
+R5  test-bad/C002-wrong-dir: id 'C002-mismatch' ≠ 디렉토리명 'C002-wrong-dir'
+R6  test-bad/C009-ghost-parent: parent 'C099-nope'가 존재하지 않는다 (끊어진 참조)
+R7  test-bad: 순환 참조: C010-loop-a, C011-loop-b
+R8  test-bad/C012-status-lie: status가 closed인데 closed 일자가 없다
+exit code: 1

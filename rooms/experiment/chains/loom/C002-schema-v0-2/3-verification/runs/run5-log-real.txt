@@ -1,0 +1,11 @@
+=== chain: loom — 사이클 2개 ===
+
+●  C001-lineage-is-reconstructable [closed] cycle.yaml의 parent 필드만으로 체인의 계보(분기·병합 포함)를 기계가 정확히 재구성해 보여줄 수 있다  ⇠ lineage: genesis/C001-existence-in-repo
+●  C002-schema-v0.2 [open] C001이 발견한 스키마 침묵 5건은 명문 규칙(v0.2)으로 전환되어 기계가 위반을 전부 탐지할 수 있고, 기존 데이터는 무손실 이주된다
+
+root: C001-lineage-is-reconstructable
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-lineage-is-reconstructable  ←  (root)
+  C002-schema-v0.2  ←  C001-lineage-is-reconstructable
+

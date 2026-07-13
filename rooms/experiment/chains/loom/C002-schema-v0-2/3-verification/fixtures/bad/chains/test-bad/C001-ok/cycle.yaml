@@ -1,0 +1,9 @@
+# 검증용 가상 픽스처 — 위반 없는 기준 사이클
+id: C001-ok
+chain: test-bad
+parent: null
+author: fixture
+status: closed
+opened: 2026-03-01
+closed: 2026-03-02
+title: "규칙을 전부 지키는 사이클"

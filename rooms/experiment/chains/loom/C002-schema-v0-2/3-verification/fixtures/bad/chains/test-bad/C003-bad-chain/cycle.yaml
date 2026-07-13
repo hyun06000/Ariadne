@@ -1,0 +1,9 @@
+# 픽스처 — R4 위반: chain 필드 불일치
+id: C003-bad-chain
+chain: elsewhere
+parent: C001-ok
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "다른 체인을 주장하는 사이클"

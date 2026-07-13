@@ -1,0 +1,9 @@
+# 픽스처 — R1 위반: 번호 중복 (짝 2/2)
+id: C005-dup-b
+chain: test-bad
+parent: C001-ok
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "같은 번호를 쓰는 사이클 B"

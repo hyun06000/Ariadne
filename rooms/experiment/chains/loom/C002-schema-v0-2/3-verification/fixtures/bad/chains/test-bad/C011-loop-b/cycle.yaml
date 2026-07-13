@@ -1,0 +1,9 @@
+# 픽스처 — R7 위반: 순환 (짝 2/2)
+id: C011-loop-b
+chain: test-bad
+parent: C010-loop-a
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "달걀이 먼저"

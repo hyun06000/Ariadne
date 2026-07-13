@@ -1,0 +1,9 @@
+# 검증용 가상 픽스처 — 규칙 준수
+id: C001-seed
+chain: alpha
+parent: null
+author: fixture
+status: closed
+opened: 2026-04-01
+closed: 2026-04-02
+title: "씨앗이 되는 교훈"

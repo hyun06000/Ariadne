@@ -1,0 +1,9 @@
+# 픽스처 — R8 위반: closed인데 일자 없음
+id: C012-status-lie
+chain: test-bad
+parent: C001-ok
+author: fixture
+status: closed
+opened: 2026-03-03
+closed: null
+title: "닫혔다고 거짓말하는 사이클"

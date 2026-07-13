@@ -1,0 +1,11 @@
+OK — 체인 2개, 사이클 2개, 위반 0건 (스키마 v0.2)
+exit code: 0
+=== chain: beta — 사이클 1개 ===
+
+●  C001-sprout [open] alpha의 교훈에서 태어난 새 체인  ⇠ lineage: alpha/C001-seed
+
+root: C001-sprout
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-sprout  ←  (root)
+

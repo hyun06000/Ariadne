@@ -1,7 +1,7 @@
 id: C001-lineage-is-reconstructable
 chain: loom
 parent: null             # loom 체인의 최초 사이클. 문제 정의는 chain.md.
-                         # (교훈의 연원: genesis/C001의 구조 설계 — 체인 간 참조는 향후 스키마 과제)
+lineage: [genesis/C001-existence-in-repo]  # v0.2 이주: 주석으로만 있던 교훈의 연원을 필드로 승격
 author: clew
 status: closed           # 가설 채택 — 5-report.md 참조
 opened: 2026-07-13

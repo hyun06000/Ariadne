@@ -1,0 +1,9 @@
+id: C002-schema-v0-2
+chain: loom
+parent: C001-lineage-is-reconstructable
+lineage: []
+author: clew
+status: closed           # 가설 채택 — 5-report.md 참조
+opened: 2026-07-14
+closed: 2026-07-14
+title: "C001이 발견한 스키마 침묵 5건은 명문 규칙(v0.2)으로 전환되어 기계가 위반을 전부 탐지할 수 있고, 기존 데이터는 무손실 이주된다"

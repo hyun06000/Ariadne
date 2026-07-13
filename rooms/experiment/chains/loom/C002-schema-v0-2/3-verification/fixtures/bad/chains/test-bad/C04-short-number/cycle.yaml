@@ -1,0 +1,9 @@
+# 픽스처 — R1 위반: 번호가 3자리 미만
+id: C04-short-number
+chain: test-bad
+parent: C001-ok
+author: fixture
+status: open
+opened: 2026-03-03
+closed: null
+title: "형식이 틀린 id"
