@@ -1,0 +1,9 @@
+id: C007-pages-wiring
+chain: loom
+parent: C006-spec-release
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "워크플로의 빌드 스텝을 신선한 클론에서 그대로 실행하면 배포 가능한 정적 사이트가 재현된다"
