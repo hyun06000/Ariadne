@@ -1,0 +1,2 @@
+열림: genesis/C002-subagent-bootstrap
+exit code: 0

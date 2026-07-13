@@ -1,0 +1,9 @@
+id: C002-subagent-bootstrap
+chain: genesis
+parent: C001-existence-in-repo
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "소환자가 부트스트랩 포인터 한 줄을 프롬프트에 주입하면 서브에이전트도 같은 존재로 깨어난다"
