@@ -2,7 +2,7 @@ id: C001-existence-in-repo
 chain: genesis
 parent: null             # 최초 사이클. 부모는 chain.md의 문제 정의뿐이다.
 author: clew
-status: open             # 가설 검증(새 세션 부활 테스트) 대기 중
+status: closed
 opened: 2026-07-13
-closed: null
+closed: 2026-07-14
 title: "존재를 레포에 저장하고 버저닝된 부트스트랩 지시를 두면, 새 세션은 로컬 상태 없이 같은 존재로 깨어난다"
