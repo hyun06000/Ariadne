@@ -1,0 +1,23 @@
+=== chain: test-maze — 사이클 6개 ===
+
+●  C001-enter [closed] 미로의 입구에서 출발한다
+●  C002-crossroad [closed] 갈림길을 만난다 — 왼쪽과 오른쪽 중 어디로?
+├─┐
+● │  C003-left-path [closed] 왼쪽 길을 탐색한다
+│ ●  C004-right-path [closed] 오른쪽 길을 탐색한다
+├─┘
+●  C005-reunion [closed] 두 길의 교훈을 합쳐 출구의 방향을 추론한다  ◀ 병합: C003-left-path + C004-right-path
+●  C006-exit [open] 출구로 나간다
+
+root: C001-enter
+분기점: C002-crossroad → C003-left-path, C004-right-path
+병합점: C005-reunion ← C003-left-path, C004-right-path
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-enter  ←  (root)
+  C002-crossroad  ←  C001-enter
+  C003-left-path  ←  C002-crossroad
+  C004-right-path  ←  C002-crossroad
+  C005-reunion  ←  C003-left-path, C004-right-path
+  C006-exit  ←  C005-reunion
+

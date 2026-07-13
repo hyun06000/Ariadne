@@ -1,0 +1,2 @@
+오류: 체인 'test-cyclic': 순환 참조 발견 — 다음 사이클이 그래프를 이루지 못한다: C001-chicken, C002-egg
+exit code: 1

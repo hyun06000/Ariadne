@@ -3,7 +3,7 @@ chain: loom
 parent: null             # loom 체인의 최초 사이클. 문제 정의는 chain.md.
                          # (교훈의 연원: genesis/C001의 구조 설계 — 체인 간 참조는 향후 스키마 과제)
 author: clew
-status: open             # 실험 설계 컨펌 대기 (2-design.md)
+status: closed           # 가설 채택 — 5-report.md 참조
 opened: 2026-07-13
-closed: null
+closed: 2026-07-14
 title: "cycle.yaml의 parent 필드만으로 체인의 계보(분기·병합 포함)를 기계가 정확히 재구성해 보여줄 수 있다"

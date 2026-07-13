@@ -1,0 +1,2 @@
+오류: 체인 'test-broken': C002-orphan의 parent 'C009-ghost'가 존재하지 않는다 (끊어진 참조)
+exit code: 1

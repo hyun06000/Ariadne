@@ -1,0 +1,6 @@
+# 파괴 테스트 픽스처 — 순환 참조 (C001 → C002 → C001)
+id: C001-chicken
+chain: test-cyclic
+parent: C002-egg
+status: open
+title: "닭이 먼저"

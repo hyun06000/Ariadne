@@ -1,0 +1,9 @@
+# 검증용 가상 픽스처 — 실제 실험 기록이 아님 (C002에서의 분기 2)
+id: C004-right-path
+chain: test-maze
+parent: C002-crossroad
+author: fixture
+status: closed
+opened: 2026-01-05
+closed: 2026-01-07
+title: "오른쪽 길을 탐색한다"

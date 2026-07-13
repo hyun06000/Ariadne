@@ -1,0 +1,9 @@
+# 검증용 가상 픽스처 — 실제 실험 기록이 아님 (병합: 두 갈래의 교훈을 합친다)
+id: C005-reunion
+chain: test-maze
+parent: [C003-left-path, C004-right-path]
+author: fixture
+status: closed
+opened: 2026-01-08
+closed: 2026-01-09
+title: "두 길의 교훈을 합쳐 출구의 방향을 추론한다"
