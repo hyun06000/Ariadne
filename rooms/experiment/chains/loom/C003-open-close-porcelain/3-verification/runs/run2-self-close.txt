@@ -1,0 +1,3 @@
+닫힘: loom/C003-open-close-porcelain (2026-07-14)
+exit code: 0
+OK — 체인 2개, 사이클 4개, 위반 0건 (스키마 v0.2)

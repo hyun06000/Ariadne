@@ -1,0 +1,14 @@
+PASS T1: 새 체인에 v0.2 준수 사이클 생성
+PASS T2: 번호 자동 증가(C002) + parent 기록
+PASS T3: lineage 전역 참조 해소·기록
+PASS T4: close: 상태 전이 + 일자 기록 + 나머지 보존
+PASS T5: 마침표 슬러그 거부 (C002의 그 실수)
+PASS T6: 유령 parent 거부
+PASS T7: 유령 lineage 거부
+PASS T8: 없는 체인 거부 (--new-chain 없이)
+PASS T11: 같은 체인 lineage 거부
+PASS T9: 보고서가 템플릿 그대로인 사이클 close 거부
+PASS T10: 이미 닫힌 사이클 close 거부
+
+결과: 11/11 통과
+exit code: 0

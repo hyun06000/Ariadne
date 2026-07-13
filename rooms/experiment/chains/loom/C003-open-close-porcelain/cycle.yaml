@@ -1,0 +1,9 @@
+id: C003-open-close-porcelain
+chain: loom
+parent: C002-schema-v0-2
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "사이클의 생성(open)과 닫기(close)를 도구가 수행하면 사람 손이 만들던 스키마 위반은 원천 차단된다"
