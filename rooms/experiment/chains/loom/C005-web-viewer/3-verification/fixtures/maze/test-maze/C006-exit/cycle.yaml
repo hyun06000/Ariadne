@@ -1,0 +1,9 @@
+# 검증용 가상 픽스처 — 실제 실험 기록이 아님
+id: C006-exit
+chain: test-maze
+parent: C005-reunion
+author: fixture
+status: open
+opened: 2026-01-10
+closed: null
+title: "출구로 나간다"

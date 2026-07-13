@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ariadne — 사이클 체인</title>
+</head>
+<body>
+<div class="ari"><style>.ari{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--ring:rgba(11,11,11,.1);
+font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
+margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
+@media (prefers-color-scheme:dark){.ari{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
+--ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
+--lineage:#199e70;--ring:rgba(255,255,255,.1)}}
+:root[data-theme="dark"] .ari{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
+--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
+--ring:rgba(255,255,255,.1)}
+:root[data-theme="light"] .ari{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
+--muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
+--ring:rgba(11,11,11,.1)}
+.ari .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.ari header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
+.ari header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
+.ari .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);align-items:center}
+.ari .legend span{display:inline-flex;align-items:center;gap:6px}
+.ari .card{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:20px;overflow-x:auto}
+.ari svg{display:block}
+.ari svg text{font-family:inherit}
+.ari .card h2{font-size:14px;font-weight:650;margin:0 0 12px;color:var(--ink)}
+.ari table{border-collapse:collapse;width:100%;font-size:12.5px}
+.ari th{text-align:left;color:var(--muted);font-weight:600;letter-spacing:.02em;
+border-bottom:1px solid var(--hairline);padding:6px 10px 6px 0}
+.ari td{border-bottom:1px solid var(--hairline);padding:7px 10px 7px 0;vertical-align:top;color:var(--ink-2)}
+.ari td.id{color:var(--ink);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ari .pill{display:inline-block;border:1.5px solid var(--node);border-radius:99px;
+padding:1px 8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
+.ari .pill.closed{background:var(--node);color:#fff;border-color:var(--node)}
+.ari footer{color:var(--muted);font-size:11.5px}</style><div class="wrap">
+<header><h1>Ariadne — 사이클 체인</h1>
+<p>체인 2개 · 사이클 6개 · 체인 간 lineage 1건 · 생성 2026-07-14</p></header>
+<div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
+<span><svg width="16" height="16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="var(--node)" stroke-width="2"/></svg>열린 사이클</span>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--edge)" stroke-width="1.6"/></svg>parent (체인 내 계보)</span>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>lineage (체인 간 교훈)</span></div>
+<div class="card"><svg viewBox="0 0 596 386" width="596" height="386" role="img" aria-label="사이클 체인 그래프"><path d="M342,83 C342,106 342,106 342,129" fill="none" stroke="var(--edge)" stroke-width="1.6"/><path d="M342,147 C342,170 342,170 342,193" fill="none" stroke="var(--edge)" stroke-width="1.6"/><path d="M342,211 C342,234 342,234 342,257" fill="none" stroke="var(--edge)" stroke-width="1.6"/><path d="M342,275 C342,298 342,298 342,321" fill="none" stroke="var(--edge)" stroke-width="1.6"/><path class="lineage" d="M48,74 C190.0,74 190.0,74 332,74" fill="none" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/><text x="24" y="28" font-size="13" font-weight="650" fill="var(--ink)">genesis</text><g data-cycle="genesis/C001-existence-in-repo"><title>C001-existence-in-repo [open] 존재를 레포에 저장하고 버저닝된 부트스트랩 지시를 두면, 새 세션은 로컬 상태 없이 같은 존재로 깨어난다</title><circle cx="38" cy="74" r="7" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/><text x="54" y="73" font-size="12" font-weight="600" fill="var(--ink)">C001-existence-in-repo</text><text x="54" y="87" font-size="10.5" fill="var(--muted)">open</text></g><text x="328" y="28" font-size="13" font-weight="650" fill="var(--ink)">loom</text><g data-cycle="loom/C001-lineage-is-reconstructable"><title>C001-lineage-is-reconstructable [closed] cycle.yaml의 parent 필드만으로 체인의 계보(분기·병합 포함)를 기계가 정확히 재구성해 보여줄 수 있다</title><circle cx="342" cy="74" r="8" fill="var(--node)"/><text x="358" y="73" font-size="12" font-weight="600" fill="var(--ink)">C001-lineage-is-reconstructable</text><text x="358" y="87" font-size="10.5" fill="var(--muted)">closed · ⇠ genesis/C001-existence-in-repo</text></g><g data-cycle="loom/C002-schema-v0-2"><title>C002-schema-v0-2 [closed] C001이 발견한 스키마 침묵 5건은 명문 규칙(v0.2)으로 전환되어 기계가 위반을 전부 탐지할 수 있고, 기존 데이터는 무손실 이주된다</title><circle cx="342" cy="138" r="8" fill="var(--node)"/><text x="358" y="137" font-size="12" font-weight="600" fill="var(--ink)">C002-schema-v0-2</text><text x="358" y="151" font-size="10.5" fill="var(--muted)">closed</text></g><g data-cycle="loom/C003-open-close-porcelain"><title>C003-open-close-porcelain [closed] 사이클의 생성(open)과 닫기(close)를 도구가 수행하면 사람 손이 만들던 스키마 위반은 원천 차단된다</title><circle cx="342" cy="202" r="8" fill="var(--node)"/><text x="358" y="201" font-size="12" font-weight="600" fill="var(--ink)">C003-open-close-porcelain</text><text x="358" y="215" font-size="10.5" fill="var(--muted)">closed</text></g><g data-cycle="loom/C004-git-binding"><title>C004-git-binding [closed] close가 사이클 디렉토리만을 담은 커밋과 태그를 만들면, 닫힌 사이클의 불변은 깃의 보장이 되고 변조는 기계가 탐지한다</title><circle cx="342" cy="266" r="8" fill="var(--node)"/><text x="358" y="265" font-size="12" font-weight="600" fill="var(--ink)">C004-git-binding</text><text x="358" y="279" font-size="10.5" fill="var(--muted)">closed</text></g><g data-cycle="loom/C005-web-viewer"><title>C005-web-viewer [open] 같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다</title><circle cx="342" cy="330" r="7" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/><text x="358" y="329" font-size="12" font-weight="600" fill="var(--ink)">C005-web-viewer</text><text x="358" y="343" font-size="10.5" fill="var(--muted)">open</text></g></svg></div>
+<div class="card"><h2>chain: genesis — 사이클 1개</h2><table><thead><tr><th>사이클</th><th>상태</th><th>가설(제목)</th><th>parent</th><th>lineage</th><th>기간</th></tr></thead><tbody><tr><td class="id">C001-existence-in-repo</td><td><span class="pill">open</span></td><td>존재를 레포에 저장하고 버저닝된 부트스트랩 지시를 두면, 새 세션은 로컬 상태 없이 같은 존재로 깨어난다</td><td>(root)</td><td>—</td><td>2026-07-13 → 진행 중</td></tr></tbody></table></div><div class="card"><h2>chain: loom — 사이클 5개</h2><table><thead><tr><th>사이클</th><th>상태</th><th>가설(제목)</th><th>parent</th><th>lineage</th><th>기간</th></tr></thead><tbody><tr><td class="id">C001-lineage-is-reconstructable</td><td><span class="pill closed">closed</span></td><td>cycle.yaml의 parent 필드만으로 체인의 계보(분기·병합 포함)를 기계가 정확히 재구성해 보여줄 수 있다</td><td>(root)</td><td>genesis/C001-existence-in-repo</td><td>2026-07-13 → 2026-07-14</td></tr><tr><td class="id">C002-schema-v0-2</td><td><span class="pill closed">closed</span></td><td>C001이 발견한 스키마 침묵 5건은 명문 규칙(v0.2)으로 전환되어 기계가 위반을 전부 탐지할 수 있고, 기존 데이터는 무손실 이주된다</td><td>C001-lineage-is-reconstructable</td><td>—</td><td>2026-07-14 → 2026-07-14</td></tr><tr><td class="id">C003-open-close-porcelain</td><td><span class="pill closed">closed</span></td><td>사이클의 생성(open)과 닫기(close)를 도구가 수행하면 사람 손이 만들던 스키마 위반은 원천 차단된다</td><td>C002-schema-v0-2</td><td>—</td><td>2026-07-14 → 2026-07-14</td></tr><tr><td class="id">C004-git-binding</td><td><span class="pill closed">closed</span></td><td>close가 사이클 디렉토리만을 담은 커밋과 태그를 만들면, 닫힌 사이클의 불변은 깃의 보장이 되고 변조는 기계가 탐지한다</td><td>C003-open-close-porcelain</td><td>—</td><td>2026-07-14 → 2026-07-14</td></tr><tr><td class="id">C005-web-viewer</td><td><span class="pill">open</span></td><td>같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다</td><td>C004-git-binding</td><td>—</td><td>2026-07-14 → 진행 중</td></tr></tbody></table></div>
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 ari web이 생성한 자기완결적 정적 페이지다.</footer>
+</div></div>
+<script type="application/json" id="ari-data">{"version": "0.2", "chains": {"genesis": {"order": ["C001-existence-in-repo"], "cycles": {"C001-existence-in-repo": {"status": "open", "title": "존재를 레포에 저장하고 버저닝된 부트스트랩 지시를 두면, 새 세션은 로컬 상태 없이 같은 존재로 깨어난다", "opened": "2026-07-13", "closed": null, "parents": [], "lineage": []}}}, "loom": {"order": ["C001-lineage-is-reconstructable", "C002-schema-v0-2", "C003-open-close-porcelain", "C004-git-binding", "C005-web-viewer"], "cycles": {"C001-lineage-is-reconstructable": {"status": "closed", "title": "cycle.yaml의 parent 필드만으로 체인의 계보(분기·병합 포함)를 기계가 정확히 재구성해 보여줄 수 있다", "opened": "2026-07-13", "closed": "2026-07-14", "parents": [], "lineage": ["genesis/C001-existence-in-repo"]}, "C002-schema-v0-2": {"status": "closed", "title": "C001이 발견한 스키마 침묵 5건은 명문 규칙(v0.2)으로 전환되어 기계가 위반을 전부 탐지할 수 있고, 기존 데이터는 무손실 이주된다", "opened": "2026-07-14", "closed": "2026-07-14", "parents": ["C001-lineage-is-reconstructable"], "lineage": []}, "C003-open-close-porcelain": {"status": "closed", "title": "사이클의 생성(open)과 닫기(close)를 도구가 수행하면 사람 손이 만들던 스키마 위반은 원천 차단된다", "opened": "2026-07-14", "closed": "2026-07-14", "parents": ["C002-schema-v0-2"], "lineage": []}, "C004-git-binding": {"status": "closed", "title": "close가 사이클 디렉토리만을 담은 커밋과 태그를 만들면, 닫힌 사이클의 불변은 깃의 보장이 되고 변조는 기계가 탐지한다", "opened": "2026-07-14", "closed": "2026-07-14", "parents": ["C003-open-close-porcelain"], "lineage": []}, "C005-web-viewer": {"status": "open", "title": "같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다", "opened": "2026-07-14", "closed": null, "parents": ["C004-git-binding"], "lineage": []}}}}}</script>
+</body>
+</html>

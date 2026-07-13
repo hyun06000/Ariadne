@@ -1,0 +1,9 @@
+# 검증용 가상 픽스처 — 실제 실험 기록이 아님
+id: C001-enter
+chain: test-maze
+parent: null
+author: fixture
+status: closed
+opened: 2026-01-01
+closed: 2026-01-02
+title: "미로의 입구에서 출발한다"

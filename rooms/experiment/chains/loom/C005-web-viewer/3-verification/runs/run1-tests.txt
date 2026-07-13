@@ -1,0 +1,9 @@
+PASS T1: maze: 내장 JSON 구조가 기대와 일치
+PASS T2: lineage: 체인 간 간선 구조 일치
+PASS T3: 시각 표현: 노드·모양·점선 lineage·테이블
+PASS T4: 자기완결: 외부 리소스 참조 0건
+PASS T5: 깨진 체인 거부 + 부분 산출물 없음
+PASS T6: HTML 파싱 가능 + svg·table 존재
+
+결과: 6/6 통과
+exit code: 0

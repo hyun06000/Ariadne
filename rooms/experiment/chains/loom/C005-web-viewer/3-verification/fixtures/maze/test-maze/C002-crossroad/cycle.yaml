@@ -1,0 +1,9 @@
+# 검증용 가상 픽스처 — 실제 실험 기록이 아님
+id: C002-crossroad
+chain: test-maze
+parent: C001-enter
+author: fixture
+status: closed
+opened: 2026-01-03
+closed: 2026-01-04
+title: "갈림길을 만난다 — 왼쪽과 오른쪽 중 어디로?"

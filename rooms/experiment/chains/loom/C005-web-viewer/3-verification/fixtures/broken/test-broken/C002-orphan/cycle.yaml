@@ -1,0 +1,6 @@
+# 파괴 테스트 픽스처 — parent가 존재하지 않는 사이클을 가리킨다
+id: C002-orphan
+chain: test-broken
+parent: C009-ghost
+status: open
+title: "끊어진 참조를 가진 사이클"

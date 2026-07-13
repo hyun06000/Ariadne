@@ -1,0 +1,10 @@
+# 검증용 가상 픽스처 — 체인 간 lineage의 정상 사례
+id: C001-sprout
+chain: beta
+parent: null
+lineage: [alpha/C001-seed]
+author: fixture
+status: open
+opened: 2026-04-03
+closed: null
+title: "alpha의 교훈에서 태어난 새 체인"

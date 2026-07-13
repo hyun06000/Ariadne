@@ -1,0 +1,6 @@
+생성: rooms/experiment/chains/loom/C005-web-viewer/3-verification/runs/ariadne-chains.html (체인 2개)
+exit code: 0
+노드 6 = ['genesis/C001-existence-in-repo', 'loom/C001-lineage-is-reconstructable', 'loom/C002-schema-v0-2', 'loom/C003-open-close-porcelain', 'loom/C004-git-binding', 'loom/C005-web-viewer']
+lineage 간선: [('genesis/C001-existence-in-repo', 'loom/C001-lineage-is-reconstructable')]
+loom 체인 내 간선 4 개
+외부참조: []

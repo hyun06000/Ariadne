@@ -1,0 +1,9 @@
+id: C005-web-viewer
+chain: loom
+parent: C004-git-binding
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다"
