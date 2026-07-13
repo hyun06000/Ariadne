@@ -1,0 +1,9 @@
+id: C008-release-porcelain
+chain: loom
+parent: C007-pages-wiring
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "릴리스 절차(도구·템플릿 동기화, 버전 승격 규칙, 커밋·태그)를 도구가 수행하면 스냅샷 드리프트와 규칙 위반은 원천 차단된다"

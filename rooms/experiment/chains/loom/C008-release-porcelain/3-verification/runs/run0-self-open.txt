@@ -1,0 +1,2 @@
+열림: loom/C008-release-porcelain
+exit code: 0

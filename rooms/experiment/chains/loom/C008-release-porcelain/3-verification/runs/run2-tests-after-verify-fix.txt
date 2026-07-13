@@ -1,0 +1,10 @@
+PASS T1: 정상 릴리스: 동기화·CHANGELOG·태그·격리
+PASS T2: 패치 승격 거부 (도구 변경 시 마이너 이상)
+PASS T3a: 비단조 버전 거부 (0.1.0 ≤ v0.1.0)
+PASS T3b: 비SemVer 거부
+PASS T4: 문서 강제: RELEASE.md에 버전 서술 없으면 거부
+PASS T5: 태그 선점 거부
+PASS T7: fsck 위반 저장소에서 릴리스 거부
+
+결과: 7/7 통과
+exit code: 0

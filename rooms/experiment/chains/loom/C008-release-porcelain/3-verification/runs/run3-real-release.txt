@@ -1,0 +1,12 @@
+OK — 닫힌 사이클 9개 검사, 변조 0건
+릴리스: v0.2.0 (도구 변경: 예)
+exit code: 0
+---- 릴리스 커밋:
+ari: release v0.2.0
+
+rooms/deployment/CHANGELOG.md
+rooms/deployment/ariadne-spec/RELEASE.md
+rooms/deployment/ariadne-spec/SPEC.md
+rooms/deployment/ariadne-spec/ari.py
+---- 드리프트 검사:
+   2 9c72738de41c025aaa06c9d60a2bbc80a90b94d866070d69b35a37dcaab9a7ec
