@@ -4,4 +4,9 @@
 
 ## [Unreleased]
 
-- 아직 배포된 것이 없다. 첫 번째 체인의 사이클들이 이곳을 채울 것이다.
+## [0.1.0] — 2026-07-14
+
+### Added
+
+- **ariadne-spec** — 첫 배포물: 스펙 전문(SPEC.md, 스키마 v0.2 규칙 R1~R8·5스텝·깃 각인 규약), 실행 가능한 퀵스타트, 도구 `ari.py`(log·fsck·open·close·verify·web), 사이클 템플릿.
+- 근거: loom/C001~C005 (닫힌 사이클 5개, 전부 가설 채택·깃 태그 각인). 릴리스 검증: loom/C006-spec-release.

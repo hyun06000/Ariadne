@@ -1,0 +1,33 @@
+# Ariadne Spec — Release
+
+## v0.1.0 (2026-07-14)
+
+Ariadne의 첫 배포물. 스펙·도구·템플릿을 하나의 완결적 패키지로 묶었다.
+
+### 내용물
+
+| 파일 | 역할 |
+|---|---|
+| [SPEC.md](SPEC.md) | 표준의 전문 — 세 개의 방, 5스텝, 스키마 v0.2(R1~R8), 깃 각인 규약, CLI |
+| [QUICKSTART.md](QUICKSTART.md) | 신선한 저장소의 부트스트랩부터 첫 사이클까지 (실행 가능한 문서) |
+| [ari.py](ari.py) | 도구 — log·fsck·open·close(--git)·verify·web. Python 3 표준 라이브러리 |
+| [template/](template/) | 사이클 템플릿 (5스텝 문서 + cycle.yaml) |
+
+### 근거 사이클 (배포의 방 규칙 1)
+
+이 릴리스의 모든 조항은 loom 체인의 닫힌 사이클에서 검증되었다:
+
+| 사이클 | 검증한 것 | 깃 태그 |
+|---|---|---|
+| loom/C001-lineage-is-reconstructable | 계보의 기계적 재구성 (log) | cycle/loom/C001-lineage-is-reconstructable |
+| loom/C002-schema-v0-2 | 스키마 규칙 R1~R8과 fsck, 이주 규정 | cycle/loom/C002-schema-v0-2 |
+| loom/C003-open-close-porcelain | open/close — 위반의 사전 차단 | cycle/loom/C003-open-close-porcelain |
+| loom/C004-git-binding | 깃 각인(커밋+태그)과 변조 탐지(verify) | cycle/loom/C004-git-binding |
+| loom/C005-web-viewer | 자기완결적 정적 웹 뷰어 (web) | cycle/loom/C005-web-viewer |
+
+태그 이동 규약(SPEC §4)은 C004가 남긴 공백을 이 릴리스에서 명문화한 것으로, 실험적 검증은 향후 사이클의 몫이다.
+
+### 완결성 보증
+
+이 패키지만 복사된 신선한 환경에서 QUICKSTART.md의 코드 블록을 그대로 실행하는 것이
+릴리스 테스트다 (loom/C006-spec-release에서 검증).
