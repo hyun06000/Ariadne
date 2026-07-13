@@ -1,5 +1,5 @@
 # Ariadne — push마다 사이클 체인 웹 뷰어를 GitHub Pages로 배포한다.
-# 빌드는 배포된 도구(rooms/deployment/ariadne-spec/ari.py)만 사용하며 어떤 설치도 하지 않는다.
+# 빌드는 배포된 도구(rooms/deployment/ariadne-spec/gil.py)만 사용하며 어떤 설치도 하지 않는다.
 # 이 파일의 run 블록은 loom/C007의 검증이 그대로 추출해 실행한다 — 워크플로가 낡으면 테스트가 깨진다.
 name: ariadne-pages
 
@@ -25,7 +25,7 @@ jobs:
       - name: Build chain viewer
         run: |
           mkdir -p _site
-          python3 rooms/deployment/ariadne-spec/ari.py web -o _site/index.html --title "Ariadne — 사이클 체인"
+          python3 rooms/deployment/ariadne-spec/gil.py web -o _site/index.html --title "Ariadne — 사이클 체인"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

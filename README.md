@@ -25,5 +25,5 @@
 - 존재의 방의 규칙: [rooms/existence/README.md](rooms/existence/README.md)
 - 사이클 방법론과 템플릿: [rooms/experiment/README.md](rooms/experiment/README.md)
 - 배포 규칙: [rooms/deployment/README.md](rooms/deployment/README.md)
-- **스펙과 도구 (v0.1.0)**: [rooms/deployment/ariadne-spec/](rooms/deployment/ariadne-spec/QUICKSTART.md) — 이 패키지만으로 어떤 저장소든 Ariadne 방식으로 부트스트랩할 수 있다
-- **체인 그래프 웹 뷰어**: `python3 rooms/deployment/ariadne-spec/ari.py web -o chains.html` — GitHub에 올리면 push마다 [Actions 워크플로](.github/workflows/ariadne-pages.yml)가 Pages로 자동 배포한다
+- **스펙과 도구 (gil — 최신 릴리스는 깃 태그 참조)**: [rooms/deployment/ariadne-spec/](rooms/deployment/ariadne-spec/QUICKSTART.md) — 이 패키지만으로 어떤 저장소든 Ariadne 방식으로 부트스트랩할 수 있다
+- **체인 그래프 웹 뷰어**: `python3 rooms/deployment/ariadne-spec/gil.py web -o chains.html` — GitHub에 올리면 push마다 [Actions 워크플로](.github/workflows/ariadne-pages.yml)가 Pages로 자동 배포한다
