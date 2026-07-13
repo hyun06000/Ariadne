@@ -1,0 +1,2 @@
+열림: loom/C012-go-binary-log-fsck
+exit code: 0

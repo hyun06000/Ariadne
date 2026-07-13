@@ -1,0 +1,9 @@
+id: C012-go-binary-log-fsck
+chain: loom
+parent: C011-contract-conformance
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "Go 단일 바이너리가 계약 부분집합(fsck R1~R8·log)에서 conformance의 판정을 통과하면 구현 교체 가능성은 실물이 된다"

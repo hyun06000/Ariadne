@@ -1,0 +1,19 @@
+PASS FSCK-CLEAN: 규칙 준수 저장소에서 fsck exit 0
+PASS FSCK-R1: R1 위반 탐지 (exit ≠ 0)
+PASS FSCK-R2: R2 위반 탐지 (exit ≠ 0)
+PASS FSCK-R3: R3 위반 탐지 (exit ≠ 0)
+PASS FSCK-R4: R4 위반 탐지 (exit ≠ 0)
+PASS FSCK-R5: R5 위반 탐지 (exit ≠ 0)
+PASS FSCK-R6: R6 위반 탐지 (exit ≠ 0)
+PASS FSCK-R8: R8 위반 탐지 (exit ≠ 0)
+PASS FSCK-R7: R7 순환 탐지 (exit ≠ 0)
+FAIL OPEN-CREATE: open이 v0.2 준수 사이클 생성  [미구현: 'open' — 이 바이너리(loom/C012)는 계약 부분집합(log·fsck)만 구현한다]
+FAIL OPEN-INCREMENT: 번호 자동 증가 (C002)
+PASS OPEN-REJECT-SLUG: 형식 위반 슬러그 거부 + 무변화
+Traceback (most recent call last):
+  File "/Users/user/Desktop/code/personal/Ariadne/rooms/deployment/ariadne-spec/conformance.py", line 217, in <module>
+    sys.exit(main())
+  File "/Users/user/Desktop/code/personal/Ariadne/rooms/deployment/ariadne-spec/conformance.py", line 139, in main
+    before = open(ypath, encoding="utf-8").read()
+FileNotFoundError: [Errno 2] No such file or directory: '/var/folders/c0/msqj0zbj2_z7w3m1rpgxnv4m0000gn/T/gil-conformance-pxxouy5b/open/rooms/experiment/chains/demo/C001-first-step/cycle.yaml'
+exit code: 1

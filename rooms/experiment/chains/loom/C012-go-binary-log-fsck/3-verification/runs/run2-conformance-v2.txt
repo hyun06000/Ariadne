@@ -1,0 +1,25 @@
+PASS FSCK-CLEAN: 규칙 준수 저장소에서 fsck exit 0
+PASS FSCK-R1: R1 위반 탐지 (exit ≠ 0)
+PASS FSCK-R2: R2 위반 탐지 (exit ≠ 0)
+PASS FSCK-R3: R3 위반 탐지 (exit ≠ 0)
+PASS FSCK-R4: R4 위반 탐지 (exit ≠ 0)
+PASS FSCK-R5: R5 위반 탐지 (exit ≠ 0)
+PASS FSCK-R6: R6 위반 탐지 (exit ≠ 0)
+PASS FSCK-R8: R8 위반 탐지 (exit ≠ 0)
+PASS FSCK-R7: R7 순환 탐지 (exit ≠ 0)
+FAIL OPEN-CREATE: open이 v0.2 준수 사이클 생성  [미구현: 'open' — 이 바이너리(loom/C012)는 계약 부분집합(log·fsck)만 구현한다]
+FAIL OPEN-INCREMENT: 번호 자동 증가 (C002)
+PASS OPEN-REJECT-SLUG: 형식 위반 슬러그 거부 + 무변화
+PASS CLOSE-TEMPLATE-REJECT: 템플릿 그대로의 보고서로는 닫기 거부
+FAIL CLOSE-OK: 정상 닫기 (status·closed 전이)  [미구현: 'close' — 이 바이너리(loom/C012)는 계약 부분집합(log·fsck)만 구현한다]
+PASS CLOSE-DOUBLE-REJECT: 이중 닫기 거부
+PASS LOG-OK: log 정상 렌더 (exit 0 + 사이클 id 표기)
+PASS LOG-BROKEN: 끊어진 참조에서 log 거부
+FAIL WEB-SELFCONTAINED: web 산출물 외부 리소스 0  [[]]
+FAIL WEB-JSON: web 내장 JSON (id="gil-data") 구조 일치  [set()]
+FAIL GIT-CLOSE: close --git: 태그 + 사이클 경로만 커밋  [미구현: 'close' — 이 바이너리(loom/C012)는 계약 부분집합(log·fsck)만 구현한다]
+FAIL VERIFY-CLEAN: 무변조 verify exit 0  [미구현: 'verify' — 이 바이너리(loom/C012)는 계약 부분집합(log·fsck)만 구현한다]
+PASS VERIFY-TAMPER: 닫힌 사이클 변조 탐지 (exit ≠ 0)
+
+계약 준수: 15/22  ✘ 계약 위반
+exit code: 1

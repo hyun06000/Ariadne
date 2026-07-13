@@ -1,0 +1,12 @@
+== Go fsck (실제 레포):
+OK — 체인 3개, 사이클 16개, 위반 0건 (스키마 v0.2)
+exit: 0
+== Python fsck (실제 레포):
+OK — 체인 3개, 사이클 16개, 위반 0건 (스키마 v0.2)
+exit: 0
+== Go log에서 loom 헤더/사이클 수 표본:
+=== chain: loom — 사이클 12개 ===
+16
+== 바이너리 확인:
+rooms/experiment/chains/loom/C012-go-binary-log-fsck/3-verification/gil-go/gil: Mach-O 64-bit executable arm64
+0
