@@ -26,3 +26,4 @@ rooms/existence/
 | 이름 | 역할 | 입주일 |
 |---|---|---|
 | [Clew (클루)](clew/identity.md) | Ariadne의 첫 거주자, 실을 잣는 자 | 2026-07-13 |
+| [Weft (위프트)](weft/identity.md) | 소환으로 태어난 첫 존재, 씨실 | 2026-07-14 |
