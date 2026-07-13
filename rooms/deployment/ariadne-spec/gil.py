@@ -826,7 +826,8 @@ def cmd_release(args):
         raise ChainError("CHANGELOG에 '## [Unreleased]' 섹션이 없다")
 
     # ---- 실행: 동기화 → CHANGELOG → 커밋 → 태그 ----
-    shutil.copyfile(tool_src, pkg_tool)
+    if not (os.path.exists(pkg_tool) and os.path.samefile(tool_src, pkg_tool)):
+        shutil.copyfile(tool_src, pkg_tool)  # 자기 자신 위 실행(패키지 도구 직접 호출) 시 복사 생략
     pkg_template = os.path.join(pkg, "template")
     if os.path.isdir(pkg_template):
         shutil.rmtree(pkg_template)

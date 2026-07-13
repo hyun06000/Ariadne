@@ -135,32 +135,40 @@ def main():
     r = impl.run(root, "open", "demo", "Bad.Slug", "--title", "t", "--date", "2026-01-03")
     check("OPEN-REJECT-SLUG", "형식 위반 슬러그 거부 + 무변화", r.returncode != 0 and snapshot(root) == before)
 
-    # ---- close ----
-    before = open(ypath, encoding="utf-8").read()
-    r = impl.run(root, "close", "demo", "C001-first-step", "--date", "2026-01-05")
+    # ---- close (자체 구축 샌드박스 — 판정 항목 간 독립: 각 검사는 자기가 판정하는 명령에만 의존한다) ----
+    croot = make_sandbox(os.path.join(work, "close"))
+    write_cycle(croot, "demo", "C001-first-step")
+    cdir = os.path.join(croot, "rooms/experiment/chains/demo/C001-first-step")
+    shutil.copyfile(os.path.join(croot, "rooms/experiment/_template/5-report.md"),
+                    os.path.join(cdir, "5-report.md"))
+    cy = os.path.join(cdir, "cycle.yaml")
+    before = open(cy, encoding="utf-8").read()
+    r = impl.run(croot, "close", "demo", "C001-first-step", "--date", "2026-01-05")
     check("CLOSE-TEMPLATE-REJECT", "템플릿 그대로의 보고서로는 닫기 거부", r.returncode != 0
-          and open(ypath, encoding="utf-8").read() == before)
-    with open(os.path.join(root, "rooms/experiment/chains/demo/C001-first-step/5-report.md"),
-              "w", encoding="utf-8") as f:
+          and open(cy, encoding="utf-8").read() == before)
+    with open(os.path.join(cdir, "5-report.md"), "w", encoding="utf-8") as f:
         f.write("# 5. 결과 보고\n\n## 요약\n\n계약 검증용 실보고서.\n")
-    r = impl.run(root, "close", "demo", "C001-first-step", "--date", "2026-01-05")
-    y = open(ypath, encoding="utf-8").read()
+    r = impl.run(croot, "close", "demo", "C001-first-step", "--date", "2026-01-05")
+    y = open(cy, encoding="utf-8").read()
     check("CLOSE-OK", "정상 닫기 (status·closed 전이)", r.returncode == 0
           and "status: closed" in y and "closed: 2026-01-05" in y, r.stderr.strip()[-120:])
-    r = impl.run(root, "close", "demo", "C001-first-step", "--date", "2026-01-06")
+    r = impl.run(croot, "close", "demo", "C001-first-step", "--date", "2026-01-06")
     check("CLOSE-DOUBLE-REJECT", "이중 닫기 거부", r.returncode != 0)
 
-    # ---- log ----
-    r = impl.run(root, "log")
+    # ---- log (자체 구축 샌드박스) ----
+    lroot = make_sandbox(os.path.join(work, "log-ok"))
+    write_cycle(lroot, "demo", "C001-first-step", status="closed", closed="2026-01-02")
+    write_cycle(lroot, "demo", "C002-second-step", parent="C001-first-step")
+    r = impl.run(lroot, "log")
     check("LOG-OK", "log 정상 렌더 (exit 0 + 사이클 id 표기)", r.returncode == 0 and "C001-first-step" in r.stdout)
     broken = make_sandbox(os.path.join(work, "log-broken"))
     write_cycle(broken, "alpha", "C001-x", parent="C099-ghost")
     r = impl.run(broken, "log")
     check("LOG-BROKEN", "끊어진 참조에서 log 거부", r.returncode != 0)
 
-    # ---- web ----
+    # ---- web (자체 구축 샌드박스) ----
     out = os.path.join(work, "chains.html")
-    r = impl.run(root, "web", "-o", out, "--title", "t")
+    r = impl.run(lroot, "web", "-o", out, "--title", "t")
     page = open(out, encoding="utf-8").read() if os.path.isfile(out) else ""
     external = re.findall(r'(?:src=|href=|url\(|@import)[^>\n]*https?://', page)
     m = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', page, re.S)
@@ -171,7 +179,7 @@ def main():
     check("WEB-SELFCONTAINED", "web 산출물 외부 리소스 0", r.returncode == 0 and page and external == [],
           str(external))
     check("WEB-JSON", 'web 내장 JSON (id="gil-data") 구조 일치', nodes ==
-          {"demo/C001-first-step", "demo/C002-second-step"}, str(nodes))
+          {"demo/C001-first-step", "demo/C002-second-step"}, str(nodes))  # lroot의 두 사이클
 
     # ---- 깃 각인 (가용 시) ----
     if args.skip_git or shutil.which("git") is None:
@@ -183,8 +191,7 @@ def main():
             return subprocess.run(["git", "-C", g, *cli], capture_output=True, text=True)
 
         git("init", "-q"); git("config", "user.name", "fx"); git("config", "user.email", "fx@t")
-        impl.run(g, "open", "demo", "first-step", "--new-chain", "--title", "t",
-                 "--author", "fx", "--date", "2026-01-01")
+        write_cycle(g, "demo", "C001-first-step")
         with open(os.path.join(g, "rooms/experiment/chains/demo/C001-first-step/5-report.md"),
                   "w", encoding="utf-8") as f:
             f.write("# 5. 결과 보고\n\n실보고서.\n")
