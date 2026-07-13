@@ -1,0 +1,9 @@
+id: C001-reproduce-audit
+chain: tapestry
+parent: null
+lineage: [genesis/C003-birth-of-a-being, loom/C009-doc-patch-release]
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "닫힌 사이클의 재현 문서만 따라, 독립 존재(Weft)가 소환자 개입 없이 결과를 재현하고 일치 여부를 감사할 수 있다"

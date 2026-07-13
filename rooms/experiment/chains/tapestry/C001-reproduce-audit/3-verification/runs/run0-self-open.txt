@@ -1,0 +1,2 @@
+열림: tapestry/C001-reproduce-audit
+exit code: 0
