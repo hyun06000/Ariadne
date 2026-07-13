@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""ari — Ariadne 사이클 체인 도구 (loom/C008: 릴리스 porcelain).
+"""gil — 길, GIt for Language model. Ariadne 사이클 체인 도구 (loom/C010에서 ari를 개명).
+
+LLM의 추론이 걸어온 길(사이클 체인)을 깃처럼 다룬다.
+이 파이썬 파일은 **참조 구현**이다 — 스펙(SPEC.md)이 계약이며, 장래에 깃처럼
+단일 바이너리 배포로 대체될 것을 전제한다 (구현 독립 계약, SPEC §7).
 
 서브커맨드:
     log  [chains-root]                 체인들의 계보를 재구성해 그래프로 렌더한다.
@@ -13,9 +17,9 @@
                                        CHANGELOG 갱신 → 배포의 방만 커밋 → 태그 v<버전>.
                                        도구가 변했으면 마이너 이상 승격을 강제한다.
 
-계승: loom/C001(log) → C002(fsck) → C003(open/close) → C004(깃 바인딩) → C005(web)의 ari.py를 확장.
+계승: loom/C001(log) → C002(fsck) → C003(open/close) → C004(깃 바인딩) → C005(web) → C008(release).
 의존성: Python 3 표준 라이브러리 + 깃 CLI (verify/close --git/release에만).
-스키마 규칙의 정의는 loom/C002의 schema-v0.2-draft.md 를 따른다.
+스키마 규칙의 정의는 스펙(rooms/deployment/ariadne-spec/SPEC.md)을 따른다.
 """
 import argparse
 import datetime
@@ -802,7 +806,7 @@ def cmd_release(args):
         raise ChainError("verify 실패 — 변조된 닫힌 사이클이 있는 저장소에서는 릴리스하지 않는다")
 
     tool_src = os.path.abspath(__file__)
-    pkg_tool = os.path.join(pkg, "ari.py")
+    pkg_tool = os.path.join(pkg, os.path.basename(__file__))  # 파일명 비의존 — 도구는 자기 이름을 하드코딩하지 않는다
     tool_changed = (not os.path.isfile(pkg_tool)) or _hash_file(tool_src) != _hash_file(pkg_tool)
     if tool_changed and last and new[0] == last[0] and new[1] == last[1]:
         raise ChainError(
@@ -875,7 +879,7 @@ def cmd_log(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="ari", description="Ariadne 사이클 체인 도구 (스키마 v0.2 + 쓰기 porcelain)")
+    parser = argparse.ArgumentParser(prog="gil", description="gil — 길, GIt for Language model (Ariadne 사이클 체인 도구)")
     sub = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in (
         ("log", cmd_log, "체인 계보를 그래프로 렌더"),

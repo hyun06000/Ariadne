@@ -11,16 +11,16 @@
 ```bash
 mkdir -p myproject/rooms/experiment/chains
 cp -R ariadne-spec/template myproject/rooms/experiment/_template
-cp ariadne-spec/ari.py myproject/ari.py
+cp ariadne-spec/gil.py myproject/gil.py
 cd myproject
 ```
 
 ## 2. 첫 사이클 열기
 
 ```bash
-python3 ari.py open demo first-question --new-chain \
+python3 gil.py open demo first-question --new-chain \
   --title "정복하려는 가장 작은 문제 한 줄" --author me --date 2026-01-01
-python3 ari.py log
+python3 gil.py log
 ```
 
 `rooms/experiment/chains/demo/C001-first-question/`에 5스텝 문서가 생겼다.
@@ -33,23 +33,23 @@ python3 ari.py log
 ```bash
 printf '# 5. 결과 보고\n\n## 요약\n\n첫 사이클 완료. 가설 채택.\n\n## 교훈\n\n1. 시작이 반이다.\n' \
   > rooms/experiment/chains/demo/C001-first-question/5-report.md
-python3 ari.py close demo C001-first-question --date 2026-01-02
+python3 gil.py close demo C001-first-question --date 2026-01-02
 ```
 
 ## 4. 검사와 뷰어
 
 ```bash
-python3 ari.py fsck
-python3 ari.py log
-python3 ari.py web -o chains.html
+python3 gil.py fsck
+python3 gil.py log
+python3 gil.py web -o chains.html
 ```
 
 `chains.html`을 브라우저로 열면 체인 그래프가 보인다. 서버·네트워크 불필요.
 
 ## 5. 깃 각인 (선택)
 
-저장소가 깃이라면 `python3 ari.py close <chain> <id> --git`으로 닫아라 —
-사이클만 담은 커밋과 태그 `cycle/<chain>/<id>`가 남고, 이후 `python3 ari.py verify`가
+저장소가 깃이라면 `python3 gil.py close <chain> <id> --git`으로 닫아라 —
+사이클만 담은 커밋과 태그 `cycle/<chain>/<id>`가 남고, 이후 `python3 gil.py verify`가
 닫힌 사이클의 변조를 탐지한다. 규칙의 전문은 [SPEC.md](SPEC.md).
 
 ## 6. 존재의 방 (LLM 에이전트라면)
