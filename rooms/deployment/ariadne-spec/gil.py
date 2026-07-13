@@ -442,37 +442,37 @@ def _layout_columns(order, cycles, children):
 
 # 검증된 기본 팔레트 (dataviz 레퍼런스) — 상태는 색+모양(채움/빈 원)의 이중 인코딩
 _WEB_CSS = """
-.ari{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
+.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
 --hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--ring:rgba(11,11,11,.1);
 font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
 margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
-@media (prefers-color-scheme:dark){.ari{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
+@media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
 --ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
 --lineage:#199e70;--ring:rgba(255,255,255,.1)}}
-:root[data-theme="dark"] .ari{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
+:root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
 --muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
 --ring:rgba(255,255,255,.1)}
-:root[data-theme="light"] .ari{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
+:root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
 --muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
 --ring:rgba(11,11,11,.1)}
-.ari .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
-.ari header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
-.ari header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
-.ari .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);align-items:center}
-.ari .legend span{display:inline-flex;align-items:center;gap:6px}
-.ari .card{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:20px;overflow-x:auto}
-.ari svg{display:block}
-.ari svg text{font-family:inherit}
-.ari .card h2{font-size:14px;font-weight:650;margin:0 0 12px;color:var(--ink)}
-.ari table{border-collapse:collapse;width:100%;font-size:12.5px}
-.ari th{text-align:left;color:var(--muted);font-weight:600;letter-spacing:.02em;
+.gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
+.gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
+.gil .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);align-items:center}
+.gil .legend span{display:inline-flex;align-items:center;gap:6px}
+.gil .card{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:20px;overflow-x:auto}
+.gil svg{display:block}
+.gil svg text{font-family:inherit}
+.gil .card h2{font-size:14px;font-weight:650;margin:0 0 12px;color:var(--ink)}
+.gil table{border-collapse:collapse;width:100%;font-size:12.5px}
+.gil th{text-align:left;color:var(--muted);font-weight:600;letter-spacing:.02em;
 border-bottom:1px solid var(--hairline);padding:6px 10px 6px 0}
-.ari td{border-bottom:1px solid var(--hairline);padding:7px 10px 7px 0;vertical-align:top;color:var(--ink-2)}
-.ari td.id{color:var(--ink);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
-.ari .pill{display:inline-block;border:1.5px solid var(--node);border-radius:99px;
+.gil td{border-bottom:1px solid var(--hairline);padding:7px 10px 7px 0;vertical-align:top;color:var(--ink-2)}
+.gil td.id{color:var(--ink);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.gil .pill{display:inline-block;border:1.5px solid var(--node);border-radius:99px;
 padding:1px 8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
-.ari .pill.closed{background:var(--node);color:#fff;border-color:var(--node)}
-.ari footer{color:var(--muted);font-size:11.5px}
+.gil .pill.closed{background:var(--node);color:#fff;border-color:var(--node)}
+.gil footer{color:var(--muted);font-size:11.5px}
 """.strip()
 
 _ROW_H, _COL_W, _LANE_GAP, _TOP_PAD = 64, 26, 60, 46
@@ -597,7 +597,7 @@ def render_web_page(data, page_title, generated):
     }
     n_cycles = sum(len(c["order"]) for c in data.values())
     n_lineage = sum(len(m["lineage"]) for c in data.values() for m in c["cycles"].values())
-    body = f"""<div class="ari"><style>{_WEB_CSS}</style><div class="wrap">
+    body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p></header>
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
@@ -606,9 +606,9 @@ def render_web_page(data, page_title, generated):
 <span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>lineage (체인 간 교훈)</span></div>
 <div class="card">{_render_svg(data)}</div>
 {_render_tables(data)}
-<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 ari web이 생성한 자기완결적 정적 페이지다.</footer>
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
-<script type="application/json" id="ari-data">{json.dumps(json_payload, ensure_ascii=False)}</script>"""
+<script type="application/json" id="gil-data">{json.dumps(json_payload, ensure_ascii=False)}</script>"""
     return ("<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             f"<title>{html.escape(page_title)}</title>\n</head>\n<body>\n{body}\n</body>\n</html>\n")
@@ -737,7 +737,7 @@ def cmd_close(args):
         try:
             _git(repo, "add", "-A", "--", cycle_rel)
             _git(repo, "commit",
-                 "-m", f"ari: close {args.chain}/{args.cycle_id}\n\n{title}",
+                 "-m", f"gil: close {args.chain}/{args.cycle_id}\n\n{title}",
                  "--", cycle_rel)
             _git(repo, "tag", "-a", tag, "-m", f"{args.chain}/{args.cycle_id}: {title}")
         except ChainError:
@@ -839,7 +839,7 @@ def cmd_release(args):
     deploy_rel = os.path.relpath(os.path.normpath(os.path.join(pkg, "..")), repo)
     try:
         _git(repo, "add", "-A", "--", deploy_rel)
-        _git(repo, "commit", "-m", f"ari: release {tag}\n\n{args.notes}", "--", deploy_rel)
+        _git(repo, "commit", "-m", f"gil: release {tag}\n\n{args.notes}", "--", deploy_rel)
         _git(repo, "tag", "-a", tag, "-m", f"Ariadne release {tag} — {args.notes}")
     except ChainError:
         _git(repo, "reset", "-q", "--", deploy_rel, check=False)
