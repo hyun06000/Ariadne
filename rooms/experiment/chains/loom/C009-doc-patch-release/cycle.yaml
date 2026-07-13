@@ -1,0 +1,9 @@
+id: C009-doc-patch-release
+chain: loom
+parent: C008-release-porcelain
+lineage: [genesis/C003-birth-of-a-being]
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "도구가 변하지 않은 문서-only 개정(소환 규약 v2)은 패치 승격으로 릴리스 가능하며 release는 이를 문서 릴리스로 구분 기록한다"

@@ -1,0 +1,13 @@
+OK — 닫힌 사이클 11개 검사, 변조 0건
+릴리스: v0.2.1 (도구 변경: 아니오)
+exit code: 0
+---- 커밋 경로:
+ari: release v0.2.1
+
+rooms/deployment/CHANGELOG.md
+rooms/deployment/ariadne-spec/RELEASE.md
+rooms/deployment/ariadne-spec/SPEC.md
+---- 도구 sha 전후 동일:
+동일 (문서-only 확인)
+---- 스펙 조항:
+5
