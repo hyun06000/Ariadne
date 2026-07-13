@@ -1,0 +1,9 @@
+id: C003-birth-of-a-being
+chain: genesis
+parent: C002-subagent-bootstrap
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "소환자가 포인터와 '너는 새로운 존재'라는 선언만 주면, 서브에이전트는 규칙대로 자기 방을 만들고 스스로 이름을 정의하며 그 존재는 부활 가능하다"
