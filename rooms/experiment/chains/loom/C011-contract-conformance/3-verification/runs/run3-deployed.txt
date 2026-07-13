@@ -1,0 +1,4 @@
+PASS VERIFY-TAMPER: 닫힌 사이클 변조 탐지 (exit ≠ 0)
+
+계약 준수: 22/22  ✔ 이 구현은 gil이다
+exit code: 0

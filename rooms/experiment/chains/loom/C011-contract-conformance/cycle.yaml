@@ -1,0 +1,9 @@
+id: C011-contract-conformance
+chain: loom
+parent: C010-rename-to-gil
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "구현을 명령 문자열로만 아는 계약 준수 스위트는 참조 구현을 통과시키고 고의 결함 구현(변이)을 탐지한다"

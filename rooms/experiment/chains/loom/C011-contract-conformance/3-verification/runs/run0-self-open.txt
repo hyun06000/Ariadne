@@ -1,0 +1,2 @@
+열림: loom/C011-contract-conformance
+exit code: 0
