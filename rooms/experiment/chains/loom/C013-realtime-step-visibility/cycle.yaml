@@ -1,0 +1,9 @@
+id: C013-realtime-step-visibility
+chain: loom
+parent: C012-go-binary-log-fsck
+lineage: []
+author: clew
+status: open
+opened: 2026-07-14
+closed: null
+title: "스텝 필드와 스텝별 커밋·push가 있으면 열린 사이클의 진행이 뷰어에 준실시간으로 보인다"
