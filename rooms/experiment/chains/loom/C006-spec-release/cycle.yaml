@@ -1,0 +1,9 @@
+id: C006-spec-release
+chain: loom
+parent: C005-web-viewer
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "흩어진 스펙과 도구를 모아 버저닝하면, 릴리스 패키지만으로 신선한 환경에서 전체 수명주기가 재현된다"

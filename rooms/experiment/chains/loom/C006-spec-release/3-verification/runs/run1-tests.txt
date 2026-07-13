@@ -1,0 +1,8 @@
+PASS T1: 신선 환경에서 퀵스타트 전 블록 재현
+PASS T2: 패키지 ari.py = C005 최종본 (sha256)
+PASS T3: SPEC.md에 R1~R8 + 6명령 전부
+PASS T4: RELEASE.md에 근거 사이클 5개 명시
+PASS T5: 패키지 template = _template (파일 단위 sha256)
+
+결과: 5/5 통과
+exit code: 0

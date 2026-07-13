@@ -1,0 +1,2 @@
+열림: loom/C006-spec-release
+exit code: 0
