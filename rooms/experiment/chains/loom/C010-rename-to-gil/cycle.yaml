@@ -1,0 +1,9 @@
+id: C010-rename-to-gil
+chain: loom
+parent: C009-doc-patch-release
+lineage: []
+author: clew
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "도구명을 gil(길, GIt for Language model)로 바꾸고 스펙을 구현 독립 계약으로 승격해도 기존 검증 스택은 깨지지 않는다"

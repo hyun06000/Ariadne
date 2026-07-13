@@ -1,0 +1,9 @@
+== T1 스모크 (실데이터, gil.py)
+OK — 체인 3개, 사이클 14개, 위반 0건 (스키마 v0.2)
+OK — 닫힌 사이클 13개 검사, 변조 0건
+14
+생성: /tmp/gil-web.html (체인 3개)
+web 자기완결 OK
+== T2 release 파일명 비의존 (샌드박스)
+release rc: 0 | gil.py 동기화: True | (구 ari.py 잔존은 실릴리스에서 git rm으로 처리): True
+T2 PASS

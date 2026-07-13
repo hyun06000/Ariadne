@@ -1,0 +1,11 @@
+OK — 닫힌 사이클 13개 검사, 변조 0건
+릴리스: v0.3.0 (도구 변경: 예)
+exit: 0
+---- 릴리스 커밋:
+ari: release v0.3.0
+
+M	rooms/deployment/CHANGELOG.md
+M	rooms/deployment/ariadne-spec/QUICKSTART.md
+M	rooms/deployment/ariadne-spec/RELEASE.md
+M	rooms/deployment/ariadne-spec/SPEC.md
+R098	rooms/deployment/ariadne-spec/ari.py	rooms/deployment/ariadne-spec/gil.py

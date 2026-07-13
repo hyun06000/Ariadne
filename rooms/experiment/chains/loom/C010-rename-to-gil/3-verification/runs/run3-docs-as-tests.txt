@@ -1,0 +1,4 @@
+T3a 퀵스타트(gil.py) 신선 환경 재현: rc=0, closed=True, web=True
+T3b 워크플로(gil.py) 신선 클론 재현: rc=0, 체인=3
+T3 결과: PASS
+exit code: 0
