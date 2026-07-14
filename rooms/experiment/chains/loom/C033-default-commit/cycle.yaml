@@ -2,7 +2,7 @@ id: C033-default-commit
 chain: loom
 parent: C032-session-handoff
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-15
