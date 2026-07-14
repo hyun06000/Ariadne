@@ -1,0 +1,10 @@
+id: C017-go-git-binding
+chain: loom
+parent: C014-go-binary-open-close
+lineage: []
+step: 1
+author: weft
+status: open
+opened: 2026-07-14
+closed: null
+title: "Go 구현에 깃 각인(close --git)과 verify를 이식하면 GIT·VERIFY 계열 3항목이 공허가 아닌 실질 통과가 된다"
