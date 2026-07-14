@@ -1,0 +1,13 @@
+id: C001-dirty
+chain: bench
+parent: null
+lineage: []
+step: 5
+author: tester
+status: closed
+opened: 2026-07-14
+closed: 2026-07-14
+title: "오염된 벤치마크: 원샷이라 믿었으나 멀티턴이었다"
+verdict: supported
+deviations: 0
+superseded_by: bench/C002-clean

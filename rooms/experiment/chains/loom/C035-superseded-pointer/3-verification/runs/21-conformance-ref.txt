@@ -1,0 +1,28 @@
+PASS FSCK-CLEAN: 규칙 준수 저장소에서 fsck exit 0
+PASS FSCK-R1: R1 위반 탐지 (exit ≠ 0)
+PASS FSCK-R2: R2 위반 탐지 (exit ≠ 0)
+PASS FSCK-R3: R3 위반 탐지 (exit ≠ 0)
+PASS FSCK-R4: R4 위반 탐지 (exit ≠ 0)
+PASS FSCK-R5: R5 위반 탐지 (exit ≠ 0)
+PASS FSCK-R6: R6 위반 탐지 (exit ≠ 0)
+PASS FSCK-R8: R8 위반 탐지 (exit ≠ 0)
+PASS FSCK-R7: R7 순환 탐지 (exit ≠ 0)
+PASS OPEN-CREATE: open이 v0.2 준수 사이클 생성
+PASS OPEN-INCREMENT: 번호 자동 증가 (C002)
+PASS OPEN-REJECT-SLUG: 형식 위반 슬러그 거부 + 무변화
+PASS CLOSE-TEMPLATE-REJECT: 템플릿 그대로의 보고서로는 닫기 거부
+PASS CLOSE-OK: 정상 닫기 (status·closed 전이)
+PASS CLOSE-DOUBLE-REJECT: 이중 닫기 거부
+PASS STEP-OK: step 전이 반영 (1→3)
+PASS STEP-REJECT-RANGE: 범위 밖 step 거부 + 무변화
+PASS STEP-REJECT-CLOSED: 닫힌 사이클 step 변경 거부
+PASS FSCK-R9: R9 위반 탐지 (step 범위)
+PASS LOG-OK: log 정상 렌더 (exit 0 + 사이클 id 표기)
+PASS LOG-BROKEN: 끊어진 참조에서 log 거부
+PASS WEB-SELFCONTAINED: web 산출물 외부 리소스 0
+PASS WEB-JSON: web 내장 JSON (id="gil-data") 구조·step 일치
+PASS GIT-CLOSE: close --git: 태그 + 사이클 경로만 커밋
+PASS VERIFY-CLEAN: 무변조 verify exit 0
+PASS VERIFY-TAMPER: 닫힌 사이클 변조 탐지 (exit ≠ 0)
+
+계약 준수: 26/26  ✔ 이 구현은 gil이다

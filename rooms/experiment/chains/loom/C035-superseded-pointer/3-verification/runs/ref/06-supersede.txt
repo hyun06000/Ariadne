@@ -1,0 +1,2 @@
+무효화: bench/C001-dirty ↣ superseded_by bench/C002-clean
+rc=0

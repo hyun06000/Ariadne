@@ -302,6 +302,20 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 			if v := r.fields["verdict"]; status == "closed" && v == "" {
 				warnings = append(warnings, "결말없음\x00"+loc+"\x00닫혔으나 verdict 없음")
 			}
+			// R11 (v0.4): superseded_by — 전방 무효화 포인터는 실재하는 사이클로 해소되어야 한다
+			if sb, ok := r.fields["superseded_by"]; ok && sb != "" {
+				switch {
+				case sb == cid || sb == ch+"/"+cid:
+					add("R11", loc, "superseded_by가 자기 자신을 가리킨다")
+				case strings.Contains(sb, "/"):
+					parts := strings.SplitN(sb, "/", 2)
+					if other, ok := idsByChain[parts[0]]; !ok || !other[parts[1]] {
+						add("R11", loc, "superseded_by '"+sb+"'가 존재하지 않는다")
+					}
+				case !valid[sb]:
+					add("R11", loc, "superseded_by '"+sb+"'가 체인 '"+ch+"'에 없다 (전역이면 <chain>/<id>)")
+				}
+			}
 		}
 		for num, dupes := range numbers {
 			if len(dupes) > 1 {
@@ -361,7 +375,7 @@ func fsck(root string) int {
 	if len(warnings) > 0 {
 		tail = fmt.Sprintf(", 경고 %d건", len(warnings))
 	}
-	fmt.Printf("OK — 체인 %d개, 사이클 %d개, 위반 0건 (스키마 v0.3)%s\n", nChains, total, tail)
+	fmt.Printf("OK — 체인 %d개, 사이클 %d개, 위반 0건 (스키마 v0.4)%s\n", nChains, total, tail)
 	return 0
 }
 
@@ -426,6 +440,10 @@ func logCmd(root string) int {
 					devs += n
 				}
 			}
+			sup := "" // v0.4: 전방 무효화 — 이 사이클의 결론은 대체되었다
+			if sb := r.fields["superseded_by"]; sb != "" {
+				sup = "  ↣ superseded: " + sb
+			}
 			extra := ""
 			if len(r.parents) > 1 {
 				extra = "  ◀ 병합: " + strings.Join(r.parents, " + ")
@@ -433,7 +451,7 @@ func logCmd(root string) int {
 			if len(r.lineage) > 0 {
 				extra += "  ⇠ lineage: " + strings.Join(r.lineage, ", ")
 			}
-			fmt.Printf("%s  %s [%s] %s%s\n", mark, cid, label, r.fields["title"], extra)
+			fmt.Printf("%s  %s [%s] %s%s%s\n", mark, cid, label, r.fields["title"], sup, extra)
 		}
 		fmt.Println("\n계보 (토폴로지 순서, 동순위는 id 오름차순):")
 		for _, cid := range order {
@@ -687,7 +705,7 @@ func cmdOpen(a openArgs) error {
 	}
 	lineageVal := "[" + strings.Join(a.lineage, ", ") + "]"
 	title := strings.ReplaceAll(a.title, `"`, "'")
-	yaml := fmt.Sprintf("id: %s\nchain: %s\nparent: %s\nlineage: %s\nstep: 1\nauthor: %s\nstatus: open\nopened: %s\nclosed: null\ntitle: \"%s\"\nverdict: null\ndeviations: 0\n",
+	yaml := fmt.Sprintf("id: %s\nchain: %s\nparent: %s\nlineage: %s\nstep: 1\nauthor: %s\nstatus: open\nopened: %s\nclosed: null\ntitle: \"%s\"\nverdict: null\ndeviations: 0\nsuperseded_by: null\n",
 		cid, a.chain, parentVal, lineageVal, a.author, a.date, title)
 	if err := os.WriteFile(filepath.Join(dest, "cycle.yaml"), []byte(yaml), 0o644); err != nil {
 		return cerr("%v", err)
@@ -817,6 +835,94 @@ func cmdClose(a closeArgs) error {
 }
 
 // cmdHandoff: 세션의 매듭 — 현황·부활 경로·다음 실 요약, 사용자에게 세션 정리 요청 근거.
+type supersedeArgs struct {
+	root, oldRef, newRef string
+	noCommit             bool
+}
+
+// cmdSupersede: 전방 무효화 (v0.4, 이슈 #6) — old 사이클에 superseded_by를 주입한다.
+// 닫힌 사이클의 5스텝·산출물은 불변 — 메타(cycle.yaml) 한 줄만 [migrate]로 더한다 (SPEC §4).
+func cmdSupersede(a supersedeArgs) error {
+	split := func(ref string) (string, string, error) {
+		if !strings.Contains(ref, "/") {
+			return "", "", cerr("ref는 <chain>/<id> 형식이어야 한다: %s", ref)
+		}
+		p := strings.SplitN(ref, "/", 2)
+		return p[0], p[1], nil
+	}
+	ochain, oid, err := split(a.oldRef)
+	if err != nil {
+		return err
+	}
+	oldYaml := filepath.Join(a.root, ochain, oid, "cycle.yaml")
+	if st, e := os.Stat(oldYaml); e != nil || st.IsDir() {
+		return cerr("사이클이 없다: %s", a.oldRef)
+	}
+	nchain, nid, err := split(a.newRef) // new 실재 검증
+	if err != nil {
+		return err
+	}
+	if st, e := os.Stat(filepath.Join(a.root, nchain, nid, "cycle.yaml")); e != nil || st.IsDir() {
+		return cerr("대체 사이클이 없다: %s", a.newRef)
+	}
+	if a.oldRef == a.newRef {
+		return cerr("자기 자신으로 대체할 수 없다")
+	}
+	original, e := os.ReadFile(oldYaml)
+	if e != nil {
+		return cerr("%v", e)
+	}
+	var updated string
+	if regexp.MustCompile(`(?m)^superseded_by:`).MatchString(string(original)) {
+		updated = replaceFirstLine(regexp.MustCompile(`(?m)^superseded_by:.*$`),
+			string(original), "superseded_by: "+a.newRef)
+	} else {
+		updated = strings.TrimRight(string(original), "\n") + "\nsuperseded_by: " + a.newRef + "\n"
+	}
+	if err := os.WriteFile(oldYaml, []byte(updated), 0o644); err != nil {
+		return cerr("%v", err)
+	}
+	if err := fsckOrReport(a.root); err != nil {
+		os.WriteFile(oldYaml, original, 0o644) // 원상 복구
+		return err
+	}
+	repo := repoRoot(a.root)
+	if repo != "" && !a.noCommit {
+		rel, rerr := relToRepo(repo, filepath.Join(a.root, ochain, oid))
+		if rerr != nil {
+			os.WriteFile(oldYaml, original, 0o644)
+			return cerr("%v", rerr)
+		}
+		if gerr := func() error {
+			if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
+				return err
+			}
+			_, err := gitChecked(repo, "commit",
+				"-m", fmt.Sprintf("[migrate] gil: supersede %s → superseded_by %s", a.oldRef, a.newRef),
+				"--", rel)
+			return err
+		}(); gerr != nil {
+			os.WriteFile(oldYaml, original, 0o644) // 원상 복구
+			gitRun(repo, "reset", "-q", "--", rel)
+			return gerr
+		}
+		tag := tagName(ochain, oid)
+		if tagExists(repo, tag) { // 태그 이동 규약 (C004): 이주 커밋으로 옮기고 사유를 남긴다
+			head, herr := gitChecked(repo, "rev-parse", "HEAD")
+			if herr != nil {
+				return herr
+			}
+			if _, err := gitChecked(repo, "tag", "-f", "-a", tag,
+				"-m", fmt.Sprintf("[migrate] superseded_by %s (이전 커밋에서 이동)", a.newRef),
+				strings.TrimSpace(head)); err != nil {
+				return err
+			}
+		}
+	}
+	fmt.Printf("무효화: %s ↣ superseded_by %s\n", a.oldRef, a.newRef)
+	return nil
+}
+
 func cmdHandoff(root string) error {
 	repo := repoRoot(root)
 	existence := filepath.Clean(filepath.Join(root, "..", "..", "existence"))
@@ -1194,18 +1300,21 @@ const (
 
 // webCSS: 참조 구현 _WEB_CSS와 문자 단위 동일 (검증된 기본 팔레트).
 const webCSS = `.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
---hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;--ring:rgba(11,11,11,.1);
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
+--supersede:#c07c15;--ring:rgba(11,11,11,.1);
 font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
 margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
 @media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
 --ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
---lineage:#199e70;--rejected:#e66767;--ring:rgba(255,255,255,.1)}}
+--lineage:#199e70;--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}}
 :root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
 --muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
---rejected:#e66767;--ring:rgba(255,255,255,.1)}
+--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}
 :root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
 --muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
---rejected:#d03b3b;--ring:rgba(11,11,11,.1)}
+--rejected:#d03b3b;--supersede:#c07c15;--ring:rgba(11,11,11,.1)}
+.gil .superseded{opacity:.5}
+.gil .sup{color:var(--supersede);white-space:nowrap}
 .gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 .gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
 .gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
@@ -1298,9 +1407,21 @@ type lastAct struct{ ago, subject string }
 
 type webCycle struct {
 	status, opened, closed, step, verdict, deviations *string // nil = JSON null
+	supersededBy                                      *string // v0.4: 전방 무효화 (nil = null)
 	title                                             string  // 참조 구현: title or ""
 	act                                               *lastAct
 	parents, lineage                                  []string
+}
+
+// supersedeRef: 참조 구현 _supersede_ref — 로컬 id면 자기 체인으로 해소한다.
+func supersedeRef(chain string, sb *string) string {
+	if sb == nil || *sb == "" {
+		return ""
+	}
+	if strings.Contains(*sb, "/") {
+		return *sb
+	}
+	return chain + "/" + *sb
 }
 
 type webChain struct {
@@ -1457,14 +1578,15 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 		for _, cid := range g.idList {
 			r := g.byID[cid]
 			c := &webCycle{
-				status:     fieldPtr(r.fields, "status"),
-				opened:     fieldPtr(r.fields, "opened"),
-				closed:     fieldPtr(r.fields, "closed"),
-				step:       fieldPtr(r.fields, "step"),
-				verdict:    fieldPtr(r.fields, "verdict"),
-				deviations: fieldPtr(r.fields, "deviations"),
-				parents:    r.parents,
-				lineage:    r.lineage,
+				status:       fieldPtr(r.fields, "status"),
+				opened:       fieldPtr(r.fields, "opened"),
+				closed:       fieldPtr(r.fields, "closed"),
+				step:         fieldPtr(r.fields, "step"),
+				verdict:      fieldPtr(r.fields, "verdict"),
+				deviations:   fieldPtr(r.fields, "deviations"),
+				supersededBy: fieldPtr(r.fields, "superseded_by"),
+				parents:      r.parents,
+				lineage:      r.lineage,
 			}
 			if v := fieldPtr(r.fields, "title"); v != nil {
 				c.title = *v
@@ -1618,6 +1740,31 @@ func renderSVG(d *webData) string {
 			}
 		}
 	}
+	// supersede 간선 (v0.4, 과거→미래): 무효화된 사이클이 자기를 대체한 사이클을 가리킨다
+	for _, name := range d.names {
+		ch := d.chains[name]
+		for _, cid := range ch.cycleOrder {
+			ref := supersedeRef(name, ch.cycles[cid].supersededBy)
+			xy2, ok := nodeXY[ref]
+			if !ok {
+				continue
+			}
+			xy1 := nodeXY[name+"/"+cid]
+			x1, y1, x2, y2 := xy1[0], xy1[1], xy2[0], xy2[1]
+			var curve string
+			if x1 == x2 { // 같은 레인·같은 열이면 오른쪽으로 활처럼 우회한다
+				bow := x1 + 46
+				curve = fmt.Sprintf("M%d,%d C%d,%d %d,%d %d,%d",
+					x1+10, y1, bow, y1, bow, y2, x2+10, y2)
+			} else {
+				mx := halfStr(x1 + x2)
+				curve = fmt.Sprintf("M%d,%d C%s,%d %s,%d %d,%d",
+					x1+10, y1, mx, y1, mx, y2, x2-10, y2)
+			}
+			parts = append(parts, fmt.Sprintf(`<path class="supersede" d="%s" fill="none" stroke="var(--supersede)" `+
+				`stroke-width="1.6" stroke-dasharray="2 3"/>`, curve))
+		}
+	}
 	// 레인 헤더 + 노드
 	for _, name := range d.names {
 		ch := d.chains[name]
@@ -1642,19 +1789,34 @@ func renderSVG(d *webData) string {
 			if c.verdict != nil && *c.verdict != "" {
 				vtip = " · " + *c.verdict
 			}
-			tip := htmlEscape(fmt.Sprintf("%s [%s%s] %s", cid, c.statusRepr(), vtip, c.title))
+			sup := "" // v0.4: 무효화된 사이클은 흐리게 + 텍스트로도 표시(이중 인코딩)
+			if c.supersededBy != nil && *c.supersededBy != "" {
+				sup = *c.supersededBy
+			}
+			stip := ""
+			if sup != "" {
+				stip = " ↣ superseded: " + sup
+			}
+			tip := htmlEscape(fmt.Sprintf("%s [%s%s] %s%s", cid, c.statusRepr(), vtip, c.title, stip))
 			lin := ""
 			if len(c.lineage) > 0 {
 				lin = " · ⇠ " + htmlEscape(strings.Join(c.lineage, ", "))
 			}
-			parts = append(parts, fmt.Sprintf(`<g data-cycle="%s"><title>%s</title>%s`+
+			supText := ""
+			gTag := fmt.Sprintf(`<g data-cycle="%s">`, htmlEscape(name+"/"+cid))
+			if sup != "" {
+				gTag = fmt.Sprintf(`<g class="superseded" data-cycle="%s">`, htmlEscape(name+"/"+cid))
+				supText = " · ↣ " + htmlEscape(sup)
+			}
+			parts = append(parts, gTag)
+			parts = append(parts, fmt.Sprintf(`<title>%s</title>%s`+
 				`<text x="%d" y="%d" font-size="12" font-weight="600" `+
 				`fill="var(--ink)">%s</text>`+
 				`<text x="%d" y="%d" font-size="10.5" `+
-				`fill="var(--muted)">%s%s%s</text></g>`,
-				htmlEscape(name+"/"+cid), tip, shape,
+				`fill="var(--muted)">%s%s%s%s</text></g>`,
+				tip, shape,
 				x+16, y-1, htmlEscape(cid),
-				x+16, y+13, htmlEscape(c.statusText()), stepBadge(c), lin))
+				x+16, y+13, htmlEscape(c.statusText()), stepBadge(c), lin, supText))
 		}
 	}
 	parts = append(parts, "</svg>")
@@ -1703,15 +1865,20 @@ func renderTables(d *webData) string {
 			if c.act != nil {
 				period += fmt.Sprintf(" · %s: %s", c.act.ago, truncRunes(c.act.subject, 40))
 			}
-			rows = append(rows, fmt.Sprintf(`<tr><td class="id">%s</td><td>%s</td>`+
+			supCell, supCls := "—", "" // v0.4: 색·투명도에 의존하지 않는 텍스트 폴백
+			if c.supersededBy != nil && *c.supersededBy != "" {
+				supCell = fmt.Sprintf(`<span class="sup">↣ %s</span>`, htmlEscape(*c.supersededBy))
+				supCls = ` class="superseded"`
+			}
+			rows = append(rows, fmt.Sprintf(`<tr%s><td class="id">%s</td><td>%s</td>`+
 				`<td>%s</td><td>%s</td>`+
-				`<td>%s</td><td>%s</td></tr>`,
-				htmlEscape(cid), pill, htmlEscape(c.title), htmlEscape(parents),
-				htmlEscape(lineage), htmlEscape(period)))
+				`<td>%s</td><td>%s</td><td>%s</td></tr>`,
+				supCls, htmlEscape(cid), pill, htmlEscape(c.title), htmlEscape(parents),
+				htmlEscape(lineage), supCell, htmlEscape(period)))
 		}
 		out = append(out, fmt.Sprintf(`<div class="card"><h2>chain: %s — 사이클 %d개</h2>`+
 			`<table><thead><tr><th>사이클</th><th>상태</th><th>가설(제목)</th>`+
-			`<th>parent</th><th>lineage</th><th>기간</th></tr></thead>`+
+			`<th>parent</th><th>lineage</th><th>superseded_by</th><th>기간</th></tr></thead>`+
 			`<tbody>%s</tbody></table></div>`,
 			htmlEscape(name), len(ch.order), strings.Join(rows, "")))
 	}
@@ -1722,7 +1889,7 @@ func renderTables(d *webData) string {
 // 문자 단위 동일한 직렬화 — 키 삽입 순서(정렬된 체인/사이클명)와 ", "·": " 구분자.
 func webJSONPayload(d *webData) string {
 	var b strings.Builder
-	b.WriteString(`{"version": "0.2", "chains": {`)
+	b.WriteString(`{"version": "0.3", "chains": {`)
 	for i, name := range d.names {
 		if i > 0 {
 			b.WriteString(", ")
@@ -1749,6 +1916,7 @@ func webJSONPayload(d *webData) string {
 			b.WriteString(`, "step": ` + jsonStrOrNull(c.step))
 			b.WriteString(`, "verdict": ` + jsonStrOrNull(c.verdict))
 			b.WriteString(`, "deviations": ` + jsonStrOrNull(c.deviations))
+			b.WriteString(`, "superseded_by": ` + jsonStrOrNull(c.supersededBy))
 			b.WriteString(`, "last_activity": `)
 			if c.act == nil {
 				b.WriteString("null")
@@ -1781,7 +1949,8 @@ func renderWebPage(d *webData, pageTitle, generated string) string {
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
 <span><svg width="16" height="16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="var(--node)" stroke-width="2"/></svg>열린 사이클</span>
 <span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--edge)" stroke-width="1.6"/></svg>parent (체인 내 계보)</span>
-<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>lineage (체인 간 교훈)</span></div>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>lineage (체인 간 교훈)</span>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--supersede)" stroke-width="1.6" stroke-dasharray="2 3"/></svg>superseded_by (무효화 — 흐린 노드가 대체 사이클을 가리킨다)</span></div>
 <div class="card">%s</div>
 %s
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
@@ -1930,14 +2099,14 @@ func fail(err error) {
 // 단일 소스: 구현된 명령과 미구현(참조 전용). version·help·notImplemented가 공유해 드리프트를 막는다.
 const gilVersion = "1.8.0"
 
-var implementedCommands = []string{"log", "fsck", "open", "close", "step", "verify", "web", "pages", "goto", "handoff", "version", "help"}
+var implementedCommands = []string{"log", "fsck", "open", "close", "step", "verify", "web", "pages", "goto", "handoff", "supersede", "version", "help"}
 
 const referenceOnly = "release, open --git/--push (원장 규율)" // 참조 구현(gil.py) 전용
 
 func printHelp() {
 	fmt.Printf("gil %s — 길, GIt for Language model\n\n", gilVersion)
 	fmt.Println("구현 명령:")
-	fmt.Println("  log fsck open close step verify web pages goto handoff")
+	fmt.Println("  log fsck open close step verify web pages goto handoff supersede")
 	fmt.Println("  version  이 바이너리의 버전")
 	fmt.Println("  help     이 목록")
 	fmt.Printf("\n참조 구현(python3 gil.py) 전용: %s\n", referenceOnly)
@@ -1946,7 +2115,7 @@ func printHelp() {
 
 func notImplemented(what string) {
 	fmt.Fprintf(os.Stderr, "미구현: '%s' — 이 바이너리(gil %s) 구현: %s. 참조 전용: %s. (gil help 참조)\n",
-		what, gilVersion, strings.Join(implementedCommands[:10], "·"), referenceOnly)
+		what, gilVersion, strings.Join(implementedCommands[:11], "·"), referenceOnly)
 	os.Exit(3)
 }
 
@@ -2059,6 +2228,24 @@ func main() {
 			root = pos[0]
 		}
 		if err := cmdHandoff(root); err != nil {
+			fail(err)
+		}
+	case "supersede":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "no-commit": false})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) != 2 {
+			fmt.Fprintln(os.Stderr, "사용: gil supersede <chain>/<old-id> <chain>/<new-id> [--root r] [--no-commit]")
+			os.Exit(2)
+		}
+		if err := cmdSupersede(supersedeArgs{
+			root:     flagVal(flags, "root", defaultRoot),
+			oldRef:   pos[0],
+			newRef:   pos[1],
+			noCommit: len(flags["no-commit"]) > 0,
+		}); err != nil {
 			fail(err)
 		}
 	case "verify":

@@ -1,0 +1,1 @@
+[migrate] gil: supersede bench/C001-dirty → superseded_by bench/C002-clean

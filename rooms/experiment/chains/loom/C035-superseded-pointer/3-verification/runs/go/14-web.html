@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ariadne — 사이클 체인</title>
+</head>
+<body>
+<div class="gil"><style>.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
+--supersede:#c07c15;--ring:rgba(11,11,11,.1);
+font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
+margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
+@media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
+--ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
+--lineage:#199e70;--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}}
+:root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
+--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
+--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}
+:root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
+--muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
+--rejected:#d03b3b;--supersede:#c07c15;--ring:rgba(11,11,11,.1)}
+.gil .superseded{opacity:.5}
+.gil .sup{color:var(--supersede);white-space:nowrap}
+.gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
+.gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
+.gil .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);align-items:center}
+.gil .legend span{display:inline-flex;align-items:center;gap:6px}
+.gil .card{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:20px;overflow-x:auto}
+.gil svg{display:block}
+.gil svg text{font-family:inherit}
+.gil .card h2{font-size:14px;font-weight:650;margin:0 0 12px;color:var(--ink)}
+.gil table{border-collapse:collapse;width:100%;font-size:12.5px}
+.gil th{text-align:left;color:var(--muted);font-weight:600;letter-spacing:.02em;
+border-bottom:1px solid var(--hairline);padding:6px 10px 6px 0}
+.gil td{border-bottom:1px solid var(--hairline);padding:7px 10px 7px 0;vertical-align:top;color:var(--ink-2)}
+.gil td.id{color:var(--ink);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.gil .pill{display:inline-block;border:1.5px solid var(--node);border-radius:99px;
+padding:1px 8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
+.gil .pill.closed{background:var(--node);color:#fff;border-color:var(--node)}
+.gil footer{color:var(--muted);font-size:11.5px}</style><div class="wrap">
+<header><h1>Ariadne — 사이클 체인</h1>
+<p>체인 1개 · 사이클 2개 · 체인 간 lineage 0건 · 생성 2026-07-14</p></header>
+<div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
+<span><svg width="16" height="16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="var(--node)" stroke-width="2"/></svg>열린 사이클</span>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--edge)" stroke-width="1.6"/></svg>parent (체인 내 계보)</span>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>lineage (체인 간 교훈)</span>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--supersede)" stroke-width="1.6" stroke-dasharray="2 3"/></svg>superseded_by (무효화 — 흐린 노드가 대체 사이클을 가리킨다)</span></div>
+<div class="card"><svg viewBox="0 0 320 194" width="320" height="194" role="img" aria-label="사이클 체인 그래프"><path d="M38,83 C38,106 38,106 38,129" fill="none" stroke="var(--edge)" stroke-width="1.6"/><path class="supersede" d="M48,74 C84,74 84,138 48,138" fill="none" stroke="var(--supersede)" stroke-width="1.6" stroke-dasharray="2 3"/><text x="24" y="28" font-size="13" font-weight="650" fill="var(--ink)">bench</text><g class="superseded" data-cycle="bench/C001-dirty"><title>C001-dirty [closed · supported] 오염된 벤치마크: 원샷이라 믿었으나 멀티턴이었다 ↣ superseded: bench/C002-clean</title><circle cx="38" cy="74" r="8" fill="var(--node)"/><text x="54" y="73" font-size="12" font-weight="600" fill="var(--ink)">C001-dirty</text><text x="54" y="87" font-size="10.5" fill="var(--muted)">closed · ↣ bench/C002-clean</text></g><g data-cycle="bench/C002-clean"><title>C002-clean [closed · supported] 오염 제거 후 재실험: 진짜 원샷</title><circle cx="38" cy="138" r="8" fill="var(--node)"/><text x="54" y="137" font-size="12" font-weight="600" fill="var(--ink)">C002-clean</text><text x="54" y="151" font-size="10.5" fill="var(--muted)">closed</text></g></svg></div>
+<div class="card"><h2>chain: bench — 사이클 2개</h2><table><thead><tr><th>사이클</th><th>상태</th><th>가설(제목)</th><th>parent</th><th>lineage</th><th>superseded_by</th><th>기간</th></tr></thead><tbody><tr class="superseded"><td class="id">C001-dirty</td><td><span class="pill closed">closed</span></td><td>오염된 벤치마크: 원샷이라 믿었으나 멀티턴이었다</td><td>(root)</td><td>—</td><td><span class="sup">↣ bench/C002-clean</span></td><td>2026-07-14 → 2026-07-14</td></tr><tr><td class="id">C002-clean</td><td><span class="pill closed">closed</span></td><td>오염 제거 후 재실험: 진짜 원샷</td><td>C001-dirty</td><td>—</td><td>—</td><td>2026-07-15 → 2026-07-15</td></tr></tbody></table></div>
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
+</div></div>
+<script type="application/json" id="gil-data">{"version": "0.3", "chains": {"bench": {"order": ["C001-dirty", "C002-clean"], "cycles": {"C001-dirty": {"status": "closed", "title": "오염된 벤치마크: 원샷이라 믿었으나 멀티턴이었다", "opened": "2026-07-14", "closed": "2026-07-14", "step": "5", "verdict": "supported", "deviations": "0", "superseded_by": "bench/C002-clean", "last_activity": null, "parents": [], "lineage": []}, "C002-clean": {"status": "closed", "title": "오염 제거 후 재실험: 진짜 원샷", "opened": "2026-07-15", "closed": "2026-07-15", "step": "5", "verdict": "supported", "deviations": "0", "superseded_by": null, "last_activity": null, "parents": ["C001-dirty"], "lineage": []}}}}}</script>
+</body>
+</html>

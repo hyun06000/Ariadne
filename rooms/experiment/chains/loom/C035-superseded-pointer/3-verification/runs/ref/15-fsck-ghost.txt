@@ -1,0 +1,4 @@
+
+검사: 체인 1개, 사이클 2개 — 위반 1건, 경고 0건
+R11  bench/C001-dirty: superseded_by 'bench/C999-ghost'가 존재하지 않는다
+rc=1

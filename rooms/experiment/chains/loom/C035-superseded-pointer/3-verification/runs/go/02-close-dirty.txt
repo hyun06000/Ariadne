@@ -1,0 +1,3 @@
+각인: 커밋 + 태그 cycle/bench/C001-dirty
+닫힘: bench/C001-dirty (2026-07-14)
+→ 세션 핸드오프: gil handoff (사이클을 닫았으니 세션 정리를 고려하라)

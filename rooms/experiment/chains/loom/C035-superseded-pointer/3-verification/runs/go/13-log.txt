@@ -1,0 +1,11 @@
+=== chain: bench — 사이클 2개 ===
+
+●  C001-dirty [closed · supported] 오염된 벤치마크: 원샷이라 믿었으나 멀티턴이었다  ↣ superseded: bench/C002-clean
+●  C002-clean [closed · supported] 오염 제거 후 재실험: 진짜 원샷
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-dirty  ←  (root)
+  C002-clean  ←  C001-dirty
+
+결말: supported 2
+

@@ -7,7 +7,8 @@ LLM의 추론이 걸어온 길(사이클 체인)을 깃처럼 다룬다.
 
 서브커맨드:
     log  [chains-root]                 체인들의 계보를 재구성해 그래프로 렌더한다.
-    fsck [chains-root]                 스키마 v0.3 규칙(R1~R10) 위반을 전부 수집해 보고한다.
+    fsck [chains-root]                 스키마 v0.4 규칙(R1~R11) 위반을 전부 수집해 보고한다.
+    supersede <old-ref> <new-ref>      무효화된 사이클에 전방 포인터를 각인한다 ([migrate] + 태그 이동).
     open  <chain> <slug> [옵션]        v0.2 준수 사이클을 생성한다 (사전 검증 → 템플릿 복사 → fsck 확인).
     close <chain> <cycle-id> [옵션]    보고서를 검증하고 사이클을 닫는다. --git이면 사이클
                                        디렉토리만을 담은 커밋 + 주석 태그 cycle/<chain>/<id>를 남긴다.
@@ -385,7 +386,7 @@ def cmd_fsck(args):
         print(f"\n검사: 체인 {len(chains)}개, 사이클 {total}개 — 위반 {len(violations)}건, 경고 {len(warnings)}건", file=sys.stderr)
         return 1
     tail = f", 경고 {len(warnings)}건" if warnings else ""
-    print(f"OK — 체인 {len(chains)}개, 사이클 {total}개, 위반 0건 (스키마 v0.3){tail}")
+    print(f"OK — 체인 {len(chains)}개, 사이클 {total}개, 위반 0건 (스키마 v0.4){tail}")
     return 0
 
 
@@ -585,18 +586,21 @@ def _layout_columns(order, cycles, children):
 # 검증된 기본 팔레트 (dataviz 레퍼런스) — 상태는 색+모양(채움/빈 원)의 이중 인코딩
 _WEB_CSS = """
 .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
---hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;--ring:rgba(11,11,11,.1);
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
+--supersede:#c07c15;--ring:rgba(11,11,11,.1);
 font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
 margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
 @media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
 --ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
---lineage:#199e70;--rejected:#e66767;--ring:rgba(255,255,255,.1)}}
+--lineage:#199e70;--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}}
 :root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
 --muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
---rejected:#e66767;--ring:rgba(255,255,255,.1)}
+--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}
 :root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
 --muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
---rejected:#d03b3b;--ring:rgba(11,11,11,.1)}
+--rejected:#d03b3b;--supersede:#c07c15;--ring:rgba(11,11,11,.1)}
+.gil .superseded{opacity:.5}
+.gil .sup{color:var(--supersede);white-space:nowrap}
 .gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 .gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
 .gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
@@ -666,11 +670,19 @@ def _build_web_data(chains_root, only=None):
                 "opened": c.get("opened"), "closed": c.get("closed"),
                 "step": c.get("step"), "verdict": c.get("verdict"),
                 "deviations": c.get("deviations"),
+                "superseded_by": c.get("superseded_by"),  # v0.4: 전방 무효화
                 "last_activity": ({"ago": _ago(act[0]), "subject": act[1]} if act else None),
                 "parents": c["parents"], "lineage": c["lineage_list"],
             }
         data[name] = {"order": order, "cycles": entry, "children": children}
     return data
+
+
+def _supersede_ref(chain, sb):
+    """superseded_by 값을 전역 참조로 해소한다 (로컬 id면 자기 체인으로)."""
+    if not sb:
+        return ""
+    return sb if "/" in sb else f"{chain}/{sb}"
 
 
 def _render_svg(data):
@@ -712,6 +724,22 @@ def _render_svg(data):
                     parts.append(f'<path class="lineage" d="M{x1 + 10},{y1} C{mx},{y1} {mx},{y2} {x2 - 10},{y2}" '
                                  f'fill="none" stroke="var(--lineage)" stroke-width="1.6" '
                                  f'stroke-dasharray="5 4"/>')
+    # supersede 간선 (v0.4, 과거→미래): 무효화된 사이클이 자기를 대체한 사이클을 가리킨다
+    for name, chain in data.items():
+        for cid, meta in chain["cycles"].items():
+            ref = _supersede_ref(name, meta.get("superseded_by"))
+            if ref not in node_xy:
+                continue
+            x1, y1 = node_xy[f"{name}/{cid}"]
+            x2, y2 = node_xy[ref]
+            if abs(x1 - x2) < 1:  # 같은 레인·같은 열이면 오른쪽으로 활처럼 우회한다
+                bow = x1 + 46
+                d = f"M{x1 + 10},{y1} C{bow},{y1} {bow},{y2} {x2 + 10},{y2}"
+            else:
+                mx = (x1 + x2) / 2
+                d = f"M{x1 + 10},{y1} C{mx},{y1} {mx},{y2} {x2 - 10},{y2}"
+            parts.append(f'<path class="supersede" d="{d}" fill="none" stroke="var(--supersede)" '
+                         f'stroke-width="1.6" stroke-dasharray="2 3"/>')
     # 레인 헤더 + 노드
     for name, chain in data.items():
         parts.append(f'<text x="{lanes[name]}" y="{_TOP_PAD - 18}" font-size="13" font-weight="650" '
@@ -724,14 +752,19 @@ def _render_svg(data):
             shape = (f'<circle cx="{x}" cy="{y}" r="8" fill="{fill}"/>' if closed else
                      f'<circle cx="{x}" cy="{y}" r="7" fill="var(--surface)" '
                      f'stroke="var(--node)" stroke-width="2.5"/>')
+            sup = meta.get("superseded_by")  # v0.4: 무효화된 사이클은 흐리게 + 텍스트로도 표시(이중 인코딩)
             vtip = f" · {meta['verdict']}" if meta.get("verdict") else ""
-            tip = html.escape(f"{cid} [{meta['status']}{vtip}] {meta['title']}")
-            parts.append(f'<g data-cycle="{html.escape(name + "/" + cid)}"><title>{tip}</title>{shape}'
+            stip = f" ↣ superseded: {sup}" if sup else ""
+            tip = html.escape(f"{cid} [{meta['status']}{vtip}] {meta['title']}{stip}")
+            parts.append(f'<g class="superseded" data-cycle="{html.escape(name + "/" + cid)}">' if sup else
+                         f'<g data-cycle="{html.escape(name + "/" + cid)}">')
+            parts.append(f'<title>{tip}</title>{shape}'
                          f'<text x="{x + 16}" y="{y - 1}" font-size="12" font-weight="600" '
                          f'fill="var(--ink)">{html.escape(cid)}</text>'
                          f'<text x="{x + 16}" y="{y + 13}" font-size="10.5" '
                          f'fill="var(--muted)">{html.escape(meta["status"] or "?")}{_step_badge(meta)}'
-                         f'{" · ⇠ " + html.escape(", ".join(meta["lineage"])) if meta["lineage"] else ""}</text></g>')
+                         f'{" · ⇠ " + html.escape(", ".join(meta["lineage"])) if meta["lineage"] else ""}'
+                         f'{" · ↣ " + html.escape(sup) if sup else ""}</text></g>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -760,19 +793,22 @@ def _render_tables(data):
             period = f'{m["opened"] or "?"} → {m["closed"] or "진행 중"}'
             if act:
                 period += f' · {act["ago"]}: {act["subject"][:40]}'
-            rows.append(f'<tr><td class="id">{html.escape(cid)}</td><td>{pill}</td>'
+            sup = m.get("superseded_by")  # v0.4: 색·투명도에 의존하지 않는 텍스트 폴백
+            sup_cell = f'<span class="sup">↣ {html.escape(sup)}</span>' if sup else "—"
+            sup_cls = ' class="superseded"' if sup else ""  # f-string 안의 백슬래시는 3.12 미만에서 금지
+            rows.append(f'<tr{sup_cls}><td class="id">{html.escape(cid)}</td><td>{pill}</td>'
                         f'<td>{html.escape(m["title"])}</td><td>{html.escape(parents)}</td>'
-                        f'<td>{html.escape(lineage)}</td><td>{html.escape(period)}</td></tr>')
+                        f'<td>{html.escape(lineage)}</td><td>{sup_cell}</td><td>{html.escape(period)}</td></tr>')
         out.append(f'<div class="card"><h2>chain: {html.escape(name)} — 사이클 {len(chain["order"])}개</h2>'
                    f'<table><thead><tr><th>사이클</th><th>상태</th><th>가설(제목)</th>'
-                   f'<th>parent</th><th>lineage</th><th>기간</th></tr></thead>'
+                   f'<th>parent</th><th>lineage</th><th>superseded_by</th><th>기간</th></tr></thead>'
                    f'<tbody>{"".join(rows)}</tbody></table></div>')
     return "".join(out)
 
 
 def render_web_page(data, page_title, generated):
     json_payload = {
-        "version": "0.2",
+        "version": "0.3",  # v0.4 스키마: cycles에 superseded_by 추가 (필드 추가는 하위호환)
         "chains": {
             name: {
                 "order": chain["order"],
@@ -788,7 +824,8 @@ def render_web_page(data, page_title, generated):
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
 <span><svg width="16" height="16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="var(--node)" stroke-width="2"/></svg>열린 사이클</span>
 <span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--edge)" stroke-width="1.6"/></svg>parent (체인 내 계보)</span>
-<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>lineage (체인 간 교훈)</span></div>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>lineage (체인 간 교훈)</span>
+<span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--supersede)" stroke-width="1.6" stroke-dasharray="2 3"/></svg>superseded_by (무효화 — 흐린 노드가 대체 사이클을 가리킨다)</span></div>
 <div class="card">{_render_svg(data)}</div>
 {_render_tables(data)}
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
