@@ -1,0 +1,95 @@
+# run3 — 음성 대조 + 분기·병합·lineage 픽스처 대조 (불변 기준)
+# 일자: 2026-07-14 10:16 KST. 픽스처 구성은 이 로그 하단과 README 재현 절차에 있다.
+
+## (a) 깨진 체인(끊어진 parent): 두 구현 모두 거부 + 출력 파일 무생성
+--- 참조 구현
+오류: 체인 'alpha': C001-x의 parent 'C099-ghost'가 존재하지 않는다 (끊어진 참조)
+exit: 1
+--- Go
+오류: 체인 'alpha': C001-x의 parent 'C099-ghost'가 존재하지 않는다 (끊어진 참조)
+exit: 1
+--- stderr 대조 (참조 vs Go)
+stderr 바이트 단위 동일: 오류: 체인 'alpha': C001-x의 parent 'C099-ghost'가 존재하지 않는다 (끊어진 참조)
+<scratch>/run3/broken-go.html: No such file or directory
+<scratch>/run3/broken-ref.html: No such file or directory
+
+## (b) 비깃 디렉토리 + 분기·병합·lineage 픽스처: 성공 + last_activity 전부 null + 바이트 대조
+--- 참조 구현
+생성: /private/tmp/claude-501/-Users-user-Desktop-code-personal-Ariadne/e4d57ca5-60e3-469d-91ac-da9f39a50e88/scratchpad/run3/fx-ref.html (체인 2개)
+exit: 0
+--- Go
+생성: /private/tmp/claude-501/-Users-user-Desktop-code-personal-Ariadne/e4d57ca5-60e3-469d-91ac-da9f39a50e88/scratchpad/run3/fx-go.html (체인 2개)
+exit: 0
+HTML 전문 바이트 단위 동일 (8500바이트)
+last_activity 전부 null (비깃): True
+병합 parents: ['C002-left', 'C003-right'] / beta lineage: ['demo/C004-merge']
+스텝 배지(열린 사이클 3/5): True / 2/5: True
+특수문자 이스케이프: True
+lineage 점선 간선(mx 소수 표기): True
+
+## 픽스처 내용 (재현용 원문)
+--- broken/rooms/experiment/chains/alpha/C001-x/cycle.yaml
+id: C001-x
+chain: alpha
+parent: C099-ghost
+lineage: []
+author: fx
+status: open
+opened: 2026-01-01
+closed: null
+title: "broken"
+--- fixture/rooms/experiment/chains/beta/C001-observer/cycle.yaml
+id: C001-observer
+chain: beta
+parent: null
+lineage: [demo/C004-merge]
+step: 2
+author: fx
+status: open
+opened: 2026-01-05
+closed: null
+title: "레인 횡단 lineage"
+--- fixture/rooms/experiment/chains/demo/C001-root/cycle.yaml
+id: C001-root
+chain: demo
+parent: null
+lineage: []
+step: 5
+author: fx
+status: closed
+opened: 2026-01-01
+closed: 2026-01-02
+title: "뿌리"
+--- fixture/rooms/experiment/chains/demo/C002-left/cycle.yaml
+id: C002-left
+chain: demo
+parent: C001-root
+lineage: []
+step: 5
+author: fx
+status: closed
+opened: 2026-01-02
+closed: 2026-01-03
+title: "왼 가지"
+--- fixture/rooms/experiment/chains/demo/C003-right/cycle.yaml
+id: C003-right
+chain: demo
+parent: C001-root
+lineage: []
+step: 5
+author: fx
+status: closed
+opened: 2026-01-02
+closed: 2026-01-03
+title: "오른 가지"
+--- fixture/rooms/experiment/chains/demo/C004-merge/cycle.yaml
+id: C004-merge
+chain: demo
+parent: [C002-left, C003-right]
+lineage: []
+step: 3
+author: fx
+status: open
+opened: 2026-01-04
+closed: null
+title: "병합 & <특수문자> '검증'"
