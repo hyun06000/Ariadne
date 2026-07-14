@@ -4,7 +4,7 @@ parent: C027-embedded-template-fallback
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "gil pages가 이식 가능한 Pages 워크플로를 생성하면 딸깍 사용자도 명령 하나로 자기 체인을 github.io에 배포한다"
