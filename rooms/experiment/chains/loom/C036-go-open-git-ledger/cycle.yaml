@@ -4,10 +4,10 @@ parent: [C020-go-web-port, C016-number-ledger]
 lineage: []
 step: 5
 author: weft
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-14
 title: "Go 구현에 open --git/--push를 원장 규율(fetch·rebase·자동 재번호·재시도)까지 통째로 이식하면 두 구현이 열림의 각인에서도 나란히 선다"
-verdict: null
+verdict: supported
 deviations: 0
 superseded_by: null
