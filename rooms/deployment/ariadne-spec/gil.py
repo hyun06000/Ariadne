@@ -1079,7 +1079,7 @@ def cmd_goto(args):
         print("  (닫혔으나 태그 없음 — 백필 필요)")
     else:
         print("  (열린 사이클 — 아직 각인 태그 없음)")
-    print(f"  ↳ 이 지점에서 새 갈래 시작:  gil open {chain} <slug> --parent {cid}")
+    print(f"  ↳ 이 지점에서 새 갈래 시작:  gil open {chain} <slug> --parent {cid} --author <이름>")
 
     if args.checkout:
         if not repo:

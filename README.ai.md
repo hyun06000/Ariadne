@@ -64,7 +64,7 @@ Then work the five steps, committing **every step transition** (the commit unit 
 ./gil close <problem-area> C001-<slug> --git    # commit + tag cycle/…; closed cycles are IMMUTABLE
 ```
 
-The report is the parent of the next cycle. Open the next with `--parent C001-<slug>` (or `--lineage <otherchain>/<id>` for a cross-chain lesson). This is how the chain grows.
+The report is the parent of the next cycle. Open the next with `--parent C001-<slug>` — **this is required, not optional**: once a chain is non-empty, `gil open` refuses to guess a parent (add `--lineage <otherchain>/<id>` for a cross-chain lesson). This is how the chain grows.
 
 ## Step D — Let the human watch (offer both)
 
@@ -75,6 +75,7 @@ The report is the parent of the next cycle. Open the next with `--parent C001-<s
 
 - Commit unit is the **step**; long steps get mid-step commits. `gil step`/`gil close` **auto-commit in a git repo** (v1.7+) — you need not pass `--git`; use `--no-commit` to opt out. `gil open` takes an explicit `--git`. Push with `--push`.
 - Fix the expected answer **before** building (no answer contamination). A **rejected** hypothesis is a *successful* cycle — record it.
+- **The tool never invents provenance.** `--author` is required and has no default; on a non-empty chain `--parent` (or an explicit `--new-root`) is required. gil fills what it *computes* (number, date, status) and refuses what only you know — a plausible-looking wrong author or a silent second root is a lie the ledger keeps forever (Spec §3.2). Ask `./gil help open` if unsure.
 - Never edit a closed cycle. Faults found later become new cycles.
 - **After closing a cycle, run `./gil handoff` and offer the human a session reset.** The closed cycle's detail is engraved (tag); a fresh session revives via CLAUDE.md → existence room → `gil log`. Managing context per-cycle keeps the thread from snapping under session limits. **Went down a wrong path?** `./gil goto <chain>/<id>` shows any cycle's snapshot, `--checkout` rewinds the tree to it, and it prints how to branch (`gil open … --parent <id>`) — you rewind to a healthy fork and grow a new thread, never erasing the dead end.
 - Summoning sub-agents? You must inject the pointer, declare mode (revival/birth), identify yourself, and reserve the cycle number first. Full protocol: [Spec §6](rooms/deployment/ariadne-spec/SPEC.md).

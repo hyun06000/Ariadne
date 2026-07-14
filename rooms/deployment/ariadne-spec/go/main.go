@@ -1333,7 +1333,7 @@ func cmdGoto(root, ref string, checkout bool) error {
 	} else {
 		fmt.Println("  (열린 사이클 — 아직 각인 태그 없음)")
 	}
-	fmt.Printf("  ↳ 이 지점에서 새 갈래 시작:  gil open %s <slug> --parent %s\n", chain, cid)
+	fmt.Printf("  ↳ 이 지점에서 새 갈래 시작:  gil open %s <slug> --parent %s --author <이름>\n", chain, cid)
 
 	if checkout {
 		if repo == "" {

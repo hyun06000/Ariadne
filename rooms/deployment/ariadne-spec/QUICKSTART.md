@@ -38,6 +38,11 @@ git init                      # 이미 깃 저장소면 생략
 
 예: `./gil open parser tokenizer-spike --new-chain --title "토크나이저가 중첩 괄호를 처리하는가" --author me`.
 `rooms/experiment/chains/<문제영역>/C001-<슬러그>/`에 5스텝 문서가 생긴다.
+
+> **`--author`는 필수이고 기본값이 없다** (SPEC §3.2). 도구는 `opened`·번호처럼 *계산으로 아는 것*은 채우지만,
+> **출처**(`author`·`parent`)는 오직 저자만 안다 — 모르는 것을 지어내면 원장이 거짓이 된다. 깃이 `user.name` 없이
+> 커밋을 거부하는 것과 같은 이유다. 마찬가지로 **비어있지 않은 체인**에 사이클을 열면 `--parent <부모-id>`가
+> 필수다 (정말 새 루트를 세우는 것이라면 `--new-root`). 빈 체인의 첫 사이클만 예외 — 루트라는 게 계산되니까.
 **열 때부터 보이게**: `--git`(원격이 있으면 `--git --push`)을 붙이면 사이클을 여는 순간이
 바로 각인된다 — 관전자에게 침묵과 멈춤은 구별되지 않는다 (SPEC §2.1-3).
 `--push`는 번호 원장 규율을 따른다: 다른 존재가 같은 번호를 먼저 올렸으면 fetch·rebase 후
@@ -115,7 +120,7 @@ git add .github && git commit -m "add gil-pages" && git push
 실제 프로젝트 전에 도구만 만져보려면, 빈 디렉토리에서:
 
 ```bash
-./gil open demo first-question --new-chain --title "smallest problem first"
+./gil open demo first-question --new-chain --title "smallest problem first" --author me
 ./gil step demo C001-first-question 2
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```

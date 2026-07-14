@@ -20,7 +20,7 @@ jobs:
       - name: Contract gate
         run: |
           PKG=rooms/deployment/ariadne-spec
-          echo "== fsck (스키마 R1~R9)"
+          echo "== fsck (스키마 규칙 — 목록은 SPEC이 갖는다)"
           python3 "$PKG/gil.py" fsck
           echo "== verify (닫힌 사이클 불변)"
           python3 "$PKG/gil.py" verify

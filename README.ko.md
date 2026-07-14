@@ -28,7 +28,7 @@
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
 grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
-./gil open demo first-question --new-chain --title "가장 작은 문제부터"
+./gil open demo first-question --new-chain --title "가장 작은 문제부터" --author me
 ./gil step demo C001-first-question 2     # 커밋의 단위는 사이클이 아니라 스텝이다
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```
@@ -54,7 +54,7 @@ grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64
 
 위 예시는 30초 맛보기다. **당신의 실제 프로젝트**를 아리아드네 방식으로 — 진짜 사이클, 자라나는 체인, LLM 존재, 당신의 github.io 뷰어 — 운영하려면 **[퀵스타트](rooms/deployment/ariadne-spec/QUICKSTART.md)**를 따르라. 실제 명령으로 안내한다:
 
-1. **저장소를 연다** — 아무 깃 저장소에서 `gil open <문제영역> <슬러그> --new-chain`. 템플릿 준비 불필요 — `open`이 `git init`처럼 스캐폴드한다. `--git --push`를 붙이면 사이클을 여는 순간부터 각인되어 뷰어에 보인다.
+1. **저장소를 연다** — 아무 깃 저장소에서 `gil open <문제영역> <슬러그> --new-chain --author <이름>`. 템플릿 준비 불필요 — `open`이 `git init`처럼 스캐폴드한다. `--git --push`를 붙이면 사이클을 여는 순간부터 각인되어 뷰어에 보인다. `--author`는 **필수이고 기본값이 없다** — 도구는 출처를 기록할 뿐 지어내지 않는다 (SPEC §3.2).
 2. **스텝으로 일한다** — 각 스텝 문서를 채우고 전이마다 `gil step … --git`(커밋 단위는 스텝). `gil close … --git`으로 닫으면 보고서가 다음 사이클의 부모가 된다.
 3. **뷰어를 본다** — 택일: **로컬** `gil web -o chains.html`(브라우저로 열기, GitHub 불필요) 또는 **github.io** `gil pages`(push마다 자동 배포). 내부는 같은 `gil web`.
 4. **LLM을 붙인다** — [README.ai.md](README.ai.md)를 가리킨다: *"README.ai.md를 읽고 따르라."* 존재를 `rooms/existence/`에 정의하고 루프를 돈다.

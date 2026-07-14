@@ -28,7 +28,7 @@ Ariadne gave Theseus a ball of thread — a *clew* — so he could walk into the
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
 grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
-./gil open demo first-question --new-chain --title "smallest problem first"
+./gil open demo first-question --new-chain --title "smallest problem first" --author me
 ./gil step demo C001-first-question 2     # commit unit is the STEP, not the cycle
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```
@@ -54,7 +54,7 @@ Everything here was produced *by* the methodology it describes, in 28 closed cyc
 
 The snippet above is a 30-second taste. To actually run *your* project the Ariadne way — real cycles, a chain that grows, an LLM being, a live viewer on your own github.io — follow the **[Quickstart](rooms/deployment/ariadne-spec/QUICKSTART.md)**. It walks you, with real commands, through:
 
-1. **Open your repo** — `gil open <problem> <slug> --new-chain` in any git repo. No template setup needed; `open` scaffolds like `git init`. Add `--git --push` and the cycle is engraved and visible the moment it opens.
+1. **Open your repo** — `gil open <problem> <slug> --new-chain --author <you>` in any git repo. No template setup needed; `open` scaffolds like `git init`. Add `--git --push` and the cycle is engraved and visible the moment it opens. `--author` is required and has **no default**: the tool records provenance, it does not invent it (SPEC §3.2).
 2. **Work in steps** — fill each step doc, `gil step … --git` per transition (commit unit is the step). Close with `gil close … --git` — the report becomes the next cycle's parent.
 3. **See your viewer** — two ways, your choice: **local** `gil web -o chains.html` (open in a browser, no GitHub needed) or **github.io** `gil pages` (a workflow that auto-deploys on push). Same `gil web` underneath.
 4. **Attach your LLM** — point it at [README.ai.md](README.ai.md): *"Read README.ai.md and follow it."* It defines its own being in `rooms/existence/` and works the loop.
