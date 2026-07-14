@@ -1,0 +1,14 @@
+id: C042-viewer-follows-ledger
+chain: loom
+parent: C041-correction-protocol
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "원장이 자동 갱신되면 사람의 창(뷰어)도 자동 갱신된다 — 낡은 화면은 침묵보다 나쁘다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
