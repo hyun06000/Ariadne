@@ -84,6 +84,19 @@ git init                      # 이미 깃 저장소면 생략
 다른 문제 영역의 교훈을 이어받으면 `--lineage <다른체인>/<사이클id>`. 이렇게 체인이 자란다.
 `./gil log`로 계보를, `./gil fsck`로 규칙 위반을 언제든 확인한다.
 
+### 4.1 닫은 뒤에 출처가 틀렸다면 (`gil correct`)
+
+`open`에서 `--parent`를 빠뜨린 채 닫았다면 `fsck`가 `경고 [다중루트]`로 알려준다. 닫힌 사이클은 불변이지만 — **도구가 대필한 거짓**은 정정할 수 있다. 단, **불변 문서가 그 값을 증언해야** 한다:
+
+```bash
+./gil correct <문제영역>/C002-<슬러그> \
+  --field parent --to C001-<슬러그> \
+  --evidence 1-hypothesis.md:5 \
+  --author me --reason "open 시 --parent 누락"
+```
+
+정정 가능한 것은 **출처 필드**(`author`·`parent`·`lineage`)뿐이다. `verdict`나 보고서 내용은 **저자의 주장**이므로 바꿀 수 없다 — 결론이 무효가 됐다면 `gil supersede`다. 거짓값은 `corrections.yaml`에 영구히 남는다: **정정은 지우개가 아니라 각주다.**
+
 ## 5. 체인 그래프 뷰어 — 두 가지 중 택일
 
 뷰어를 보는 길은 둘이다. **GitHub을 안 써도 된다** — 로컬만으로 충분하다.

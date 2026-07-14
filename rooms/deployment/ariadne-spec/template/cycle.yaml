@@ -11,4 +11,5 @@ closed: null             # 보고서 퍼블리시일
 title: ""                # 이 사이클이 정복하려는 가장 작은 문제 한 줄
 verdict: null            # 결말: supported|partial|rejected|inconclusive (close --verdict, v0.3)
 deviations: 0            # 사전등록 이탈 건수. N>0이면 deviations.yaml 필수 (v0.3)
+corrections: 0           # 출처 필드 정정 횟수. N>0이면 corrections.yaml 필수 (v0.5, gil correct)
 superseded_by: null      # 이 사이클을 무효화·대체한 후속 사이클 (gil supersede, v0.4)

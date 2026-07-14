@@ -302,6 +302,37 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 			if v := r.fields["verdict"]; status == "closed" && v == "" {
 				warnings = append(warnings, "결말없음\x00"+loc+"\x00닫혔으나 verdict 없음")
 			}
+			// R13 (v0.5): 출처 정정 기록 — L1(필드 제한)과 L3(영구 기록)을 fsck가 집행한다.
+			// 경고가 아니라 위반인 이유: corrections는 v0.5에서 태어나므로 유예할 과거가 없다.
+			if cv, ok := r.fields["corrections"]; ok && cv != "" {
+				if !isDigits(cv) {
+					add("R13", loc, "corrections '"+cv+"'는 정수여야 한다 (상세는 corrections.yaml)")
+				} else if n, _ := strconv.Atoi(cv); n > 0 {
+					cfile := filepath.Join(root, ch, r.dir, "corrections.yaml")
+					if _, e := os.Stat(cfile); e != nil {
+						add("R13", loc, "corrections "+cv+"인데 corrections.yaml이 없다")
+					} else if recs := parseCorrections(cfile); recs == nil {
+						add("R13", loc, "corrections.yaml 형식 위반 — '- field: …' + 2칸 들여쓴 key: value")
+					} else if len(recs) != n {
+						add("R13", loc, fmt.Sprintf("corrections %s인데 corrections.yaml 레코드는 %d건", cv, len(recs)))
+					} else {
+						for i, rec := range recs {
+							var missing []string
+							for _, k := range correctionKeys {
+								if _, has := rec[k]; !has {
+									missing = append(missing, k)
+								}
+							}
+							if len(missing) > 0 {
+								add("R13", loc, fmt.Sprintf("corrections.yaml #%d: 필수 키 누락 — %s", i+1, strings.Join(missing, ", ")))
+							} else if !isProvenance(rec["field"]) {
+								add("R13", loc, fmt.Sprintf("corrections.yaml #%d: '%s'는 출처 필드가 아니다 (L1)", i+1, rec["field"]))
+							}
+						}
+					}
+					warnings = append(warnings, "정정\x00"+loc+"\x00출처 정정 "+cv+"건 (corrections.yaml) — 색인은 수리됐고 거짓은 기록에 남았다")
+				}
+			}
 			// R11 (v0.4): superseded_by — 전방 무효화 포인터는 실재하는 사이클로 해소되어야 한다
 			if sb, ok := r.fields["superseded_by"]; ok && sb != "" {
 				switch {
@@ -388,7 +419,7 @@ func fsck(root string) int {
 	if len(warnings) > 0 {
 		tail = fmt.Sprintf(", 경고 %d건", len(warnings))
 	}
-	fmt.Printf("OK — 체인 %d개, 사이클 %d개, 위반 0건 (스키마 v0.4)%s\n", nChains, total, tail)
+	fmt.Printf("OK — 체인 %d개, 사이클 %d개, 위반 0건 (스키마 v0.5)%s\n", nChains, total, tail)
 	return 0
 }
 
@@ -456,6 +487,11 @@ func logCmd(root string) int {
 			sup := "" // v0.4: 전방 무효화 — 이 사이클의 결론은 대체되었다
 			if sb := r.fields["superseded_by"]; sb != "" {
 				sup = "  ↣ superseded: " + sb
+			}
+			if cv := r.fields["corrections"]; cv != "" && isDigits(cv) { // v0.5: 이 색인은 수리됐다
+				if n, _ := strconv.Atoi(cv); n > 0 {
+					sup += fmt.Sprintf("  ✎ corrected(%d)", n)
+				}
 			}
 			extra := ""
 			if len(r.parents) > 1 {
@@ -838,7 +874,7 @@ func cmdOpen(a openArgs) error {
 	}
 	lineageVal := "[" + strings.Join(a.lineage, ", ") + "]"
 	title := strings.ReplaceAll(a.title, `"`, "'")
-	yaml := fmt.Sprintf("id: %s\nchain: %s\nparent: %s\nlineage: %s\nstep: 1\nauthor: %s\nstatus: open\nopened: %s\nclosed: null\ntitle: \"%s\"\nverdict: null\ndeviations: 0\nsuperseded_by: null\n",
+	yaml := fmt.Sprintf("id: %s\nchain: %s\nparent: %s\nlineage: %s\nstep: 1\nauthor: %s\nstatus: open\nopened: %s\nclosed: null\ntitle: \"%s\"\nverdict: null\ndeviations: 0\ncorrections: 0\nsuperseded_by: null\n",
 		cid, a.chain, parentVal, lineageVal, a.author, a.date, title)
 	if err := os.WriteFile(filepath.Join(dest, "cycle.yaml"), []byte(yaml), 0o644); err != nil {
 		return cerr("%v", err)
@@ -998,6 +1034,363 @@ func cmdClose(a closeArgs) error {
 type supersedeArgs struct {
 	root, oldRef, newRef string
 	noCommit             bool
+}
+
+type correctArgs struct {
+	root, ref, evidence, author, reason, date string
+	fields, tos                               []string
+	push                                      bool
+}
+
+// ---------- correct: 정정 규정 (v0.5 / loom/C041, SPEC §4.1) ----------
+//
+// 저자의 주장은 불변이다. 도구의 대필(代筆)은 불변이 아니다.
+// 정정은 거짓을 지우지 않는다 — 거짓 위에 진실을 덧쓰고, 거짓이 있었다는 사실을 영구히 남긴다.
+
+// provenanceFields — 정정 가능한 것은 출처 필드뿐이다 (L1). 도구가 지어낼 수 있었던 바로 그 집합 (§3.2).
+var provenanceFields = []string{"author", "parent", "lineage"}
+
+// correctionKeys — R13이 요구하는 정정 레코드의 필수 키.
+var correctionKeys = []string{"field", "from", "to", "evidence", "author", "date"}
+
+func isProvenance(f string) bool {
+	for _, p := range provenanceFields {
+		if p == f {
+			return true
+		}
+	}
+	return false
+}
+
+// parseCorrections — corrections.yaml을 줄 단위로 판정한다 (일반 YAML 파서 없이).
+// 형식 위반이면 nil. deviations.yaml은 사람이 읽는 문서지만, 이것은 도구가 판정하는 기록이다.
+func parseCorrections(path string) []map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var records []map[string]string
+	var cur map[string]string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		var body string
+		switch {
+		case strings.HasPrefix(line, "- "):
+			cur = map[string]string{}
+			records = append(records, cur)
+			body = line[2:]
+		case strings.HasPrefix(line, "  ") && cur != nil:
+			body = line[2:]
+		default:
+			return nil // 중첩·블록 스칼라·들여쓰기 위반
+		}
+		i := strings.Index(body, ":")
+		if i <= 0 {
+			return nil
+		}
+		key := strings.TrimSpace(body[:i])
+		if key == "" || strings.ContainsAny(key, " \t") {
+			return nil
+		}
+		cur[key] = strings.TrimSpace(body[i+1:])
+	}
+	return records
+}
+
+// renderYamlValue — 평탄 표기 (§3.1)
+func renderYamlValue(vals []string) string {
+	switch len(vals) {
+	case 0:
+		return "null"
+	case 1:
+		return vals[0]
+	default:
+		return "[" + strings.Join(vals, ", ") + "]"
+	}
+}
+
+func setYamlField(text, key, value string) string {
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `:.*$`)
+	if re.MatchString(text) {
+		return replaceFirstLine(re, text, key+": "+value)
+	}
+	return strings.TrimRight(text, "\n") + "\n" + key + ": " + value + "\n"
+}
+
+// readSealed — 증거는 봉인본(태그)에서 읽는다. 작업 트리에서 읽으면 아무 문장이나 새로 써 넣고
+// 그것을 '증거'라 부를 수 있다. 정정을 막던 봉인이 정정을 허가하는 공증인이 된다 (§4.1 원칙 2).
+func readSealed(repo, tag, relpath string) (string, bool) {
+	out, _, code := gitRun(repo, "show", tag+":"+relpath)
+	if code != 0 {
+		return "", false
+	}
+	return out, true
+}
+
+// cycleDiffVsTag — verify와 같은 판정 (태그↔작업 트리 대조).
+func cycleDiffVsTag(repo, cycleRel, tag string) []string {
+	diffOut, _, _ := gitRun(repo, "diff", "--name-only", tag, "--", cycleRel)
+	statusOut, _, _ := gitRun(repo, "status", "--porcelain", "--untracked-files=all", "--", cycleRel)
+	set := map[string]bool{}
+	for _, p := range strings.Fields(diffOut) {
+		set[p] = true
+	}
+	for _, line := range strings.Split(statusOut, "\n") {
+		if strings.HasPrefix(line, "??") {
+			set[line[3:]] = true
+		}
+	}
+	var paths []string
+	for p := range set {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func cmdCorrect(a correctArgs) error {
+	if !strings.Contains(a.ref, "/") {
+		return cerr("ref는 <chain>/<id> 형식이어야 한다: %s", a.ref)
+	}
+	p := strings.SplitN(a.ref, "/", 2)
+	chain, cid := p[0], p[1]
+	cycleDir := filepath.Join(a.root, chain, cid)
+	yamlPath := filepath.Join(cycleDir, "cycle.yaml")
+	if st, e := os.Stat(yamlPath); e != nil || st.IsDir() {
+		return cerr("사이클이 없다: %s", a.ref)
+	}
+
+	// ---- 사전 검증 C1~C8: 저장소를 건드리기 전에 전부 확인한다 (거부 시 무변화) ----
+	if a.author == "" { // C2 — 도구는 정정의 출처도 지어내지 않는다 (§3.2 P1의 재귀)
+		return cerr("정정자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"+
+			"      존재의 이름을 명시하라:  gil correct %s … --author <이름>", a.ref)
+	}
+	if len(a.fields) == 0 {
+		return cerr("--field가 없다 — 무엇을 정정하는지 명시하라")
+	}
+	for _, f := range a.fields { // C3 — 필드 제한 (L1)
+		if !isProvenance(f) {
+			return cerr("'%s'는 출처 필드가 아니다 — 정정 가능한 것은 %s뿐이다 (§4.1 L1).\n"+
+				"      verdict·status·title·step·5스텝 문서는 저자의 주장이며 불변이다.\n"+
+				"      결론이 무효가 됐다면 정정이 아니라 gil supersede다.",
+				f, strings.Join(provenanceFields, "·"))
+		}
+	}
+	if len(a.tos) != len(a.fields) {
+		return cerr("--field %d개와 --to %d개가 짝지어지지 않는다 (순서대로 소비한다)", len(a.fields), len(a.tos))
+	}
+	if a.evidence == "" { // C4 — 증거 필수 (L2)
+		return cerr("--evidence가 없다 — 정정은 새 주장이 아니라 기존 주장의 복원이다 (§4.1 L2).\n" +
+			"      불변 문서의 어디가 이 값을 증언하는가:  --evidence 1-hypothesis.md:5")
+	}
+
+	repo := repoRoot(a.root)
+	if repo == "" { // C1 — 봉인이 없으면 정정도 없다
+		return cerr("깃 저장소가 아니다: %s — 봉인이 없으면 정정도 없다 (§4.1 C1)", a.root)
+	}
+	fields, parents, lineage, perr := parseCycleYaml(yamlPath)
+	if perr != nil {
+		return cerr("%v", perr)
+	}
+	tag := tagName(chain, cid)
+	if fields["status"] != "closed" || !tagExists(repo, tag) { // C1
+		return cerr("%s는 봉인되지 않았다 (열렸거나 태그 없음) — 정정 대상이 아니다 (§4.1 C1).\n"+
+			"      봉인되지 않은 사이클의 cycle.yaml은 직접 고쳐도 위조가 아니다.", a.ref)
+	}
+	cycleRel, rerr := relToRepo(repo, cycleDir)
+	if rerr != nil {
+		return cerr("%v", rerr)
+	}
+	if dirty := cycleDiffVsTag(repo, cycleRel, tag); len(dirty) > 0 { // C6 — 변조 세탁 뒷문 차단
+		return cerr("%s는 이미 변조됐다 — 정정은 무결한 사이클에만 허용된다 (§4.1 C6).\n"+
+			"      변조: %s\n"+
+			"      먼저 봉인 상태로 복원하라:  git checkout %s -- <경로>",
+			a.ref, strings.Join(dirty, ", "), tag)
+	}
+
+	// C5 — 증거는 인용이 아니라 검사다 (원칙 4). 봉인본에서 읽는다.
+	evPath, evLine := a.evidence, ""
+	if i := strings.LastIndex(a.evidence, ":"); i != -1 {
+		evPath, evLine = a.evidence[:i], a.evidence[i+1:]
+	}
+	evRel, everr := relToRepo(repo, filepath.Join(cycleDir, evPath))
+	if everr != nil {
+		return cerr("%v", everr)
+	}
+	sealed, ok := readSealed(repo, tag, evRel)
+	if !ok {
+		return cerr("증거 문서가 봉인본에 없다: %s (태그 %s)", evPath, tag)
+	}
+	haystack := sealed
+	if evLine != "" {
+		if !isDigits(evLine) {
+			return cerr("증거의 줄 번호가 정수가 아니다: %s", a.evidence)
+		}
+		n, _ := strconv.Atoi(evLine)
+		lines := strings.Split(strings.TrimRight(sealed, "\n"), "\n")
+		if n < 1 || n > len(lines) {
+			return cerr("증거 문서에 %d번째 줄이 없다: %s (봉인본 %d줄)", n, evPath, len(lines))
+		}
+		haystack = lines[n-1]
+	}
+
+	// 필드별로 새 값을 모은다 (parent 병합·lineage 리스트는 같은 필드를 반복해 누적)
+	order := []string{}
+	proposed := map[string][]string{}
+	for i, f := range a.fields {
+		if _, seen := proposed[f]; !seen {
+			order = append(order, f)
+		}
+		proposed[f] = append(proposed[f], a.tos[i])
+	}
+	for _, f := range order {
+		for _, v := range proposed[f] {
+			if !strings.Contains(haystack, v) { // C5
+				return cerr("증거가 '%s'를 증언하지 않는다 — %s (봉인본)\n"+
+					"      정정은 문서에 이미 있는 사실의 복원이다. 문서가 침묵하면 정정할 수 없다 (§4.1 L2).\n"+
+					"      원장은 고칠 수 없어도 역사는 덧붙일 수 있다 — 새 사이클을 열어 기록하라.", v, a.evidence)
+			}
+		}
+	}
+
+	originalBytes, e := os.ReadFile(yamlPath)
+	if e != nil {
+		return cerr("%v", e)
+	}
+	original := string(originalBytes)
+	corrPath := filepath.Join(cycleDir, "corrections.yaml")
+	corrBefore, hadCorr := "", false
+	if b, e := os.ReadFile(corrPath); e == nil {
+		corrBefore, hadCorr = string(b), true
+	}
+
+	current := func(f string) []string {
+		switch f {
+		case "parent":
+			return parents
+		case "lineage":
+			return lineage
+		default:
+			if v := fields[f]; v != "" {
+				return []string{v}
+			}
+			return nil
+		}
+	}
+
+	updated := original
+	var changed []string
+	var records []string
+	for _, f := range order {
+		oldRaw, newRaw := renderYamlValue(current(f)), renderYamlValue(proposed[f])
+		if oldRaw == newRaw { // C8
+			return cerr("'%s'는 이미 '%s'다 — 정정할 것이 없다 (§4.1 C8)", f, newRaw)
+		}
+		updated = setYamlField(updated, f, newRaw)
+		reason := strings.Join(strings.Fields(a.reason), " ")
+		if reason == "" {
+			reason = "출처 정정"
+		}
+		records = append(records, fmt.Sprintf(
+			"- field: %s\n  from: %s\n  to: %s\n  evidence: %s\n  evidence_source: %s\n  author: %s\n  date: %s\n  reason: %s\n",
+			f, oldRaw, newRaw, a.evidence, tag, a.author, a.date, reason))
+		changed = append(changed, fmt.Sprintf("%s: %s → %s", f, oldRaw, newRaw))
+	}
+	nBefore := 0
+	if c := fields["corrections"]; isDigits(c) {
+		nBefore, _ = strconv.Atoi(c)
+	}
+	updated = setYamlField(updated, "corrections", strconv.Itoa(nBefore+len(records)))
+
+	// ---- 쓰기 (L3: 덧붙임 — 과거의 거짓도, 과거의 정정도 지워지지 않는다) ----
+	body := corrBefore
+	if !hadCorr {
+		body = "# 출처 필드 정정 기록 (스키마 v0.5, §4.1) — 거짓은 지워지지 않는다. 덧쓰일 뿐이다.\n" +
+			"# 저자의 주장은 불변이다. 도구의 대필은 불변이 아니다.\n"
+	}
+	for _, rec := range records {
+		body = strings.TrimRight(body, "\n") + "\n\n" + rec
+	}
+	rollback := func() {
+		os.WriteFile(yamlPath, originalBytes, 0o644)
+		if hadCorr {
+			os.WriteFile(corrPath, []byte(corrBefore), 0o644)
+		} else {
+			os.Remove(corrPath)
+		}
+	}
+	if err := os.WriteFile(yamlPath, []byte(updated), 0o644); err != nil {
+		return cerr("%v", err)
+	}
+	if err := os.WriteFile(corrPath, []byte(body), 0o644); err != nil {
+		rollback()
+		return cerr("%v", err)
+	}
+	if err := fsckOrReport(a.root); err != nil { // C7 — 스키마 위반이 될 값은 쓰지 않는다
+		rollback()
+		return err
+	}
+
+	// ---- [correct] 커밋: 그 두 파일만 담는다 (변조를 태그 안으로 밀반입할 수 없다) ----
+	relYaml, e1 := relToRepo(repo, yamlPath)
+	relCorr, e2 := relToRepo(repo, corrPath)
+	if e1 != nil || e2 != nil {
+		rollback()
+		return cerr("경로 해소 실패")
+	}
+	oldTagCommit, _ := gitChecked(repo, "rev-list", "-n1", tag)
+	oldTagCommit = strings.TrimSpace(oldTagCommit)
+	if gerr := func() error {
+		if _, err := gitChecked(repo, "add", "--", relYaml, relCorr); err != nil {
+			return err
+		}
+		_, err := gitChecked(repo, "commit",
+			"-m", fmt.Sprintf("[correct] gil: %s — %s", a.ref, strings.Join(changed, "; ")),
+			"--", relYaml, relCorr)
+		return err
+	}(); gerr != nil {
+		rollback()
+		gitRun(repo, "reset", "-q", "--", relYaml, relCorr)
+		return gerr
+	}
+	head, herr := gitChecked(repo, "rev-parse", "HEAD")
+	if herr != nil {
+		return herr
+	}
+	head = strings.TrimSpace(head)
+	// 태그 이동 규약 (§4): 이전 커밋 해시와 사유를 태그 메시지에 남긴다
+	if _, err := gitChecked(repo, "tag", "-f", "-a", tag,
+		"-m", fmt.Sprintf("[correct] %s — 증거 %s (이전 커밋 %s에서 이동)",
+			strings.Join(changed, "; "), a.evidence, shortHash(oldTagCommit)),
+		head); err != nil {
+		return err
+	}
+	if a.push {
+		if _, err := gitChecked(repo, "push"); err != nil {
+			return err
+		}
+		if _, err := gitChecked(repo, "push", "--force", "origin", "refs/tags/"+tag); err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("정정: %s\n", a.ref)
+	for _, c := range changed {
+		fmt.Printf("  ✎ %s\n", c)
+	}
+	fmt.Printf("  증거: %s (봉인본 %s)\n", a.evidence, tag)
+	fmt.Printf("  기록: %s — 거짓은 지워지지 않았다\n", relCorr)
+	fmt.Printf("  태그 이동: %s → %s\n", shortHash(oldTagCommit), shortHash(head))
+	return nil
+}
+
+func shortHash(h string) string {
+	if len(h) > 8 {
+		return h[:8]
+	}
+	return h
 }
 
 // cmdSupersede: 전방 무효화 (v0.4, 이슈 #6) — old 사이클에 superseded_by를 주입한다.
@@ -1566,7 +1959,7 @@ func halfStr(sum int) string {
 type lastAct struct{ ago, subject string }
 
 type webCycle struct {
-	status, opened, closed, step, verdict, deviations *string // nil = JSON null
+	status, opened, closed, step, verdict, deviations, corrections *string // nil = JSON null
 	supersededBy                                      *string // v0.4: 전방 무효화 (nil = null)
 	title                                             string  // 참조 구현: title or ""
 	act                                               *lastAct
@@ -1744,6 +2137,7 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 				step:         fieldPtr(r.fields, "step"),
 				verdict:      fieldPtr(r.fields, "verdict"),
 				deviations:   fieldPtr(r.fields, "deviations"),
+				corrections:  fieldPtr(r.fields, "corrections"),
 				supersededBy: fieldPtr(r.fields, "superseded_by"),
 				parents:      r.parents,
 				lineage:      r.lineage,
@@ -2076,6 +2470,7 @@ func webJSONPayload(d *webData) string {
 			b.WriteString(`, "step": ` + jsonStrOrNull(c.step))
 			b.WriteString(`, "verdict": ` + jsonStrOrNull(c.verdict))
 			b.WriteString(`, "deviations": ` + jsonStrOrNull(c.deviations))
+			b.WriteString(`, "corrections": ` + jsonStrOrNull(c.corrections))
 			b.WriteString(`, "superseded_by": ` + jsonStrOrNull(c.supersededBy))
 			b.WriteString(`, "last_activity": `)
 			if c.act == nil {
@@ -2277,7 +2672,7 @@ const gilVersion = "2.0.0" // gil:version
 // 목록을 두 번 적지 않는다: 여기에 없는 것은 이 바이너리에 없다.
 var commandTable = []struct{ name, usage, desc string }{
 	{"log", "gil log [chains-root] [--chain <이름>]", "체인 계보를 ASCII 그래프로"},
-	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R11 위반 전수 수집·보고"},
+	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R13 위반 전수 수집·보고"},
 	{"open", "gil open <chain> <slug> --author <이름> [--parent …]… [--new-root] [--title …] [--lineage …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가). --author 필수, 비어있지 않은 체인은 --parent 또는 --new-root 필수 (§3.2)"},
 	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
 	{"step", "gil step <chain> <id> <n> [--no-commit] [--push]", "열린 사이클의 스텝 전이 (1~5)"},
@@ -2287,6 +2682,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"goto", "gil goto <chain>/<id> [--checkout]", "타임머신: 사이클 시점 역행 조회·체크아웃"},
 	{"handoff", "gil handoff [chains-root]", "세션의 매듭: 현황·부활 경로·다음 실"},
 	{"supersede", "gil supersede <old-ref> <new-ref>", "전방 무효화: 닫힌 사이클에 superseded_by 각인"},
+	{"correct", "gil correct <chain>/<id> --field <author|parent|lineage> --to <값> --evidence <파일>[:<줄>] --author <이름> [--reason …] [--push]", "정정: 봉인된 사이클의 출처 필드를 문서가 증언하는 값으로 수리 (§4.1)"},
 	{"version", "gil version", "이 바이너리의 버전"},
 	{"help", "gil help [<명령>]", "구현 명령 목록 — 부작용 없는 능력 탐침"},
 }
@@ -2469,6 +2865,32 @@ func main() {
 			oldRef:   pos[0],
 			newRef:   pos[1],
 			noCommit: len(flags["no-commit"]) > 0,
+		}); err != nil {
+			fail(err)
+		}
+	case "correct":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
+			"root": true, "field": true, "to": true, "evidence": true,
+			"author": true, "reason": true, "date": true, "push": false,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) != 1 {
+			fmt.Fprintln(os.Stderr, "사용: gil correct <chain>/<id> --field <필드> --to <값> --evidence <파일>[:<줄>] --author <이름> [--reason …] [--push]")
+			os.Exit(2)
+		}
+		if err := cmdCorrect(correctArgs{
+			root:     flagVal(flags, "root", defaultRoot),
+			ref:      pos[0],
+			fields:   flags["field"],
+			tos:      flags["to"],
+			evidence: flagVal(flags, "evidence", ""),
+			author:   flagVal(flags, "author", ""),
+			reason:   flagVal(flags, "reason", ""),
+			date:     flagVal(flags, "date", today),
+			push:     len(flags["push"]) > 0,
 		}); err != nil {
 			fail(err)
 		}

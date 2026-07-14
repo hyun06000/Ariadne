@@ -597,6 +597,7 @@ def cmd_open(args):
             f'title: "{title}"\n'
             f"verdict: null\n"       # v0.3: 결말 (닫을 때 --verdict)
             f"deviations: 0\n"       # v0.3: 사전등록 이탈 건수 (상세는 deviations.yaml)
+            f"corrections: 0\n"      # v0.5: 출처 정정 횟수 (상세는 corrections.yaml)
             f"superseded_by: null\n" # v0.4: 이 사이클을 무효화한 후속 (gil supersede)
         )
 
@@ -740,8 +741,8 @@ def _build_web_data(chains_root, only=None):
                 "opened": c.get("opened"), "closed": c.get("closed"),
                 "step": c.get("step"), "verdict": c.get("verdict"),
                 "deviations": c.get("deviations"),
-                "superseded_by": c.get("superseded_by"),  # v0.4: 전방 무효화
                 "corrections": c.get("corrections"),      # v0.5: 출처 정정 (후대의 주석)
+                "superseded_by": c.get("superseded_by"),  # v0.4: 전방 무효화
                 "last_activity": ({"ago": _ago(act[0]), "subject": act[1]} if act else None),
                 "parents": c["parents"], "lineage": c["lineage_list"],
             }
