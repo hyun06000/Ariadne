@@ -1,0 +1,5 @@
+https://github.com/hyun06000/Ariadne/releases/tag/v1.0.0
+== T3 딸깍 검증 (공개 URL → 체크섬 → 실행):
+체크섬 일치: 4215158c5309fa3b…
+OK — 체인 3개, 사이클 28개, 위반 0건 (스키마 v0.2)
+다운로드 바이너리 실행 OK

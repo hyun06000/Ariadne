@@ -1,0 +1,3 @@
+== T4 워크플로 추출 실행 (신선 클론):
+rc=0, dist=['SHA256SUMS', 'gil-darwin-amd64', 'gil-darwin-arm64', 'gil-linux-amd64', 'gil-linux-arm64']
+T4 exit: 0

@@ -1,0 +1,11 @@
+== T1 크로스 빌드 (패키지 go/ 소스):
+빌드: gil-darwin-arm64
+빌드: gil-darwin-amd64
+빌드: gil-linux-arm64
+빌드: gil-linux-amd64
+69b6d7e2e9f800be… gil-darwin-amd64
+4215158c5309fa3b… gil-darwin-arm64
+dfc378c047a4063c… gil-linux-amd64
+b1fd4364bf094c99… gil-linux-arm64
+== T2 산출물 판정 (darwin-arm64):
+계약 준수: 26/26  ✔ 이 구현은 gil이다
