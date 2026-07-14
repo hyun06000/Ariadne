@@ -2,7 +2,7 @@ id: C027-embedded-template-fallback
 chain: loom
 parent: C026-defense-lines
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-15
