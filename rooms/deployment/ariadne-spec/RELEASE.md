@@ -1,5 +1,12 @@
 # Ariadne Spec — Release
 
+## v1.2.0 (2026-07-15) — gil pages + 실전 퀵스타트
+
+- **`gil pages` 신설** (참조·Go): 이식 가능한 GitHub Pages 배포 워크플로(`gil-pages.yml`)를 저장소에 생성 — 딸깍 사용자도 명령 하나로 자기 체인을 github.io에. 발의: 박상현 ("이건 깃의 래퍼로 만들어진 거잖니").
+- **QUICKSTART 재작성**: "데모"에서 "당신의 저장소를 세우기"로 — 실전 경로(open→step→close→pages→LLM 붙이기)를 실제 명령으로. 사용자 피드백("데모만 있고 진짜 사용법이 없다") 반영. 3종 README도 실사용 강조.
+- 버그 수정: 저장소 루트 유추가 chains-root의 3단계 위여야 했다(2단계 → `rooms/`에 오생성). 두 구현 교정.
+- 검증: pages 11/11(양 구현), conformance 26/26 유지, QUICKSTART 데모 블록 실행. 근거: loom/C028.
+
 ## v1.1.0 (2026-07-15) — 진짜 딸깍
 
 `gil open`이 이제 **바이너리 하나만으로** 동작한다 (발의: 박상현의 README 워크스루가 지뢰를 드러냄):

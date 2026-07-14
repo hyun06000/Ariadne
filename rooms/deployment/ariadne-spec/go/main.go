@@ -1540,6 +1540,69 @@ func renderWebPage(d *webData, pageTitle, generated string) string {
 
 type webArgs struct{ root, output, title, chain string }
 
+const pagesWorkflow = `# gil-pages — push마다 사이클 체인 뷰어를 GitHub Pages로 배포한다.
+# gil pages가 생성. 저장소에 특정되지 않는다 — 어떤 Ariadne 저장소든 그대로 쓴다.
+name: gil-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build viewer with gil
+        run: |
+          curl -fsSL -o /tmp/gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-linux-amd64
+          chmod +x /tmp/gil
+          mkdir -p _site
+          /tmp/gil web -o _site/index.html --title "gil — cycle chains"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+`
+
+func cmdPages(root string, force bool) error {
+	repoRoot := filepath.Clean(filepath.Join(root, "..", "..", ".."))
+	wfDir := filepath.Join(repoRoot, ".github", "workflows")
+	wfPath := filepath.Join(wfDir, "gil-pages.yml")
+	if _, err := os.Stat(wfPath); err == nil && !force {
+		return cerr("이미 존재한다: %s (덮으려면 --force)", wfPath)
+	}
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		return cerr("%v", err)
+	}
+	if err := os.WriteFile(wfPath, []byte(pagesWorkflow), 0o644); err != nil {
+		return cerr("%v", err)
+	}
+	rel, _ := filepath.Rel(repoRoot, wfPath)
+	fmt.Printf("생성: %s\n", rel)
+	fmt.Println("다음: git push 후 저장소 Settings → Pages → Source = 'GitHub Actions'")
+	return nil
+}
+
 func cmdWeb(a webArgs) error {
 	if fi, err := os.Stat(a.root); err != nil || !fi.IsDir() {
 		return cerr("체인 루트가 없다: %s", a.root)
@@ -1755,6 +1818,15 @@ func main() {
 			title:  flagVal(flags, "title", "Ariadne — 사이클 체인"),
 			chain:  flagVal(flags, "chain", ""),
 		}); err != nil {
+			fail(err)
+		}
+	case "pages":
+		_, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "force": false})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if err := cmdPages(flagVal(flags, "root", defaultRoot), len(flags["force"]) > 0); err != nil {
 			fail(err)
 		}
 	default:

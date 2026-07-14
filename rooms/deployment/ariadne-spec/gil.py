@@ -723,6 +723,66 @@ def render_web_page(data, page_title, generated):
             f"<title>{html.escape(page_title)}</title>\n</head>\n<body>\n{body}\n</body>\n</html>\n")
 
 
+_PAGES_WORKFLOW = """# gil-pages — push마다 사이클 체인 뷰어를 GitHub Pages로 배포한다.
+# gil pages가 생성. 저장소에 특정되지 않는다 — 어떤 Ariadne 저장소든 그대로 쓴다.
+name: gil-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build viewer with gil
+        run: |
+          curl -fsSL -o /tmp/gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-linux-amd64
+          chmod +x /tmp/gil
+          mkdir -p _site
+          /tmp/gil web -o _site/index.html --title "gil — cycle chains"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+"""
+
+
+def cmd_pages(args):
+    chains_root = args.root
+    repo_root = os.path.normpath(os.path.join(chains_root, "..", "..", ".."))
+    wf_dir = os.path.join(repo_root, ".github", "workflows")
+    wf_path = os.path.join(wf_dir, "gil-pages.yml")
+    if os.path.exists(wf_path) and not args.force:
+        raise ChainError(f"이미 존재한다: {wf_path} (덮으려면 --force)")
+    os.makedirs(wf_dir, exist_ok=True)
+    with open(wf_path, "w", encoding="utf-8") as f:
+        f.write(_PAGES_WORKFLOW)
+    print(f"생성: {os.path.relpath(wf_path, repo_root)}")
+    print("다음: git push 후 저장소 Settings → Pages → Source = 'GitHub Actions'")
+    return 0
+
+
 def cmd_web(args):
     chains_root = args.chains_root
     if not os.path.isdir(chains_root):
@@ -1126,6 +1186,11 @@ def main(argv=None):
     p_rel.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로")
     p_rel.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_rel.set_defaults(func=cmd_release)
+
+    p_pages = sub.add_parser("pages", help="GitHub Pages 배포 워크플로를 생성한다")
+    p_pages.add_argument("--force", action="store_true", help="기존 워크플로를 덮어쓴다")
+    p_pages.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_pages.set_defaults(func=cmd_pages)
 
     p_web = sub.add_parser("web", help="자기완결적 정적 HTML 뷰어 생성")
     p_web.add_argument("chains_root", nargs="?", default="rooms/experiment/chains",
