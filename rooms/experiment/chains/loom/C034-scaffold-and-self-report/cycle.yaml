@@ -4,7 +4,8 @@ parent: C033-default-commit
 lineage: [gateway/C001-agent-self-onboard]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
+verdict: supported
 title: "스캐폴드를 v0.3로 seed하고 version·help·명령목록을 단일 소스로 두면 도구가 자기 스키마와 능력을 정확히 반영한다"
