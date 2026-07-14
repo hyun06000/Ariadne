@@ -1,5 +1,17 @@
 # Ariadne Quickstart
 
+## 0. 딸깍 설치 (바이너리 — 파이썬도 Go도 불필요)
+
+```
+curl -fsSL -o gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
+chmod +x gil
+```
+
+(Intel 맥: `gil-darwin-amd64`, 리눅스: `gil-linux-{arm64,amd64}`. 무결성은 `SHA256SUMS` 대조.
+바이너리는 log·fsck·open·close·step·verify·web 전부를 이행한다 — release와 open --git만 참조 구현 전용.)
+
+이후 아래의 `python3 gil.py`를 `./gil`로 바꿔 읽으면 된다. 또는 —
+
 이 패키지(`ariadne-spec/`)만 있으면 된다. 아래 코드 블록을 순서대로 실행하면
 새 프로젝트가 부트스트랩되고 첫 사이클이 태어나고 닫힌다.
 (이 문서의 bash 블록은 릴리스 테스트가 그대로 실행한다 — 문서가 낡으면 테스트가 깨진다.)
