@@ -23,6 +23,13 @@ import tempfile
 
 RESULTS = []
 
+UNIMPLEMENTED = 3  # SPEC §7.2-4: 미구현·미지 명령의 통일된 종료 신호
+
+# SPEC §5가 정의하는 명령 표면. 구현이 이 중 무엇을 구현했는지는 자유이나(부분 구현 합법),
+# 자기보고와 실제가 어긋나는 것은 금지다. 이 목록 자체가 목록형 규칙이며 — SPEC이 자라면 함께 자라야 한다.
+CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release", "version",
+                     "handoff", "supersede", "goto", "pages", "web", "help"]
+
 
 def check(cid, desc, cond, detail=""):
     RESULTS.append(cond)
@@ -96,6 +103,56 @@ def main():
     check("VERSION-SEMVER", "version이 'gil X.Y.Z' (SemVer) 형태로 자기를 보고",
           r.returncode == 0 and re.fullmatch(r"gil \d+\.\d+\.\d+", r.stdout.strip()) is not None,
           r.stdout.strip()[:60])
+
+    # ---- 명령 자기보고 표면 (SPEC §7.2 — loom/C039, maru의 이슈 #12) ----
+    #      에이전트는 능력을 문서가 아니라 도구의 자기보고로 판단한다. 그래서 자기보고는 계약이다.
+    #      판정기는 각 구현을 '그 자신의 훅'에 비추어 본다 — 부분 구현은 합법이고, 거짓 보고만 불법이다.
+    hroot = make_sandbox(os.path.join(work, "help"))
+    r = impl.run(hroot, "help")
+    hooks = [l for l in r.stdout.splitlines() if l.startswith("gil:commands ")]
+    claimed = hooks[0].split()[1:] if len(hooks) == 1 else []
+    check("HELP-EXIT0", "help이 exit 0으로 능력 목록 보고 (기계 훅 gil:commands 정확히 1줄)",
+          r.returncode == 0 and len(hooks) == 1 and len(claimed) > 0,
+          f"rc={r.returncode} 훅={len(hooks)}줄")
+
+    # 무해성: 능력을 물어보는 행위가 저장소를 변경하면 안 된다 (§7.2-6).
+    sroot = make_sandbox(os.path.join(work, "help-safe"))
+    before = snapshot(sroot)
+    impl.run(sroot, "help")
+    for c in claimed:
+        impl.run(sroot, "help", c)
+    impl.run(sroot, "pages", "--dry-run")
+    check("HELP-SAFE", "능력 탐침(help·help <명령>·pages --dry-run)이 저장소를 변경하지 않는다",
+          snapshot(sroot) == before)
+
+    # 정방향: 나열한 것은 실제로 있다. (help <c> → 0, dispatch가 미구현 신호를 내지 않음)
+    troot = make_sandbox(os.path.join(work, "help-truth"))
+    liars = [c for c in claimed
+             if impl.run(troot, "help", c).returncode != 0
+             or impl.run(troot, c).returncode == UNIMPLEMENTED]
+    check("HELP-TRUTHFUL", "훅이 나열한 모든 명령이 실재한다 (미구현 신호 없음)",
+          bool(claimed) and not liars, f"거짓 보고: {liars}")
+
+    # 역방향: 나열하지 않은 것은 실제로 없다 — '구현했는데 목록에 없다'(이슈 #12의 버그)를 잡는 방향.
+    # 미지 명령 'bogus'를 함께 걸어, 모든 명령을 구현한 참조 구현에서도 공허 통과가 되지 않게 한다.
+    croot = make_sandbox(os.path.join(work, "help-complete"))
+    unclaimed = [c for c in CONTRACT_COMMANDS if c not in claimed] + ["bogus"]
+    hidden = [c for c in unclaimed
+              if impl.run(croot, "help", c).returncode != UNIMPLEMENTED
+              or impl.run(croot, c).returncode != UNIMPLEMENTED]
+    check("HELP-COMPLETE", f"나열하지 않은 명령은 미구현 신호(exit {UNIMPLEMENTED})로 답한다",
+          not hidden, f"침묵한 명령: {hidden}")
+
+    # 탐침의 무해성 — pages는 두드리기만 해도 파일을 만들던 명령이다 (이슈 #12의 3절).
+    proot = make_sandbox(os.path.join(work, "pages"))
+    wf = os.path.join(proot, ".github", "workflows", "gil-pages.yml")
+    rd = impl.run(proot, "pages", "--dry-run")
+    made_on_probe = os.path.exists(wf)
+    rr = impl.run(proot, "pages")  # 대조군: 진짜 호출은 만든다
+    check("PAGES-DRYRUN", "pages --dry-run이 경로만 보고하고 파일을 만들지 않는다 (대조: pages는 만든다)",
+          rd.returncode == 0 and "gil-pages.yml" in rd.stdout and not made_on_probe
+          and rr.returncode == 0 and os.path.exists(wf),
+          f"탐침이 생성함={made_on_probe}")
 
     # ---- fsck: 깨끗한 저장소 ----
     root = make_sandbox(os.path.join(work, "clean"))

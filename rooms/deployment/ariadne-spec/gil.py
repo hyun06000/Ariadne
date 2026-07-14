@@ -35,7 +35,7 @@ import sys
 
 _STEP_NAMES = {1: "가설", 2: "설계", 3: "검증", 4: "분석", 5: "보고"}
 _VERDICTS = ("supported", "partial", "rejected", "inconclusive")  # v0.3
-_GIL_VERSION = "1.12.0"  # gil:version
+_GIL_VERSION = "1.13.0"  # gil:version
 
 
 class ChainError(Exception):
@@ -889,6 +889,12 @@ def cmd_pages(args):
     repo_root = os.path.normpath(os.path.join(chains_root, "..", "..", ".."))
     wf_dir = os.path.join(repo_root, ".github", "workflows")
     wf_path = os.path.join(wf_dir, "gil-pages.yml")
+    if getattr(args, "dry_run", False):
+        # §7.2-6: 능력 탐침은 저장소를 변경하지 않는다. 무엇이 생길지만 말한다.
+        rel = os.path.relpath(wf_path, repo_root)
+        print(f"생성될 경로: {rel}" + (" (이미 존재 — 덮으려면 --force)" if os.path.exists(wf_path) else ""))
+        print("dry-run: 아무것도 만들지 않았다")
+        return 0
     if os.path.exists(wf_path) and not args.force:
         raise ChainError(f"이미 존재한다: {wf_path} (덮으려면 --force)")
     os.makedirs(wf_dir, exist_ok=True)
@@ -1448,10 +1454,37 @@ def cmd_log(args):
     return 0
 
 
+_UNIMPLEMENTED_EXIT = 3  # §7.2-4: 미구현·미지 명령의 통일된 신호
+
+
+def _unimplemented(name, commands):
+    """§7.2-4 — 미구현 신호. 목록은 단일 소스에서 파생된다."""
+    print(f"미구현: '{name}' — 이 구현(gil {_GIL_VERSION})이 구현한 명령: "
+          f"{'·'.join(commands)}. (gil help 참조)", file=sys.stderr)
+    return _UNIMPLEMENTED_EXIT
+
+
+def _print_help(sub, name=None):
+    """§7.2-1·3 — 능력 목록과 안전한 능력 탐침. 저장소를 변경하지 않는다."""
+    commands = list(sub.choices)  # 단일 소스: 등록된 서브파서가 곧 구현 목록이다 (§7.2-2)
+    if name is not None:
+        if name not in sub.choices:
+            return _unimplemented(name, commands)
+        sub.choices[name].print_help()
+        return 0
+    print(f"gil {_GIL_VERSION} — 길, GIt for Language model")
+    print()
+    print("구현 명령 (자세히: gil help <명령>):")
+    print("  " + " ".join(commands))
+    print()
+    print(f"gil:commands {' '.join(commands)}")  # §7.2-1: 사람의 출력 안에 심은 기계 훅
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="gil", description="gil — 길, GIt for Language model (Ariadne 사이클 체인 도구)")
     parser.add_argument("--version", action="version", version=f"gil {_GIL_VERSION}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
     for name, func, help_text in (
         ("log", cmd_log, "체인 계보를 그래프로 렌더"),
         ("fsck", cmd_fsck, "스키마 v0.2 규칙 위반을 전부 수집해 보고"),
@@ -1535,6 +1568,8 @@ def main(argv=None):
 
     p_pages = sub.add_parser("pages", help="GitHub Pages 배포 워크플로를 생성한다")
     p_pages.add_argument("--force", action="store_true", help="기존 워크플로를 덮어쓴다")
+    p_pages.add_argument("--dry-run", dest="dry_run", action="store_true",
+                         help="생성될 경로만 보고하고 아무것도 만들지 않는다 (§7.2-6 부작용 없는 탐침)")
     p_pages.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_pages.set_defaults(func=cmd_pages)
 
@@ -1545,6 +1580,18 @@ def main(argv=None):
     p_web.add_argument("--title", default="Ariadne — 사이클 체인", help="페이지 제목")
     p_web.add_argument("--chain", help="특정 체인만")
     p_web.set_defaults(func=cmd_web)
+
+    p_help = sub.add_parser("help", help="구현 명령 목록 — gil help <명령>이면 그 명령의 사용법")
+    p_help.add_argument("name", nargs="?", help="조회할 명령 (생략하면 전체 목록)")
+    p_help.set_defaults(func=lambda a: _print_help(sub, a.name))
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # §7.2-1: 무인자 호출은 help와 같다 (오류가 아니다).
+    # §7.2-4: 미지의 명령은 argparse의 rc=2가 아니라 통일된 미구현 신호(exit 3)로 답한다.
+    if not argv:
+        return _print_help(sub)
+    if not argv[0].startswith("-") and argv[0] not in sub.choices:
+        return _unimplemented(argv[0], list(sub.choices))
 
     args = parser.parse_args(argv)
     try:

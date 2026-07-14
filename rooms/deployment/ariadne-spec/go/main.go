@@ -2133,10 +2133,21 @@ jobs:
         uses: actions/deploy-pages@v4
 `
 
-func cmdPages(root string, force bool) error {
+func cmdPages(root string, force, dryRun bool) error {
 	repoRoot := filepath.Clean(filepath.Join(root, "..", "..", ".."))
 	wfDir := filepath.Join(repoRoot, ".github", "workflows")
 	wfPath := filepath.Join(wfDir, "gil-pages.yml")
+	if dryRun {
+		// §7.2-6: 능력 탐침은 저장소를 변경하지 않는다. 무엇이 생길지만 말한다.
+		rel, _ := filepath.Rel(repoRoot, wfPath)
+		suffix := ""
+		if _, err := os.Stat(wfPath); err == nil {
+			suffix = " (이미 존재 — 덮으려면 --force)"
+		}
+		fmt.Printf("생성될 경로: %s%s\n", rel, suffix)
+		fmt.Println("dry-run: 아무것도 만들지 않았다")
+		return nil
+	}
 	if _, err := os.Stat(wfPath); err == nil && !force {
 		return cerr("이미 존재한다: %s (덮으려면 --force)", wfPath)
 	}
@@ -2220,27 +2231,73 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-// 단일 소스: 구현된 명령과 미구현(참조 전용). version·help·notImplemented가 공유해 드리프트를 막는다.
-const gilVersion = "1.12.0" // gil:version
+const gilVersion = "1.13.0" // gil:version
 
-var implementedCommands = []string{"log", "fsck", "open", "close", "step", "verify", "web", "pages", "goto", "handoff", "supersede", "version", "help"}
+// commandTable — SPEC §7.2-2의 단일 소스.
+// help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
+// 목록을 두 번 적지 않는다: 여기에 없는 것은 이 바이너리에 없다.
+var commandTable = []struct{ name, usage, desc string }{
+	{"log", "gil log [chains-root] [--chain <이름>]", "체인 계보를 ASCII 그래프로"},
+	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R11 위반 전수 수집·보고"},
+	{"open", "gil open <chain> <slug> [--title …] [--parent …] [--lineage …] [--author …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가)"},
+	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
+	{"step", "gil step <chain> <id> <n> [--no-commit] [--push]", "열린 사이클의 스텝 전이 (1~5)"},
+	{"verify", "gil verify [chains-root] [--chain <이름>]", "닫힌 사이클의 태그↔작업 트리 대조"},
+	{"web", "gil web [chains-root] -o <출력> [--title …] [--chain …]", "자기완결적 정적 HTML 뷰어"},
+	{"pages", "gil pages [--force] [--dry-run]", "GitHub Pages 배포 워크플로 생성"},
+	{"goto", "gil goto <chain>/<id> [--checkout]", "타임머신: 사이클 시점 역행 조회·체크아웃"},
+	{"handoff", "gil handoff [chains-root]", "세션의 매듭: 현황·부활 경로·다음 실"},
+	{"supersede", "gil supersede <old-ref> <new-ref>", "전방 무효화: 닫힌 사이클에 superseded_by 각인"},
+	{"version", "gil version", "이 바이너리의 버전"},
+	{"help", "gil help [<명령>]", "구현 명령 목록 — 부작용 없는 능력 탐침"},
+}
 
 const referenceOnly = "release" // 참조 구현(gil.py) 전용 (loom/C036: open --git/--push는 이식 완료)
 
+// commandNames — 테이블에서 파생. 어떤 목록도 손으로 유지하지 않는다.
+func commandNames() []string {
+	names := make([]string, 0, len(commandTable))
+	for _, c := range commandTable {
+		names = append(names, c.name)
+	}
+	return names
+}
+
+func lookupCommand(name string) (string, bool) {
+	for _, c := range commandTable {
+		if c.name == name {
+			return c.usage, true
+		}
+	}
+	return "", false
+}
+
 func printHelp() {
 	fmt.Printf("gil %s — 길, GIt for Language model\n\n", gilVersion)
-	fmt.Println("구현 명령:")
-	fmt.Println("  log fsck open close step verify web pages goto handoff supersede")
-	fmt.Println("  version  이 바이너리의 버전")
-	fmt.Println("  help     이 목록")
+	fmt.Println("구현 명령 (자세히: gil help <명령>):")
+	for _, c := range commandTable {
+		fmt.Printf("  %-10s %s\n", c.name, c.desc)
+	}
 	fmt.Printf("\n참조 구현(python3 gil.py) 전용: %s\n", referenceOnly)
 	fmt.Println("열기/스텝/닫기는 깃 저장소에서 커밋한다 (open은 --git, 스텝·닫기는 기본 — --no-commit로 opt-out).")
 	fmt.Println("open --git --push는 번호 원장 규율을 따른다 (경합 시 fetch·rebase·자동 재번호·재시도).")
+	// §7.2-1: 사람의 출력 안에 심은 기계 훅. 훅과 위 목록은 같은 테이블에서 나온다.
+	fmt.Printf("\ngil:commands %s\n", strings.Join(commandNames(), " "))
+}
+
+// helpFor — §7.2-3: 부작용 없는 능력 탐침. 구현했으면 사용법 + exit 0, 아니면 미구현(exit 3).
+func helpFor(name string) {
+	usage, ok := lookupCommand(name)
+	if !ok {
+		notImplemented(name) // exit 3 — 없는 것을 "있다"고 답하지 않는다
+	}
+	fmt.Printf("사용법: %s\n", usage)
+	os.Exit(0)
 }
 
 func notImplemented(what string) {
 	fmt.Fprintf(os.Stderr, "미구현: '%s' — 이 바이너리(gil %s) 구현: %s. 참조 전용: %s. (gil help 참조)\n",
-		what, gilVersion, strings.Join(implementedCommands[:11], "·"), referenceOnly)
+		what, gilVersion, strings.Join(commandNames(), "·"), referenceOnly)
 	os.Exit(3)
 }
 
@@ -2255,6 +2312,10 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Printf("gil %s\n", gilVersion)
 	case "help", "--help", "-h":
+		// §7.2-3: 인자가 있으면 그 명령의 능력 탐침 (없는 명령이면 exit 3 — 거짓말하지 않는다)
+		if len(os.Args) >= 3 && !strings.HasPrefix(os.Args[2], "-") {
+			helpFor(os.Args[2])
+		}
 		printHelp()
 	case "fsck":
 		root := defaultRoot
@@ -2437,12 +2498,12 @@ func main() {
 			fail(err)
 		}
 	case "pages":
-		_, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "force": false})
+		_, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "force": false, "dry-run": false})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
-		if err := cmdPages(flagVal(flags, "root", defaultRoot), len(flags["force"]) > 0); err != nil {
+		if err := cmdPages(flagVal(flags, "root", defaultRoot), len(flags["force"]) > 0, len(flags["dry-run"]) > 0); err != nil {
 			fail(err)
 		}
 	default:
