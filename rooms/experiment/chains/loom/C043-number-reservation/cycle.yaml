@@ -2,7 +2,7 @@ id: C043-number-reservation
 chain: loom
 parent: C042-viewer-follows-ledger
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-15
