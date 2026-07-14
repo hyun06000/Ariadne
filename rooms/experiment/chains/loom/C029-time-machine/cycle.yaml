@@ -4,7 +4,7 @@ parent: null
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-15
 title: "gil goto가 사이클 시점의 역행 조회·체크아웃·분기 안내를 감싸면 에이전트는 raw 깃 없이 잘못된 길에서 되돌아간다"
