@@ -2,7 +2,7 @@ id: C025-open-source-front
 chain: loom
 parent: C024-binary-release
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-15
