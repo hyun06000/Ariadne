@@ -497,6 +497,32 @@ padding:1px 8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
 _ROW_H, _COL_W, _LANE_GAP, _TOP_PAD = 64, 26, 60, 46
 
 
+def _last_activity(chains_root, chain, cid_dir):
+    """열린 사이클의 최근 활동 (epoch, 제목). 깃이 없거나 저장소가 아니면 None — web은 깃 무의존."""
+    try:
+        repo = _repo_root(chains_root)
+        if not repo:
+            return None
+        rel = os.path.relpath(os.path.join(chains_root, chain, cid_dir), repo)
+        r = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%ct|%s", "--", rel],
+                           capture_output=True, text=True)
+        if r.returncode != 0 or "|" not in r.stdout:
+            return None
+        ts, subject = r.stdout.strip().split("|", 1)
+        return int(ts), subject
+    except Exception:
+        return None
+
+
+def _ago(epoch):
+    delta = max(0, int(datetime.datetime.now().timestamp()) - epoch)
+    if delta < 3600:
+        return f"{delta // 60}분 전"
+    if delta < 86400:
+        return f"{delta // 3600}시간 전"
+    return f"{delta // 86400}일 전"
+
+
 def _build_web_data(chains_root, only=None):
     """log와 동일한 로더·그래프 재구성. 깨진 체인이면 ChainError가 그대로 전파된다."""
     data = {}
@@ -509,18 +535,17 @@ def _build_web_data(chains_root, only=None):
         if not cycles:
             continue
         order, children = build_graph(name, cycles)
-        data[name] = {
-            "order": order,
-            "cycles": {
-                cid: {
-                    "status": c.get("status"), "title": c.get("title") or "",
-                    "opened": c.get("opened"), "closed": c.get("closed"),
-                    "step": c.get("step"),
-                    "parents": c["parents"], "lineage": c["lineage_list"],
-                } for cid, c in cycles.items()
-            },
-            "children": children,
-        }
+        entry = {}
+        for cid, c in cycles.items():
+            act = _last_activity(chains_root, name, c["_dir"]) if c.get("status") == "open" else None
+            entry[cid] = {
+                "status": c.get("status"), "title": c.get("title") or "",
+                "opened": c.get("opened"), "closed": c.get("closed"),
+                "step": c.get("step"),
+                "last_activity": ({"ago": _ago(act[0]), "subject": act[1]} if act else None),
+                "parents": c["parents"], "lineage": c["lineage_list"],
+            }
+        data[name] = {"order": order, "cycles": entry, "children": children}
     return data
 
 
@@ -592,7 +617,8 @@ def _step_badge(meta):
     n = int(step)
     if not 1 <= n <= 5:
         return ""
-    return f' · {"●" * n}{"○" * (5 - n)} {n}/5 {_STEP_NAMES[n]}'
+    ago = (meta.get("last_activity") or {}).get("ago")
+    return f' · {"●" * n}{"○" * (5 - n)} {n}/5 {_STEP_NAMES[n]}' + (f" · 활동 {ago}" if ago else "")
 
 
 def _render_tables(data):
@@ -604,7 +630,10 @@ def _render_tables(data):
             pill = f'<span class="pill{" closed" if m["status"] == "closed" else ""}">{html.escape(m["status"] or "?")}</span>{html.escape(_step_badge(m))}'
             parents = ", ".join(m["parents"]) or "(root)"
             lineage = ", ".join(m["lineage"]) or "—"
+            act = m.get("last_activity")
             period = f'{m["opened"] or "?"} → {m["closed"] or "진행 중"}'
+            if act:
+                period += f' · {act["ago"]}: {act["subject"][:40]}'
             rows.append(f'<tr><td class="id">{html.escape(cid)}</td><td>{pill}</td>'
                         f'<td>{html.escape(m["title"])}</td><td>{html.escape(parents)}</td>'
                         f'<td>{html.escape(lineage)}</td><td>{html.escape(period)}</td></tr>')
