@@ -1,0 +1,10 @@
+id: C023-v1-integration
+chain: loom
+parent: C020-go-web-port
+lineage: [genesis/C003-birth-of-a-being]
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "두 구현(파이썬 참조·Go)을 한 패키지에 동봉하고 각각 26/26임을 패키지만으로 재현하면 v1.0.0의 자격이 선다"
