@@ -2,7 +2,7 @@ id: C038-version-surface-contract
 chain: loom
 parent: C037-checksum-install-gate
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-14
