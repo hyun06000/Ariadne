@@ -1,0 +1,15 @@
+=== 1) 참조 구현: 빈 체인의 첫 사이클, --author 미지정 ===
+열림: eda/C001-first
+parent: null
+author: clew
+=== 2) Go: 비어있지 않은 체인, --author·--parent 미지정 (maru의 상황) ===
+열림: eda/C002-second
+parent: null
+author: clew
+=== 3) fsck — 한 체인에 루트가 둘인데? ===
+OK — 체인 1개, 사이클 2개, 위반 0건 (스키마 v0.4)
+  참조 exit=0
+OK — 체인 1개, 사이클 2개, 위반 0건 (스키마 v0.4)
+  Go   exit=0
+=== 4) log — 도구는 보고 있는가? ===
+root: C001-first, C002-second
