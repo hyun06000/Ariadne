@@ -1,0 +1,14 @@
+M1 [격추] author 기본값 'clew' 부활 (이슈 #17의 결함 그 자체)
+     지목 항목: OPEN-AUTHOR-REQUIRED → FAIL (판정기가 봤다)
+     동반 실패: 없음
+M2 [격추] O2 부모 검사 삭제 (조용히 두 번째 루트를 만든다)
+     지목 항목: OPEN-PARENT-REQUIRED → FAIL (판정기가 봤다)
+     동반 실패: 없음
+M3 [격추] R12 삭제 (다중 루트를 다시 침묵시킨다)
+     지목 항목: FSCK-MULTI-ROOT → FAIL (판정기가 봤다)
+     동반 실패: 없음
+M4 [격추] [과잉] 빈 체인에서도 부모를 요구 (정당한 루트를 불법화)
+     지목 항목: OPEN-ROOT-EMPTY-CHAIN → FAIL (판정기가 봤다)
+     동반 실패: ['OPEN-CREATE', 'OPEN-INCREMENT']
+
+변이 검증: 4/4 격추 — 판정기가 본다

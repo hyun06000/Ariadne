@@ -362,6 +362,12 @@ def fsck_collect(chains, chains_root=None):
         _, _, stuck = _toposort(valid, edges)
         if stuck:
             violations.append(("R7", ch, f"순환 참조: {', '.join(stuck)}"))
+        # R12 (v0.5): 다중 루트 — 거의 항상 --parent 누락의 흔적이다.
+        # 경고이지 위반이 아닌 이유: open --new-root가 정당한 탈출구다. 도구가 자기 탈출구를 불법화하면 안 된다.
+        roots = sorted(r["id"] for r in recs if r.get("id") and not r["parents"])
+        if len(roots) > 1:
+            warnings.append(("다중루트", ch, f"루트가 {len(roots)}개 — {', '.join(roots)} "
+                                            f"(의도한 것이 아니면 parent 누락이다)"))
     return violations, warnings
 
 
@@ -458,6 +464,13 @@ def cmd_open(args):
     template = _template_dir(chains_root)
 
     # ---- 사전 검증: 저장소를 건드리기 전에 전부 확인한다 (부분 생성물 방지) ----
+    # §3.2 출처 계약 (P1·P2): 도구는 출처(author·parent)를 지어내지 않는다. 모르면 거부한다.
+    if not args.author:  # O1 — 기본값 없음. 고유명사 기본값이 남의 원장에 거짓 저자를 박았다 (이슈 #17)
+        raise ChainError(
+            "저자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"
+            f"      존재의 이름을 명시하라:  gil open {args.chain} {args.slug} --author <이름>")
+    if args.parent and args.new_root:  # O3 — 모순
+        raise ChainError("--parent와 --new-root는 함께 쓸 수 없다 — 부모가 있으면 루트가 아니다")
     if not _SLUG_RE.match(args.slug):
         raise ChainError(f"슬러그 '{args.slug}' 형식 위반 — R1: 소문자·숫자·하이픈만 (마침표 금지)")
     use_embedded = not os.path.isdir(template)  # _template 부재 시 내장 스캐폴드 (v1.1: 딸깍)
@@ -470,6 +483,14 @@ def cmd_open(args):
 
     records = load_chain_records(chain_dir) if not new_chain else []
     ids = {r.get("id") for r in records}
+    # O2 (§3.2 P2·P3): 빈 체인의 첫 사이클이 루트라는 것은 계산이지만, 비어있지 않은 체인에서
+    # parent를 비우는 것은 추측이다 — 조용히 두 번째 루트를 만드는 대신 저자에게 묻는다.
+    if records and not args.parent and not args.new_root:
+        tip = sorted(i for i in ids if i)[-1] if ids else "?"
+        raise ChainError(
+            f"체인 '{args.chain}'에 이미 사이클이 있다 (tip: {tip}) — 부모를 알 수 없다 (§3.2 P2).\n"
+            f"      부모를 명시하라:  --parent {tip}   (분기면 여러 번)\n"
+            f"      정말 새 루트라면:  --new-root")
     for p in args.parent:
         if "/" in p:
             raise ChainError(f"parent '{p}'는 로컬 id여야 한다 (R3)")
@@ -1502,8 +1523,10 @@ def main(argv=None):
     p_open.add_argument("--title", default="", help="정복하려는 가장 작은 문제 한 줄")
     p_open.add_argument("--parent", action="append", default=[], help="부모 사이클의 로컬 id (병합이면 여러 번)")
     p_open.add_argument("--lineage", action="append", default=[], help="교훈의 연원, 전역 표기 <chain>/<id> (여러 번 가능)")
-    p_open.add_argument("--author", default="clew", help="수행하는 존재 (존재의 방 이름)")
+    p_open.add_argument("--author", help="수행하는 존재 (존재의 방 이름) — 필수. 기본값 없음 (§3.2 P1)")
     p_open.add_argument("--date", default=today, help="opened 일자 (기본: 오늘)")
+    p_open.add_argument("--new-root", action="store_true",
+                        help="비어있지 않은 체인에 의도적으로 새 루트를 만든다 (parent: null)")
     p_open.add_argument("--new-chain", action="store_true", help="체인이 없으면 chain.md 스텁과 함께 생성")
     p_open.add_argument("--git", action="store_true", help="열림 즉시 사이클 디렉토리만 커밋")
     p_open.add_argument("--push", action="store_true", help="커밋 후 push (준실시간 뷰어 갱신)")

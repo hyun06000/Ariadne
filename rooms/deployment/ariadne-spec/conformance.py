@@ -198,8 +198,62 @@ def main():
     check("OPEN-INCREMENT", "번호 자동 증가 (C002)", r.returncode == 0
           and os.path.isdir(os.path.join(root, "rooms/experiment/chains/demo/C002-second-step")))
     before = snapshot(root)
-    r = impl.run(root, "open", "demo", "Bad.Slug", "--title", "t", "--date", "2026-01-03")
+    # --author를 준다: 주지 않으면 O1(저자 없음)에 먼저 걸려 '슬러그 규칙'을 판정하지 못한다.
+    # 엉뚱한 이유로 통과하는 테스트는 눈먼 테스트다 (loom/C011 동등 변이의 교훈).
+    r = impl.run(root, "open", "demo", "Bad.Slug", "--title", "t", "--author", "fx", "--date", "2026-01-03")
     check("OPEN-REJECT-SLUG", "형식 위반 슬러그 거부 + 무변화", r.returncode != 0 and snapshot(root) == before)
+
+    # ---- 출처 계약 (SPEC §3.2 — loom/C040): 도구는 author·parent를 지어내지 않는다.
+    #      판정 수단은 종료 코드 + 저장소 무변화뿐이다. 오류 메시지의 문면은 계약이 아니다 (§3.1).
+    #      항목마다 자기 샌드박스를 쓴다 — 거부가 뚫린 구현이 뒤 항목의 번호를 밀어
+    #      '엉뚱한 이유의 실패'를 만들면 결함의 지목이 흐려진다 (판정 항목 독립, loom/C012). ----
+    def prov(tag):
+        p = make_sandbox(os.path.join(work, tag))
+        write_cycle(p, "demo", "C001-alpha")  # 체인이 비어 있지 않다 → 부모가 필요한 상태
+        return p
+
+    proot = prov("prov-author")
+    before = snapshot(proot)
+    r = impl.run(proot, "open", "demo", "no-author", "--title", "t",
+                 "--parent", "C001-alpha", "--date", "2026-01-03")
+    check("OPEN-AUTHOR-REQUIRED", "O1: --author 없이 open 거부 + 무변화 (고유명사 기본값 금지)",
+          r.returncode != 0 and snapshot(proot) == before, f"rc={r.returncode}")
+    proot = prov("prov-parent")
+    before = snapshot(proot)
+    r = impl.run(proot, "open", "demo", "no-parent", "--title", "t",
+                 "--author", "fx", "--date", "2026-01-03")
+    check("OPEN-PARENT-REQUIRED", "O2: 비어있지 않은 체인에서 부모 플래그 없이 open 거부 + 무변화",
+          r.returncode != 0 and snapshot(proot) == before, f"rc={r.returncode}")
+    proot = prov("prov-conflict")
+    before = snapshot(proot)
+    r = impl.run(proot, "open", "demo", "conflict", "--title", "t", "--author", "fx",
+                 "--parent", "C001-alpha", "--new-root", "--date", "2026-01-03")
+    check("OPEN-ROOT-CONFLICT", "O3: --parent와 --new-root 동시 지정 거부 + 무변화",
+          r.returncode != 0 and snapshot(proot) == before, f"rc={r.returncode}")
+    proot = prov("prov-newroot")
+    r = impl.run(proot, "open", "demo", "second-root", "--title", "t", "--author", "fx",
+                 "--new-root", "--date", "2026-01-04")
+    ypath = os.path.join(proot, "rooms/experiment/chains/demo/C002-second-root/cycle.yaml")
+    y = open(ypath, encoding="utf-8").read() if os.path.isfile(ypath) else ""
+    check("OPEN-NEW-ROOT", "O5: --new-root로 의도된 두 번째 루트 생성 (parent: null)",
+          r.returncode == 0 and "parent: null" in y, r.stderr.strip()[-120:])
+    # 과잉 작동 방어: 빈 체인의 첫 사이클이 루트라는 것은 추측이 아니라 계산이다 (§3.2 P3).
+    # 이 항목이 실패하는 구현은 '정당한 루트'를 불법화한 것이다 — README 대문의 딸깍이 그 증인이다.
+    eroot = make_sandbox(os.path.join(work, "open-empty"))
+    r = impl.run(eroot, "open", "solo", "very-first", "--new-chain", "--title", "t",
+                 "--author", "fx", "--date", "2026-01-01")
+    check("OPEN-ROOT-EMPTY-CHAIN", "P3: 빈 체인의 첫 사이클은 부모 플래그 없이 열린다 (과잉 거부 금지)",
+          r.returncode == 0
+          and os.path.isdir(os.path.join(eroot, "rooms/experiment/chains/solo/C001-very-first")),
+          r.stderr.strip()[-120:])
+    # R12: 다중 루트는 '경고'다 — 위반이 아니다. exit 0을 깨는 구현은 자기 탈출구(--new-root)를 불법화한 것이다.
+    mroot = make_sandbox(os.path.join(work, "multi-root"))
+    write_cycle(mroot, "demo", "C001-alpha")
+    write_cycle(mroot, "demo", "C002-beta")  # parent 없음 → 두 번째 루트
+    r = impl.run(mroot, "fsck")
+    check("FSCK-MULTI-ROOT", "R12: 다중 루트를 경고로 판정 (exit 0 — 위반 아님)",
+          r.returncode == 0 and "다중루트" in (r.stderr + r.stdout),
+          f"rc={r.returncode} {(r.stderr or '')[-90:]}")
 
     # ---- close (자체 구축 샌드박스 — 판정 항목 간 독립: 각 검사는 자기가 판정하는 명령에만 의존한다) ----
     croot = make_sandbox(os.path.join(work, "close"))

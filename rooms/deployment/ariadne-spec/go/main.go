@@ -326,6 +326,19 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 		if _, stuck := toposort(idList, parentsOf); len(stuck) > 0 {
 			add("R7", ch, "순환 참조: "+strings.Join(stuck, ", "))
 		}
+		// R12 (v0.5): 다중 루트 — 거의 항상 --parent 누락의 흔적이다.
+		// 경고이지 위반이 아닌 이유: open --new-root가 정당한 탈출구다. 도구가 자기 탈출구를 불법화하면 안 된다.
+		var roots []string
+		for _, r := range chains[ch] {
+			if cid := r.fields["id"]; cid != "" && len(r.parents) == 0 {
+				roots = append(roots, cid)
+			}
+		}
+		if len(roots) > 1 {
+			sort.Strings(roots)
+			warnings = append(warnings, fmt.Sprintf("다중루트\x00%s\x00루트가 %d개 — %s (의도한 것이 아니면 parent 누락이다)",
+				ch, len(roots), strings.Join(roots, ", ")))
+		}
 	}
 	sort.Strings(violations)
 	sort.Strings(warnings)
@@ -687,7 +700,7 @@ func pushWithRenumber(repo, chainDir, chain, cid, title string) (string, error) 
 type openArgs struct {
 	chain, slug, title, author, date, root string
 	parents, lineage                       []string
-	newChain, git, push                    bool
+	newChain, newRoot, git, push           bool
 }
 
 func cmdOpen(a openArgs) error {
@@ -695,6 +708,14 @@ func cmdOpen(a openArgs) error {
 	template := templateDir(a.root)
 
 	// ---- 사전 검증: 저장소를 건드리기 전에 전부 확인한다 (부분 생성물 방지) ----
+	// §3.2 출처 계약 (P1·P2): 도구는 출처(author·parent)를 지어내지 않는다. 모르면 거부한다.
+	if a.author == "" { // O1 — 기본값 없음. 고유명사 기본값이 남의 원장에 거짓 저자를 박았다 (이슈 #17)
+		return cerr("저자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"+
+			"      존재의 이름을 명시하라:  gil open %s %s --author <이름>", a.chain, a.slug)
+	}
+	if len(a.parents) > 0 && a.newRoot { // O3 — 모순
+		return cerr("--parent와 --new-root는 함께 쓸 수 없다 — 부모가 있으면 루트가 아니다")
+	}
 	if !slugRe.MatchString(a.slug) {
 		return cerr("슬러그 '%s' 형식 위반 — R1: 소문자·숫자·하이픈만 (마침표 금지)", a.slug)
 	}
@@ -723,6 +744,24 @@ func cmdOpen(a openArgs) error {
 	ids := map[string]bool{}
 	for _, r := range records {
 		ids[r.fields["id"]] = true
+	}
+	// O2 (§3.2 P2·P3): 빈 체인의 첫 사이클이 루트라는 것은 계산이지만, 비어있지 않은 체인에서
+	// parent를 비우는 것은 추측이다 — 조용히 두 번째 루트를 만드는 대신 저자에게 묻는다.
+	if len(records) > 0 && len(a.parents) == 0 && !a.newRoot {
+		tips := make([]string, 0, len(ids))
+		for id := range ids {
+			if id != "" {
+				tips = append(tips, id)
+			}
+		}
+		sort.Strings(tips)
+		tip := "?"
+		if len(tips) > 0 {
+			tip = tips[len(tips)-1]
+		}
+		return cerr("체인 '%s'에 이미 사이클이 있다 (tip: %s) — 부모를 알 수 없다 (§3.2 P2).\n"+
+			"      부모를 명시하라:  --parent %s   (분기면 여러 번)\n"+
+			"      정말 새 루트라면:  --new-root", a.chain, tip, tip)
 	}
 	for _, p := range a.parents {
 		if strings.Contains(p, "/") {
@@ -2239,7 +2278,7 @@ const gilVersion = "1.13.0" // gil:version
 var commandTable = []struct{ name, usage, desc string }{
 	{"log", "gil log [chains-root] [--chain <이름>]", "체인 계보를 ASCII 그래프로"},
 	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R11 위반 전수 수집·보고"},
-	{"open", "gil open <chain> <slug> [--title …] [--parent …] [--lineage …] [--author …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가)"},
+	{"open", "gil open <chain> <slug> --author <이름> [--parent …]… [--new-root] [--title …] [--lineage …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가). --author 필수, 비어있지 않은 체인은 --parent 또는 --new-root 필수 (§3.2)"},
 	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
 	{"step", "gil step <chain> <id> <n> [--no-commit] [--push]", "열린 사이클의 스텝 전이 (1~5)"},
 	{"verify", "gil verify [chains-root] [--chain <이름>]", "닫힌 사이클의 태그↔작업 트리 대조"},
@@ -2332,25 +2371,27 @@ func main() {
 	case "open":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
 			"title": true, "parent": true, "lineage": true, "author": true,
-			"date": true, "root": true, "new-chain": false, "git": false, "push": false,
+			"date": true, "root": true, "new-chain": false, "new-root": false,
+			"git": false, "push": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
 		if len(pos) != 2 {
-			fmt.Fprintln(os.Stderr, "사용: gil open <chain> <slug> [--title t] [--parent id]… [--lineage chain/id]… [--author a] [--date d] [--new-chain] [--git] [--push] [--root r]")
+			fmt.Fprintln(os.Stderr, "사용: gil open <chain> <slug> --author <이름> [--parent id]… [--new-root] [--title t] [--lineage chain/id]… [--date d] [--new-chain] [--git] [--push] [--root r]")
 			os.Exit(2)
 		}
 		if err := cmdOpen(openArgs{
 			chain: pos[0], slug: pos[1],
 			title:    flagVal(flags, "title", ""),
-			author:   flagVal(flags, "author", "clew"),
+			author:   flagVal(flags, "author", ""), // §3.2 P1: 기본값 없다 — 도구는 저자를 지어내지 않는다
 			date:     flagVal(flags, "date", today),
 			root:     flagVal(flags, "root", defaultRoot),
 			parents:  flags["parent"],
 			lineage:  flags["lineage"],
 			newChain: len(flags["new-chain"]) > 0,
+			newRoot:  len(flags["new-root"]) > 0,
 			git:      len(flags["git"]) > 0,
 			push:     len(flags["push"]) > 0,
 		}); err != nil {
