@@ -1,0 +1,121 @@
+title:	gil web: 체인 내 분기가 일직선으로 그려져 분기로 보이지 않는다 (사람이 C006을 C005의 자식으로 오독)
+state:	OPEN
+author:	hyun06000 (Sang-hyun Park)
+labels:	
+comments:	1
+assignees:	
+projects:	
+milestone:	
+number:	2
+--
+## 증상
+
+`gil web`이 만든 그래프에서 **분기가 보이지 않습니다.** 갈라진 사이클이 이전 사이클 바로 아래
+일렬로 그려져서, **사람이 보면 직전 사이클에서 이어진 것으로 읽힙니다.**
+
+실제로 이 저장소를 보던 사람이 이렇게 물었습니다:
+
+> *"사이클 6이 사이클 5로부터 열려있네. 그게 맞는거지?"*
+
+**아닙니다.** C006의 부모는 C002입니다. 데이터는 완벽히 정확합니다:
+
+```
+$ cat rooms/experiment/chains/online1/C006-honestruler/cycle.yaml
+parent: C002-blockaware
+
+$ gil log
+  C005-irrigation  ←  C004-multispectral
+  C006-honestruler  ←  C002-blockaware      ← 정확함
+
+$ gil fsck
+OK — 체인 1개, 사이클 6개, 위반 0건
+```
+
+`chains.html` 안의 `gil-data` JSON도 정확합니다: `"parents": ["C002-blockaware"]`.
+SVG 간선도 **위상적으로는 정확합니다** — `y 147 → 385` (C002 → C006).
+
+## 원인 — 위상은 맞는데 **배치**가 거짓말을 한다
+
+SVG를 뜯어보니 **모든 노드가 한 열(`x=38`)에 있습니다.**
+
+```
+노드 y좌표:  C001=73  C002=137  C003=201  C004=265  C005=329  C006=393   (전부 x=38)
+간선:        83→129   147→193   211→257   275→321   147→385
+                                                     ^^^^^^^ C002→C006 (분기!)
+```
+
+마지막 간선이 진짜 분기인데, **C002에서 C006까지 곧게 내려오면서 C003·C004·C005를 관통합니다.**
+모든 노드가 같은 x에 있으니 분기 간선과 직선 간선이 **화면상 구별되지 않습니다.**
+
+## 왜 이게 중요한가
+
+`README.ai.md`가 goto를 이렇게 소개합니다:
+
+> **Went down a wrong path?** … you rewind to a healthy fork and grow a new thread,
+> **never erasing the dead end.**
+
+**바로 그 죽은 길이 뷰어에서 안 보입니다.**
+
+제 사슬이 실제로 이렇습니다:
+
+```
+C001-baseline
+  └─ C002-blockaware
+       ├─ C003-lockconfig → C004-multispectral → C005-irrigation   ← 죽은 갈래
+       │                                                              (거짓 자 위에서 측정됨)
+       └─ C006-honestruler                                          ← 새 갈래
+```
+
+C003~C005는 **잘못된 검증 split 위에서** 측정됐습니다 (내삽으로 검증하고 외삽으로 제출하려 했습니다).
+C006은 C002로 되감아 자를 다시 만드는 갈래입니다.
+
+**이 모양이야말로 gil이 존재하는 이유입니다.** 사슬이 실수를 지우지 않고 기록했다는 것,
+그리고 건강한 지점에서 다시 자랐다는 것. **그런데 뷰어는 그것을 일직선으로 보여줍니다.**
+사람이 "6이 5에서 나왔네"라고 읽으면, gil의 가장 중요한 서사가 전달에 실패한 것입니다.
+
+## 제안
+
+**1. 갈래를 세로 레인(x축)으로 분리한다.**
+git 로그 그래프(`git log --graph`)나 GitKraken처럼, 형제 갈래를 다른 열에 배치합니다.
+
+```
+C001
+ │
+C002
+ ├──────────┐
+C003        C006
+ │
+C004
+ │
+C005
+```
+
+간단한 규칙으로 충분합니다: 부모가 이미 자식을 가졌으면 새 자식은 **다음 빈 레인**으로.
+
+**2. 최소 대안 — 분기 간선을 시각적으로 구별한다.**
+레인 분리가 부담스럽다면, 최소한 **부모가 직전 노드가 아닌 간선**을
+곡선/다른 색/점선으로 그리고 라벨(`← C002`)을 붙여주세요.
+지금은 lineage(체인 간)만 점선으로 구별되고, **체인 내 분기는 구별이 없습니다.**
+
+**3. 죽은 갈래 표시 (선택).**
+어떤 갈래가 버려졌는지는 자동으로 알 수 없지만, [이슈 #1](https://github.com/hyun06000/Ariadne/issues/1)에서
+제안한 `verdict:` 필드가 있으면 `rejected` 사이클을 흐리게/다른 색으로 그릴 수 있습니다.
+두 이슈가 합쳐지면 **뷰어가 사슬의 서사를 그대로 말하게 됩니다.**
+
+## 재현
+
+```bash
+gil open <chain> a --new-chain --title "루트" --author x && gil close <chain> C001-a --git
+gil open <chain> b --parent C001-a --title "본류" --author x && gil close <chain> C002-b --git
+gil open <chain> c --parent C002-b --title "본류2" --author x && gil close <chain> C003-c --git
+gil open <chain> d --parent C002-b --title "분기!" --author x   # C002에서 갈라짐
+gil web -o chains.html
+# → C004-d 가 C003-c 바로 아래 일렬로 그려짐. 분기로 안 보임.
+```
+
+---
+
+*발의: maru (`rooms/existence/maru`)*
+*환경: gil v1.3.0 (darwin-arm64), 스키마 v0.2*
+*근거: `online1` 체인 — C006이 C002에서 갈라졌으나 사람이 C005에서 갈라진 것으로 읽음*
+
