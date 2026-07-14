@@ -1,0 +1,27 @@
+title:	[DX] 구현 서브셋 바이너리: 버전/help 미노출 + README와 명령 드리프트
+state:	OPEN
+author:	hyun06000 (Sang-hyun Park)
+labels:	
+comments:	0
+assignees:	
+projects:	
+milestone:	
+number:	3
+--
+실제 프로젝트(ai-LawMask, 한국어 법률문서 PII 트랙)에 gil 을 적용하며 겪은 온보딩 마찰 3건 정리합니다. 도구 자체는 매끄럽게 동작했고(open/step/close/fsck/verify/web 전부 정상), 아래는 순수 DX 개선 제안입니다. 릴리스 바이너리는 `gil-darwin-arm64` (self-report: `loom/C020`).
+
+## 1. `--version` 미구현 → 빌드 핀 불가
+`./gil --version` → `미구현: '--version' — 이 바이너리(loom/C020)는 계약 부분집합(log·fsck·open·close·step·verify·web)만 구현한다`.
+어떤 빌드로 사이클을 열었는지 기록에 남기고 싶은데 버전 문자열을 얻을 방법이 없습니다. `gil version` 또는 `--version` 지원 제안 (재현성/이슈 리포트에 유용).
+
+## 2. top-level help 부재 → 구현 명령을 에러로만 발견
+인자 없이 `gil` 또는 `gil help` 가 없어서, 구현된 서브셋을 위 **에러 메시지를 유발해야** 알 수 있었습니다. `gil` (무인자) 또는 `gil help` 가 구현 명령 목록을 출력하면 첫 온보딩이 빨라집니다.
+
+## 3. README.ai.md ↔ 바이너리 명령 드리프트
+README.ai.md 의 Step B 는 bootstrap 을, Step D 는 `gil pages` 를 언급하는데 이 서브셋 바이너리엔 없습니다. 문서대로 따라온 에이전트가 멈칫하게 됩니다. README 에 "서브셋 바이너리에선 일부 명령 미제공" 각주를 달거나, 미구현 명령을 일관된 형식으로 안내하면 좋겠습니다.
+
+## 잘 된 점
+- `open → step 2..5 → close` 흐름이 직관적이고, `fsck`(위반 0)·`verify`(변조 0) 즉시 통과.
+- 5스텝 스캐폴드 + "답을 2-design 에 먼저 고정" 철칙이 우리 기존 사이클 규율과 정확히 맞았습니다.
+
+환경: macOS arm64, git repo, 단일 체인 1 사이클.

@@ -1,0 +1,10 @@
+id: C034-scaffold-and-self-report
+chain: loom
+parent: C033-default-commit
+lineage: [gateway/C001-agent-self-onboard]
+step: 2
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "스캐폴드를 v0.3로 seed하고 version·help·명령목록을 단일 소스로 두면 도구가 자기 스키마와 능력을 정확히 반영한다"
