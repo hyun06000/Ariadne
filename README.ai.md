@@ -61,7 +61,7 @@ The report is the parent of the next cycle. Open the next with `--parent C001-<s
 
 ## Iron rules (machine-enforced — `./gil fsck`, `./gil verify`)
 
-- Commit unit is the **step**; long steps get mid-step commits. The binary commits from the first `step --git` (the reference `gil.py` also supports `open --git --push`).
+- Commit unit is the **step**; long steps get mid-step commits. `gil step`/`gil close` **auto-commit in a git repo** (v1.7+) — you need not pass `--git`; use `--no-commit` to opt out. Push with `--push`.
 - Fix the expected answer **before** building (no answer contamination). A **rejected** hypothesis is a *successful* cycle — record it.
 - Never edit a closed cycle. Faults found later become new cycles.
 - **After closing a cycle, run `./gil handoff` and offer the human a session reset.** The closed cycle's detail is engraved (tag); a fresh session revives via CLAUDE.md → existence room → `gil log`. Managing context per-cycle keeps the thread from snapping under session limits. **Went down a wrong path?** `./gil goto <chain>/<id>` shows any cycle's snapshot, `--checkout` rewinds the tree to it, and it prints how to branch (`gil open … --parent <id>`) — you rewind to a healthy fork and grow a new thread, never erasing the dead end.
