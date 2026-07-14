@@ -5,21 +5,10 @@ LLM의 추론이 걸어온 길(사이클 체인)을 깃처럼 다룬다.
 이 파이썬 파일은 **참조 구현**이다 — 스펙(SPEC.md)이 계약이며, 장래에 깃처럼
 단일 바이너리 배포로 대체될 것을 전제한다 (구현 독립 계약, SPEC §7).
 
-서브커맨드:
-    log  [chains-root]                 체인들의 계보를 재구성해 그래프로 렌더한다.
-    fsck [chains-root]                 스키마 v0.4 규칙(R1~R11) 위반을 전부 수집해 보고한다.
-    supersede <old-ref> <new-ref>      무효화된 사이클에 전방 포인터를 각인한다 ([migrate] + 태그 이동).
-    open  <chain> <slug> [옵션]        v0.2 준수 사이클을 생성한다 (사전 검증 → 템플릿 복사 → fsck 확인).
-    close <chain> <cycle-id> [옵션]    보고서를 검증하고 사이클을 닫는다. --git이면 사이클
-                                       디렉토리만을 담은 커밋 + 주석 태그 cycle/<chain>/<id>를 남긴다.
-    verify [chains-root]               닫힌 사이클마다 태그와 작업 트리를 대조해 변조를 탐지한다.
-    web  [chains-root] -o out.html     log와 같은 파서로 자기완결적 정적 HTML 뷰어를 생성한다.
-    release <버전> --notes "..."       실행 중인 도구 자신과 템플릿을 패키지로 동기화하고,
-                                       CHANGELOG 갱신 → 배포의 방만 커밋 → 태그 v<버전>.
-                                       도구가 변했으면 마이너 이상 승격을 강제한다.
+서브커맨드 목록은 **여기에 적지 않는다** — `gil help`가 단일 소스다 (SPEC §7.2, loom/C039).
+   갱신하는 목록은 또 낡지만, 위임하는 목록은 낡지 않는다.
 
-계승: loom/C001(log) → C002(fsck) → C003(open/close) → C004(깃 바인딩) → C005(web) → C008(release).
-의존성: Python 3 표준 라이브러리 + 깃 CLI (verify/close --git/release에만).
+의존성: Python 3 표준 라이브러리 + 깃 CLI (verify·correct·close --git·release에만).
 스키마 규칙의 정의는 스펙(rooms/deployment/ariadne-spec/SPEC.md)을 따른다.
 """
 import argparse
@@ -197,7 +186,9 @@ def render_graph(order, cycles, children):
         dev = meta.get("deviations")
         mark = f" ⚠{dev}" if (isinstance(dev, str) and dev.isdigit() and int(dev) > 0) else ""
         sup = f"  ↣ superseded: {meta['superseded_by']}" if meta.get("superseded_by") else ""
-        tail = f"{node} [{label}{mark}] {meta.get('title') or ''}{sup}"
+        corr = meta.get("corrections")  # v0.5: 후대의 주석 — 이 색인은 수리됐다
+        cmark = f"  ✎ corrected({corr})" if (isinstance(corr, str) and corr.isdigit() and int(corr) > 0) else ""
+        tail = f"{node} [{label}{mark}] {meta.get('title') or ''}{sup}{cmark}"
         if len(meta["parents"]) > 1:
             tail += f"  ◀ 병합: {' + '.join(meta['parents'])}"
         if meta["lineage_list"]:
@@ -277,6 +268,40 @@ def log_chain(chain_name, chain_dir):
 
 # ---------- fsck (스키마 v0.2 규칙 R1~R8) ----------
 
+# §4.1 정정 규정 (v0.5 / loom/C041)
+# 정정 가능한 것은 출처 필드뿐이다 (L1) — 도구가 지어낼 수 있었던 바로 그 집합 (§3.2).
+# verdict·status·title·step·5스텝 문서는 저자의 주장이며 불변이다.
+_PROVENANCE_FIELDS = ("author", "parent", "lineage")
+_CORRECTION_KEYS = ("field", "from", "to", "evidence", "author", "date")  # R13 필수 키
+
+
+def _parse_corrections(path):
+    """corrections.yaml을 줄 단위로 판정한다 — 일반 YAML 파서 없이 (§3.1 평탄 계약의 정신).
+    형식 위반이면 None. deviations.yaml은 사람이 읽는 문서지만, 이것은 도구가 판정하는 기록이다."""
+    records, cur = [], None
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.startswith("- "):
+            cur = {}
+            records.append(cur)
+            body = line[2:]
+        elif line.startswith("  ") and cur is not None:
+            body = line[2:]
+        else:
+            return None  # 중첩·블록 스칼라·들여쓰기 위반
+        key, sep, val = body.partition(":")
+        if not sep or not key.strip() or key.strip() != key.strip().split()[0]:
+            return None
+        cur[key.strip()] = val.strip()
+    return records
+
+
 def fsck_collect(chains, chains_root=None):
     """chains: {체인명: records}. (위반 리스트, 경고 리스트)를 반환한다 (경고는 표시일 뿐 exit 0)."""
     violations = []
@@ -340,6 +365,30 @@ def fsck_collect(chains, chains_root=None):
                     warnings.append(("이탈", loc, f"사전등록 이탈 {dev}건 (deviations.yaml)"))
             if status == "closed" and verdict is None:
                 warnings.append(("결말없음", loc, "닫혔으나 verdict 없음 — 결말을 기록할 것 (경고, 기존 사슬 유예)"))
+            # R13 (v0.5): 출처 정정 기록 — L1(필드 제한)과 L3(영구 기록)을 fsck가 집행한다.
+            # 경고가 아니라 위반인 이유: corrections는 v0.5에서 태어나므로 유예할 과거가 없다.
+            corr = r.get("corrections")
+            if corr is not None:
+                if not (isinstance(corr, str) and corr.isdigit()):
+                    violations.append(("R13", loc, f"corrections '{corr}'는 정수여야 한다 (상세는 corrections.yaml)"))
+                elif int(corr) > 0:
+                    cfile = os.path.join(chains_root, ch, r["_dir"], "corrections.yaml") if chains_root else None
+                    if cfile and not os.path.isfile(cfile):
+                        violations.append(("R13", loc, f"corrections {corr}인데 corrections.yaml이 없다"))
+                    elif cfile:
+                        recs = _parse_corrections(cfile)
+                        if recs is None:
+                            violations.append(("R13", loc, "corrections.yaml 형식 위반 — '- field: …' + 2칸 들여쓴 key: value"))
+                        elif len(recs) != int(corr):
+                            violations.append(("R13", loc, f"corrections {corr}인데 corrections.yaml 레코드는 {len(recs)}건"))
+                        else:
+                            for i, rec in enumerate(recs, 1):
+                                miss = [k for k in _CORRECTION_KEYS if k not in rec]
+                                if miss:
+                                    violations.append(("R13", loc, f"corrections.yaml #{i}: 필수 키 누락 — {', '.join(miss)}"))
+                                elif rec["field"] not in _PROVENANCE_FIELDS:
+                                    violations.append(("R13", loc, f"corrections.yaml #{i}: '{rec['field']}'는 출처 필드가 아니다 (L1)"))
+                    warnings.append(("정정", loc, f"출처 정정 {corr}건 (corrections.yaml) — 색인은 수리됐고 거짓은 기록에 남았다"))
             sb = r.get("superseded_by")  # R11 (v0.4): 전방 포인터 해소
             if sb is not None:
                 if sb == cid or sb == f"{ch}/{cid}":
@@ -392,7 +441,7 @@ def cmd_fsck(args):
         print(f"\n검사: 체인 {len(chains)}개, 사이클 {total}개 — 위반 {len(violations)}건, 경고 {len(warnings)}건", file=sys.stderr)
         return 1
     tail = f", 경고 {len(warnings)}건" if warnings else ""
-    print(f"OK — 체인 {len(chains)}개, 사이클 {total}개, 위반 0건 (스키마 v0.4){tail}")
+    print(f"OK — 체인 {len(chains)}개, 사이클 {total}개, 위반 0건 (스키마 v0.5){tail}")
     return 0
 
 
@@ -692,6 +741,7 @@ def _build_web_data(chains_root, only=None):
                 "step": c.get("step"), "verdict": c.get("verdict"),
                 "deviations": c.get("deviations"),
                 "superseded_by": c.get("superseded_by"),  # v0.4: 전방 무효화
+                "corrections": c.get("corrections"),      # v0.5: 출처 정정 (후대의 주석)
                 "last_activity": ({"ago": _ago(act[0]), "subject": act[1]} if act else None),
                 "parents": c["parents"], "lineage": c["lineage_list"],
             }
@@ -1048,6 +1098,190 @@ def cmd_supersede(args):
             head = _git(repo, "rev-parse", "HEAD").stdout.strip()
             _git(repo, "tag", "-f", "-a", tag, "-m", f"[migrate] superseded_by {new_val} (이전 커밋에서 이동)", head)
     print(f"무효화: {args.old_ref} ↣ superseded_by {new_val}")
+    return 0
+
+
+def _render_yaml_value(v):
+    """cycle.yaml의 평탄 표기로 값을 렌더한다 (§3.1)."""
+    if v is None or v == []:
+        return "null" if not isinstance(v, list) else "[]"
+    if isinstance(v, list):
+        return "[" + ", ".join(v) + "]" if len(v) > 1 else v[0]
+    return str(v)
+
+
+def _set_yaml_field(text, key, value):
+    """평탄 cycle.yaml에서 key 줄을 교체하거나 없으면 덧붙인다."""
+    line = f"{key}: {value}"
+    if re.search(rf"^{re.escape(key)}:", text, flags=re.M):
+        return re.sub(rf"^{re.escape(key)}:.*$", line.replace("\\", "\\\\"), text, count=1, flags=re.M)
+    return text.rstrip("\n") + f"\n{line}\n"
+
+
+def _read_sealed(repo, tag, relpath):
+    """증거는 봉인본(태그)에서 읽는다 — 작업 트리에서 읽으면 아무 문장이나 새로 써 넣고
+    그것을 '증거'라 부를 수 있다. 정정을 막던 봉인이 정정을 허가하는 공증인이 된다 (§4.1 원칙 2)."""
+    r = _git(repo, "show", f"{tag}:{relpath}", check=False)
+    return r.stdout if r.returncode == 0 else None
+
+
+def _cycle_diff_vs_tag(repo, chains_root, chain, cdir, tag):
+    """verify와 같은 판정 — 태그↔작업 트리 대조 (변조된 경로 목록)."""
+    cycle_rel = os.path.relpath(os.path.join(chains_root, chain, cdir), repo)
+    diff = _git(repo, "diff", "--name-only", tag, "--", cycle_rel)
+    new = _git(repo, "status", "--porcelain", "--untracked-files=all", "--", cycle_rel)
+    return sorted(set(diff.stdout.split())
+                  | {l[3:] for l in new.stdout.splitlines() if l.startswith("??")})
+
+
+def cmd_correct(args):
+    """정정 규정 (v0.5, loom/C041): 봉인된 사이클의 **출처 필드**를 문서가 증언하는 값으로 수리한다.
+
+    저자의 주장은 불변이다. 도구의 대필(代筆)은 불변이 아니다.
+    정정은 거짓을 지우지 않는다 — 거짓 위에 진실을 덧쓰고, 거짓이 있었다는 사실을 영구히 남긴다."""
+    chains_root = args.root
+    if "/" not in args.ref:
+        raise ChainError(f"ref는 <chain>/<id> 형식이어야 한다: {args.ref}")
+    chain, cid = args.ref.split("/", 1)
+    cycle_dir = os.path.join(chains_root, chain, cid)
+    yaml_path = os.path.join(cycle_dir, "cycle.yaml")
+    if not os.path.isfile(yaml_path):
+        raise ChainError(f"사이클이 없다: {args.ref}")
+
+    # ---- 사전 검증 C1~C8: 저장소를 건드리기 전에 전부 확인한다 (거부 시 무변화) ----
+    if not args.author:  # C2 — 도구는 정정의 출처도 지어내지 않는다 (§3.2 P1의 재귀)
+        raise ChainError(
+            "정정자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"
+            f"      존재의 이름을 명시하라:  gil correct {args.ref} … --author <이름>")
+    if not args.field:
+        raise ChainError("--field가 없다 — 무엇을 정정하는지 명시하라")
+    for f in args.field:  # C3 — 필드 제한 (L1)
+        if f not in _PROVENANCE_FIELDS:
+            raise ChainError(
+                f"'{f}'는 출처 필드가 아니다 — 정정 가능한 것은 {'·'.join(_PROVENANCE_FIELDS)}뿐이다 (§4.1 L1).\n"
+                f"      verdict·status·title·step·5스텝 문서는 **저자의 주장**이며 불변이다.\n"
+                f"      결론이 무효가 됐다면 정정이 아니라 gil supersede다.")
+    if len(args.to) != len(args.field):
+        raise ChainError(f"--field {len(args.field)}개와 --to {len(args.to)}개가 짝지어지지 않는다 (순서대로 소비한다)")
+    if not args.evidence:  # C4 — 증거 필수 (L2)
+        raise ChainError(
+            "--evidence가 없다 — 정정은 새 주장이 아니라 **기존 주장의 복원**이다 (§4.1 L2).\n"
+            "      불변 문서의 어디가 이 값을 증언하는가:  --evidence 1-hypothesis.md:5")
+
+    repo = _repo_root(chains_root)
+    if not repo:  # C1 — 봉인이 없으면 정정도 없다
+        raise ChainError(f"깃 저장소가 아니다: {chains_root} — 봉인이 없으면 정정도 없다 (§4.1 C1)")
+    data = parse_cycle_yaml(yaml_path)
+    tag = _tag_name(chain, cid)
+    if data.get("status") != "closed" or not _tag_exists(repo, tag):  # C1
+        raise ChainError(
+            f"{args.ref}는 봉인되지 않았다 (열렸거나 태그 없음) — 정정 대상이 아니다 (§4.1 C1).\n"
+            f"      봉인되지 않은 사이클의 cycle.yaml은 직접 고쳐도 위조가 아니다.")
+
+    dirty = _cycle_diff_vs_tag(repo, chains_root, chain, cid, tag)  # C6 — 뒷문 차단
+    if dirty:
+        raise ChainError(
+            f"{args.ref}는 이미 변조됐다 — 정정은 **무결한 사이클에만** 허용된다 (§4.1 C6).\n"
+            + "\n".join(f"      변조: {p}" for p in dirty)
+            + f"\n      먼저 봉인 상태로 복원하라:  git checkout {tag} -- <경로>")
+
+    # C5 — 증거 검사 (원칙 4: 증거는 인용이 아니라 검사다). 봉인본에서 읽는다.
+    ev_path, _, ev_line = args.evidence.partition(":")
+    ev_rel = os.path.relpath(os.path.join(cycle_dir, ev_path), repo)
+    sealed = _read_sealed(repo, tag, ev_rel)
+    if sealed is None:
+        raise ChainError(f"증거 문서가 봉인본에 없다: {ev_path} (태그 {tag})")
+    if ev_line:
+        if not ev_line.isdigit():
+            raise ChainError(f"증거의 줄 번호가 정수가 아니다: {args.evidence}")
+        lines = sealed.splitlines()
+        if not (1 <= int(ev_line) <= len(lines)):
+            raise ChainError(f"증거 문서에 {ev_line}번째 줄이 없다: {ev_path} (봉인본 {len(lines)}줄)")
+        haystack = lines[int(ev_line) - 1]
+    else:
+        haystack = sealed
+
+    # 필드별로 새 값을 모은다 (parent 병합·lineage 리스트는 같은 필드를 반복해 누적)
+    proposed = {}
+    for f, v in zip(args.field, args.to):
+        proposed.setdefault(f, []).append(v)
+    for f, vals in proposed.items():
+        for v in vals:
+            if v not in haystack:  # C5 — 증거가 증언하지 않는 값은 수리가 아니라 수정이다
+                raise ChainError(
+                    f"증거가 '{v}'를 증언하지 않는다 — {args.evidence} (봉인본)\n"
+                    f"      정정은 문서에 이미 있는 사실의 복원이다. 문서가 침묵하면 정정할 수 없다 (§4.1 L2).\n"
+                    f"      원장은 고칠 수 없어도 역사는 덧붙일 수 있다 — 새 사이클을 열어 기록하라.")
+
+    original = open(yaml_path, encoding="utf-8").read()
+    corr_path = os.path.join(cycle_dir, "corrections.yaml")
+    corr_before = open(corr_path, encoding="utf-8").read() if os.path.isfile(corr_path) else None
+
+    updated, records, changed = original, [], []
+    for f, vals in proposed.items():
+        old_raw = _render_yaml_value(data.get(f) if f != "lineage" else data.get("lineage"))
+        new_raw = _render_yaml_value(vals)
+        if old_raw == new_raw:  # C8 — 정정할 것이 없다
+            raise ChainError(f"'{f}'는 이미 '{new_raw}'다 — 정정할 것이 없다 (§4.1 C8)")
+        updated = _set_yaml_field(updated, f, new_raw)
+        records.append({
+            "field": f, "from": old_raw, "to": new_raw,
+            "evidence": args.evidence, "evidence_source": tag,
+            "author": args.author, "date": args.date,
+            "reason": " ".join((args.reason or "출처 정정").split()),
+        })
+        changed.append(f"{f}: {old_raw} → {new_raw}")
+
+    prev = data.get("corrections")
+    n_before = int(prev) if (isinstance(prev, str) and prev.isdigit()) else 0
+    updated = _set_yaml_field(updated, "corrections", str(n_before + len(records)))
+
+    # ---- 쓰기 (L3: 덧붙임 — 과거의 거짓도, 과거의 정정도 지워지지 않는다) ----
+    body = corr_before if corr_before else (
+        "# 출처 필드 정정 기록 (스키마 v0.5, §4.1) — 거짓은 지워지지 않는다. 덧쓰일 뿐이다.\n"
+        "# 저자의 주장은 불변이다. 도구의 대필은 불변이 아니다.\n")
+    for rec in records:
+        body = body.rstrip("\n") + "\n\n- " + "\n  ".join(f"{k}: {rec[k]}" for k in
+                                                          ("field", "from", "to", "evidence",
+                                                           "evidence_source", "author", "date", "reason")) + "\n"
+    with open(yaml_path, "w", encoding="utf-8") as fh:
+        fh.write(updated)
+    with open(corr_path, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    try:
+        _fsck_or_report(chains_root)  # C7 — 스키마 위반이 될 값은 쓰지 않는다
+    except ChainError:
+        with open(yaml_path, "w", encoding="utf-8") as fh:
+            fh.write(original)
+        if corr_before is None:
+            os.remove(corr_path)
+        else:
+            with open(corr_path, "w", encoding="utf-8") as fh:
+                fh.write(corr_before)
+        raise
+
+    # ---- [correct] 커밋: 그 두 파일만 담는다 (변조를 태그 안으로 밀반입할 수 없다) ----
+    rel_yaml = os.path.relpath(yaml_path, repo)
+    rel_corr = os.path.relpath(corr_path, repo)
+    _git(repo, "add", "--", rel_yaml, rel_corr)
+    _git(repo, "commit", "-m",
+         f"[correct] gil: {args.ref} — {'; '.join(changed)}", "--", rel_yaml, rel_corr)
+    head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    old_tag_commit = _git(repo, "rev-list", "-n1", tag).stdout.strip()
+    # 태그 이동 규약 (§4): 이전 커밋 해시와 사유를 태그 메시지에 남긴다
+    _git(repo, "tag", "-f", "-a", tag, "-m",
+         f"[correct] {'; '.join(changed)} — 증거 {args.evidence} (이전 커밋 {old_tag_commit[:8]}에서 이동)", head)
+    if args.push:
+        _git(repo, "push")
+        _git(repo, "push", "--force", "origin", f"refs/tags/{tag}")
+
+    print(f"정정: {args.ref}")
+    for c in changed:
+        print(f"  ✎ {c}")
+    print(f"  증거: {args.evidence} (봉인본 {tag})")
+    print(f"  기록: {os.path.relpath(corr_path, os.getcwd()) if not os.path.isabs(corr_path) else corr_path}"
+          f" — 거짓은 지워지지 않았다")
+    print(f"  태그 이동: {old_tag_commit[:8]} → {head[:8]}")
     return 0
 
 
@@ -1582,6 +1816,19 @@ def main(argv=None):
     p_sup.add_argument("--no-commit", dest="no_commit", action="store_true", help="자동 커밋 끄기")
     p_sup.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_sup.set_defaults(func=cmd_supersede)
+
+    p_cor = sub.add_parser("correct", help="정정: 봉인된 사이클의 출처 필드를 문서가 증언하는 값으로 수리 (v0.5)")
+    p_cor.add_argument("ref", help="정정할 사이클 <chain>/<id>")
+    p_cor.add_argument("--field", action="append", default=[],
+                       help=f"정정할 출처 필드 ({'|'.join(_PROVENANCE_FIELDS)}) — 반복 가능. 그 외는 저자의 주장이라 불가 (L1)")
+    p_cor.add_argument("--to", action="append", default=[], help="새 값 — --field와 순서대로 짝짓는다")
+    p_cor.add_argument("--evidence", help="불변 문서의 증언 <파일>[:<줄>] — 필수. 봉인본에서 대조한다 (L2)")
+    p_cor.add_argument("--author", help="정정하는 존재 — 필수. 도구는 정정의 출처도 지어내지 않는다 (§3.2 P1)")
+    p_cor.add_argument("--reason", help="정정 사유 한 줄 (기록에 남는다)")
+    p_cor.add_argument("--date", default=today, help="정정 일자 (기본: 오늘)")
+    p_cor.add_argument("--push", action="store_true", help="[correct] 커밋과 이동한 태그를 전파")
+    p_cor.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_cor.set_defaults(func=cmd_correct)
 
     p_goto = sub.add_parser("goto", help="타임머신: 사이클 시점 역행 조회·체크아웃·분기 안내")
     p_goto.add_argument("ref", help="<chain>/<id> (예: loom/C005-web-viewer)")

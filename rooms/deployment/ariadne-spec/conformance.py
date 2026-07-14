@@ -28,7 +28,7 @@ UNIMPLEMENTED = 3  # SPEC §7.2-4: 미구현·미지 명령의 통일된 종료 
 # SPEC §5가 정의하는 명령 표면. 구현이 이 중 무엇을 구현했는지는 자유이나(부분 구현 합법),
 # 자기보고와 실제가 어긋나는 것은 금지다. 이 목록 자체가 목록형 규칙이며 — SPEC이 자라면 함께 자라야 한다.
 CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release", "version",
-                     "handoff", "supersede", "goto", "pages", "web", "help"]
+                     "handoff", "supersede", "goto", "pages", "web", "help", "correct"]
 
 
 def check(cid, desc, cond, detail=""):
@@ -415,6 +415,145 @@ def main():
               and "id: C003-beta" in y and "author: b" in y and 'title: "B"' in y  # 내용 무손상
               and rf.returncode == 0,                                 # 원장 무위반
               (rb.stderr or "").strip()[-150:])
+
+        # ---- 정정 규정 (SPEC §4.1 — loom/C041): 봉인된 거짓 출처의 정당한 수리 ----
+        # 항목마다 자기 샌드박스를 준다 (C040: 공유 샌드박스는 멀쩡한 구현을 범인으로 지목했다).
+        CYC = "rooms/experiment/chains/demo/C002-second"
+
+        def sealed(name, second_open=False):
+            """회색지대를 그대로 만든다: C002는 parent: null(도구의 대필)로 **봉인**됐지만,
+            그 불변 문서 1-hypothesis.md는 부모가 C001-first라고 증언한다."""
+            d = make_sandbox(os.path.join(work, name))
+
+            def gg(*cli):
+                return subprocess.run(["git", "-C", d, *cli], capture_output=True, text=True)
+
+            gg("init", "-q"); gg("config", "user.name", "fx"); gg("config", "user.email", "fx@t")
+            write_cycle(d, "demo", "C001-first", status="closed", closed="2026-01-02", step="5")
+            if second_open:
+                write_cycle(d, "demo", "C002-second", step="1")
+            else:
+                write_cycle(d, "demo", "C002-second", status="closed", closed="2026-01-03", step="5")
+            # C003은 '그럴듯한 거짓'의 재료다: 실재하므로 스키마상 완벽히 합법이지만,
+            # C002의 불변 문서는 이 이름을 한 번도 말하지 않는다. 증거 검사만이 이것을 막을 수 있다.
+            write_cycle(d, "demo", "C003-other", parent="C001-first",
+                        status="closed", closed="2026-01-03", step="5")
+            for cid in ("C001-first", "C002-second", "C003-other"):
+                with open(os.path.join(d, f"rooms/experiment/chains/demo/{cid}/5-report.md"),
+                          "w", encoding="utf-8") as f:
+                    f.write("# 5. 결과 보고\n\n실보고서.\n")
+            # 불변 문서의 증언. 3줄=부모, 4줄=수행자, 5줄=결말 낱말('rejected')이 들어 있다 —
+            # 필드 제한(L1)을 시험하려면 증거 검사가 침묵해야 하기 때문이다 (심층 방어가 변이를 가린다).
+            with open(os.path.join(d, f"{CYC}/1-hypothesis.md"), "w", encoding="utf-8") as f:
+                f.write("# 1. 가설 수립\n\n부모: [demo/C001-first](../C001-first/5-report.md)\n"
+                        "수행: weft\n기각 조건: 재현되지 않으면 rejected.\n")
+            gg("add", "-A"); gg("commit", "-q", "-m", "seed")
+            gg("tag", "-a", "cycle/demo/C001-first", "-m", "seal")
+            if not second_open:  # 열린 사이클은 봉인되지 않는다 (태그 없음)
+                gg("tag", "-a", "cycle/demo/C002-second", "-m", "seal")
+            return d, gg
+
+        OK_ARGS = ("correct", "demo/C002-second", "--field", "parent", "--to", "C001-first",
+                   "--evidence", "1-hypothesis.md:3", "--author", "fx", "--date", "2026-01-04")
+
+        # C1 — 봉인이 없으면 정정도 없다 (열린 사이클은 직접 고쳐도 위조가 아니다)
+        d, _ = sealed("cor-unsealed", second_open=True)
+        before = snapshot(d)
+        r = impl.run(d, *OK_ARGS)
+        check("CORRECT-UNSEALED-REJECT", "봉인되지 않은 사이클의 정정 거부 (exit≠0 + 저장소 무변화)",
+              r.returncode != 0 and snapshot(d) == before, f"rc={r.returncode}")
+
+        # C2 — 도구는 정정의 출처도 지어내지 않는다 (§3.2 P1의 재귀)
+        d, _ = sealed("cor-noauthor")
+        before = snapshot(d)
+        r = impl.run(d, "correct", "demo/C002-second", "--field", "parent", "--to", "C001-first",
+                     "--evidence", "1-hypothesis.md:3")
+        check("CORRECT-NO-AUTHOR", "--author 없는 정정 거부 (정정의 출처도 지어내지 않는다)",
+              r.returncode != 0 and snapshot(d) == before, f"rc={r.returncode}")
+
+        # C3 / L1 — 저자의 주장은 정정 대상이 아니다.
+        # 증거(5줄)가 'rejected'를 실제로 증언하게 해서, **오직 필드 제한만이** 이것을 막게 한다.
+        d, _ = sealed("cor-field")
+        before = snapshot(d)
+        r = impl.run(d, "correct", "demo/C002-second", "--field", "verdict", "--to", "rejected",
+                     "--evidence", "1-hypothesis.md:5", "--author", "fx")
+        check("CORRECT-FIELD-LIMIT", "출처 필드가 아닌 것(verdict)의 정정 거부 (L1 — 증거가 있어도 저자의 주장은 불변)",
+              r.returncode != 0 and snapshot(d) == before, f"rc={r.returncode}")
+
+        # C4·C5 / L2 — 증거는 인용이 아니라 검사다.
+        # 거짓값은 반드시 '그럴듯한' 것이어야 한다: C003-other는 실재하므로 스키마 검사(R6)를
+        # 그대로 통과한다. 증거 검사가 없으면 **오직 이것만이** 통과해버린다.
+        # (없는 사이클을 쓰면 fsck가 대신 막아줘서 이 조항이 시험되지 않는다 — 심층 방어가 변이를 가린다.)
+        d, _ = sealed("cor-evidence")
+        before = snapshot(d)
+        r_no = impl.run(d, "correct", "demo/C002-second", "--field", "parent", "--to", "C001-first",
+                        "--author", "fx")                                     # 증거 없음
+        r_lie = impl.run(d, "correct", "demo/C002-second", "--field", "parent", "--to", "C003-other",
+                         "--evidence", "1-hypothesis.md", "--author", "fx")   # 실재하나 문서가 증언하지 않는 값
+        check("CORRECT-EVIDENCE-REQUIRED", "증거 없는/증언되지 않는 정정 거부 (L2 — 스키마상 합법인 거짓도)",
+              r_no.returncode != 0 and r_lie.returncode != 0 and snapshot(d) == before,
+              f"rc={r_no.returncode}/{r_lie.returncode}")
+
+        # L3 — 정정은 지우개가 아니라 각주다. **두 번** 정정해야 덧붙임과 덮어쓰기가 구별된다:
+        # 한 번만 해서는 과거의 기록을 지우는 구현도 똑같이 통과한다.
+        d, _ = sealed("cor-record")
+        r = impl.run(d, *OK_ARGS)                                   # ① parent: null → C001-first
+        r2 = impl.run(d, "correct", "demo/C002-second", "--field", "author", "--to", "weft",
+                      "--evidence", "1-hypothesis.md:4", "--author", "weft",
+                      "--date", "2026-01-05")                       # ② author: fx → weft
+        y = open(os.path.join(d, f"{CYC}/cycle.yaml"), encoding="utf-8").read()
+        cpath = os.path.join(d, f"{CYC}/corrections.yaml")
+        rec = open(cpath, encoding="utf-8").read() if os.path.isfile(cpath) else ""
+        check("CORRECT-RECORD", "정정 2회: 색인 수리 + 계수 + **모든** 거짓값(from) 영구 보존 (L3 — 덧붙임)",
+              r.returncode == 0 and r2.returncode == 0
+              and re.search(r"^parent: C001-first\s*$", y, flags=re.M) is not None
+              and re.search(r"^author: weft\s*$", y, flags=re.M) is not None
+              and re.search(r"^corrections: 2\s*$", y, flags=re.M) is not None
+              and re.search(r"^\s*from: null\s*$", rec, flags=re.M) is not None    # ①의 거짓
+              and re.search(r"^\s*from: fx\s*$", rec, flags=re.M) is not None      # ②의 거짓 — 지워지지 않았다
+              and re.search(r"^\s*to: C001-first\s*$", rec, flags=re.M) is not None,
+              (r.stderr or r2.stderr or "").strip()[-140:])
+
+        # 정정한 자는 위조자가 되지 않는다 — 태그 이동 (§4)
+        r_v = impl.run(d, "verify")
+        r_f = impl.run(d, "fsck")
+        check("CORRECT-TAG-MOVE", "정정 후 verify OK (태그 이동) + fsck 위반 0 — 다중루트 해소",
+              r_v.returncode == 0 and r_f.returncode == 0,
+              (r_v.stderr or r_f.stderr or "").strip()[-140:])
+
+        # 기각 조건 1 — 정정이 위조의 뒷문이 되면 안 된다: 정정 후에도 변조는 잡힌다
+        with open(os.path.join(d, f"{CYC}/5-report.md"), "a", encoding="utf-8") as f:
+            f.write("(몰래 수정)\n")
+        r = impl.run(d, "verify")
+        check("CORRECT-VERIFY-STILL-CATCHES", "정정 후에도 문서 변조를 verify가 탐지 (불변성 보증 생존)",
+              r.returncode != 0)
+
+        # C6 — 이미 변조된 사이클은 정정으로 세탁할 수 없다
+        d, _ = sealed("cor-tamper")
+        with open(os.path.join(d, f"{CYC}/5-report.md"), "a", encoding="utf-8") as f:
+            f.write("(몰래 수정)\n")
+        r = impl.run(d, *OK_ARGS)
+        y = open(os.path.join(d, f"{CYC}/cycle.yaml"), encoding="utf-8").read()
+        check("CORRECT-TAMPER-GUARD", "이미 변조된 사이클의 정정 거부 (변조 세탁 뒷문 차단)",
+              r.returncode != 0 and "parent: null" in y, f"rc={r.returncode}")
+
+        # §4 태그 이동 규약은 supersede에도 적용된다 (v0.4/C035) — 그런데 지금껏 아무도 판정하지 않았다.
+        # C041의 변이 시험이 우연히 밟아서 드러났다: 판정기가 안 보는 계약은 없는 계약이다 (Weft).
+        d, _ = sealed("sup-tag")
+        r = impl.run(d, "supersede", "demo/C002-second", "demo/C003-other")
+        r_v = impl.run(d, "verify")
+        check("SUPERSEDE-TAG-MOVE", "supersede([migrate]) 후 verify OK — 태그 이동 규약 (§4)",
+              r.returncode == 0 and r_v.returncode == 0,
+              (r.stderr or r_v.stderr or "").strip()[-140:])
+
+        # R13 — 정정 기록의 무결성은 fsck가 집행한다 (기록 없는 정정 = 지우개)
+        d, _ = sealed("cor-r13")
+        ypath = os.path.join(d, f"{CYC}/cycle.yaml")
+        with open(ypath, "a", encoding="utf-8") as f:
+            f.write("corrections: 1\n")   # 계수만 있고 기록이 없다
+        r = impl.run(d, "fsck")
+        check("FSCK-R13", "corrections N>0인데 corrections.yaml이 없으면 위반 (R13)",
+              r.returncode != 0, f"rc={r.returncode}")
 
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
