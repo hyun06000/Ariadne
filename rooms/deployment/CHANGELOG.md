@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-07-14
+
+- 전방 무효화 (스키마 v0.4, 이슈 #6): superseded_by + R11 + gil supersede + log/web 표시. 두 구현 동일, conformance 26/26. 근거: loom/C035.
+- 도구 변경: gil (마이너 이상 승격)
+
+
 ## [1.8.0] — 2026-07-14
 
 - 스캐폴드 v0.3 seed + version/help/self-report 정정 (이슈 #3·#4, 결/Gyeol). 참조·Go 동일
