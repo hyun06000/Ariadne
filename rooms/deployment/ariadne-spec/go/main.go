@@ -590,10 +590,104 @@ func isDigits(s string) bool {
 	return true
 }
 
+// runeTail: 문자열의 뒤 n '문자'. 파이썬 s[-n:]에 대응한다 —
+// Go의 바이트 슬라이싱은 UTF-8을 쪼개므로 룬 단위로 자른다 (한국어 오류 문면 보존).
+func runeTail(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[len(r)-n:])
+}
+
+// pushWithRenumber: 원장 규율 (v0.8, loom/C016 — SPEC §6-6).
+// push 거절 = 원장이 앞섰다는 신호. fetch·rebase 후 번호 경합이면 자동 재번호
+// (디렉토리·id 개명 + 커밋 정정) 후 재시도한다. 최대 3회.
+// 참조 구현 gil.py의 _push_with_renumber와 절차·문면이 같다.
+func pushWithRenumber(repo, chainDir, chain, cid, title string) (string, error) {
+	for i := 0; i < 3; i++ {
+		if _, _, code := gitRun(repo, "push"); code == 0 {
+			return cid, nil
+		}
+		branchOut, err := gitChecked(repo, "rev-parse", "--abbrev-ref", "HEAD")
+		if err != nil {
+			return cid, err
+		}
+		branch := strings.TrimSpace(branchOut)
+		if _, err := gitChecked(repo, "fetch", "origin"); err != nil {
+			return cid, err
+		}
+		if out, errS, code := gitRun(repo, "rebase", "origin/"+branch); code != 0 {
+			gitRun(repo, "rebase", "--abort")
+			msg := strings.TrimSpace(errS)
+			if msg == "" {
+				msg = strings.TrimSpace(out)
+			}
+			return cid, cerr("push 경합의 rebase 해소 실패 — 수동 개입 필요: %s", runeTail(msg, 150))
+		}
+		m := idRe.FindStringSubmatch(cid)
+		if m == nil {
+			return cid, cerr("재번호 불가: id '%s' 형식 위반", cid)
+		}
+		myNum := m[1]
+		records, err := loadChain(chainDir) // rebase 이후의 원장 + 내 사이클
+		if err != nil {
+			return cid, cerr("%v", err)
+		}
+		dup := false
+		for _, r := range records {
+			rid := r.fields["id"]
+			if rid == "" || rid == cid {
+				continue
+			}
+			if rm := idRe.FindStringSubmatch(rid); rm != nil && rm[1] == myNum {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			continue // 경합이 번호가 아니었다 (다른 사이클의 커밋) — 재번호 없이 재시도
+		}
+		slug := cid[strings.Index(cid, "-")+1:]
+		newCid := fmt.Sprintf("C%03d-%s", nextNumber(records), slug)
+		oldRel, err := relToRepo(repo, filepath.Join(chainDir, cid))
+		if err != nil {
+			return cid, cerr("%v", err)
+		}
+		newRel, err := relToRepo(repo, filepath.Join(chainDir, newCid))
+		if err != nil {
+			return cid, cerr("%v", err)
+		}
+		if _, err := gitChecked(repo, "mv", oldRel, newRel); err != nil {
+			return cid, err
+		}
+		ypath := filepath.Join(repo, newRel, "cycle.yaml")
+		text, rerr := os.ReadFile(ypath)
+		if rerr != nil {
+			return cid, cerr("%v", rerr)
+		}
+		updated := strings.Replace(string(text), "id: "+cid, "id: "+newCid, 1)
+		if werr := os.WriteFile(ypath, []byte(updated), 0o644); werr != nil {
+			return cid, cerr("%v", werr)
+		}
+		if _, err := gitChecked(repo, "add", "-A", "--", newRel); err != nil {
+			return cid, err
+		}
+		if _, err := gitChecked(repo, "commit", "--amend", "-m",
+			fmt.Sprintf("gil: open %s/%s — 1/5 %s\n\n%s\n(원장 경합 재번호: %s → %s)",
+				chain, newCid, stepNames[1], title, cid, newCid)); err != nil {
+			return cid, err
+		}
+		fmt.Fprintf(os.Stderr, "경합 감지: %s → %s (원장 규율에 따라 재번호)\n", cid, newCid)
+		cid = newCid
+	}
+	return cid, cerr("push 경합 해소 3회 실패 — 원장이 계속 앞선다")
+}
+
 type openArgs struct {
 	chain, slug, title, author, date, root string
 	parents, lineage                       []string
-	newChain                               bool
+	newChain, git, push                    bool
 }
 
 func cmdOpen(a openArgs) error {
@@ -715,6 +809,33 @@ func cmdOpen(a openArgs) error {
 	if err := fsckOrReport(a.root); err != nil {
 		os.RemoveAll(dest)
 		return err
+	}
+
+	// ---- 깃 각인 (loom/C036): 열 때부터 보이게 (SPEC §2.1-3). --push는 원장 규율과 한 몸이다. ----
+	if a.git {
+		repo := repoRoot(a.root)
+		if repo == "" {
+			return cerr("--git: 깃 저장소가 아니다")
+		}
+		rel, rerr := relToRepo(repo, dest)
+		if rerr != nil {
+			return cerr("%v", rerr)
+		}
+		if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
+			return err
+		}
+		if _, err := gitChecked(repo, "commit", "-m",
+			fmt.Sprintf("gil: open %s/%s — 1/5 %s\n\n%s", a.chain, cid, stepNames[1], title),
+			"--", rel); err != nil {
+			return err
+		}
+		if a.push {
+			newCid, perr := pushWithRenumber(repo, chainDir, a.chain, cid, title)
+			if perr != nil {
+				return perr
+			}
+			cid = newCid // 원장 경합으로 재번호됐을 수 있다
+		}
 	}
 	fmt.Printf("열림: %s/%s\n", a.chain, cid)
 	return nil
@@ -2101,7 +2222,7 @@ const gilVersion = "1.9.0"
 
 var implementedCommands = []string{"log", "fsck", "open", "close", "step", "verify", "web", "pages", "goto", "handoff", "supersede", "version", "help"}
 
-const referenceOnly = "release, open --git/--push (원장 규율)" // 참조 구현(gil.py) 전용
+const referenceOnly = "release" // 참조 구현(gil.py) 전용 (loom/C036: open --git/--push는 이식 완료)
 
 func printHelp() {
 	fmt.Printf("gil %s — 길, GIt for Language model\n\n", gilVersion)
@@ -2110,7 +2231,8 @@ func printHelp() {
 	fmt.Println("  version  이 바이너리의 버전")
 	fmt.Println("  help     이 목록")
 	fmt.Printf("\n참조 구현(python3 gil.py) 전용: %s\n", referenceOnly)
-	fmt.Println("스텝/닫기는 깃 저장소에서 자동 커밋한다 (--no-commit로 opt-out).")
+	fmt.Println("열기/스텝/닫기는 깃 저장소에서 커밋한다 (open은 --git, 스텝·닫기는 기본 — --no-commit로 opt-out).")
+	fmt.Println("open --git --push는 번호 원장 규율을 따른다 (경합 시 fetch·rebase·자동 재번호·재시도).")
 }
 
 func notImplemented(what string) {
@@ -2152,13 +2274,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
-		if len(flags["git"]) > 0 || len(flags["push"]) > 0 {
-			// open의 깃 경로는 원장 규율(v0.8)이 push·자동 재번호와 한 몸으로 정의한다.
-			// 반쪽 이식은 위험하므로 어떤 변경도 하기 전에 정직하게 거부한다.
-			notImplemented("open --git/--push")
-		}
 		if len(pos) != 2 {
-			fmt.Fprintln(os.Stderr, "사용: gil open <chain> <slug> [--title t] [--parent id]… [--lineage chain/id]… [--author a] [--date d] [--new-chain] [--root r]")
+			fmt.Fprintln(os.Stderr, "사용: gil open <chain> <slug> [--title t] [--parent id]… [--lineage chain/id]… [--author a] [--date d] [--new-chain] [--git] [--push] [--root r]")
 			os.Exit(2)
 		}
 		if err := cmdOpen(openArgs{
@@ -2170,6 +2287,8 @@ func main() {
 			parents:  flags["parent"],
 			lineage:  flags["lineage"],
 			newChain: len(flags["new-chain"]) > 0,
+			git:      len(flags["git"]) > 0,
+			push:     len(flags["push"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
