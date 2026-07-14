@@ -2,7 +2,7 @@ id: C034-scaffold-and-self-report
 chain: loom
 parent: C033-default-commit
 lineage: [gateway/C001-agent-self-onboard]
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-15
