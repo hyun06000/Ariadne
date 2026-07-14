@@ -7,7 +7,7 @@ LLM의 추론이 걸어온 길(사이클 체인)을 깃처럼 다룬다.
 
 서브커맨드:
     log  [chains-root]                 체인들의 계보를 재구성해 그래프로 렌더한다.
-    fsck [chains-root]                 스키마 v0.2 규칙(R1~R8) 위반을 전부 수집해 보고한다.
+    fsck [chains-root]                 스키마 v0.3 규칙(R1~R10) 위반을 전부 수집해 보고한다.
     open  <chain> <slug> [옵션]        v0.2 준수 사이클을 생성한다 (사전 검증 → 템플릿 복사 → fsck 확인).
     close <chain> <cycle-id> [옵션]    보고서를 검증하고 사이클을 닫는다. --git이면 사이클
                                        디렉토리만을 담은 커밋 + 주석 태그 cycle/<chain>/<id>를 남긴다.
@@ -34,6 +34,7 @@ import sys
 
 _STEP_NAMES = {1: "가설", 2: "설계", 3: "검증", 4: "분석", 5: "보고"}
 _VERDICTS = ("supported", "partial", "rejected", "inconclusive")  # v0.3
+_GIL_VERSION = "1.8.0"
 
 
 class ChainError(Exception):
@@ -512,6 +513,8 @@ def cmd_open(args):
             f"opened: {args.date}\n"
             f"closed: null\n"
             f'title: "{title}"\n'
+            f"verdict: null\n"       # v0.3: 결말 (닫을 때 --verdict)
+            f"deviations: 0\n"       # v0.3: 사전등록 이탈 건수 (상세는 deviations.yaml)
         )
 
     # ---- 사후 확인: 생성물이 규칙을 어기면 되돌리고 실패한다 ----
@@ -1285,6 +1288,7 @@ def cmd_log(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="gil", description="gil — 길, GIt for Language model (Ariadne 사이클 체인 도구)")
+    parser.add_argument("--version", action="version", version=f"gil {_GIL_VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in (
         ("log", cmd_log, "체인 계보를 그래프로 렌더"),
@@ -1346,6 +1350,9 @@ def main(argv=None):
     p_rel.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로")
     p_rel.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_rel.set_defaults(func=cmd_release)
+
+    p_ver = sub.add_parser("version", help="이 도구의 버전")
+    p_ver.set_defaults(func=lambda a: (print(f"gil {_GIL_VERSION}"), 0)[1])
 
     p_handoff = sub.add_parser("handoff", help="세션의 매듭: 현황·부활 경로·다음 실 요약 (세션 정리 전)")
     p_handoff.add_argument("chains_root", nargs="?", default="rooms/experiment/chains", help="체인 루트")

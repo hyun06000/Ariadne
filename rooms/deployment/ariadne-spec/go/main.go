@@ -687,7 +687,7 @@ func cmdOpen(a openArgs) error {
 	}
 	lineageVal := "[" + strings.Join(a.lineage, ", ") + "]"
 	title := strings.ReplaceAll(a.title, `"`, "'")
-	yaml := fmt.Sprintf("id: %s\nchain: %s\nparent: %s\nlineage: %s\nstep: 1\nauthor: %s\nstatus: open\nopened: %s\nclosed: null\ntitle: \"%s\"\n",
+	yaml := fmt.Sprintf("id: %s\nchain: %s\nparent: %s\nlineage: %s\nstep: 1\nauthor: %s\nstatus: open\nopened: %s\nclosed: null\ntitle: \"%s\"\nverdict: null\ndeviations: 0\n",
 		cid, a.chain, parentVal, lineageVal, a.author, a.date, title)
 	if err := os.WriteFile(filepath.Join(dest, "cycle.yaml"), []byte(yaml), 0o644); err != nil {
 		return cerr("%v", err)
@@ -1927,19 +1927,41 @@ func fail(err error) {
 	os.Exit(1)
 }
 
+// 단일 소스: 구현된 명령과 미구현(참조 전용). version·help·notImplemented가 공유해 드리프트를 막는다.
+const gilVersion = "1.8.0"
+
+var implementedCommands = []string{"log", "fsck", "open", "close", "step", "verify", "web", "pages", "goto", "handoff", "version", "help"}
+
+const referenceOnly = "release, open --git/--push (원장 규율)" // 참조 구현(gil.py) 전용
+
+func printHelp() {
+	fmt.Printf("gil %s — 길, GIt for Language model\n\n", gilVersion)
+	fmt.Println("구현 명령:")
+	fmt.Println("  log fsck open close step verify web pages goto handoff")
+	fmt.Println("  version  이 바이너리의 버전")
+	fmt.Println("  help     이 목록")
+	fmt.Printf("\n참조 구현(python3 gil.py) 전용: %s\n", referenceOnly)
+	fmt.Println("스텝/닫기는 깃 저장소에서 자동 커밋한다 (--no-commit로 opt-out).")
+}
+
 func notImplemented(what string) {
-	fmt.Fprintf(os.Stderr, "미구현: '%s' — 이 바이너리(loom/C020)는 계약 부분집합(log·fsck·open·close·step·verify·web)만 구현한다\n", what)
+	fmt.Fprintf(os.Stderr, "미구현: '%s' — 이 바이너리(gil %s) 구현: %s. 참조 전용: %s. (gil help 참조)\n",
+		what, gilVersion, strings.Join(implementedCommands[:10], "·"), referenceOnly)
 	os.Exit(3)
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "사용: gil <log|fsck|open|close|step|verify|web> [인자…]")
-		os.Exit(2)
+		printHelp()
+		os.Exit(0)
 	}
 	today := time.Now().Format("2006-01-02")
 	defaultRoot := "rooms/experiment/chains"
 	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Printf("gil %s\n", gilVersion)
+	case "help", "--help", "-h":
+		printHelp()
 	case "fsck":
 		root := defaultRoot
 		if len(os.Args) >= 3 && !strings.HasPrefix(os.Args[2], "-") {

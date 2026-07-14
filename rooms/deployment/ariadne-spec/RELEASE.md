@@ -1,5 +1,11 @@
 # Ariadne Spec — Release
 
+## v1.8.0 (2026-07-15) — 스캐폴드 v0.3 + 자기보고 정정 (이슈 #3·#4, 결/Gyeol)
+
+- **#4**: `open`이 `verdict: null`·`deviations: 0`을 seed (참조·Go). `_template`·도움말도 v0.3(R1~R10)로 동기화. 이제 새 사이클이 스캐폴드부터 v0.3 준수 — #1의 "어긴 것이 보이게"가 사슬 시작부터 성립.
+- **#3**: `gil version`/`--version`, `gil help`/무인자가 명령 목록 출력. notImplemented 문자열이 C020 화석에서 실제 능력(pages·goto·handoff 포함)으로 정정 — 명령 목록 단일 상수로 드리프트 차단.
+- 두 구현 동일, conformance 26/26. 근거: loom/C034. version 상수는 릴리스마다 갱신(후속 자동화 여지).
+
 ## v1.7.0 (2026-07-15) — 스텝 커밋 기본화 (부드러운 강제)
 
 - `gil step`·`gil close`가 **깃 저장소에서 기본으로 커밋**한다 — `--git`을 안 붙여도 스텝마다 각인된다. 커밋을 안 붙이던 사용자도 자동 각인 (발의: 박상현). 끄려면 `--no-commit`. 깃 아닌 곳에선 조용히 스킵.

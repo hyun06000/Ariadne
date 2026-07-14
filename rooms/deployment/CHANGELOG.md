@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-07-14
+
+- 스캐폴드 v0.3 seed + version/help/self-report 정정 (이슈 #3·#4, 결/Gyeol). 참조·Go 동일
+- 도구 변경: gil (마이너 이상 승격)
+
+
 ## [1.7.0] — 2026-07-14
 
 - 스텝 커밋 기본화 — step/close가 깃 저장소면 자동 커밋(--no-commit opt-out). 참조·Go 동일 (발의: 박상현)

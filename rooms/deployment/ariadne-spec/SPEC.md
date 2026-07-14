@@ -107,6 +107,8 @@ deviations: 0             # 사전등록으로부터의 이탈 건수. N>0이면
 | `gil close <chain> <id>` | 보고서 존재·비템플릿 검증 → 상태 전이(step=5 마감, `--verdict`로 결말 기록) → fsck. `--git` 커밋+태그, `--push` 전파 |
 | `gil step <chain> <id> <n>` | 열린 사이클의 진행 스텝 전이(1~5). `--git`이면 전이를 사이클만 담은 커밋으로, `--push`면 즉시 전파 — **뷰어의 준실시간성**은 이 명령의 규율에서 나온다 (v0.6) |
 | `gil goto <chain>/<id> [--checkout]` | 타임머신: 사이클 시점의 역행 조회·체크아웃과 분기 안내 — 잘못된 길에서 건강한 지점으로 되돌아가 새 갈래를 시작 (v1.3) |
+| `gil version` / `--version` | 이 도구의 버전 문자열 (재현성·이슈 리포트, v1.8) |
+| `gil help` / (무인자) | 구현 명령 목록 (v1.8) |
 | `gil verify` | 닫힌 사이클의 태그↔작업 트리 대조 (변조 탐지) |
 | `gil pages [--force]` | GitHub Pages 배포 워크플로(`.github/workflows/gil-pages.yml`)를 생성 — 저장소 비특정, push마다 뷰어 자동 배포 (v1.2) |
 | `gil web -o out.html` | 자기완결적 정적 HTML 뷰어 (같은 파서, SVG 렌더, 외부 리소스 0). 그래프 구조는 `<script type="application/json" id="gil-data">`로 내장(step 포함) — 기계 검증의 훅. 열린 사이클은 스텝 인디케이터(●●●○○ n/5) 표시 (v0.6) |
