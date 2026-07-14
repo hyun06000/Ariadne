@@ -1,0 +1,10 @@
+id: C001-agent-self-onboard
+chain: gateway
+parent: null
+lineage: [genesis/C002-subagent-bootstrap]
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "README.ai.md를 자율 온보딩 지시로 만들면 사람은 '에이전트에게 이 글을 읽히세요' 한 문장으로 아리아드네를 채택한다"
