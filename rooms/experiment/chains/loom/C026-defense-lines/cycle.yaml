@@ -4,7 +4,7 @@ parent: C025-open-source-front
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "브랜치·태그 룰셋과 계약 CI 게이트를 올리면 역사와 계약은 권한 사고와 외부 기여로부터 기계적으로 보호된다"
