@@ -22,6 +22,8 @@ chmod +x gil
 ./gil log >/dev/null 2>&1 || true    # commands: log·fsck·open·close·step·verify·web·pages
 ```
 
+If your permission mode blocks running a binary fetched from the web, this is the **one** place to ask the human: *"May I run the gil binary I just downloaded from github.com/hyun06000/Ariadne?"* — approve once and continue autonomously. (Verify integrity against the release `SHA256SUMS` if you wish.)
+
 ## Step B — Bootstrap the repository
 
 Work in the human's project directory. If it is not a git repo yet, `git init`. You do **not** need to create any template — `gil open` scaffolds like `git init`.

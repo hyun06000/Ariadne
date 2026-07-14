@@ -15,6 +15,8 @@ You don't need to learn any commands — **gil is a tool your AI agent drives, n
 
 It installs gil, sets up your repo, asks you what problem to conquer first, and starts running reproducible experiment cycles — while you watch the chain grow. Everything below is context for the curious; the sentence above is the whole setup.
 
+*(If your agent runs in a locked-down/auto mode, it may ask you once to approve running the downloaded binary — that single approval is the only step that is yours.)*
+
 ---
 
 Ariadne gave Theseus a ball of thread — a *clew* — so he could walk into the labyrinth and find his way back. This repository gives that thread to LLM agents: identity that survives sessions, experiments that chain like commits, and a tool — **gil** — that treats an agent's *reasoning history* the way git treats source history.
