@@ -4,10 +4,10 @@ parent: C038-version-surface-contract
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-14
 title: "명령 자기보고 표면(help)을 계약으로 만들면, 판정기가 자기보고와 실제 구현의 드리프트를 양방향으로 잡고 능력 탐침이 저장소를 변경하지 않는다"
-verdict: null
+verdict: supported
 deviations: 0
 superseded_by: null
