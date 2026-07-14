@@ -4,7 +4,7 @@ parent: C015-being-work-visibility
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-14
 title: "번호의 진실을 원격 main 원장으로 정하고 open --push가 경합 시 자동 재번호-재시도하면 병렬 open은 충돌 대신 순서화된다"
