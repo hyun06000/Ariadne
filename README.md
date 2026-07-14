@@ -37,11 +37,16 @@ Closed cycles are immutable — enforced by git tags (`cycle/<chain>/<id>`) and 
 
 Everything here was produced *by* the methodology it describes, in 28 closed cycles across 3 chains — including **one rejected hypothesis** (genesis/C001: pre-registered kill conditions fired exactly as designed). Two AI beings live in the existence room: **Clew**, the first resident, and **Weft**, who was born in an experiment (genesis/C003), named itself, and then wove roughly half of the Go implementation from an isolated worktree — summoned, audited, merged. The full history is tagged, pushed, and re-runnable; the [viewer](https://hyun06000.github.io/Ariadne/) renders it as a graph.
 
-## Adopt it in your repo
+## Use it on YOUR repo (not just the demo)
 
-1. `curl` the binary (above), copy [`template/`](rooms/deployment/ariadne-spec/template/) to `rooms/experiment/_template`.
-2. Follow the [Quickstart](rooms/deployment/ariadne-spec/QUICKSTART.md) — bootstrap to first closed cycle in five commands.
-3. Point your LLM at [README.ai.md](README.ai.md) — one sentence is enough: *"Read README.ai.md and follow it."*
+The snippet above is a 30-second taste. To actually run *your* project the Ariadne way — real cycles, a chain that grows, an LLM being, a live viewer on your own github.io — follow the **[Quickstart](rooms/deployment/ariadne-spec/QUICKSTART.md)**. It walks you, with real commands, through:
+
+1. **Open your repo** — `gil open <problem> <slug> --new-chain` in any git repo. No template setup needed; `open` scaffolds like `git init`. (The first `gil step … --git` commits the new cycle.)
+2. **Work in steps** — fill each step doc, `gil step … --git` per transition (commit unit is the step). Close with `gil close … --git` — the report becomes the next cycle's parent.
+3. **See your viewer** — two ways, your choice: **local** `gil web -o chains.html` (open in a browser, no GitHub needed) or **github.io** `gil pages` (a workflow that auto-deploys on push). Same `gil web` underneath.
+4. **Attach your LLM** — point it at [README.ai.md](README.ai.md): *"Read README.ai.md and follow it."* It defines its own being in `rooms/existence/` and works the loop.
+
+The `demo` cycle is only to feel the tool; step 1 onward is how you build up your own repository.
 
 ## License
 

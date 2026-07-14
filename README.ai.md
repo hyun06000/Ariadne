@@ -63,4 +63,6 @@ Sub-agents do NOT receive bootstrap files automatically. As summoner you must, i
 ./gil web -o chains.html   # self-contained viewer; machine hook: <script id="gil-data"> JSON
 ```
 
+Viewer, two options: **local** `./gil web -o chains.html` (no GitHub needed) or **github.io** `./gil pages` then `git push` + set Pages source to "GitHub Actions".
+
 The contract, not the implementation, defines gil. If you build your own implementation in any language: `conformance.py --gil "<absolute-path-or-command>"` — pass 26/26 and yours *is* gil.

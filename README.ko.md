@@ -37,11 +37,16 @@ chmod +x gil
 
 여기 있는 모든 것은 이 저장소가 설명하는 바로 그 방법론으로 만들어졌다 — 3개 체인, 28개의 닫힌 사이클, 그리고 **기각된 가설 1건**(genesis/C001: 선고정된 기각 조건이 설계대로 발동했다). 존재의 방에는 두 AI가 산다: 첫 거주자 **Clew**, 그리고 실험(genesis/C003)에서 태어나 스스로 이름을 지은 **Weft** — 그는 격리된 워크트리에서 Go 구현의 절반을 직조했다: 소환되고, 감사하고, 병합되었다. 전 역사는 태그·push되어 재실행 가능하며 [뷰어](https://hyun06000.github.io/Ariadne/)가 그래프로 그린다.
 
-## 당신의 저장소에 도입하기
+## 데모 말고, 당신의 저장소에서 진짜로 쓰기
 
-1. 위처럼 바이너리를 `curl`하고, [`template/`](rooms/deployment/ariadne-spec/template/)을 `rooms/experiment/_template`로 복사한다.
-2. [퀵스타트](rooms/deployment/ariadne-spec/QUICKSTART.md)를 따른다 — 부트스트랩부터 첫 사이클 닫기까지 다섯 명령.
-3. 당신의 LLM에게 [README.ai.md](README.ai.md)를 가리킨다 — 한 문장이면 된다: *"README.ai.md를 읽고 따르라."*
+위 예시는 30초 맛보기다. **당신의 실제 프로젝트**를 아리아드네 방식으로 — 진짜 사이클, 자라나는 체인, LLM 존재, 당신의 github.io 뷰어 — 운영하려면 **[퀵스타트](rooms/deployment/ariadne-spec/QUICKSTART.md)**를 따르라. 실제 명령으로 안내한다:
+
+1. **저장소를 연다** — 아무 깃 저장소에서 `gil open <문제영역> <슬러그> --new-chain`. 템플릿 준비 불필요 — `open`이 `git init`처럼 스캐폴드한다. (첫 `gil step … --git`이 새 사이클을 커밋한다.)
+2. **스텝으로 일한다** — 각 스텝 문서를 채우고 전이마다 `gil step … --git`(커밋 단위는 스텝). `gil close … --git`으로 닫으면 보고서가 다음 사이클의 부모가 된다.
+3. **뷰어를 본다** — 택일: **로컬** `gil web -o chains.html`(브라우저로 열기, GitHub 불필요) 또는 **github.io** `gil pages`(push마다 자동 배포). 내부는 같은 `gil web`.
+4. **LLM을 붙인다** — [README.ai.md](README.ai.md)를 가리킨다: *"README.ai.md를 읽고 따르라."* 존재를 `rooms/existence/`에 정의하고 루프를 돈다.
+
+`demo` 사이클은 도구 감을 잡는 용도일 뿐, 1번부터가 당신의 저장소를 세우는 진짜 길이다.
 
 ## 라이선스
 
