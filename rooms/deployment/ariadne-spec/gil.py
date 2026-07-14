@@ -923,6 +923,21 @@ def _last_release_version(repo):
     return max(versions) if versions else None
 
 
+def _changed_vs_last_tag(repo, tag, worktree_path):
+    """마지막 릴리스 태그의 blob과 작업 트리 파일을 비교한다 (v0.9 승격 기준).
+    태그에 없던 파일이 생겼거나 내용이 다르면 변경. 둘 다 없으면 무변경."""
+    rel = os.path.relpath(worktree_path, repo).replace(os.sep, "/")
+    r = _git(repo, "show", f"{tag}:{rel}", check=False)
+    tagged = r.stdout if r.returncode == 0 else None
+    exists = os.path.isfile(worktree_path)
+    if tagged is None:
+        return exists  # 태그엔 없는데 지금 있다 → 변경
+    if not exists:
+        return True    # 태그엔 있는데 사라졌다 → 변경
+    with open(worktree_path, encoding="utf-8") as f:
+        return f.read() != tagged
+
+
 def cmd_release(args):
     chains_root = args.root
     pkg = args.package
@@ -950,10 +965,23 @@ def cmd_release(args):
 
     tool_src = os.path.abspath(__file__)
     pkg_tool = os.path.join(pkg, os.path.basename(__file__))  # 파일명 비의존 — 도구는 자기 이름을 하드코딩하지 않는다
-    tool_changed = (not os.path.isfile(pkg_tool)) or _hash_file(tool_src) != _hash_file(pkg_tool)
-    if tool_changed and last and new[0] == last[0] and new[1] == last[1]:
+    if last:
+        # v0.9 기준: 마지막 릴리스 태그의 blob. (실행 도구가 곧 릴리스될 내용이므로,
+        # 태그의 패키지 도구와 실행 도구를 비교한다 — 패키지 파일 직접 실행에도 안전.)
+        last_tag = f"v{'.'.join(map(str, last))}"
+        rel = os.path.relpath(pkg_tool, repo).replace(os.sep, "/")
+        r = _git(repo, "show", f"{last_tag}:{rel}", check=False)
+        with open(tool_src, encoding="utf-8") as f:
+            tool_changed = (r.returncode != 0) or (f.read() != r.stdout)
+        conf_changed = _changed_vs_last_tag(repo, last_tag, os.path.join(pkg, "conformance.py"))
+    else:
+        tool_changed = (not os.path.isfile(pkg_tool)) or _hash_file(tool_src) != _hash_file(pkg_tool)
+        conf_changed = False
+    changed_parts = [n for n, c in (("gil", tool_changed), ("conformance", conf_changed)) if c]
+    if changed_parts and last and new[0] == last[0] and new[1] == last[1]:
         raise ChainError(
-            f"도구가 변했다 — 패치 승격({args.version})은 금지, 마이너 이상으로 승격할 것 (버전 승격 규칙)")
+            f"도구가 변했다({'·'.join(changed_parts)}, 기준: 마지막 릴리스 태그) — "
+            f"패치 승격({args.version})은 금지, 마이너 이상으로 승격할 것 (버전 승격 규칙)")
 
     release_md = os.path.join(pkg, "RELEASE.md")
     if not (os.path.isfile(release_md) and args.version in open(release_md, encoding="utf-8").read()):
@@ -976,7 +1004,7 @@ def cmd_release(args):
         shutil.rmtree(pkg_template)
     shutil.copytree(template_src, pkg_template)
     entry = (f"## [{args.version}] — {args.date}\n\n- {args.notes}\n"
-             f"- 도구 동기화: {'있음 (도구 변경 반영)' if tool_changed else '없음 (문서 릴리스)'}\n")
+             f"- 도구 변경: {('·'.join(changed_parts) + ' (마이너 이상 승격)') if changed_parts else '없음 (문서 릴리스)'}\n")
     with open(changelog, "w", encoding="utf-8") as f:
         f.write(log_text.replace("## [Unreleased]", f"## [Unreleased]\n\n{entry}", 1))
 
@@ -989,7 +1017,7 @@ def cmd_release(args):
         _git(repo, "reset", "-q", "--", deploy_rel, check=False)
         _git(repo, "checkout", "-q", "--", deploy_rel, check=False)
         raise
-    print(f"릴리스: {tag} (도구 변경: {'예' if tool_changed else '아니오'})")
+    print(f"릴리스: {tag} (도구 변경: {'·'.join(changed_parts) if changed_parts else '없음'})")
     return 0
 
 
