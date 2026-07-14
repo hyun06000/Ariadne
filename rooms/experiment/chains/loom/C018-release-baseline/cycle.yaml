@@ -2,7 +2,7 @@ id: C018-release-baseline
 chain: loom
 parent: C016-number-ledger
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-14
