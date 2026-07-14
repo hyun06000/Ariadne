@@ -4,11 +4,11 @@ parent: C041-correction-protocol
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "원장이 자동 갱신되면 사람의 창(뷰어)도 자동 갱신된다 — 낡은 화면은 침묵보다 나쁘다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
