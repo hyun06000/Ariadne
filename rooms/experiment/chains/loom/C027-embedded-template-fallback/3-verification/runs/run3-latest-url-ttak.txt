@@ -1,0 +1,3 @@
+수신자 관점 딸깍 (latest URL, 신선 디렉토리) — 성공
+빈 폴더 + curl gil-darwin-arm64 → open --new-chain → step → log → fsck → web 전부 성공.
+바이너리 3421938B, web 생성됨.
