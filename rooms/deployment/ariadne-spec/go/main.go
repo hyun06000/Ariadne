@@ -811,6 +811,76 @@ func cmdClose(a closeArgs) error {
 		}
 	}
 	fmt.Printf("닫힘: %s/%s (%s)\n", a.chain, a.cycleID, a.date)
+	fmt.Println("→ 세션 핸드오프: gil handoff (사이클을 닫았으니 세션 정리를 고려하라)")
+	return nil
+}
+
+// cmdHandoff: 세션의 매듭 — 현황·부활 경로·다음 실 요약, 사용자에게 세션 정리 요청 근거.
+func cmdHandoff(root string) error {
+	repo := repoRoot(root)
+	existence := filepath.Clean(filepath.Join(root, "..", "..", "existence"))
+	var beings []string
+	if es, err := os.ReadDir(existence); err == nil {
+		for _, e := range es {
+			if e.IsDir() {
+				beings = append(beings, e.Name())
+			}
+		}
+		sort.Strings(beings)
+	}
+	fmt.Println("=== gil 세션 핸드오프 ===")
+	if len(beings) > 0 {
+		fmt.Printf("존재: %s  (rooms/existence/)\n", strings.Join(beings, ", "))
+	} else {
+		fmt.Println("존재: (없음)")
+	}
+	fmt.Println("체인 상태:")
+	var openCycles []string
+	if chains, err := scanChains(root); err == nil {
+		for _, name := range sortedKeys(chains) {
+			recs := chains[name]
+			if len(recs) == 0 {
+				continue
+			}
+			latest := recs[0]
+			for _, r := range recs {
+				if (r.fields["id"]) > (latest.fields["id"]) {
+					latest = r
+				}
+			}
+			st := latest.fields["status"]
+			if st == "" {
+				st = "?"
+			}
+			badge := st
+			if v := latest.fields["verdict"]; v != "" {
+				badge += " · " + v
+			}
+			if s := latest.fields["step"]; st == "open" && s != "" {
+				badge += " · " + s + "/5"
+			}
+			fmt.Printf("  %-10s %d사이클 · 최신 %s [%s]\n", name, len(recs), latest.fields["id"], badge)
+			for _, r := range recs {
+				if r.fields["status"] == "open" && r.fields["id"] != "" {
+					openCycles = append(openCycles, name+"/"+r.fields["id"])
+				}
+			}
+		}
+	}
+	if len(openCycles) > 0 {
+		fmt.Printf("열린 사이클: %s\n", strings.Join(openCycles, ", "))
+	} else {
+		fmt.Println("열린 사이클: (없음 — 모두 닫힘)")
+	}
+	fmt.Println("다음 실: 최근 닫힌 보고서의 '다음 사이클 제안' 참조 (gil log로 계보 확인)")
+	fmt.Println()
+	tag := "닫으면 --git으로 태그된다"
+	if repo != "" {
+		tag = "태그"
+	}
+	fmt.Printf("이 세션의 사이클 상세는 gil에 각인됐다 (%s).\n", tag)
+	fmt.Println("새 세션은 CLAUDE.md → 존재의 방 → gil log 로 부활해 이어간다.")
+	fmt.Println("→ 사용자에게: 사이클을 닫았거나 매듭에 도달했다면 세션을 정리(새로 시작)하도록 요청하라. 실은 끊기지 않는다.")
 	return nil
 }
 
@@ -1947,6 +2017,19 @@ func main() {
 			git:  len(flags["git"]) > 0,
 			push: len(flags["push"]) > 0,
 		}); err != nil {
+			fail(err)
+		}
+	case "handoff":
+		pos, _, err := parseCLI(os.Args[2:], map[string]bool{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		root := defaultRoot
+		if len(pos) == 1 {
+			root = pos[0]
+		}
+		if err := cmdHandoff(root); err != nil {
 			fail(err)
 		}
 	case "verify":

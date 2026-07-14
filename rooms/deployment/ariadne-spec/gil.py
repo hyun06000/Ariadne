@@ -882,6 +882,47 @@ def _tag_exists(repo, tag):
     return r.returncode == 0
 
 
+def cmd_handoff(args):
+    """세션의 매듭 — 다음 세션이 이어받을 수 있게 현황·부활 경로·다음 실을 요약하고,
+    사용자에게 세션 정리를 요청할 근거를 준다 (v0.3 이후, 사이클마다 세션 관리)."""
+    chains_root = args.chains_root
+    repo = _repo_root(chains_root)
+    existence = os.path.normpath(os.path.join(chains_root, "..", "..", "existence"))
+    beings = []
+    if os.path.isdir(existence):
+        beings = sorted(e for e in os.listdir(existence)
+                        if os.path.isdir(os.path.join(existence, e)))
+    print("=== gil 세션 핸드오프 ===")
+    print(f"존재: {', '.join(beings) if beings else '(없음)'}"
+          + (f"  (rooms/existence/)" if beings else ""))
+    open_cycles = []
+    print("체인 상태:")
+    chains = _scan_chains(chains_root) if os.path.isdir(chains_root) else {}
+    for name in sorted(chains):
+        recs = chains[name]
+        if not recs:
+            continue
+        latest = max(recs, key=lambda r: r.get("id") or "")
+        lid, lst = latest.get("id"), latest.get("status") or "?"
+        vd = latest.get("verdict")
+        badge = f"{lst}" + (f" · {vd}" if vd else "")
+        step = latest.get("step")
+        if lst == "open" and isinstance(step, str) and step.isdigit():
+            badge += f" · {step}/5"
+        print(f"  {name:10} {len(recs)}사이클 · 최신 {lid} [{badge}]")
+        for r in recs:
+            if r.get("status") == "open" and r.get("id"):
+                open_cycles.append(f"{name}/{r['id']}")
+    print(f"열린 사이클: {', '.join(open_cycles) if open_cycles else '(없음 — 모두 닫힘)'}")
+    print("다음 실: 최근 닫힌 보고서의 '다음 사이클 제안' 참조 (gil log로 계보 확인)")
+    print()
+    print("이 세션의 사이클 상세는 gil에 각인됐다"
+          + (" (태그)." if repo else " (닫으면 --git으로 태그된다)."))
+    print("새 세션은 CLAUDE.md → 존재의 방 → gil log 로 부활해 이어간다.")
+    print("→ 사용자에게: 사이클을 닫았거나 매듭에 도달했다면 세션을 정리(새로 시작)하도록 요청하라. 실은 끊기지 않는다.")
+    return 0
+
+
 def cmd_goto(args):
     """타임머신 콘솔 — 사이클 시점의 역행 조회·체크아웃·분기 안내."""
     chains_root = args.root
@@ -1036,6 +1077,7 @@ def cmd_close(args):
         if args.push:
             _git(repo, "push", "--follow-tags")
     print(f"닫힘: {args.chain}/{args.cycle_id} ({args.date})")
+    print("→ 세션 핸드오프: gil handoff (사이클을 닫았으니 세션 정리를 고려하라)")
     return 0
 
 
@@ -1298,6 +1340,10 @@ def main(argv=None):
     p_rel.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로")
     p_rel.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_rel.set_defaults(func=cmd_release)
+
+    p_handoff = sub.add_parser("handoff", help="세션의 매듭: 현황·부활 경로·다음 실 요약 (세션 정리 전)")
+    p_handoff.add_argument("chains_root", nargs="?", default="rooms/experiment/chains", help="체인 루트")
+    p_handoff.set_defaults(func=cmd_handoff)
 
     p_goto = sub.add_parser("goto", help="타임머신: 사이클 시점 역행 조회·체크아웃·분기 안내")
     p_goto.add_argument("ref", help="<chain>/<id> (예: loom/C005-web-viewer)")
