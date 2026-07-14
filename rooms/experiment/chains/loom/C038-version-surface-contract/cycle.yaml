@@ -4,10 +4,10 @@ parent: C037-checksum-install-gate
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-15
 title: "version 자기보고 표면을 계약으로 만들면, 배포된 도구가 자기 버전을 거짓말할 수 없고 패치 릴리스도 되살아난다"
-verdict: null
-deviations: 0
+verdict: supported
+deviations: 1
 superseded_by: null
