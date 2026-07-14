@@ -4,10 +4,10 @@ parent: C039-command-surface-contract
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-14
 title: "출처(저자·부모)의 조용한 기본값을 제거하면 거짓 원장은 태어나지 못한다 (이슈 #17)"
-verdict: null
+verdict: supported
 deviations: 0
 superseded_by: null
