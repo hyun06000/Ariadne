@@ -4,7 +4,8 @@ parent: C031-web-lane-layout
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
+verdict: supported
 title: "gil handoff가 세션 핸드오프 카드(존재·체인 상태·부활 경로·다음 후보)를 내면 LLM은 사이클마다 사용자에게 세션 정리를 요청할 수 있다"
