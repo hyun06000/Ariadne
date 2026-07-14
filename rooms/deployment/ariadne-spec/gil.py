@@ -821,6 +821,49 @@ def _tag_exists(repo, tag):
     return r.returncode == 0
 
 
+def cmd_goto(args):
+    """타임머신 콘솔 — 사이클 시점의 역행 조회·체크아웃·분기 안내."""
+    chains_root = args.root
+    if "/" not in args.ref:
+        raise ChainError(f"ref는 <chain>/<id> 형식이어야 한다: {args.ref}")
+    chain, cid = args.ref.split("/", 1)
+    cycle_dir = os.path.join(chains_root, chain, cid)
+    yaml_path = os.path.join(cycle_dir, "cycle.yaml")
+    if not os.path.isfile(yaml_path):
+        raise ChainError(f"사이클이 없다: {args.ref}")
+    data = parse_cycle_yaml(yaml_path)
+    parents = _as_list(data.get("parent"))
+    lineage = _as_list(data.get("lineage"))
+    tag = _tag_name(chain, cid)
+    repo = _repo_root(chains_root)
+    tagged = repo is not None and _tag_exists(repo, tag)
+
+    print(f"사이클 {chain}/{cid} [{data.get('status') or '?'}]: {data.get('title') or ''}")
+    print(f"  부모: {', '.join(parents) if parents else '(root)'}"
+          + (f"   계보: {', '.join(lineage)}" if lineage else ""))
+    if tagged:
+        commit = _git(repo, "rev-list", "-n1", tag).stdout.strip()[:8]
+        print(f"  각인 태그: {tag} → {commit}")
+        print(f"  ← 이 시점 코드로 역행:  git checkout {tag}   (또는 gil goto {args.ref} --checkout)")
+    elif data.get("status") == "closed":
+        print("  (닫혔으나 태그 없음 — 백필 필요)")
+    else:
+        print("  (열린 사이클 — 아직 각인 태그 없음)")
+    print(f"  ↳ 이 지점에서 새 갈래 시작:  gil open {chain} <slug> --parent {cid}")
+
+    if args.checkout:
+        if not repo:
+            raise ChainError("--checkout: 깃 저장소가 아니다")
+        if not tagged:
+            raise ChainError(f"--checkout: 태그 '{tag}'가 없다 (닫히고 각인된 사이클만 역행 가능)")
+        if _git(repo, "status", "--porcelain").stdout.strip():
+            raise ChainError("--checkout: 미커밋 변경이 있다 — 유실 방지를 위해 거부. 커밋/스태시 후 다시.")
+        current = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        _git(repo, "checkout", tag)
+        print(f"\n역행 완료: 작업 트리가 {tag} 시점이다. 돌아오려면:  git checkout {current or 'main'}")
+    return 0
+
+
 def cmd_verify(args):
     chains_root = args.chains_root
     repo = _repo_root(chains_root)
@@ -1186,6 +1229,12 @@ def main(argv=None):
     p_rel.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로")
     p_rel.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_rel.set_defaults(func=cmd_release)
+
+    p_goto = sub.add_parser("goto", help="타임머신: 사이클 시점 역행 조회·체크아웃·분기 안내")
+    p_goto.add_argument("ref", help="<chain>/<id> (예: loom/C005-web-viewer)")
+    p_goto.add_argument("--checkout", action="store_true", help="그 시점 작업 트리로 실제 역행 (미커밋 있으면 거부)")
+    p_goto.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_goto.set_defaults(func=cmd_goto)
 
     p_pages = sub.add_parser("pages", help="GitHub Pages 배포 워크플로를 생성한다")
     p_pages.add_argument("--force", action="store_true", help="기존 워크플로를 덮어쓴다")

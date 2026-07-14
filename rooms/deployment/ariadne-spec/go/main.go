@@ -859,6 +859,78 @@ func relToRepo(repo, path string) (string, error) {
 	return filepath.Rel(repo, abs)
 }
 
+// cmdGoto: 타임머신 콘솔 — 사이클 시점의 역행 조회·체크아웃·분기 안내.
+func cmdGoto(root, ref string, checkout bool) error {
+	if !strings.Contains(ref, "/") {
+		return cerr("ref는 <chain>/<id> 형식이어야 한다: %s", ref)
+	}
+	parts := strings.SplitN(ref, "/", 2)
+	chain, cid := parts[0], parts[1]
+	yamlPath := filepath.Join(root, chain, cid, "cycle.yaml")
+	if _, err := os.Stat(yamlPath); err != nil {
+		return cerr("사이클이 없다: %s", ref)
+	}
+	fields, parents, lineage, err := parseCycleYaml(yamlPath)
+	if err != nil {
+		return cerr("%v", err)
+	}
+	tag := tagName(chain, cid)
+	repo := repoRoot(root)
+	tagged := repo != "" && tagExists(repo, tag)
+
+	status := fields["status"]
+	if status == "" {
+		status = "?"
+	}
+	fmt.Printf("사이클 %s/%s [%s]: %s\n", chain, cid, status, fields["title"])
+	parentStr := "(root)"
+	if len(parents) > 0 {
+		parentStr = strings.Join(parents, ", ")
+	}
+	line := "  부모: " + parentStr
+	if len(lineage) > 0 {
+		line += "   계보: " + strings.Join(lineage, ", ")
+	}
+	fmt.Println(line)
+	if tagged {
+		out, _, _ := gitRun(repo, "rev-list", "-n1", tag)
+		commit := strings.TrimSpace(out)
+		if len(commit) > 8 {
+			commit = commit[:8]
+		}
+		fmt.Printf("  각인 태그: %s → %s\n", tag, commit)
+		fmt.Printf("  ← 이 시점 코드로 역행:  git checkout %s   (또는 gil goto %s --checkout)\n", tag, ref)
+	} else if status == "closed" {
+		fmt.Println("  (닫혔으나 태그 없음 — 백필 필요)")
+	} else {
+		fmt.Println("  (열린 사이클 — 아직 각인 태그 없음)")
+	}
+	fmt.Printf("  ↳ 이 지점에서 새 갈래 시작:  gil open %s <slug> --parent %s\n", chain, cid)
+
+	if checkout {
+		if repo == "" {
+			return cerr("--checkout: 깃 저장소가 아니다")
+		}
+		if !tagged {
+			return cerr("--checkout: 태그 '%s'가 없다 (닫히고 각인된 사이클만 역행 가능)", tag)
+		}
+		st, _, _ := gitRun(repo, "status", "--porcelain")
+		if strings.TrimSpace(st) != "" {
+			return cerr("--checkout: 미커밋 변경이 있다 — 유실 방지를 위해 거부. 커밋/스태시 후 다시.")
+		}
+		cur, _, _ := gitRun(repo, "rev-parse", "--abbrev-ref", "HEAD")
+		current := strings.TrimSpace(cur)
+		if current == "" {
+			current = "main"
+		}
+		if _, err := gitChecked(repo, "checkout", tag); err != nil {
+			return err
+		}
+		fmt.Printf("\n역행 완료: 작업 트리가 %s 시점이다. 돌아오려면:  git checkout %s\n", tag, current)
+	}
+	return nil
+}
+
 type verifyArgs struct{ root, chain string }
 
 // cmdVerify: 닫힌 사이클마다 태그↔작업 트리를 대조한다. (종료코드, 오류)를 반환.
@@ -1818,6 +1890,19 @@ func main() {
 			title:  flagVal(flags, "title", "Ariadne — 사이클 체인"),
 			chain:  flagVal(flags, "chain", ""),
 		}); err != nil {
+			fail(err)
+		}
+	case "goto":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "checkout": false})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) != 1 {
+			fmt.Fprintln(os.Stderr, "사용: gil goto <chain>/<id> [--checkout]")
+			os.Exit(2)
+		}
+		if err := cmdGoto(flagVal(flags, "root", defaultRoot), pos[0], len(flags["checkout"]) > 0); err != nil {
 			fail(err)
 		}
 	case "pages":
