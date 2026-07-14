@@ -22,8 +22,10 @@ base=https://github.com/hyun06000/Ariadne/releases/latest/download
 curl -fsSL -O "$base/gil-${os}-${arch}"
 curl -fsSL -O "$base/SHA256SUMS"
 grep " gil-${os}-${arch}\$" SHA256SUMS | sha -c - && mv "gil-${os}-${arch}" gil && chmod +x gil
-./gil log >/dev/null 2>&1 || true    # commands: log·fsck·open·close·step·verify·web·pages
+./gil help                           # ← ask the tool what it can do. Never guess from docs.
 ```
+
+**Ask, don't assume.** `./gil help` prints the commands this build actually implements, plus a machine hook line (`gil:commands …`) you can parse. `./gil help <command>` prints one command's usage and **exits 3 if this build doesn't have it** — a capability probe with **no side effects**. Never probe by *running* a command: `./gil pages` would write a workflow file into the human's repo. Use `./gil pages --dry-run`. (Spec §7.2 — this contract exists because an agent once read a stale list, concluded the time machine was missing, and never tried `goto`.)
 
 **The checksum step is mandatory — do not skip it, and do not "simplify" it away.** If the hash mismatches, the `&&` chain breaks and `gil` never becomes executable, so nothing unverified can run. A mismatch immediately after a release means the CDN is still catching up: **wait ~60 seconds and retry the block.** Do not work around it by removing the check. (This is the same rule gil enforces on cycles — compare the declared hash against the real thing.)
 
