@@ -1,0 +1,28 @@
+== T1 log 표시·집계:
+=== chain: demo — 사이클 2개 ===
+
+●  C001-alpha [closed · supported] 베이스라인
+●  C002-beta [closed · rejected ⚠1] 다분광
+
+root: C001-alpha
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-alpha  ←  (root)
+  C002-beta  ←  C001-alpha
+
+결말: supported 1 · rejected 1 · 이탈 1건
+
+
+PASS T1 verdict 표시(supported·rejected)
+PASS T1 이탈 마커 ⚠1
+PASS T1 집계
+== T2 fsck R10:
+OK — 체인 1개, 사이클 2개, 위반 0건 (스키마 v0.3), 경고 1건 | 경고 [이탈] demo/C002-beta: 사전등록 이탈 1건 (deviations.yaml)
+PASS T2 이탈 경고 개별표시
+PASS T2b 잘못된 verdict 위반(R10)
+PASS T2c deviations 파일 없음 위반
+== T3 web JSON·색:
+PASS T3 JSON verdict·deviations
+PASS T3 기각 노드 색(--rejected)
+
+결과: 8/8

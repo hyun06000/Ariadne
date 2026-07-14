@@ -1,0 +1,15 @@
+FAIL log 출력 두 구현 동일  [diff]
+PASS fsck stdout 동일
+PASS 이탈 경고 양쪽
+--- py log 표본:
+=== chain: demo — 사이클 2개 ===
+
+●  C001-alpha [closed · supported] 베이스
+●  C002-beta [closed · rejected ⚠1] 분기
+
+root: C001-alpha
+
+결과: 2/3
+py 핵심: ['●  C001-alpha [closed · supported] 베이스', '●  C002-beta [closed · rejected ⚠1] 분기', '결말: supported 1 · rejected 1 · 이탈 1건']
+go 핵심: ['●  C001-alpha [closed · supported] 베이스', '●  C002-beta [closed · rejected ⚠1] 분기', '결말: supported 1 · rejected 1 · 이탈 1건']
+PASS 노드·집계 동일
