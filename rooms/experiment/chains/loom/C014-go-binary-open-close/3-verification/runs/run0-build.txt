@@ -1,0 +1,21 @@
+== 빌드 환경 ==
+go version go1.26.2 darwin/arm64
+
+== 빌드 산출물 ==
+/Users/user/Desktop/code/personal/Ariadne/.claude/worktrees/agent-a704a63c5b6cede86/rooms/experiment/chains/loom/C014-go-binary-open-close/3-verification/gil-go/gil: Mach-O 64-bit executable arm64
+
+== 소스 규모 ==
+     739 /Users/user/Desktop/code/personal/Ariadne/.claude/worktrees/agent-a704a63c5b6cede86/rooms/experiment/chains/loom/C014-go-binary-open-close/3-verification/gil-go/main.go
+
+== 외부 의존성 (import 블록) ==
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
