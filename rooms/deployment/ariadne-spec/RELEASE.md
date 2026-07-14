@@ -1,5 +1,14 @@
 # Ariadne Spec — Release
 
+## v1.4.0 (2026-07-15) — verdict · deviations (감사 가능한 기록)
+
+팀원 **maru**의 이슈 #1 구현 — 결말과 사전등록 이탈이 기계에 보인다:
+
+- 스키마 v0.3: `verdict`(supported|partial|rejected|inconclusive) + `deviations`(개수; 상세는 `deviations.yaml`) + 규칙 **R10**.
+- `gil close --verdict <v>` 결말 기록. `gil log`가 `[closed · rejected ⚠N]` 표시 + `결말: supported N · rejected M · 이탈 K건` 집계.
+- `gil fsck`: 잘못된 verdict/deviations는 위반, closed+verdict없음은 **경고**(강제 아님, 기존 사슬 유예), 이탈은 개별 강조 경고. `gil web`: 기각 사이클 다른 색, JSON에 verdict·deviations.
+- 두 구현(참조·Go) 동일, conformance 26/26. 근거: loom/C030 (외부 사용자 maru/online1이 우리 체인의 부모). pre-registration의 가치는 "어길 수 없게"가 아니라 **"어긴 것이 보이게"**.
+
 ## v1.3.0 (2026-07-15) — 타임머신 (gil goto)
 
 - **`gil goto <chain>/<id>` 신설** (참조·Go): 사이클 시점의 역행 조회(제목·부모·계보·각인 태그) + `--checkout`으로 그 시점 작업 트리 역행(미커밋 있으면 유실 방지 거부) + "여기서 새 갈래: gil open … --parent <id>" 분기 안내. 발의: 박상현("타임머신 기능").

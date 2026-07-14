@@ -33,6 +33,7 @@ import sys
 
 
 _STEP_NAMES = {1: "가설", 2: "설계", 3: "검증", 4: "분석", 5: "보고"}
+_VERDICTS = ("supported", "partial", "rejected", "inconclusive")  # v0.3
 
 
 class ChainError(Exception):
@@ -188,7 +189,12 @@ def render_graph(order, cycles, children):
 
         cells = ["●" if i == col else "│" for i in range(len(tracks))]
         meta = cycles[node]
-        tail = f"{node} [{meta.get('status') or '?'}] {meta.get('title') or ''}"
+        status = meta.get("status") or "?"
+        verdict = meta.get("verdict")
+        label = f"{status} · {verdict}" if verdict else status  # v0.3 결말 표시
+        dev = meta.get("deviations")
+        mark = f" ⚠{dev}" if (isinstance(dev, str) and dev.isdigit() and int(dev) > 0) else ""
+        tail = f"{node} [{label}{mark}] {meta.get('title') or ''}"
         if len(meta["parents"]) > 1:
             tail += f"  ◀ 병합: {' + '.join(meta['parents'])}"
         if meta["lineage_list"]:
@@ -249,14 +255,29 @@ def log_chain(chain_name, chain_dir):
     for cid in order:
         parents = cycles[cid]["parents"]
         print(f"  {cid}  ←  {', '.join(parents) if parents else '(root)'}")
+    # v0.3: 결말 집계 (닫힌 사이클 중 verdict 있는 것)
+    tally = {v: 0 for v in _VERDICTS}
+    devs = 0
+    for cid in order:
+        v = cycles[cid].get("verdict")
+        if v in tally:
+            tally[v] += 1
+        d = cycles[cid].get("deviations")
+        if isinstance(d, str) and d.isdigit():
+            devs += int(d)
+    parts = [f"{v} {tally[v]}" for v in _VERDICTS if tally[v]]
+    if parts or devs:
+        print()
+        print("결말: " + " · ".join(parts) + (f" · 이탈 {devs}건" if devs else ""))
     print()
 
 
 # ---------- fsck (스키마 v0.2 규칙 R1~R8) ----------
 
-def fsck_collect(chains):
-    """chains: {체인명: records}. 위반 리스트 [(규칙, 위치, 메시지)]를 반환한다."""
+def fsck_collect(chains, chains_root=None):
+    """chains: {체인명: records}. (위반 리스트, 경고 리스트)를 반환한다 (경고는 표시일 뿐 exit 0)."""
     violations = []
+    warnings = []
     ids_by_chain = {ch: {r.get("id") for r in recs} for ch, recs in chains.items()}
 
     for ch, recs in sorted(chains.items()):
@@ -301,6 +322,21 @@ def fsck_collect(chains):
                     violations.append(("R9", loc, f"step '{step}'는 1~5 정수여야 한다"))
                 elif status == "closed" and int(step) != 5:
                     violations.append(("R9", loc, f"닫힌 사이클의 step은 5여야 한다 (현재 {step})"))
+            # R10 (v0.3): verdict·deviations — 결말과 사전등록 이탈의 기계 가시화
+            verdict = r.get("verdict")
+            if verdict is not None and verdict not in _VERDICTS:
+                violations.append(("R10", loc, f"verdict '{verdict}'는 {'|'.join(_VERDICTS)} 중 하나여야 한다"))
+            dev = r.get("deviations")
+            if dev is not None:
+                if not (isinstance(dev, str) and dev.isdigit()):
+                    violations.append(("R10", loc, f"deviations '{dev}'는 정수여야 한다 (상세는 deviations.yaml)"))
+                elif int(dev) > 0:
+                    devfile = os.path.join(chains_root, ch, r["_dir"], "deviations.yaml") if chains_root else None
+                    if devfile and not os.path.isfile(devfile):
+                        violations.append(("R10", loc, f"deviations {dev}인데 deviations.yaml이 없다"))
+                    warnings.append(("이탈", loc, f"사전등록 이탈 {dev}건 (deviations.yaml)"))
+            if status == "closed" and verdict is None:
+                warnings.append(("결말없음", loc, "닫혔으나 verdict 없음 — 결말을 기록할 것 (경고, 기존 사슬 유예)"))
         for num, dupes in sorted(numbers.items()):
             if len(dupes) > 1:
                 violations.append(("R1", ch, f"번호 {num} 중복: {', '.join(sorted(dupes))}"))
@@ -313,19 +349,31 @@ def fsck_collect(chains):
         _, _, stuck = _toposort(valid, edges)
         if stuck:
             violations.append(("R7", ch, f"순환 참조: {', '.join(stuck)}"))
-    return violations
+    return violations, warnings
 
 
 def cmd_fsck(args):
     chains = _scan_chains(args.chains_root, args.chain)
-    violations = fsck_collect(chains)
+    violations, warnings = fsck_collect(chains, args.chains_root)
     total = sum(len(recs) for recs in chains.values())
+    grouped = {}
+    for kind, loc, msg in warnings:
+        grouped.setdefault(kind, []).append((loc, msg))
+    for kind in sorted(grouped):
+        items = grouped[kind]
+        if kind == "결말없음":  # 다수가 되기 쉬우므로 요약 (유예)
+            locs = ", ".join(loc for loc, _ in items[:5]) + (" …" if len(items) > 5 else "")
+            print(f"경고 [결말없음] {len(items)}건 — verdict 미기록 (기존 사슬 유예): {locs}", file=sys.stderr)
+        else:  # 이탈은 감사의 핵심이므로 개별 강조
+            for loc, msg in items:
+                print(f"경고 [{kind}] {loc}: {msg}", file=sys.stderr)
     if violations:
         for rule, loc, msg in sorted(violations):
             print(f"{rule}  {loc}: {msg}")
-        print(f"\n검사: 체인 {len(chains)}개, 사이클 {total}개 — 위반 {len(violations)}건", file=sys.stderr)
+        print(f"\n검사: 체인 {len(chains)}개, 사이클 {total}개 — 위반 {len(violations)}건, 경고 {len(warnings)}건", file=sys.stderr)
         return 1
-    print(f"OK — 체인 {len(chains)}개, 사이클 {total}개, 위반 0건 (스키마 v0.2)")
+    tail = f", 경고 {len(warnings)}건" if warnings else ""
+    print(f"OK — 체인 {len(chains)}개, 사이클 {total}개, 위반 0건 (스키마 v0.3){tail}")
     return 0
 
 
@@ -348,7 +396,7 @@ def _next_number(records):
 
 
 def _fsck_or_report(chains_root):
-    violations = fsck_collect(_scan_chains(chains_root))
+    violations, _ = fsck_collect(_scan_chains(chains_root), chains_root)
     if violations:
         lines = "; ".join(f"{rule} {loc}: {msg}" for rule, loc, msg in violations)
         raise ChainError(f"fsck 위반 — {lines}")
@@ -512,18 +560,18 @@ def _layout_columns(order, cycles, children):
 # 검증된 기본 팔레트 (dataviz 레퍼런스) — 상태는 색+모양(채움/빈 원)의 이중 인코딩
 _WEB_CSS = """
 .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
---hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--ring:rgba(11,11,11,.1);
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;--ring:rgba(11,11,11,.1);
 font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
 margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
 @media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
 --ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
---lineage:#199e70;--ring:rgba(255,255,255,.1)}}
+--lineage:#199e70;--rejected:#e66767;--ring:rgba(255,255,255,.1)}}
 :root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
 --muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
---ring:rgba(255,255,255,.1)}
+--rejected:#e66767;--ring:rgba(255,255,255,.1)}
 :root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
 --muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
---ring:rgba(11,11,11,.1)}
+--rejected:#d03b3b;--ring:rgba(11,11,11,.1)}
 .gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 .gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
 .gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
@@ -591,7 +639,8 @@ def _build_web_data(chains_root, only=None):
             entry[cid] = {
                 "status": c.get("status"), "title": c.get("title") or "",
                 "opened": c.get("opened"), "closed": c.get("closed"),
-                "step": c.get("step"),
+                "step": c.get("step"), "verdict": c.get("verdict"),
+                "deviations": c.get("deviations"),
                 "last_activity": ({"ago": _ago(act[0]), "subject": act[1]} if act else None),
                 "parents": c["parents"], "lineage": c["lineage_list"],
             }
@@ -646,10 +695,12 @@ def _render_svg(data):
             meta = chain["cycles"][cid]
             x, y = node_xy[f"{name}/{cid}"]
             closed = meta["status"] == "closed"
-            shape = (f'<circle cx="{x}" cy="{y}" r="8" fill="var(--node)"/>' if closed else
+            fill = "var(--rejected)" if meta.get("verdict") == "rejected" else "var(--node)"  # v0.3
+            shape = (f'<circle cx="{x}" cy="{y}" r="8" fill="{fill}"/>' if closed else
                      f'<circle cx="{x}" cy="{y}" r="7" fill="var(--surface)" '
                      f'stroke="var(--node)" stroke-width="2.5"/>')
-            tip = html.escape(f"{cid} [{meta['status']}] {meta['title']}")
+            vtip = f" · {meta['verdict']}" if meta.get("verdict") else ""
+            tip = html.escape(f"{cid} [{meta['status']}{vtip}] {meta['title']}")
             parts.append(f'<g data-cycle="{html.escape(name + "/" + cid)}"><title>{tip}</title>{shape}'
                          f'<text x="{x + 16}" y="{y - 1}" font-size="12" font-weight="600" '
                          f'fill="var(--ink)">{html.escape(cid)}</text>'
@@ -942,6 +993,13 @@ def cmd_close(args):
         updated = re.sub(r"^step:.*$", "step: 5", updated, count=1, flags=re.M)
     else:
         updated = re.sub(r"^(closed:.*)$", r"\1\nstep: 5", updated, count=1, flags=re.M)
+    if args.verdict:  # v0.3: 결말 기록
+        if args.verdict not in _VERDICTS:
+            raise ChainError(f"verdict '{args.verdict}'는 {'|'.join(_VERDICTS)} 중 하나여야 한다")
+        if re.search(r"^verdict:", updated, flags=re.M):
+            updated = re.sub(r"^verdict:.*$", f"verdict: {args.verdict}", updated, count=1, flags=re.M)
+        else:
+            updated = re.sub(r"^(closed:.*)$", rf"\1\nverdict: {args.verdict}", updated, count=1, flags=re.M)
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write(updated)
     try:
@@ -1213,6 +1271,7 @@ def main(argv=None):
     p_close.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_close.add_argument("--git", action="store_true",
                          help="닫기와 동시에 사이클 디렉토리만 커밋하고 태그 cycle/<chain>/<id>를 남긴다")
+    p_close.add_argument("--verdict", help="결말: supported|partial|rejected|inconclusive (v0.3)")
     p_close.add_argument("--push", action="store_true", help="각인 후 push --follow-tags")
     p_close.set_defaults(func=cmd_close)
 

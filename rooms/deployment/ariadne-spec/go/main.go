@@ -201,10 +201,12 @@ func toposort(ids []string, parentsOf map[string][]string) (order []string, stuc
 // ---------- fsck (R1~R8) ----------
 
 // collectFsck는 위반 목록을 수집만 한다 — fsck 출력과 open/close의 쓰기 규율이 공유한다.
-func collectFsck(root string) (violations []string, nChains, nCycles int, err error) {
+var verdicts = map[string]bool{"supported": true, "partial": true, "rejected": true, "inconclusive": true}
+
+func collectFsck(root string) (violations []string, warnings []string, nChains, nCycles int, err error) {
 	chains, err := scanChains(root)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, nil, 0, 0, err
 	}
 	idsByChain := map[string]map[string]bool{}
 	for ch, recs := range chains {
@@ -283,6 +285,23 @@ func collectFsck(root string) (violations []string, nChains, nCycles int, err er
 					add("R9", loc, "닫힌 사이클의 step은 5여야 한다 (현재 "+s+")")
 				}
 			}
+			// R10 (v0.3): verdict·deviations — 결말과 사전등록 이탈의 기계 가시화
+			if v, ok := r.fields["verdict"]; ok && v != "" && !verdicts[v] {
+				add("R10", loc, "verdict '"+v+"'는 supported|partial|rejected|inconclusive 중 하나여야 한다")
+			}
+			if dv, ok := r.fields["deviations"]; ok && dv != "" {
+				if !isDigits(dv) {
+					add("R10", loc, "deviations '"+dv+"'는 정수여야 한다 (상세는 deviations.yaml)")
+				} else if n, _ := strconv.Atoi(dv); n > 0 {
+					if _, e := os.Stat(filepath.Join(root, ch, r.dir, "deviations.yaml")); e != nil {
+						add("R10", loc, "deviations "+dv+"인데 deviations.yaml이 없다")
+					}
+					warnings = append(warnings, "이탈\x00"+loc+"\x00사전등록 이탈 "+dv+"건 (deviations.yaml)")
+				}
+			}
+			if v := r.fields["verdict"]; status == "closed" && v == "" {
+				warnings = append(warnings, "결말없음\x00"+loc+"\x00닫혔으나 verdict 없음")
+			}
 		}
 		for num, dupes := range numbers {
 			if len(dupes) > 1 {
@@ -295,23 +314,54 @@ func collectFsck(root string) (violations []string, nChains, nCycles int, err er
 		}
 	}
 	sort.Strings(violations)
-	return violations, len(chains), total, nil
+	sort.Strings(warnings)
+	return violations, warnings, len(chains), total, nil
+}
+
+func printWarnings(warnings []string) {
+	var devLines []string
+	var noVerdict []string
+	for _, w := range warnings {
+		p := strings.SplitN(w, "\x00", 3)
+		if p[0] == "결말없음" {
+			noVerdict = append(noVerdict, p[1])
+		} else {
+			devLines = append(devLines, fmt.Sprintf("경고 [%s] %s: %s", p[0], p[1], p[2]))
+		}
+	}
+	for _, l := range devLines { // 이탈은 개별 강조
+		fmt.Fprintln(os.Stderr, l)
+	}
+	if len(noVerdict) > 0 { // 결말없음은 요약 (유예)
+		locs := noVerdict
+		suffix := ""
+		if len(locs) > 5 {
+			locs, suffix = locs[:5], " …"
+		}
+		fmt.Fprintf(os.Stderr, "경고 [결말없음] %d건 — verdict 미기록 (기존 사슬 유예): %s%s\n",
+			len(noVerdict), strings.Join(locs, ", "), suffix)
+	}
 }
 
 func fsck(root string) int {
-	violations, nChains, total, err := collectFsck(root)
+	violations, warnings, nChains, total, err := collectFsck(root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 		return 1
 	}
+	printWarnings(warnings)
 	if len(violations) > 0 {
 		for _, v := range violations {
 			fmt.Println(v)
 		}
-		fmt.Fprintf(os.Stderr, "\n검사: 체인 %d개, 사이클 %d개 — 위반 %d건\n", nChains, total, len(violations))
+		fmt.Fprintf(os.Stderr, "\n검사: 체인 %d개, 사이클 %d개 — 위반 %d건, 경고 %d건\n", nChains, total, len(violations), len(warnings))
 		return 1
 	}
-	fmt.Printf("OK — 체인 %d개, 사이클 %d개, 위반 0건 (스키마 v0.2)\n", nChains, total)
+	tail := ""
+	if len(warnings) > 0 {
+		tail = fmt.Sprintf(", 경고 %d건", len(warnings))
+	}
+	fmt.Printf("OK — 체인 %d개, 사이클 %d개, 위반 0건 (스키마 v0.3)%s\n", nChains, total, tail)
 	return 0
 }
 
@@ -359,9 +409,23 @@ func logCmd(root string) int {
 			return 1
 		}
 		fmt.Printf("=== chain: %s — 사이클 %d개 ===\n\n", ch, len(recs))
+		tally := map[string]int{}
+		devs := 0
 		for _, cid := range order {
 			r := byID[cid]
 			mark := "●"
+			status := r.fields["status"]
+			label := status
+			if v := r.fields["verdict"]; v != "" { // v0.3 결말 표시
+				label = status + " · " + v
+				tally[v]++
+			}
+			if dv := r.fields["deviations"]; dv != "" && isDigits(dv) {
+				if n, _ := strconv.Atoi(dv); n > 0 {
+					label += fmt.Sprintf(" ⚠%d", n)
+					devs += n
+				}
+			}
 			extra := ""
 			if len(r.parents) > 1 {
 				extra = "  ◀ 병합: " + strings.Join(r.parents, " + ")
@@ -369,7 +433,7 @@ func logCmd(root string) int {
 			if len(r.lineage) > 0 {
 				extra += "  ⇠ lineage: " + strings.Join(r.lineage, ", ")
 			}
-			fmt.Printf("%s  %s [%s] %s%s\n", mark, cid, r.fields["status"], r.fields["title"], extra)
+			fmt.Printf("%s  %s [%s] %s%s\n", mark, cid, label, r.fields["title"], extra)
 		}
 		fmt.Println("\n계보 (토폴로지 순서, 동순위는 id 오름차순):")
 		for _, cid := range order {
@@ -379,6 +443,19 @@ func logCmd(root string) int {
 			} else {
 				fmt.Printf("  %s  ←  %s\n", cid, strings.Join(ps, ", "))
 			}
+		}
+		var parts []string // v0.3 결말 집계
+		for _, v := range []string{"supported", "partial", "rejected", "inconclusive"} {
+			if tally[v] > 0 {
+				parts = append(parts, fmt.Sprintf("%s %d", v, tally[v]))
+			}
+		}
+		if len(parts) > 0 || devs > 0 {
+			line := "\n결말: " + strings.Join(parts, " · ")
+			if devs > 0 {
+				line += fmt.Sprintf(" · 이탈 %d건", devs)
+			}
+			fmt.Println(line)
 		}
 		fmt.Println()
 	}
@@ -410,7 +487,7 @@ func templateDir(chainsRoot string) string {
 }
 
 func fsckOrReport(chainsRoot string) error {
-	violations, _, _, err := collectFsck(chainsRoot)
+	violations, _, _, _, err := collectFsck(chainsRoot)
 	if err != nil {
 		return cerr("%v", err)
 	}
@@ -626,8 +703,8 @@ func cmdOpen(a openArgs) error {
 }
 
 type closeArgs struct {
-	chain, cycleID, date, root string
-	git, push                  bool
+	chain, cycleID, date, root, verdict string
+	git, push                           bool
 }
 
 func cmdClose(a closeArgs) error {
@@ -682,6 +759,16 @@ func cmdClose(a closeArgs) error {
 		updated = replaceFirstLine(regexp.MustCompile(`(?m)^step:.*$`), updated, "step: 5")
 	} else {
 		updated = insertAfterFirstLine(regexp.MustCompile(`(?m)^closed:.*$`), updated, "step: 5")
+	}
+	if a.verdict != "" { // v0.3: 결말 기록
+		if !verdicts[a.verdict] {
+			return cerr("verdict '%s'는 supported|partial|rejected|inconclusive 중 하나여야 한다", a.verdict)
+		}
+		if regexp.MustCompile(`(?m)^verdict:`).MatchString(updated) {
+			updated = replaceFirstLine(regexp.MustCompile(`(?m)^verdict:.*$`), updated, "verdict: "+a.verdict)
+		} else {
+			updated = insertAfterFirstLine(regexp.MustCompile(`(?m)^closed:.*$`), updated, "verdict: "+a.verdict)
+		}
 	}
 	if err := os.WriteFile(yamlPath, []byte(updated), 0o644); err != nil {
 		return cerr("%v", err)
@@ -1032,18 +1119,18 @@ const (
 
 // webCSS: 참조 구현 _WEB_CSS와 문자 단위 동일 (검증된 기본 팔레트).
 const webCSS = `.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
---hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--ring:rgba(11,11,11,.1);
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;--ring:rgba(11,11,11,.1);
 font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
 margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
 @media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
 --ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
---lineage:#199e70;--ring:rgba(255,255,255,.1)}}
+--lineage:#199e70;--rejected:#e66767;--ring:rgba(255,255,255,.1)}}
 :root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
 --muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
---ring:rgba(255,255,255,.1)}
+--rejected:#e66767;--ring:rgba(255,255,255,.1)}
 :root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
 --muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
---ring:rgba(11,11,11,.1)}
+--rejected:#d03b3b;--ring:rgba(11,11,11,.1)}
 .gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 .gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
 .gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
@@ -1135,10 +1222,10 @@ func halfStr(sum int) string {
 type lastAct struct{ ago, subject string }
 
 type webCycle struct {
-	status, opened, closed, step *string // nil = JSON null
-	title                        string  // 참조 구현: title or ""
-	act                          *lastAct
-	parents, lineage             []string
+	status, opened, closed, step, verdict, deviations *string // nil = JSON null
+	title                                             string  // 참조 구현: title or ""
+	act                                               *lastAct
+	parents, lineage                                  []string
 }
 
 type webChain struct {
@@ -1295,12 +1382,14 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 		for _, cid := range g.idList {
 			r := g.byID[cid]
 			c := &webCycle{
-				status:  fieldPtr(r.fields, "status"),
-				opened:  fieldPtr(r.fields, "opened"),
-				closed:  fieldPtr(r.fields, "closed"),
-				step:    fieldPtr(r.fields, "step"),
-				parents: r.parents,
-				lineage: r.lineage,
+				status:     fieldPtr(r.fields, "status"),
+				opened:     fieldPtr(r.fields, "opened"),
+				closed:     fieldPtr(r.fields, "closed"),
+				step:       fieldPtr(r.fields, "step"),
+				verdict:    fieldPtr(r.fields, "verdict"),
+				deviations: fieldPtr(r.fields, "deviations"),
+				parents:    r.parents,
+				lineage:    r.lineage,
 			}
 			if v := fieldPtr(r.fields, "title"); v != nil {
 				c.title = *v
@@ -1454,13 +1543,21 @@ func renderSVG(d *webData) string {
 			xy := nodeXY[name+"/"+cid]
 			x, y := xy[0], xy[1]
 			var shape string
+			fill := "var(--node)"
+			if c.verdict != nil && *c.verdict == "rejected" { // v0.3 기각 색
+				fill = "var(--rejected)"
+			}
 			if c.isClosed() {
-				shape = fmt.Sprintf(`<circle cx="%d" cy="%d" r="8" fill="var(--node)"/>`, x, y)
+				shape = fmt.Sprintf(`<circle cx="%d" cy="%d" r="8" fill="%s"/>`, x, y, fill)
 			} else {
 				shape = fmt.Sprintf(`<circle cx="%d" cy="%d" r="7" fill="var(--surface)" `+
 					`stroke="var(--node)" stroke-width="2.5"/>`, x, y)
 			}
-			tip := htmlEscape(fmt.Sprintf("%s [%s] %s", cid, c.statusRepr(), c.title))
+			vtip := ""
+			if c.verdict != nil && *c.verdict != "" {
+				vtip = " · " + *c.verdict
+			}
+			tip := htmlEscape(fmt.Sprintf("%s [%s%s] %s", cid, c.statusRepr(), vtip, c.title))
 			lin := ""
 			if len(c.lineage) > 0 {
 				lin = " · ⇠ " + htmlEscape(strings.Join(c.lineage, ", "))
@@ -1565,6 +1662,8 @@ func webJSONPayload(d *webData) string {
 			b.WriteString(`, "opened": ` + jsonStrOrNull(c.opened))
 			b.WriteString(`, "closed": ` + jsonStrOrNull(c.closed))
 			b.WriteString(`, "step": ` + jsonStrOrNull(c.step))
+			b.WriteString(`, "verdict": ` + jsonStrOrNull(c.verdict))
+			b.WriteString(`, "deviations": ` + jsonStrOrNull(c.deviations))
 			b.WriteString(`, "last_activity": `)
 			if c.act == nil {
 				b.WriteString("null")
@@ -1800,22 +1899,23 @@ func main() {
 		}
 	case "close":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
-			"date": true, "root": true, "git": false, "push": false,
+			"date": true, "root": true, "verdict": true, "git": false, "push": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
 		if len(pos) != 2 {
-			fmt.Fprintln(os.Stderr, "사용: gil close <chain> <cycle-id> [--date d] [--root r] [--git] [--push]")
+			fmt.Fprintln(os.Stderr, "사용: gil close <chain> <cycle-id> [--date d] [--verdict v] [--root r] [--git] [--push]")
 			os.Exit(2)
 		}
 		if err := cmdClose(closeArgs{
 			chain: pos[0], cycleID: pos[1],
-			date: flagVal(flags, "date", today),
-			root: flagVal(flags, "root", defaultRoot),
-			git:  len(flags["git"]) > 0,
-			push: len(flags["push"]) > 0,
+			date:    flagVal(flags, "date", today),
+			root:    flagVal(flags, "root", defaultRoot),
+			verdict: flagVal(flags, "verdict", ""),
+			git:     len(flags["git"]) > 0,
+			push:    len(flags["push"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
