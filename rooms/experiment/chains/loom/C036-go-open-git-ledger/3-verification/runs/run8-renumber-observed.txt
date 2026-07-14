@@ -1,0 +1,24 @@
+=== 원장 경합의 육안 관찰 (Go 바이너리) ===
+시나리오: A가 C002를 원장에 올린 뒤, 원장을 모르는 B가 같은 번호로 open --git --push
+(자동 판정은 run3/run4. 이 기록은 사람이 눈으로 확인하기 위한 것이다.)
+
+--- A: open --git --push (무경합)
+열림: demo/C002-alpha-path
+
+--- B: 원장을 모른 채 같은 번호로 open --git --push (경합)
+경합 감지: C002-beta-path → C003-beta-path (원장 규율에 따라 재번호)
+열림: demo/C003-beta-path
+  ↑ stderr가 경합을 알리고, stdout의 '열림:'이 재번호된 최종 id를 말한다 (C002가 아니라 C003)
+
+--- B의 최종 커밋 전문 (--amend가 정정한 메시지):
+    gil: open demo/C003-beta-path — 1/5 가설
+    
+    B의 폭
+    (원장 경합 재번호: C002-beta-path → C003-beta-path)
+    
+--- 원장(bare)이 실제로 받은 커밋:
+    gil: open demo/C003-beta-path — 1/5 가설
+    gil: open demo/C002-alpha-path — 1/5 가설
+    seed
+  ↑ 원장은 C002-beta-path를 본 적이 없다 — 경합은 push 전에 해소됐다.
+    재시도가 아니라 '정정 후 재시도'다: 잘못된 번호는 원장에 도달하지 않는다.

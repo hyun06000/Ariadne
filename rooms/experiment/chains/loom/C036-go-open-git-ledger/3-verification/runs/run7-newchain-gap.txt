@@ -1,0 +1,30 @@
+=== 발견: open --new-chain --git이 chain.md를 커밋하지 않는다 (양 구현 동일) ===
+절차: 빈 깃 저장소에서 'open fresh first-cycle --new-chain --git' 실행 후 HEAD 커밋과 잔여물 관찰.
+참조 구현 cmd_open은 커밋 경로를 사이클 디렉토리(rel)로 한정한다 — chain.md는 그 밖에 있다.
+판정: 참조 구현의 선행 결함. Go는 파리티를 지켜 동일하게 동작한다 (고치지 않고 보고 — 2-design 범위 밖 규정).
+
+    [go] 열림: fresh/C001-first-cycle
+[go] HEAD 커밋 경로:
+    rooms/experiment/chains/fresh/C001-first-cycle/1-hypothesis.md
+    rooms/experiment/chains/fresh/C001-first-cycle/2-design.md
+    rooms/experiment/chains/fresh/C001-first-cycle/3-verification/README.md
+    rooms/experiment/chains/fresh/C001-first-cycle/4-analysis.md
+    rooms/experiment/chains/fresh/C001-first-cycle/5-report.md
+    rooms/experiment/chains/fresh/C001-first-cycle/cycle.yaml
+[go] 커밋 안 된 잔여물:
+    ?? rooms/experiment/chains/fresh/chain.md
+
+    [py] 열림: fresh/C001-first-cycle
+[py] HEAD 커밋 경로:
+    rooms/experiment/chains/fresh/C001-first-cycle/1-hypothesis.md
+    rooms/experiment/chains/fresh/C001-first-cycle/2-design.md
+    rooms/experiment/chains/fresh/C001-first-cycle/3-verification/README.md
+    rooms/experiment/chains/fresh/C001-first-cycle/4-analysis.md
+    rooms/experiment/chains/fresh/C001-first-cycle/5-report.md
+    rooms/experiment/chains/fresh/C001-first-cycle/cycle.yaml
+[py] 커밋 안 된 잔여물:
+    ?? rooms/experiment/chains/fresh/chain.md
+
+영향: 새 체인의 첫 사이클을 --git --push로 열면 원장에 사이클은 올라가나 chain.md는 누락된다.
+     fsck 규칙(R1~R11)은 chain.md를 요구하지 않으므로 위반은 아니다 — 그래서 조용하다.
+     후속 사이클 후보: 양 구현의 커밋 경로에 새 체인의 chain.md 포함 (참조 구현 변경 필요).

@@ -1,0 +1,36 @@
+=== 자기보고: 이식 전 (gil 1.9.0, loom/C020~C034 상태) ===
+
+--- gil help:
+gil 1.9.0 — 길, GIt for Language model
+
+구현 명령:
+  log fsck open close step verify web pages goto handoff supersede
+  version  이 바이너리의 버전
+  help     이 목록
+
+참조 구현(python3 gil.py) 전용: release, open --git/--push (원장 규율)
+스텝/닫기는 깃 저장소에서 자동 커밋한다 (--no-commit로 opt-out).
+--- gil open --git (거부):
+미구현: 'open --git/--push' — 이 바이너리(gil 1.9.0) 구현: log·fsck·open·close·step·verify·web·pages·goto·handoff·supersede. 참조 전용: release, open --git/--push (원장 규율). (gil help 참조)
+exit=3
+
+=== 자기보고: 이식 후 (loom/C036) ===
+--- gil help:
+gil 1.9.0 — 길, GIt for Language model
+
+구현 명령:
+  log fsck open close step verify web pages goto handoff supersede
+  version  이 바이너리의 버전
+  help     이 목록
+
+참조 구현(python3 gil.py) 전용: release
+열기/스텝/닫기는 깃 저장소에서 커밋한다 (open은 --git, 스텝·닫기는 기본 — --no-commit로 opt-out).
+open --git --push는 번호 원장 규율을 따른다 (경합 시 fetch·rebase·자동 재번호·재시도).
+--- gil version:
+gil 1.9.0
+--- 여전히 미구현인 명령 (release):
+미구현: 'release' — 이 바이너리(gil 1.9.0) 구현: log·fsck·open·close·step·verify·web·pages·goto·handoff·supersede. 참조 전용: release. (gil help 참조)
+exit=3
+--- open --git은 이제 거부되지 않는다 (깃 저장소 아닌 곳에서의 정직한 오류):
+오류: --git: 깃 저장소가 아니다
+exit=1

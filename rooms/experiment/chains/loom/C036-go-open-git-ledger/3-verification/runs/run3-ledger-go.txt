@@ -1,0 +1,7 @@
+PASS T2: 무경합 open --git --push 정상 (A → C002)
+PASS T1: 병렬 경합 자동 해소 (B: C002→C003 재번호, 원장 무위반, 내용 무손상)
+PASS T3: rebase 충돌 시 명시적 오류 + abort (조용한 실패 없음)
+
+덤프: /private/tmp/claude-501/-Users-user-Desktop-code-personal-Ariadne/ceb6320e-1d66-4f24-87ba-8f7f5dea16f6/scratchpad/c036/dump-go.txt
+
+결과: 3/3 통과

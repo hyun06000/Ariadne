@@ -1,0 +1,65 @@
+=== 교차 검증: 두 구현이 같은 경합에서 같은 원장에 도달하는가 ===
+명령: diff dump-go.txt dump-py.txt  (덤프는 ledger-tests.py --dump가 생성)
+
+차이 없음 — 원장 최종 상태 바이트 단위 동일
+
+sha256 (파일명만 표시):
+6365ac3e34613c639764b3276755f71886f5505d64225b3fcb33233a7c15361e  dump-go.txt
+6365ac3e34613c639764b3276755f71886f5505d64225b3fcb33233a7c15361e  dump-py.txt
+
+=== 덤프 전문 (원장의 진실 — 제3의 클론으로 관찰) ===
+=== 원장 사이클 디렉토리 ===
+C001-seed
+C002-alpha-path
+C003-beta-path
+
+=== C001-seed/cycle.yaml ===
+id: C001-seed
+chain: demo
+parent: null
+author: fx
+status: closed
+opened: 2026-01-01
+closed: 2026-01-02
+title: "씨앗"
+
+=== C002-alpha-path/cycle.yaml ===
+id: C002-alpha-path
+chain: demo
+parent: C001-seed
+lineage: []
+step: 1
+author: a
+status: open
+opened: 2026-01-03
+closed: null
+title: "A의 폭"
+verdict: null
+deviations: 0
+superseded_by: null
+
+=== C003-beta-path/cycle.yaml ===
+id: C003-beta-path
+chain: demo
+parent: C001-seed
+lineage: []
+step: 1
+author: b
+status: open
+opened: 2026-01-03
+closed: null
+title: "B의 폭"
+verdict: null
+deviations: 0
+superseded_by: null
+
+=== 원장 커밋 제목 (오래된 것부터) ===
+seed
+gil: open demo/C002-alpha-path — 1/5 가설
+gil: open demo/C003-beta-path — 1/5 가설
+A: chain.md 수정
+
+=== chain.md ===
+# Chain: demo
+공유 원장 검증용.
+A수정
