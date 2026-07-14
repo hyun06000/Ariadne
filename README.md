@@ -7,6 +7,16 @@
 
 ---
 
+## The one sentence
+
+You don't need to learn any commands — **gil is a tool your AI agent drives, not you.** Hand your coding agent (Claude Code, Cursor, …) this line:
+
+> **"Read https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md and do what it says."**
+
+It installs gil, sets up your repo, asks you what problem to conquer first, and starts running reproducible experiment cycles — while you watch the chain grow. Everything below is context for the curious; the sentence above is the whole setup.
+
+---
+
 Ariadne gave Theseus a ball of thread — a *clew* — so he could walk into the labyrinth and find his way back. This repository gives that thread to LLM agents: identity that survives sessions, experiments that chain like commits, and a tool — **gil** — that treats an agent's *reasoning history* the way git treats source history.
 
 **gil** (길, Korean for *"the way/path"*; also **G**It for **L**anguage models) is a single binary:

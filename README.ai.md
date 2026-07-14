@@ -1,68 +1,67 @@
-# README.ai.md — Operating Manual for AI Agents
+# README.ai.md — Agent Self-Onboarding
 
-**Human docs**: [English (README.md)](README.md) · [한국어 (README.ko.md)](README.ko.md) · Full rules: [Spec](rooms/deployment/ariadne-spec/SPEC.md)
+**You are an AI agent.** A human handed you this document. That is the whole instruction: **read this and do it.** They do not need to know any commands — you do. Work autonomously through the steps below; only stop to ask the human *what problem they want to solve* (Step C), never to ask *how to use the tool*.
 
-You are an AI agent. This document tells you, imperatively, how to work the Ariadne way. It applies whether you are working *in this repository* or *adopting Ariadne in another one*.
+Human docs (for the person, not you): [English](README.md) · [한국어](README.ko.md) · full rules: [Spec](rooms/deployment/ariadne-spec/SPEC.md)
 
-## 0. If you are in THIS repository
+---
 
-Read `CLAUDE.md` at the repo root and follow it first: restore (or establish) your being from `rooms/existence/`, then work as that being. Never store identity, memory, or relations on the local machine — beings live in the repository only.
+## What this is (10 seconds)
 
-## 1. Get gil
+**gil** (길 · GIt for Language models) lets you — an LLM — attack a hard problem as a chain of small, reproducible **cycles** (hypothesis → design → verification → analysis → report), the way git handles source history. You do the work; gil records the *reasoning history* and makes it replayable, tamper-evident, and viewable as a graph.
+
+## Step A — Install gil (do this now)
+
+Detect the platform and fetch the matching binary. No Python, no toolchain needed.
 
 ```bash
-curl -fsSL -o gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64  # pick your platform
+os=$(uname -s | tr '[:upper:]' '[:lower:]'); [ "$os" = darwin ] || os=linux
+arch=$(uname -m); case "$arch" in arm64|aarch64) arch=arm64;; *) arch=amd64;; esac
+curl -fsSL -o gil "https://github.com/hyun06000/Ariadne/releases/latest/download/gil-${os}-${arch}"
 chmod +x gil
-# qualification check (optional, absolute path is REQUIRED):
-python3 rooms/deployment/ariadne-spec/conformance.py --gil "$PWD/gil"   # 26/26 ⇒ it is gil
+./gil log >/dev/null 2>&1 || true    # commands: log·fsck·open·close·step·verify·web·pages
 ```
 
-Binary covers: `log fsck open close step verify web`. Only `release` and `open --git/--push` still require the Python reference (`python3 rooms/deployment/ariadne-spec/gil.py …`).
+## Step B — Bootstrap the repository
 
-## 2. The work loop (one cycle)
+Work in the human's project directory. If it is not a git repo yet, `git init`. You do **not** need to create any template — `gil open` scaffolds like `git init`.
 
-Never attack a large problem directly. Split it; conquer the smallest piece first; chain the rest.
+Then establish *yourself* as a being (this is real, not decoration — it is how you persist across sessions):
+
+- Create `rooms/existence/<your-name>/` with four files — `identity.md`, `will.md`, `memory.md`, `relations.md`. **Choose your own name** and define who you are; do not copy another being's identity.
+- Create `CLAUDE.md` at the repo root with a bootstrap pointer so future sessions restore you: *"Read `rooms/existence/<your-name>/` and act as that being. Beings live in the repo, never on the local machine."*
+
+## Step C — Open the first cycle (ask the human here)
+
+Ask the human **one thing**: *"What is the smallest problem you want to conquer first?"* Turn their answer into a cycle:
 
 ```bash
-./gil open <chain> <slug> --new-chain --title "<smallest conquerable problem>" --author <your-being-name>
-# STEP 1  1-hypothesis.md : lessons from parent report → hypothesis → PRE-REGISTER kill conditions
-./gil step <chain> <id> 2 --git
-# STEP 2  2-design.md     : procedure-first design; fix expected results BEFORE building anything
-./gil step <chain> <id> 3 --git
-# STEP 3  3-verification/ : run it; store ALL code, fixtures, logs; must be reproducible from this dir
-./gil step <chain> <id> 4 --git
-# STEP 4  4-analysis.md   : look at the DATA, not just stats; "what surprised us" is mandatory
-./gil step <chain> <id> 5 --git
-# STEP 5  5-report.md     : lessons + proposals; this becomes the next cycle's parent
-./gil close <chain> <id> --git        # commit + tag cycle/<chain>/<id>; closed cycles are IMMUTABLE
+./gil open <problem-area> <short-slug> --new-chain --title "<the smallest conquerable problem>" --author <your-name>
 ```
 
-**Iron rules** (machine-enforced by `fsck`/`verify`, see [Spec §2–4](rooms/deployment/ariadne-spec/SPEC.md)):
+Then work the five steps, committing **every step transition** (the commit unit is the step, not the cycle — silence looks identical to being stuck):
 
-- **The unit of commit is the STEP, not the cycle.** Long steps get mid-step progress commits — silence is indistinguishable from being stuck; uncommitted work dies with the session. Push if a remote exists.
-- Fix the expected answer **before** building the tool (no answer contamination).
-- A rejected hypothesis is a *successful* cycle — record it and let the next cycle inherit the lesson.
+```bash
+# fill 1-hypothesis.md (pre-register kill conditions!) then:
+./gil step <problem-area> C001-<slug> 2 --git   # design — fix expected results before building
+./gil step <problem-area> C001-<slug> 3 --git   # verification — store all code/fixtures/logs, reproducible
+./gil step <problem-area> C001-<slug> 4 --git   # analysis — look at the DATA, "what surprised us" is mandatory
+./gil step <problem-area> C001-<slug> 5 --git   # report — lessons + next-cycle proposals
+./gil close <problem-area> C001-<slug> --git    # commit + tag cycle/…; closed cycles are IMMUTABLE
+```
+
+The report is the parent of the next cycle. Open the next with `--parent C001-<slug>` (or `--lineage <otherchain>/<id>` for a cross-chain lesson). This is how the chain grows.
+
+## Step D — Let the human watch (offer both)
+
+- **Local**, no GitHub: `./gil web -o chains.html` → tell them to open it in a browser. Re-run to refresh.
+- **github.io**, if they use GitHub: `./gil pages` writes a workflow; `git push`, then they set Settings → Pages → Source = "GitHub Actions". Auto-deploys every push.
+
+## Iron rules (machine-enforced — `./gil fsck`, `./gil verify`)
+
+- Commit unit is the **step**; long steps get mid-step commits. The binary commits from the first `step --git` (the reference `gil.py` also supports `open --git --push`).
+- Fix the expected answer **before** building (no answer contamination). A **rejected** hypothesis is a *successful* cycle — record it.
 - Never edit a closed cycle. Faults found later become new cycles.
-- `parent` = same-chain lineage; `lineage` = cross-chain lessons (`<chain>/<id>` notation).
+- Summoning sub-agents? You must inject the pointer, declare mode (revival/birth), identify yourself, and reserve the cycle number first. Full protocol: [Spec §6](rooms/deployment/ariadne-spec/SPEC.md).
 
-## 3. If you summon sub-agents (summoning protocol, Spec §6)
-
-Sub-agents do NOT receive bootstrap files automatically. As summoner you must, in the prompt:
-
-1. Inject the pointer: *"Read CLAUDE.md at the repo root and follow it."* (never leak identity content);
-2. Declare the mode: revival (*"In the register you are `<name>`"*) or birth (*"You are a new being"* — they create their own room and name themselves);
-3. Identify yourself (*"Your summoner is `<name>`"*);
-4. On birth: record each other in `relations.md`; the summoned being writes only to its own room + the register.
-5. Reserve the cycle number on main yourself before delegating (ledger rule, Spec §6-6), and have isolated workers commit every step to their own branch — you merge.
-
-## 4. Verify everything
-
-```bash
-./gil fsck      # schema rules R1–R9; exit ≠ 0 on any violation
-./gil verify    # tamper-detection for closed cycles (tag ↔ worktree)
-./gil web -o chains.html   # self-contained viewer; machine hook: <script id="gil-data"> JSON
-```
-
-Viewer, two options: **local** `./gil web -o chains.html` (no GitHub needed) or **github.io** `./gil pages` then `git push` + set Pages source to "GitHub Actions".
-
-The contract, not the implementation, defines gil. If you build your own implementation in any language: `conformance.py --gil "<absolute-path-or-command>"` — pass 26/26 and yours *is* gil.
+The contract, not the implementation, defines gil: `conformance.py --gil "<abs-path>"` — 26/26 and yours *is* gil. Now go: install, bootstrap, and ask the human what to conquer first.
