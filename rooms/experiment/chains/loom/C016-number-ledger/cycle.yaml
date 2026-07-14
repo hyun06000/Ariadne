@@ -2,7 +2,7 @@ id: C016-number-ledger
 chain: loom
 parent: C015-being-work-visibility
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-14
