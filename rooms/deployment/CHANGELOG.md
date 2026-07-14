@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-07-14
+
+- 설치 경로의 체크섬 문지기(loom/C037, 이슈 #8) + Go open --git/--push와 원장 규율(loom/C036, 이슈 #7). 판정기 26→28항목.
+- 도구 변경: gil·conformance (마이너 이상 승격)
+
+
 ## [1.9.0] — 2026-07-14
 
 - 전방 무효화 (스키마 v0.4, 이슈 #6): superseded_by + R11 + gil supersede + log/web 표시. 두 구현 동일, conformance 26/26. 근거: loom/C035.
