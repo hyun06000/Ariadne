@@ -4,7 +4,7 @@ parent: C018-release-baseline
 lineage: [tapestry/C001-reproduce-audit]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-15
 title: "이월 규약 2건(재현 문서의 불변·가변 분리, CLI 호출 문법)을 스펙에 명문화하면 감사와 이식의 암묵지가 사라진다"
