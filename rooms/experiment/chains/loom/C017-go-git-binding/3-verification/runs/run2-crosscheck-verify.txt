@@ -1,0 +1,30 @@
+# run2 — 실데이터 교차 검증: Go verify vs 참조 구현 verify (이 저장소, 워크트리 브랜치)
+# 일자: 2026-07-14  HEAD: 442cc83
+
+## (a) 클린 상태
+py exit=0
+go exit=0
+--- stdout 대조 (diff 무출력 = 동일) ---
+stdout: 바이트 단위 동일
+--- stderr 대조 ---
+stderr: 바이트 단위 동일
+--- 출력 내용 ---
+OK — 닫힌 사이클 20개 검사, 변조 0건
+
+## (b) 변조 시나리오: 닫힌 사이클 rooms/experiment/chains/loom/C001-lineage-is-reconstructable/5-report.md 말미에 1행 추가
+py exit=1
+go exit=1
+--- stdout 대조 ---
+stdout: 바이트 단위 동일
+--- stderr 대조 ---
+stderr: 바이트 단위 동일
+--- 출력 내용 (stdout + stderr) ---
+변조 감지 [cycle/loom/C001-lineage-is-reconstructable]:
+  rooms/experiment/chains/loom/C001-lineage-is-reconstructable/5-report.md
+
+닫힌 사이클 20개 검사 — 변조 1건
+
+## (c) 원상 복구
+git checkout -- rooms/experiment/chains/loom/C001-lineage-is-reconstructable/5-report.md 완료
+OK — 닫힌 사이클 20개 검사, 변조 0건
+복구 후 잔여 변경 행 수: 0

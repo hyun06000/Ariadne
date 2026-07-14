@@ -1,0 +1,41 @@
+# run3 — 샌드박스 실측: 계약 밖 세부 (깃 각인 규약 SPEC §4)
+# 일자: 2026-07-14
+
+## 준비: open → 무관 파일 커밋 + 더럽힘 → 보고서 작성
+열림: demo/C001-first-step
+
+## ⑤ step --git: 커밋 경로 격리
+스텝: demo/C001-first-step → 3/5 검증
+exit=0
+커밋된 경로:
+rooms/experiment/chains/demo/C001-first-step/5-report.md
+rooms/experiment/chains/demo/C001-first-step/cycle.yaml
+
+## ① close --git: 커밋 경로 격리 (unrelated.txt 더럽힘 존재 하)
+각인: 커밋 + 태그 cycle/demo/C001-first-step
+닫힘: demo/C001-first-step (2026-01-05)
+exit=0
+커밋된 경로:
+rooms/experiment/chains/demo/C001-first-step/cycle.yaml
+커밋 메시지:
+gil: close demo/C001-first-step
+
+t
+
+
+## ② 태그 존재·종류
+cycle/demo/C001-first-step
+객체 종류: tag (annotated 태그면 'tag')
+태그 메시지: demo/C001-first-step: t
+cycle.yaml step 마감: step: 5
+
+## ③ 태그 선존재 시 거부 + 무변화 (두 번째 사이클로 재현)
+열림: demo/C002-second
+오류: --git: 태그 'cycle/demo/C002-second'가 이미 존재한다
+exit=1
+cycle.yaml 무변화 확인
+
+## ④ 깃 저장소 아님: close --git 거부 + 무변화
+오류: --git: 깃 저장소가 아니다 — rooms/experiment/chains
+exit=1
+cycle.yaml 무변화 확인
