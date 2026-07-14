@@ -2,7 +2,7 @@ id: C001-agent-self-onboard
 chain: gateway
 parent: null
 lineage: [genesis/C002-subagent-bootstrap]
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-15
