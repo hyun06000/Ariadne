@@ -1,0 +1,20 @@
+# run2 — 실데이터 교차 검증: 이 저장소(체인 3개)에서 참조 구현 vs Go
+# 일자: 2026-07-14 10:14 KST — 두 구현을 같은 분(minute) 안에 연속 실행 (ago 경계 통제)
+# 가변 확인: 실데이터는 저장소 성장에 따라 달라진다 — 판정은 두 구현의 상호 일치이지 특정 내용이 아니다
+
+$ python3 rooms/deployment/ariadne-spec/gil.py web -o <tmp>/ref.html --title "Ariadne — 사이클 체인"
+생성: /private/tmp/claude-501/-Users-user-Desktop-code-personal-Ariadne/e4d57ca5-60e3-469d-91ac-da9f39a50e88/scratchpad/ref.html (체인 3개)
+$ 3-verification/gil-go/gil web -o <tmp>/go.html --title "Ariadne — 사이클 체인"
+생성: /private/tmp/claude-501/-Users-user-Desktop-code-personal-Ariadne/e4d57ca5-60e3-469d-91ac-da9f39a50e88/scratchpad/go.html (체인 3개)
+
+## ① gil-data JSON 심층 비교 (기각 조건 3의 판정)
+JSON 추출: ref 7271 바이트 / go 7271 바이트
+파싱 후 심층 비교 (==): 일치
+원문 문자열 비교: 동일
+내용 확인: 체인 3개, 사이클 24개, 열린 사이클 1개(전부 last_activity 보유: True), step 키 보유 24개(전수)
+
+## ② HTML 전문 바이트 대조 (지향 상한 — C017 교훈 2)
+diff: HTML 전문 바이트 단위 동일 (36173바이트)
+
+## ③ 자기완결성 재확인 (판정기와 같은 패턴을 실산출물에)
+외부 리소스 참조: 0건

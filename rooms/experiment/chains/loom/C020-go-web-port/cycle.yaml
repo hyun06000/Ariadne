@@ -2,9 +2,9 @@ id: C020-go-web-port
 chain: loom
 parent: C017-go-git-binding
 lineage: []
-step: 1
+step: 5
 author: weft
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-14
 title: "Go 구현에 web(자기완결 HTML + gil-data JSON + 스텝 배지)을 이식하면 두 구현이 26/26으로 나란히 선다"
