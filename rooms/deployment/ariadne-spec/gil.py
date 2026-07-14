@@ -263,6 +263,12 @@ def log_chain(chain_name, chain_dir):
     if parts or devs:
         print()
         print("결말: " + " · ".join(parts) + (f" · 이탈 {devs}건" if devs else ""))
+    reservations = _load_reservations(chain_dir)  # 예약은 사이클이 아니다 — 그래프 밖 별도 섹션 (loom/C043)
+    if reservations:
+        print()
+        print("예약됨 (아직 사이클 아님 — 번호 공간 선점):")
+        for r in reservations:
+            print(f"  C{r['num']:03d}  → {r['for']}  ({r['slug']}, {r['date']})")
     print()
 
 
@@ -454,13 +460,65 @@ def _template_dir(chains_root):
     return os.path.normpath(os.path.join(chains_root, "..", "_template"))
 
 
-def _next_number(records):
-    nums = []
+def _next_number(records, reserved_nums=()):
+    """다음 번호 = max(사이클 번호 ∪ 예약 번호) + 1.
+    예약(loom/C043)은 사이클이 아니지만 번호 공간을 선점한다 — 남의 예약 번호는
+    누구에게도 자동 발급되지 않는다. reserved_nums 기본값 ()로 하위호환."""
+    nums = list(reserved_nums)
     for r in records:
         m = _ID_RE.match(r.get("id") or "")
         if m:
             nums.append(int(m.group(1)))
     return max(nums, default=0) + 1
+
+
+# ---------- 번호 예약 원장 (loom/C043 — 이슈 #13) ----------
+# 예약은 사이클이 아니다. 체인 최상위의 평문 원장(reservations.tsv)에 산다 —
+# load_chain_records는 <entry>/cycle.yaml만 record로 수집하므로 fsck·verify·graph는
+# 예약을 record로 보지 않는다. "예약은 사이클이 아니다"를 파일 위치가 물리적으로 보증한다.
+# 형식: 주석(#) + 예약 한 줄당 "<번호> <for> <slug> <일자>" (공백 구분, 번호 오름차순).
+
+def _reservations_path(chain_dir):
+    return os.path.join(chain_dir, "reservations.tsv")
+
+
+def _load_reservations(chain_dir):
+    """예약 목록을 반환한다: [{num, for, slug, date}]. 파일 없으면 []."""
+    path = _reservations_path(chain_dir)
+    if not os.path.isfile(path):
+        return []
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 4 or not parts[0].isdigit():
+                continue  # 관대한 파서 — 깨진 줄은 건너뛴다 (원장은 log·fsck의 1급 대상이 아니다)
+            out.append({"num": int(parts[0]), "for": parts[1], "slug": parts[2], "date": parts[3]})
+    out.sort(key=lambda r: r["num"])
+    return out
+
+
+_RESERVATIONS_HEADER = (
+    "# gil 예약 원장 — 이 파일은 사이클이 아니다 (loom/C043). 번호 공간의 선점만 기록한다.\n"
+    "# <번호> <for> <slug> <일자>\n")
+
+
+def _save_reservations(chain_dir, reservations):
+    """예약 목록을 원장에 쓴다. 비면 파일을 지운다."""
+    path = _reservations_path(chain_dir)
+    if not reservations:
+        if os.path.isfile(path):
+            os.remove(path)
+        return path, False
+    reservations = sorted(reservations, key=lambda r: r["num"])
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(_RESERVATIONS_HEADER)
+        for r in reservations:
+            f.write(f"{r['num']} {r['for']} {r['slug']} {r['date']}\n")
+    return path, True
 
 
 def _fsck_or_report(chains_root):
@@ -490,7 +548,8 @@ def _push_with_renumber(repo, chain_dir, chain, cid, title):
                and _ID_RE.match(rec["id"]) and _ID_RE.match(rec["id"]).group(1) == my_num]
         if dup:
             slug = cid.split("-", 1)[1]
-            new_cid = f"C{_next_number(records):03d}-{slug}"
+            reserved = [r["num"] for r in _load_reservations(chain_dir)]  # 재번호도 예약을 회피한다
+            new_cid = f"C{_next_number(records, reserved):03d}-{slug}"
             old_rel = os.path.relpath(os.path.join(chain_dir, cid), repo)
             new_rel = os.path.relpath(os.path.join(chain_dir, new_cid), repo)
             _git(repo, "mv", old_rel, new_rel)
@@ -555,7 +614,16 @@ def cmd_open(args):
         if lid not in {r.get("id") for r in chains.get(lch, [])}:
             raise ChainError(f"lineage '{l}'가 존재하지 않는다 (R2 위반 예정)")
 
-    cid = f"C{_next_number(records):03d}-{args.slug}"
+    # 번호 예약 (loom/C043): 저자가 예약을 가지면 그 번호로 승격, 아니면 예약을 회피해 발급.
+    reservations = _load_reservations(chain_dir)
+    mine = [r for r in reservations if r["for"] == args.author]
+    if mine:
+        consumed = min(mine, key=lambda r: r["num"])  # 자기 예약 중 가장 낮은 번호를 승격
+        num = consumed["num"]
+    else:
+        consumed = None
+        num = _next_number(records, [r["num"] for r in reservations])  # 남의 예약 번호는 건너뛴다
+    cid = f"C{num:03d}-{args.slug}"
     dest = os.path.join(chain_dir, cid)
     if os.path.exists(dest):
         raise ChainError(f"이미 존재한다: {dest}")
@@ -607,18 +675,89 @@ def cmd_open(args):
     except ChainError:
         shutil.rmtree(dest)
         raise
+    res_path = None
+    if consumed:  # 예약을 소비했다 — 원장에서 그 줄을 제거한다 (승격 = 예약의 죽음)
+        res_path, _ = _save_reservations(chain_dir, [r for r in reservations if r is not consumed])
     if args.git:
         repo = _repo_root(chains_root)
         if not repo:
             raise ChainError("--git: 깃 저장소가 아니다")
         rel = os.path.relpath(dest, repo)
-        _git(repo, "add", "-A", "--", rel)
-        _git(repo, "commit", "-m", f"gil: open {args.chain}/{cid} — 1/5 {_STEP_NAMES[1]}\n\n{title}", "--", rel)
-        if args.push:
+        paths = [rel]
+        if consumed:  # reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
+            paths.append(os.path.relpath(res_path, repo) if os.path.isfile(res_path)
+                         else os.path.relpath(_reservations_path(chain_dir), repo))
+        _git(repo, "add", "-A", "--", *paths)
+        msg = f"gil: open {args.chain}/{cid} — 1/5 {_STEP_NAMES[1]}\n\n{title}"
+        if consumed:
+            msg += f"\n(예약 승격: {args.author}의 C{consumed['num']:03d} 예약을 소비)"
+        _git(repo, "commit", "-m", msg, "--", *paths)
+        if args.push and not consumed:  # 예약 승격은 격리 브랜치의 일 — 원장 재번호를 적용하지 않는다
             cid = _push_with_renumber(repo, chain_dir, args.chain, cid, title)
-    print(f"열림: {args.chain}/{cid}")
+        elif args.push:
+            _git(repo, "push", check=False)
+    print(f"열림: {args.chain}/{cid}" + (f" (예약 승격 — {args.author})" if consumed else ""))
     _refresh_viewers(chains_root, f"{args.chain}/{cid} 열림",
                      getattr(args, "no_web", False), args.push)
+    return 0
+
+
+def _reserve_commit_push(chains_root, chain_dir, args, verb, cid_hint):
+    """예약 원장 변경을 커밋·push한다 (예약 원장은 사이클 밖 — 태그 봉인 무관)."""
+    if not args.git:
+        return
+    repo = _repo_root(chains_root)
+    if not repo:
+        raise ChainError("--git: 깃 저장소가 아니다")
+    rel = os.path.relpath(_reservations_path(chain_dir), repo)
+    _git(repo, "add", "-A", "--", rel)
+    _git(repo, "commit", "-m", f"gil: {verb} {args.chain}/{cid_hint}", "--", rel)
+    if args.push:
+        _git(repo, "push", check=False)
+
+
+def cmd_reserve(args):
+    """번호 예약을 데이터로 만든다 (loom/C043 — 이슈 #13). 예약 마커가 원장에 있으면
+    다른 워크트리의 gil open은 그 번호를 재발급하지 않는다 — push 경합 이전에 선점된다."""
+    chains_root = args.root
+    chain_dir = os.path.join(chains_root, args.chain)
+    if not args.author:  # §3.2 P1/P2 — 도구는 예약의 주인을 지어내지 않는다 (이슈 #17)
+        raise ChainError(
+            "예약의 주인을 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"
+            f"      존재의 이름을 명시하라:  gil reserve {args.chain} {args.slug} --for <이름>")
+    if not _SLUG_RE.match(args.slug):
+        raise ChainError(f"슬러그 '{args.slug}' 형식 위반 — R1: 소문자·숫자·하이픈만")
+    if not os.path.isdir(chain_dir):
+        raise ChainError(f"체인 '{args.chain}'이 없다 — 예약은 진행 중인 체인의 다음 번호를 선점한다")
+    _fsck_or_report(chains_root)  # 깨진 저장소 위에는 예약하지 않는다
+    records = load_chain_records(chain_dir)
+    reservations = _load_reservations(chain_dir)
+    num = _next_number(records, [r["num"] for r in reservations])
+    reservations.append({"num": num, "for": args.author, "slug": args.slug, "date": args.date})
+    _save_reservations(chain_dir, reservations)
+    cid_hint = f"C{num:03d}"
+    _reserve_commit_push(chains_root, chain_dir, args, "reserve", f"{cid_hint} → {args.author}")
+    print(f"예약됨: {args.chain}/{cid_hint} → {args.author} ({args.slug})")
+    return 0
+
+
+def cmd_unreserve(args):
+    """예약 취소 — 만료의 수동 해법 (자동 만료는 범위 밖). 존재가 돌아오지 않으면
+    소환자가 이 명령으로 번호를 회수한다."""
+    chains_root = args.root
+    chain_dir = os.path.join(chains_root, args.chain)
+    if not os.path.isdir(chain_dir):
+        raise ChainError(f"체인 '{args.chain}'이 없다")
+    m = re.match(r"^C?0*(\d+)$", str(args.number))  # 44 · 044 · C044 모두 허용
+    if not m:
+        raise ChainError(f"번호 '{args.number}' 형식 위반 — 정수 또는 C0NN")
+    num = int(m.group(1))
+    reservations = _load_reservations(chain_dir)
+    if not any(r["num"] == num for r in reservations):
+        raise ChainError(f"{args.chain}에 C{num:03d} 예약이 없다")
+    _save_reservations(chain_dir, [r for r in reservations if r["num"] != num])
+    _reserve_commit_push(chains_root, chain_dir, args, "unreserve", f"C{num:03d}")
+    print(f"예약 취소: {args.chain}/C{num:03d}")
     return 0
 
 
@@ -750,7 +889,8 @@ def _build_web_data(chains_root, only=None):
                 "last_activity": ({"ago": _ago(act[0]), "subject": act[1]} if act else None),
                 "parents": c["parents"], "lineage": c["lineage_list"],
             }
-        data[name] = {"order": order, "cycles": entry, "children": children}
+        res = _load_reservations(os.path.join(chains_root, name))  # loom/C043: 예약도 원장 상태 (C042)
+        data[name] = {"order": order, "cycles": entry, "children": children, "reservations": res}
     return data
 
 
@@ -879,6 +1019,16 @@ def _render_tables(data):
                    f'<table><thead><tr><th>사이클</th><th>상태</th><th>가설(제목)</th>'
                    f'<th>parent</th><th>lineage</th><th>superseded_by</th><th>기간</th></tr></thead>'
                    f'<tbody>{"".join(rows)}</tbody></table></div>')
+        # 예약 섹션 — 예약이 있을 때만 렌더한다 (무예약이면 이전 산출물과 바이트 동일). loom/C043.
+        res = chain.get("reservations") or []
+        if res:
+            rres = "".join(
+                f'<tr><td class="id">C{r["num"]:03d}</td><td>{html.escape(r["for"])}</td>'
+                f'<td>{html.escape(r["slug"])}</td><td>{html.escape(r["date"])}</td></tr>' for r in res)
+            out.append(f'<div class="card"><h2>chain: {html.escape(name)} — 예약 {len(res)}건 '
+                       f'(아직 사이클 아님 · 번호 선점)</h2>'
+                       f'<table><thead><tr><th>번호</th><th>예약 대상</th><th>슬러그</th>'
+                       f'<th>예약일</th></tr></thead><tbody>{rres}</tbody></table></div>')
     return "".join(out)
 
 
@@ -892,6 +1042,8 @@ def render_web_page(data, page_title, generated, only=None):
             name: {
                 "order": chain["order"],
                 "cycles": chain["cycles"],
+                # 예약이 있을 때만 키를 넣는다 — 무예약 저장소는 이전 산출물과 바이트 동일 (파서 계약 보존).
+                **({"reservations": chain["reservations"]} if chain.get("reservations") else {}),
             } for name, chain in data.items()
         },
     }
@@ -1865,6 +2017,24 @@ def main(argv=None):
     p_open.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_open.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_open.set_defaults(func=cmd_open)
+
+    p_res = sub.add_parser("reserve", help="병렬 존재에게 사이클 번호를 예약 (원장 선점, v2.3)")
+    p_res.add_argument("chain")
+    p_res.add_argument("slug", help="예약의 의도된 슬러그 (예약자가 open 시 확정)")
+    p_res.add_argument("--for", dest="author", help="예약 대상 존재의 이름 — 필수 (§3.2 P1)")
+    p_res.add_argument("--date", default=today, help="예약 일자 (기본: 오늘)")
+    p_res.add_argument("--git", action="store_true", help="예약 원장만 담아 커밋")
+    p_res.add_argument("--push", action="store_true", help="커밋 후 push")
+    p_res.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_res.set_defaults(func=cmd_reserve)
+
+    p_unres = sub.add_parser("unreserve", help="예약 취소 — 만료의 수동 해법 (v2.3)")
+    p_unres.add_argument("chain")
+    p_unres.add_argument("number", help="취소할 예약 번호 (44 · 044 · C044)")
+    p_unres.add_argument("--git", action="store_true", help="예약 원장만 담아 커밋")
+    p_unres.add_argument("--push", action="store_true", help="커밋 후 push")
+    p_unres.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_unres.set_defaults(func=cmd_unreserve)
 
     p_step = sub.add_parser("step", help="열린 사이클의 진행 스텝(1~5) 전이")
     p_step.add_argument("chain")

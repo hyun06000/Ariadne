@@ -28,7 +28,8 @@ UNIMPLEMENTED = 3  # SPEC §7.2-4: 미구현·미지 명령의 통일된 종료 
 # SPEC §5가 정의하는 명령 표면. 구현이 이 중 무엇을 구현했는지는 자유이나(부분 구현 합법),
 # 자기보고와 실제가 어긋나는 것은 금지다. 이 목록 자체가 목록형 규칙이며 — SPEC이 자라면 함께 자라야 한다.
 CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release", "version",
-                     "handoff", "supersede", "goto", "pages", "web", "help", "correct"]
+                     "handoff", "supersede", "goto", "pages", "web", "help", "correct",
+                     "reserve", "unreserve"]  # loom/C043 (이슈 #13) — 부분 구현은 합법, 거짓 보고만 불법
 
 
 def check(cid, desc, cond, detail=""):
@@ -254,6 +255,89 @@ def main():
     check("FSCK-MULTI-ROOT", "R12: 다중 루트를 경고로 판정 (exit 0 — 위반 아님)",
           r.returncode == 0 and "다중루트" in (r.stderr + r.stdout),
           f"rc={r.returncode} {(r.stderr or '')[-90:]}")
+
+    # ---- 번호 예약 (SPEC §6.7 — loom/C043, 이슈 #13) ----
+    # 예약을 원장 데이터로 만들면 push 이전(격리 워크트리)의 예약도 선점된다. 원장 규율(§6-6)이
+    # 못 풀던 "예정된 것의 충돌"을 데이터가 푼다. 부분 구현은 합법 — 이 표면을 훅에 나열한 구현만 판정한다.
+    # (나열하지 않은 구현의 정직성은 HELP-COMPLETE가 exit 3으로 이미 판정했다 — "판정기가 안 보는 계약은 없다".)
+    if "reserve" in claimed:
+        def resv_lines(root, chain="demo"):
+            p = os.path.join(root, "rooms/experiment/chains", chain, "reservations.tsv")
+            if not os.path.isfile(p):
+                return []
+            return [l for l in open(p, encoding="utf-8").read().splitlines()
+                    if l.strip() and not l.startswith("#")]
+
+        def resv_sandbox(tag):
+            p = make_sandbox(os.path.join(work, tag))
+            write_cycle(p, "demo", "C001-seed", status="closed", closed="2026-01-02", step="5")
+            return p
+
+        # RESERVE-BASIC: 예약 → exit 0, 원장에 줄 1개, 출력에 대상 이름
+        rroot = resv_sandbox("resv-basic")
+        r = impl.run(rroot, "reserve", "demo", "go-web", "--for", "weft", "--date", "2026-01-03")
+        check("RESERVE-BASIC", "reserve → exit 0 + 원장에 예약 1줄 (번호 선점 데이터화)",
+              r.returncode == 0 and len(resv_lines(rroot)) == 1 and "weft" in r.stdout,
+              f"rc={r.returncode} 줄={resv_lines(rroot)}")
+
+        # RESERVE-NEEDS-FOR: --for 없이 거부 + 무변화 (§3.2 P1 — 예약 주인도 지어내지 않는다)
+        rroot = resv_sandbox("resv-nofor")
+        before = snapshot(rroot)
+        r = impl.run(rroot, "reserve", "demo", "x", "--date", "2026-01-03")
+        check("RESERVE-NEEDS-FOR", "--for 없는 reserve 거부 + 무변화 (§3.2 P1)",
+              r.returncode != 0 and snapshot(rroot) == before, f"rc={r.returncode}")
+
+        # RESERVE-NEEDS-CHAIN: 없는 체인에 예약 거부
+        rroot = resv_sandbox("resv-nochain")
+        r = impl.run(rroot, "reserve", "ghost", "x", "--for", "weft", "--date", "2026-01-03")
+        check("RESERVE-NEEDS-CHAIN", "없는 체인에 reserve 거부", r.returncode != 0, f"rc={r.returncode}")
+
+        # OPEN-SKIPS-RESERVED (조건 1, 선점): weft에게 C002 예약 후 clew가 열면 clew는 C003을 받고,
+        # 예약은 남는다. 이것이 C037의 버그 — Clew가 Weft의 번호를 재발급하던 — 를 고친다.
+        rroot = resv_sandbox("resv-skip")
+        impl.run(rroot, "reserve", "demo", "wefts", "--for", "weft", "--date", "2026-01-03")
+        r = impl.run(rroot, "open", "demo", "clews", "--author", "clew",
+                     "--parent", "C001-seed", "--date", "2026-01-04")
+        cdir = os.path.join(rroot, "rooms/experiment/chains/demo")
+        check("OPEN-SKIPS-RESERVED", "예약된 번호를 open이 건너뛴다 (clew→C003, 예약 잔존) — 선점",
+              r.returncode == 0 and os.path.isdir(os.path.join(cdir, "C003-clews"))
+              and not os.path.isdir(os.path.join(cdir, "C002-clews"))
+              and len(resv_lines(rroot)) == 1, f"rc={r.returncode} 예약={resv_lines(rroot)}")
+
+        # OPEN-PROMOTES-OWNER (조건 2, 승격): 예약자(weft)가 열면 예약된 번호로 태어나고 예약은 소비된다.
+        rroot = resv_sandbox("resv-promote")
+        impl.run(rroot, "reserve", "demo", "intended", "--for", "weft", "--date", "2026-01-03")
+        r = impl.run(rroot, "open", "demo", "final-slug", "--author", "weft",
+                     "--parent", "C001-seed", "--date", "2026-01-04")
+        cdir = os.path.join(rroot, "rooms/experiment/chains/demo")
+        check("OPEN-PROMOTES-OWNER", "예약자가 열면 예약 번호로 승격 + 예약 소거 (C002-final-slug, 원장 비움)",
+              r.returncode == 0 and os.path.isdir(os.path.join(cdir, "C002-final-slug"))
+              and resv_lines(rroot) == [], f"rc={r.returncode} 예약={resv_lines(rroot)}")
+
+        # RESERVE-NON-INVASIVE (조건 3): 예약이 있어도 fsck 위반 0, log는 예약을 그래프 노드로 넣지 않는다.
+        rroot = resv_sandbox("resv-noninvasive")
+        impl.run(rroot, "reserve", "demo", "pending", "--for", "weft", "--date", "2026-01-03")
+        rf = impl.run(rroot, "fsck")
+        rl = impl.run(rroot, "log")
+        # 예약은 그래프의 계보 줄("C0NN ← …")에 나타나면 안 된다 (사이클이 아니므로)
+        graph_has_reservation = re.search(r"C002-pending\s+←", rl.stdout) is not None
+        check("RESERVE-NON-INVASIVE", "예약 있어도 fsck 위반 0 + log 그래프에 예약 노드 없음 (예약은 사이클 아님)",
+              rf.returncode == 0 and rl.returncode == 0 and not graph_has_reservation,
+              f"fsck={rf.returncode} 그래프침습={graph_has_reservation}")
+
+        # RESERVE-IN-LOG (조건 3): log가 예약을 별도로 보인다 — 낡은 화면은 침묵보다 나쁘다 (C042).
+        check("RESERVE-IN-LOG", "log가 예약을 구별해 표시한다 (예약 대상 이름 포함)",
+              "예약" in rl.stdout and "weft" in rl.stdout, rl.stdout[-120:])
+
+        # UNRESERVE: 취소 → 제거; 없는 번호 → 거부
+        rroot = resv_sandbox("resv-unreserve")
+        impl.run(rroot, "reserve", "demo", "temp", "--for", "weft", "--date", "2026-01-03")
+        r_ok = impl.run(rroot, "unreserve", "demo", "2")
+        after = resv_lines(rroot)
+        r_bad = impl.run(rroot, "unreserve", "demo", "99")
+        check("UNRESERVE", "unreserve 2 → 예약 제거(exit 0), 없는 99 → 거부",
+              r_ok.returncode == 0 and after == [] and r_bad.returncode != 0,
+              f"ok={r_ok.returncode} 잔여={after} bad={r_bad.returncode}")
 
     # ---- close (자체 구축 샌드박스 — 판정 항목 간 독립: 각 검사는 자기가 판정하는 명령에만 의존한다) ----
     croot = make_sandbox(os.path.join(work, "close"))
