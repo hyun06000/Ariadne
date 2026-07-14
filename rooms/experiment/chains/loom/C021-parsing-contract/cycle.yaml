@@ -2,7 +2,7 @@ id: C021-parsing-contract
 chain: loom
 parent: C019-spec-carryovers
 lineage: [tapestry/C001-reproduce-audit]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-15
