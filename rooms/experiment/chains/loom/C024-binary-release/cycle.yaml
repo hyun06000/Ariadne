@@ -1,0 +1,10 @@
+id: C024-binary-release
+chain: loom
+parent: C023-v1-integration
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "바이너리를 GitHub Releases에 첨부하고 한 줄 설치를 제공하면 다른 머신의 다른 LLM이 딸깍으로 gil을 쓴다"
