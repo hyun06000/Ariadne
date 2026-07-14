@@ -1,0 +1,11 @@
+# 픽스처 — 리스트·null 변형·비따옴표 값
+id: C002-heir
+chain: test-grammar
+parent: C001-tricky      # 비따옴표 값 + 후행 주석
+lineage: []
+step: 1
+author: fixture
+status: open
+opened: 2026-01-03
+closed: ~
+title: "상속자"

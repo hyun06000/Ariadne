@@ -1,0 +1,12 @@
+# 검증용 가상 픽스처 — 문법 요소 전수
+# (주석 전용 줄 — 무시되어야 함)
+id: C001-tricky
+chain: test-grammar
+parent: null             # 후행 주석: 절단되어야 함
+lineage: []
+step: 5
+author: fixture
+status: closed
+opened: 2026-01-01
+closed: 2026-01-02       # 후행 주석 2
+title: "따옴표 안의 쉼표, 그리고 #해시와 [대괄호]는 보존된다"
