@@ -11,7 +11,7 @@ chmod +x gil
 ```
 
 Intel 맥: `gil-darwin-amd64`, 리눅스: `gil-linux-{arm64,amd64}`. 무결성은 `SHA256SUMS` 대조.
-바이너리는 log·fsck·open·close·step·verify·web·**pages**를 이행한다 (release·open --git만 참조 구현 전용).
+바이너리는 log·fsck·open·close·step·verify·web·**pages**를 이행한다 (`release`만 참조 구현 전용).
 *(참조 구현으로 쓰려면 아래 `./gil`을 `python3 gil.py`로 바꿔 읽으면 된다.)*
 
 ## 1. 저장소를 연다
@@ -27,8 +27,10 @@ git init                      # 이미 깃 저장소면 생략
 
 예: `./gil open parser tokenizer-spike --new-chain --title "토크나이저가 중첩 괄호를 처리하는가" --author me`.
 `rooms/experiment/chains/<문제영역>/C001-<슬러그>/`에 5스텝 문서가 생긴다.
-첫 스텝을 `--git`으로 각인하면(다음 절) open 시점의 파일까지 함께 커밋된다.
-*(참조 구현 `gil.py`는 `open --git --push`로 열림부터 각인·원장 규율까지 한 번에 — 바이너리는 `open --git` 미지원이라 이 경로를 쓴다.)*
+**열 때부터 보이게**: `--git`(원격이 있으면 `--git --push`)을 붙이면 사이클을 여는 순간이
+바로 각인된다 — 관전자에게 침묵과 멈춤은 구별되지 않는다 (SPEC §2.1-3).
+`--push`는 번호 원장 규율을 따른다: 다른 존재가 같은 번호를 먼저 올렸으면 fetch·rebase 후
+**자동으로 재번호**하고 다시 push한다 (§6-6). 양 구현 모두 지원한다 (loom/C036).
 
 ## 2. 사이클을 스텝으로 진행한다 (핵심 규율)
 
