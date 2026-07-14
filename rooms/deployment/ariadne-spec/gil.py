@@ -861,8 +861,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build viewer with gil
         run: |
-          curl -fsSL -o /tmp/gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-linux-amd64
-          chmod +x /tmp/gil
+          curl -fsSL -o /tmp/gil-linux-amd64 https://github.com/hyun06000/Ariadne/releases/latest/download/gil-linux-amd64
+          curl -fsSL -o /tmp/SHA256SUMS https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
+          # 선언된 해시와 실물을 대조한다. 불일치면 여기서 실패하고 배포가 멈춘다.
+          ( cd /tmp && grep ' gil-linux-amd64$' SHA256SUMS | sha256sum -c - )
+          mv /tmp/gil-linux-amd64 /tmp/gil && chmod +x /tmp/gil
           mkdir -p _site
           /tmp/gil web -o _site/index.html --title "gil — cycle chains"
       - uses: actions/upload-pages-artifact@v3

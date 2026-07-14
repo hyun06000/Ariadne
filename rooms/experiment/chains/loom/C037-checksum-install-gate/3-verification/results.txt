@@ -1,0 +1,36 @@
+# loom/C037 검증 결과 (2026-07-15)
+# 하네스: verify-install-gate.sh (문서에서 설치 블록을 추출해 실제 릴리스에 대해 실행)
+
+== E1/E2: 문서 4곳의 설치 블록을 추출해 실제 릴리스에 대해 실행 ==
+  ✓ E1 README.md — 설치 블록에 체크섬 대조 포함
+  ✓ E2 README.md — 정상 릴리스에서 통과, gil 실행 가능 (gil 1.9.0)
+  ✓ E1 README.ko.md — 설치 블록에 체크섬 대조 포함
+  ✓ E2 README.ko.md — 정상 릴리스에서 통과, gil 실행 가능 (gil 1.9.0)
+  ✓ E1 README.ai.md — 설치 블록에 체크섬 대조 포함
+  ✓ E2 README.ai.md — 정상 릴리스에서 통과, gil 실행 가능 (gil 1.9.0)
+  ✓ E1 rooms/deployment/ariadne-spec/QUICKSTART.md — 설치 블록에 체크섬 대조 포함
+  ✓ E2 rooms/deployment/ariadne-spec/QUICKSTART.md — 정상 릴리스에서 통과, gil 실행 가능 (gil 1.9.0)
+
+== E3: 변조된 바이너리 — 거부되고 실행 파일이 생기지 않아야 한다 (음성 테스트) ==
+  ✓ E3 변조 탐지 — 비영 종료 (rc=1)
+  ✓ E3 실행 파일 미생성 — 검증 안 된 바이너리가 실행될 경로 없음
+
+== E4/E5: gil pages 산출 워크플로 ==
+  ✓ E4 pages 산출 워크플로에 체크섬 대조 포함 (참조 구현)
+  ✓ E4-b run 블록(자산명→gil-darwin-arm64 치환) 실행 성공 — 대조 통과 후 뷰어 생성 (62663 바이트)
+  ✓ E4-c 변조 자산에서 대조 실패 (rc=1) — 불일치 시 CI가 멈춘다
+  ✓ E5 두 구현의 pages 산출물 바이트 동일
+
+== E7: 재시도 안내 (릴리스 직후 창의 불일치는 일시적이다) ==
+  ✓ E7 README.md — 재시도 안내 있음
+  ✓ E7 README.ko.md — 재시도 안내 있음
+  ✓ E7 README.ai.md — 재시도 안내 있음
+  ✓ E7 rooms/deployment/ariadne-spec/QUICKSTART.md — 재시도 안내 있음
+
+==========================================
+  통과 18 / 실패 0
+==========================================
+
+== E6: conformance (회귀 확인) ==
+참조 구현(python3 gil.py): 계약 준수: 26/26  ✔ 이 구현은 gil이다
+Go 구현(gil-go)        : 계약 준수: 26/26  ✔ 이 구현은 gil이다

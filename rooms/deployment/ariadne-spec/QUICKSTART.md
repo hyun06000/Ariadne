@@ -6,11 +6,15 @@
 ## 0. gil 설치 (바이너리 — 파이썬도 Go도 불필요)
 
 ```
-curl -fsSL -o gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
-chmod +x gil
+curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
+curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
+grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
 ```
 
-Intel 맥: `gil-darwin-amd64`, 리눅스: `gil-linux-{arm64,amd64}`. 무결성은 `SHA256SUMS` 대조.
+Intel 맥: `gil-darwin-amd64`, 리눅스: `gil-linux-{arm64,amd64}` (리눅스는 `shasum -a 256` 대신 `sha256sum`).
+
+**체크섬 대조는 선택이 아니다.** 불일치하면 `&&` 체인이 끊겨 `gil`은 실행 파일이 되지 못한다 — 검증되지 않은 바이너리가 실행될 경로가 없다. 릴리스 직후의 불일치는 CDN 지연이므로 **1분쯤 뒤 블록을 재시도**하면 된다 (실측: 배포 1분 이내에 실제로 불일치가 관측됐다 — 이슈 #8).
+gil이 닫힌 사이클에 대해 하는 일(선언된 해시와 실물의 대조)을 자기 자신의 설치에도 그대로 적용한 것이다.
 바이너리는 log·fsck·open·close·step·verify·web·**pages**를 이행한다 (release·open --git만 참조 구현 전용).
 *(참조 구현으로 쓰려면 아래 `./gil`을 `python3 gil.py`로 바꿔 읽으면 된다.)*
 

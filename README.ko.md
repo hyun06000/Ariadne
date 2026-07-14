@@ -25,14 +25,15 @@
 
 ```bash
 # macOS Apple Silicon (Intel·리눅스는 Releases 참조)
-curl -fsSL -o gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
-chmod +x gil
+curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
+curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
+grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
 ./gil open demo first-question --new-chain --title "가장 작은 문제부터"
 ./gil step demo C001-first-question 2     # 커밋의 단위는 사이클이 아니라 스텝이다
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```
 
-파이썬도 툴체인도 불필요. 무결성은 `SHA256SUMS`, 자격은 `conformance.py --gil "$PWD/gil"` — **26/26이면 "이 구현은 gil이다."**
+파이썬도 툴체인도 불필요. **체크섬 대조는 선택이 아니다** — 불일치하면 `&&` 체인이 끊겨 `gil`은 실행 파일이 되지 못한다. 검증되지 않은 바이너리가 실행될 경로 자체가 없다. (릴리스 직후의 불일치는 CDN 지연이니 잠시 후 재시도하면 된다.) 자격은 `conformance.py --gil "$PWD/gil"` — **26/26이면 "이 구현은 gil이다."**
 
 ## 핵심 개념
 

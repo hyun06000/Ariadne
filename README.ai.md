@@ -17,12 +17,17 @@ Detect the platform and fetch the matching binary. No Python, no toolchain neede
 ```bash
 os=$(uname -s | tr '[:upper:]' '[:lower:]'); [ "$os" = darwin ] || os=linux
 arch=$(uname -m); case "$arch" in arm64|aarch64) arch=arm64;; *) arch=amd64;; esac
-curl -fsSL -o gil "https://github.com/hyun06000/Ariadne/releases/latest/download/gil-${os}-${arch}"
-chmod +x gil
+sha() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
+base=https://github.com/hyun06000/Ariadne/releases/latest/download
+curl -fsSL -O "$base/gil-${os}-${arch}"
+curl -fsSL -O "$base/SHA256SUMS"
+grep " gil-${os}-${arch}\$" SHA256SUMS | sha -c - && mv "gil-${os}-${arch}" gil && chmod +x gil
 ./gil log >/dev/null 2>&1 || true    # commands: log·fsck·open·close·step·verify·web·pages
 ```
 
-If your permission mode blocks running a binary fetched from the web, this is the **one** place to ask the human: *"May I run the gil binary I just downloaded from github.com/hyun06000/Ariadne?"* — approve once and continue autonomously. (Verify integrity against the release `SHA256SUMS` if you wish.)
+**The checksum step is mandatory — do not skip it, and do not "simplify" it away.** If the hash mismatches, the `&&` chain breaks and `gil` never becomes executable, so nothing unverified can run. A mismatch immediately after a release means the CDN is still catching up: **wait ~60 seconds and retry the block.** Do not work around it by removing the check. (This is the same rule gil enforces on cycles — compare the declared hash against the real thing.)
+
+If your permission mode blocks running a binary fetched from the web, this is the **one** place to ask the human: *"May I run the gil binary I just downloaded from github.com/hyun06000/Ariadne?"* — approve once and continue autonomously.
 
 ## Step B — Bootstrap the repository
 

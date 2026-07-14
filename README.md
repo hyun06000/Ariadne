@@ -25,14 +25,15 @@ Ariadne gave Theseus a ball of thread — a *clew* — so he could walk into the
 
 ```bash
 # macOS Apple Silicon (see Releases for darwin-amd64, linux-arm64/amd64)
-curl -fsSL -o gil https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
-chmod +x gil
+curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
+curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
+grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
 ./gil open demo first-question --new-chain --title "smallest problem first"
 ./gil step demo C001-first-question 2     # commit unit is the STEP, not the cycle
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```
 
-No Python, no toolchain. Integrity via `SHA256SUMS`; qualification via `conformance.py --gil "$PWD/gil"` — **26/26 means "this implementation *is* gil."**
+No Python, no toolchain. **The checksum is not optional:** if it mismatches, the `&&` chain breaks and `gil` never becomes an executable — nothing unverified can run. (A mismatch right after a release just means the CDN lagged; wait a minute and retry.) Qualification via `conformance.py --gil "$PWD/gil"` — **26/26 means "this implementation *is* gil."**
 
 ## The idea
 
