@@ -4,7 +4,7 @@ parent: C021-parsing-contract
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "커밋의 단위는 스텝이라는 사용 원칙을 스펙과 부트스트랩에 명문화하면 어떤 LLM이든 관전 가능한 리듬으로 일한다"
