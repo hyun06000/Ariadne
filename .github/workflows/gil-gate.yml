@@ -1,0 +1,31 @@
+# gil 계약 게이트 — 모든 PR과 main push에서 스키마·불변·양 구현 계약을 검사한다.
+# 위반을 담은 변경은 병합 전에 붉게 표시된다. 도구가 곧 문지기다.
+name: gil-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # verify가 사이클 태그를 필요로 한다
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - name: Contract gate
+        run: |
+          PKG=rooms/deployment/ariadne-spec
+          echo "== fsck (스키마 R1~R9)"
+          python3 "$PKG/gil.py" fsck
+          echo "== verify (닫힌 사이클 불변)"
+          python3 "$PKG/gil.py" verify
+          echo "== conformance × 참조 구현"
+          python3 "$PKG/conformance.py" --gil "python3 $PWD/$PKG/gil.py"
+          echo "== conformance × Go 구현"
+          go build -o /tmp/gil-go "$PKG/go/main.go"
+          python3 "$PKG/conformance.py" --gil "/tmp/gil-go"
