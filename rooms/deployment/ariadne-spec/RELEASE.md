@@ -1,5 +1,12 @@
 # Ariadne Spec — Release
 
+## v1.2.1 (2026-07-15)
+
+문서-only, 실전 경로 두 교정 (사용자 박상현의 워크스루가 드러냄):
+
+- **뷰어는 선택이다**: `gil web`(로컬 HTML, GitHub 불필요)과 `gil pages`(github.io 자동 배포)를 QUICKSTART §5·README 3종에 나란한 선택지로 명시. 로컬 깃만 쓰는 사용자도 뷰어를 갖는다.
+- **실전 경로의 open --git 교정**: 바이너리는 `open --git` 미구현 → 문서가 그것을 첫 명령으로 안내해 딸깍 사용자가 막혔다. `open`(--git 없이) 후 `step --git`이 사이클을 커밋하는 경로로 수정. 근거: loom/C028.
+
 ## v1.2.0 (2026-07-15) — gil pages + 실전 퀵스타트
 
 - **`gil pages` 신설** (참조·Go): 이식 가능한 GitHub Pages 배포 워크플로(`gil-pages.yml`)를 저장소에 생성 — 딸깍 사용자도 명령 하나로 자기 체인을 github.io에. 발의: 박상현 ("이건 깃의 래퍼로 만들어진 거잖니").
