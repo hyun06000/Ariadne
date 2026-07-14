@@ -4,7 +4,8 @@ parent: C029-time-machine
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
+verdict: supported
 title: "verdict·deviations 필드로 사이클의 결말과 사전등록 이탈을 기계가 보게 하면 gil은 감사 가능한 기록 도구가 된다"
