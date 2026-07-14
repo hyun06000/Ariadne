@@ -1,14 +1,7 @@
 # 3. 가설 검증
 
-이 디렉토리에 실험 실행에 사용된 **모든 것**이 저장된다: 코드, 스크립트, 입력 데이터(또는 그 출처와 해시), 실행 로그, 연산 결과, 생성된 아티팩트.
+산출물: SPEC §2.1·CLAUDE.md §3·QUICKSTART 갱신 (v0.9.3 각인), runs/run1-tests.txt.
 
-## 재현 방법
+재현: `grep -l "커밋의 단위는 스텝" rooms/deployment/ariadne-spec/SPEC.md CLAUDE.md rooms/deployment/ariadne-spec/QUICKSTART.md`
 
-<!-- 이 디렉토리만 가지고 실험을 처음부터 다시 실행하는 정확한 명령 순서를 쓴다. -->
-
-```bash
-```
-
-## 실행 기록
-
-<!-- 실제 실행 일시, 환경(OS, 버전), 소요 시간, 실행 중 발생한 특이사항. -->
+실행 기록 (2026-07-15): T1 마커 3/3, T2 퀵스타트 실행 PASS, T3 문서 릴리스 분류 정확. 병행: Weft에게 원칙 선전달(SendMessage) — 직후 2/5 각인 관측.
