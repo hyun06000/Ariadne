@@ -1,0 +1,20 @@
+== [참조] T1 생성:
+(eval):5: no such file or directory: python3 /Users/user/Desktop/code/personal/Ariadne/rooms/deployment/ariadne-spec/gil.py
+  필수요소: ✗(branches: [main])✗(pages: write)✗(id-token: write)✗(upload-pages-artifact)✗(deploy-pages)
+ugrep: warning: /var/folders/c0/msqj0zbj2_z7w3m1rpgxnv4m0000gn/T/tmp.CxPoALI2kS/.github/workflows/gil-pages.yml: No such file or directory
+  T3 이식성 (사용자-저장소 하드코딩, gil 릴리스 URL 제외): 0개 참조 / releases URL만 허용
+  T4 덮어쓰기 방어:
+(eval):10: no such file or directory: python3 /Users/user/Desktop/code/personal/Ariadne/rooms/deployment/ariadne-spec/gil.py
+(eval):10: no such file or directory: python3 /Users/user/Desktop/code/personal/Ariadne/rooms/deployment/ariadne-spec/gil.py
+== [Go] T1 생성:
+생성: .github/workflows/gil-pages.yml
+  필수요소: ✗(branches: [main])✗(pages: write)✗(id-token: write)✗(upload-pages-artifact)✗(deploy-pages)
+ugrep: warning: /var/folders/c0/msqj0zbj2_z7w3m1rpgxnv4m0000gn/T/tmp.KjX299lb7b/.github/workflows/gil-pages.yml: No such file or directory
+  T3 이식성 (사용자-저장소 하드코딩, gil 릴리스 URL 제외): 0개 참조 / releases URL만 허용
+  T4 덮어쓰기 방어:
+오류: 이미 존재한다: rooms/.github/workflows/gil-pages.yml (덮으려면 --force)
+생성: .github/workflows/gil-pages.yml
+== T2 빌드 로직 재현 (curl→로컬 gil 치환):
+오류: 체인 루트가 없다: rooms/experiment/chains
+== T5 회귀:
+계약 준수: 26/26  ✔ 이 구현은 gil이다

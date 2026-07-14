@@ -1,0 +1,13 @@
+PASS [참조] T1 저장소 루트에 생성
+PASS [참조] T1b 필수 요소
+PASS [참조] T3 이식성(하드코딩 없음)
+PASS [참조] T4 덮어쓰기 방어(재실행 거부, --force 허용)
+PASS [Go] T1 저장소 루트에 생성
+PASS [Go] T1b 필수 요소
+PASS [Go] T3 이식성(하드코딩 없음)
+PASS [Go] T4 덮어쓰기 방어(재실행 거부, --force 허용)
+PASS T2 빌드 로직(gil web → _site) 재현
+PASS [참조] T5 conformance 26/26
+PASS [Go] T5 conformance 26/26
+
+결과: 11/11
