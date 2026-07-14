@@ -1,0 +1,5 @@
+PASS Go: --git 없이 step 자동 커밋
+PASS Go: --no-commit 커밋 안 함
+PASS Go: --git 없이 close 자동 커밋+태그
+
+결과: 3/3

@@ -1,0 +1,6 @@
+PASS T1 --git 없이 step 자동 커밋
+PASS T2 --no-commit 커밋 안 함
+PASS T3 --git 없이 close 자동 커밋+태그
+PASS T4 깃 아닌 곳 조용히 스킵(전이만)
+
+결과: 4/4
