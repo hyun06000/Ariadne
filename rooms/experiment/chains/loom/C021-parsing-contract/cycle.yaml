@@ -1,0 +1,10 @@
+id: C021-parsing-contract
+chain: loom
+parent: C019-spec-carryovers
+lineage: [tapestry/C001-reproduce-audit]
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "cycle.yaml 파싱 문법과 환경 규약을 스펙에 명문화하고, 그 문법의 까다로운 픽스처에 두 구현이 동일 판정을 내림을 증명한다"
