@@ -1,0 +1,13 @@
+== T1 조회 두 구현 대조 (loom/C005):
+-- 참조:
+사이클 loom/C005-web-viewer [closed]: 같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다
+  부모: C004-git-binding
+  각인 태그: cycle/loom/C005-web-viewer → 985b4ff9
+  ← 이 시점 코드로 역행:  git checkout cycle/loom/C005-web-viewer   (또는 gil goto loom/C005-web-viewer --checkout)
+  ↳ 이 지점에서 새 갈래 시작:  gil open loom <slug> --parent C005-web-viewer
+-- Go:
+사이클 loom/C005-web-viewer [closed]: 같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다
+  부모: C004-git-binding
+  각인 태그: cycle/loom/C005-web-viewer → 985b4ff9
+  ← 이 시점 코드로 역행:  git checkout cycle/loom/C005-web-viewer   (또는 gil goto loom/C005-web-viewer --checkout)
+  ↳ 이 지점에서 새 갈래 시작:  gil open loom <slug> --parent C005-web-viewer

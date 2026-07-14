@@ -1,0 +1,5 @@
+PASS T2b --checkout 왕복 (C001 역행→main 복귀)
+PASS T4 분기 재시작 (C001에서 wrong·better 두 갈래)
+PASS T3 없는 사이클 명시적 오류
+
+결과: 3/3

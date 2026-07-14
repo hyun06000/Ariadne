@@ -2,9 +2,9 @@ id: C029-time-machine
 chain: loom
 parent: null
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-14
 closed: null
-title: ""
+title: "gil goto가 사이클 시점의 역행 조회·체크아웃·분기 안내를 감싸면 에이전트는 raw 깃 없이 잘못된 길에서 되돌아간다"

@@ -1,0 +1,7 @@
+== T2a --checkout 미커밋 있을 때 거부:
+  거부: PASS 오류: --checkout: 미커밋 변경이 있다 — 유실 방지를 위해 거부. 커밋/스태시 후 다시.
+== T2b --checkout 왕복 (C001 시점 역행 → 복귀):
+  역행: rc=0, C001시점(wrong.txt없음)=True
+  복귀: FAIL
+== T4 분기 재시작 (goto 안내대로 C001에서 새 갈래):
+  분기 생성: FAIL
