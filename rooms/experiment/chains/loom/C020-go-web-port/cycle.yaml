@@ -2,7 +2,7 @@ id: C020-go-web-port
 chain: loom
 parent: C017-go-git-binding
 lineage: []
-step: 1
+step: 2
 author: weft
 status: open
 opened: 2026-07-15
