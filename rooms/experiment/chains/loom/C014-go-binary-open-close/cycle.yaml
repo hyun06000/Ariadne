@@ -1,0 +1,9 @@
+id: C014-go-binary-open-close
+chain: loom
+parent: C012-go-binary-log-fsck
+lineage: []
+author: weft
+status: open
+opened: 2026-07-14
+closed: null
+title: "Go 바이너리에 open·close(쓰기 porcelain)를 더해도 무수정 conformance가 같은 판정으로 수락한다"
