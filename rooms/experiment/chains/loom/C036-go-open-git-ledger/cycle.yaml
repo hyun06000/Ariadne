@@ -2,7 +2,7 @@ id: C036-go-open-git-ledger
 chain: loom
 parent: [C020-go-web-port, C016-number-ledger]
 lineage: []
-step: 2
+step: 3
 author: weft
 status: open
 opened: 2026-07-14
