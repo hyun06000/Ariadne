@@ -1,0 +1,13 @@
+id: C040-provenance-not-fabricated
+chain: loom
+parent: C039-command-surface-contract
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-14
+closed: null
+title: "출처(저자·부모)의 조용한 기본값을 제거하면 거짓 원장은 태어나지 못한다 (이슈 #17)"
+verdict: null
+deviations: 0
+superseded_by: null
