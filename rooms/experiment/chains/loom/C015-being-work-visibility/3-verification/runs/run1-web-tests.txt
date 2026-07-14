@@ -1,0 +1,12 @@
+== T1 실데이터 활동 주석:
+생성: /tmp/c015.html (체인 3개)
+활동 1분 전
+활동 1분 전
+== T2 깃 없는 환경:
+생성: /tmp/nogit.html (체인 3개)
+생성 OK (주석은 생략됨: 0건)
+== T4 conformance 회귀:
+계약 준수: 26/26  ✔ 이 구현은 gil이다
+== T3 워크플로 추출 실행 (신선 클론, C007 방식):
+rc=0, index=True, branches/index=True, 브랜치 페이지=['worktree-agent-a704a63c5b6cede86.html']
+T3 exit: 0

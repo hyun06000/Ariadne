@@ -2,7 +2,7 @@ id: C015-being-work-visibility
 chain: loom
 parent: C013-realtime-step-visibility
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-14
