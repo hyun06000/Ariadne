@@ -4,7 +4,8 @@ parent: C032-session-handoff
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
+verdict: supported
 title: "step·close가 깃 저장소에서 기본으로 커밋하면(--no-commit로만 opt-out) 커밋을 안 붙이던 사용자도 스텝마다 각인된다"
