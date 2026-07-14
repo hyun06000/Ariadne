@@ -1,0 +1,6 @@
+go build rc: 0 
+T1 Go: 계약 준수: 26/26  ✔ 이 구현은 gil이다 (exit 0)
+T1 Python: 계약 준수: 26/26  ✔ 이 구현은 gil이다 (exit 0)
+T1 exit: 0
+== T2 불변:
+OK — 닫힌 사이클 26개 검사, 변조 0건
