@@ -2,7 +2,7 @@ id: C031-web-lane-layout
 chain: loom
 parent: C030-verdict-and-deviations
 lineage: [gateway/C001-agent-self-onboard]
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-15
