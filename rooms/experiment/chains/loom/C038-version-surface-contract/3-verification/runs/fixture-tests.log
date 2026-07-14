@@ -1,0 +1,12 @@
+PASS T3: version 표면만 다른 릴리스는 패치 승격 허용 + '문서 릴리스' 분류 (마스킹 작동)
+PASS T4: gil.py 실질 변경 → 패치 거부 ('gil' 지목)
+PASS T9a: T4 거부 경로: 저장소 무변화
+PASS T5: conformance.py 변경 → 패치 거부 ('conformance' 지목)
+PASS T6: go/main.go 실질 변경 → 패치 거부 ('go' 지목, 신규 관측 범위)
+PASS T7: 동봉 구현에 version 표식 0개 → 거부 (계약 위반 명시)
+PASS T9b: T7 거부 경로: 저장소 무변화
+PASS T8: 참조 구현에 version 표식 2개(중복) → 거부
+PASS T10: 실질 변경 + 마이너 승격 → 허용, 두 구현의 version 표면이 릴리스 버전으로 갱신
+PASS T10b: 갱신된 패키지 도구를 실행하면 'gil 0.2.0'을 보고
+
+결과: 10/10 통과
