@@ -1,0 +1,33 @@
+== run3: 실데이터 교차 검증 (레포 스냅샷 복사본 2부: xgo=Go, xpy=Python 참조 구현) ==
+
+-- [1] open: 같은 인자로 Go/Python 각각 실행 --
+열림: loom/C015-crosscheck-demo
+go exit: 0
+열림: loom/C015-crosscheck-demo
+py exit: 0
+-- 생성된 cycle.yaml diff (무출력=동일) --
+동일
+-- 생성물 파일 목록 diff (무출력=동일) --
+동일
+
+-- [2] Go open 생성물에 대한 Python fsck 판정 --
+OK — 체인 3개, 사이클 19개, 위반 0건 (스키마 v0.2)
+exit: 0
+
+-- [3] close: 실보고서 작성 후 Go/Python 각각 닫기 --
+닫힘: loom/C015-crosscheck-demo (2026-07-14)
+go exit: 0
+닫힘: loom/C015-crosscheck-demo (2026-07-14)
+py exit: 0
+-- 닫힌 cycle.yaml diff (무출력=동일) --
+동일
+
+-- [4] 실데이터 fsck·log: Go와 Python 출력 비교 (무출력=동일) --
+fsck stdout 동일
+
+-- [5] 범위 밖 close --git: 어떤 변경도 없이 거부되는가 --
+미구현: 'close --git' — 이 바이너리(loom/C014)는 계약 부분집합(log·fsck·open·close)만 구현한다
+exit: 3
+before: 71e428f2e2b4108c46bae6c26dd94b0cb515b15fe5461e51768be85e5d2e3ec7  -
+after : 71e428f2e2b4108c46bae6c26dd94b0cb515b15fe5461e51768be85e5d2e3ec7  -
+무변화 확인
