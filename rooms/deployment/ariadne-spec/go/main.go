@@ -2221,7 +2221,7 @@ func fail(err error) {
 }
 
 // 단일 소스: 구현된 명령과 미구현(참조 전용). version·help·notImplemented가 공유해 드리프트를 막는다.
-const gilVersion = "1.11.0" // gil:version
+const gilVersion = "1.12.0" // gil:version
 
 var implementedCommands = []string{"log", "fsck", "open", "close", "step", "verify", "web", "pages", "goto", "handoff", "supersede", "version", "help"}
 
