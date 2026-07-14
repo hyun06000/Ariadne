@@ -1,0 +1,10 @@
+id: C018-release-baseline
+chain: loom
+parent: C016-number-ledger
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-14
+closed: null
+title: "승격 규칙의 기준을 마지막 릴리스 태그로 바꾸고 conformance를 도구로 간주하면, 패키지 도구 직접 실행과 판정기 변경의 오분류가 사라진다"
