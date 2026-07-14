@@ -1,0 +1,7 @@
+T1 3문서+LICENSE+상호링크: PASS
+T2 상대 링크: PASS (전부 해소)
+T4 LICENSE 참조: PASS
+T1·T2·T4 exit: 0
+== T3 URL 응답:
+설치 URL: 200
+뷰어 URL: 200
