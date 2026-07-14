@@ -1,0 +1,13 @@
+id: C036-checksum-install-gate
+chain: loom
+parent: C035-superseded-pointer
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-14
+closed: null
+title: "설치 경로의 체크섬 대조를 문서와 도구 산출물 양쪽에 필수화한다"
+verdict: null
+deviations: 0
+superseded_by: null
