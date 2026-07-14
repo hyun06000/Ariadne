@@ -4,10 +4,10 @@ parent: C035-superseded-pointer
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-14
 title: "설치 경로의 체크섬 대조를 문서와 도구 산출물 양쪽에 필수화한다"
-verdict: null
+verdict: supported
 deviations: 0
 superseded_by: null
