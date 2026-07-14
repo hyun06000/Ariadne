@@ -1,0 +1,6 @@
+PASS [참조] #4 open이 verdict·deviations seed
+PASS [참조] 새 사이클 fsck 위반 0
+PASS [Go] #4 open이 verdict·deviations seed
+PASS [Go] 새 사이클 fsck 위반 0
+
+결과: 4/4
