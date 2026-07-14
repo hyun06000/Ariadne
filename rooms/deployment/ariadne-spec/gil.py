@@ -617,6 +617,8 @@ def cmd_open(args):
         if args.push:
             cid = _push_with_renumber(repo, chain_dir, args.chain, cid, title)
     print(f"열림: {args.chain}/{cid}")
+    _refresh_viewers(chains_root, f"{args.chain}/{cid} 열림",
+                     getattr(args, "no_web", False), args.push)
     return 0
 
 
@@ -655,6 +657,8 @@ def _layout_columns(order, cycles, children):
 
 
 # 검증된 기본 팔레트 (dataviz 레퍼런스) — 상태는 색+모양(채움/빈 원)의 이중 인코딩
+_WEB_DEFAULT_TITLE = "Ariadne — 사이클 체인"   # 뷰어의 기본 제목 (단일 소스)
+
 _WEB_CSS = """
 .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
 --hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
@@ -878,9 +882,12 @@ def _render_tables(data):
     return "".join(out)
 
 
-def render_web_page(data, page_title, generated):
+def render_web_page(data, page_title, generated, only=None):
     json_payload = {
-        "version": "0.3",  # v0.4 스키마: cycles에 superseded_by 추가 (필드 추가는 하위호환)
+        # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
+        # 추론(체인이 하나뿐이니 필터겠지)은 거짓일 수 있다 — 그래서 추측하지 않고 기록한다 (C040).
+        "version": "0.4",
+        "bake": {"title": page_title, "chain": only},
         "chains": {
             name: {
                 "order": chain["order"],
@@ -977,18 +984,102 @@ def cmd_pages(args):
     return 0
 
 
+def _bake_viewer(chains_root, output, title, only):
+    """뷰어 하나를 굽는다 (cmd_web과 자동 갱신의 단일 소스)."""
+    data = _build_web_data(chains_root, only)  # 깨진 체인이면 여기서 실패 — 파일을 쓰지 않는다
+    if not data:
+        raise ChainError(f"렌더할 체인이 없다: {chains_root}")
+    page = render_web_page(data, title, datetime.date.today().isoformat(), only)
+    with open(output, "w", encoding="utf-8") as f:
+        f.write(page)
+    return data
+
+
 def cmd_web(args):
     chains_root = args.chains_root
     if not os.path.isdir(chains_root):
         raise ChainError(f"체인 루트가 없다: {chains_root}")
-    data = _build_web_data(chains_root, args.chain)  # 깨진 체인이면 여기서 실패 — 파일을 쓰지 않는다
-    if not data:
-        raise ChainError(f"렌더할 체인이 없다: {chains_root}")
-    page = render_web_page(data, args.title, datetime.date.today().isoformat())
-    with open(args.output, "w", encoding="utf-8") as f:
-        f.write(page)
+    data = _bake_viewer(chains_root, args.output, args.title, args.chain)
     print(f"생성: {args.output} (체인 {len(data)}개)")
     return 0
+
+
+# ---------- 뷰어 자동 갱신 (v2.2 / loom/C042 — 이슈 #16) ----------
+#
+# 원장이 자동으로 갱신되면 **사람의 창도 자동으로 갱신되어야 한다.**
+# 둘 중 하나만 자동인 상태가 가장 나쁘다 — 낡은 화면은 침묵보다 나쁘다 (maru).
+
+_GIL_DATA_HOOK = 'id="gil-data"'   # §7: 뷰어는 자기가 뷰어임을 스스로 말한다
+
+
+def _find_viewers(root):
+    """탐색 루트의 비재귀 *.html 중 gil-data 훅을 가진 것 = 이 사용자가 실제로 쓰는 뷰어.
+    파일명 목록을 만들지 않는 이유: 갱신하는 목록은 낡지만 위임하는 목록은 낡지 않는다 (C039)."""
+    found = []
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return found
+    for name in names:
+        if not name.endswith(".html"):
+            continue
+        path = os.path.join(root, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if _GIL_DATA_HOOK in text:
+            found.append((path, text))
+    return found
+
+
+def _bake_meta(text):
+    """뷰어가 스스로 보고한 굽기 조건. 없으면(구버전) 기본값 — 추측하지 않고 도구의 기본으로 돌아간다."""
+    m = re.search(r'id="gil-data">(.*?)</script>', text, flags=re.S)
+    if m:
+        try:
+            bake = json.loads(m.group(1)).get("bake") or {}
+            return bake.get("title") or _WEB_DEFAULT_TITLE, bake.get("chain")
+        except (ValueError, AttributeError):
+            pass
+    return _WEB_DEFAULT_TITLE, None
+
+
+def _refresh_viewers(chains_root, label, no_web=False, push=False):
+    """원장을 바꾼 명령이 커밋한 뒤 호출한다. 뷰어가 없으면 아무것도 하지 않는다.
+
+    실패는 경고일 뿐 명령의 실패가 아니다 — 원장의 각인은 이미 끝났다 (꼬리가 개를 흔들지 않는다)."""
+    if no_web:
+        return
+    repo = _repo_root(chains_root)
+    root = repo or os.getcwd()
+    try:
+        viewers = _find_viewers(root)
+        if not viewers:
+            return  # 뷰어를 쓰지 않는 사용자에게 파일을 강요하지 않는다
+        changed = []
+        for path, text in viewers:
+            title, only = _bake_meta(text)
+            _bake_viewer(chains_root, path, title, only)
+            with open(path, encoding="utf-8") as f:
+                if f.read() != text:
+                    changed.append(path)
+        if not changed:
+            return
+        print(f"  ✎ 뷰어 갱신: {', '.join(os.path.basename(p) for p in changed)}")
+        if not repo:
+            return  # 깃이 없어도 창은 갱신된다. 커밋만 없을 뿐이다.
+        rels = [os.path.relpath(p, repo) for p in changed]
+        _git(repo, "add", "--", *rels)
+        # 뷰어는 사이클이 아니다 — 사이클 커밋에 섞으면 태그가 사이클 밖의 것을 봉인한다 (§4)
+        _git(repo, "commit", "-m", f"gil: web 갱신 — {label}", "--", *rels)
+        if push:
+            _git(repo, "push")
+    except Exception as e:  # 원장이 우선이다: 창을 굽다 실패해도 각인은 되돌리지 않는다
+        print(f"경고: 뷰어 갱신 실패 — {e} (원장은 각인됐다. gil web으로 직접 구울 것)", file=sys.stderr)
 
 
 # ---------- 깃 바인딩 ----------
@@ -1099,6 +1190,7 @@ def cmd_supersede(args):
             head = _git(repo, "rev-parse", "HEAD").stdout.strip()
             _git(repo, "tag", "-f", "-a", tag, "-m", f"[migrate] superseded_by {new_val} (이전 커밋에서 이동)", head)
     print(f"무효화: {args.old_ref} ↣ superseded_by {new_val}")
+    _refresh_viewers(chains_root, f"{args.old_ref} ↣ superseded", getattr(args, "no_web", False), False)
     return 0
 
 
@@ -1276,6 +1368,7 @@ def cmd_correct(args):
         _git(repo, "push")
         _git(repo, "push", "--force", "origin", f"refs/tags/{tag}")
 
+    _refresh_viewers(chains_root, f"{args.ref} 정정", getattr(args, "no_web", False), args.push)
     print(f"정정: {args.ref}")
     for c in changed:
         print(f"  ✎ {c}")
@@ -1442,6 +1535,8 @@ def cmd_close(args):
         if args.push:
             _git(repo, "push", "--follow-tags")
     print(f"닫힘: {args.chain}/{args.cycle_id} ({args.date})")
+    _refresh_viewers(chains_root, f"{args.chain}/{args.cycle_id} 닫힘",
+                     getattr(args, "no_web", False), args.push)
     print("→ 세션 핸드오프: gil handoff (사이클을 닫았으니 세션 정리를 고려하라)")
     return 0
 
@@ -1486,6 +1581,8 @@ def cmd_step(args):
                 _git(repo, "push")
     print(f"스텝: {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}"
           + ("  각인: 커밋" if committed else ""))
+    _refresh_viewers(chains_root, f"{args.chain}/{args.cycle_id} → {n}/5",
+                     getattr(args, "no_web", False), args.push)
     return 0
 
 
@@ -1766,6 +1863,7 @@ def main(argv=None):
     p_open.add_argument("--git", action="store_true", help="열림 즉시 사이클 디렉토리만 커밋")
     p_open.add_argument("--push", action="store_true", help="커밋 후 push (준실시간 뷰어 갱신)")
     p_open.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_open.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_open.set_defaults(func=cmd_open)
 
     p_step = sub.add_parser("step", help="열린 사이클의 진행 스텝(1~5) 전이")
@@ -1776,6 +1874,7 @@ def main(argv=None):
     p_step.add_argument("--no-commit", dest="no_commit", action="store_true", help="자동 커밋 끄기")
     p_step.add_argument("--push", action="store_true", help="커밋 후 push")
     p_step.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_step.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_step.set_defaults(func=cmd_step)
 
     p_close = sub.add_parser("close", help="보고서 검증 후 사이클 닫기")
@@ -1788,6 +1887,7 @@ def main(argv=None):
     p_close.add_argument("--no-commit", dest="no_commit", action="store_true", help="자동 커밋·태그 끄기")
     p_close.add_argument("--verdict", help="결말: supported|partial|rejected|inconclusive (v0.3)")
     p_close.add_argument("--push", action="store_true", help="각인 후 push --follow-tags")
+    p_close.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_close.set_defaults(func=cmd_close)
 
     p_verify = sub.add_parser("verify", help="닫힌 사이클의 태그↔작업 트리 대조 (변조 탐지)")
@@ -1816,6 +1916,7 @@ def main(argv=None):
     p_sup.add_argument("new_ref", help="대체하는 사이클 <chain>/<id>")
     p_sup.add_argument("--no-commit", dest="no_commit", action="store_true", help="자동 커밋 끄기")
     p_sup.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_sup.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_sup.set_defaults(func=cmd_supersede)
 
     p_cor = sub.add_parser("correct", help="정정: 봉인된 사이클의 출처 필드를 문서가 증언하는 값으로 수리 (v0.5)")
@@ -1829,6 +1930,7 @@ def main(argv=None):
     p_cor.add_argument("--date", default=today, help="정정 일자 (기본: 오늘)")
     p_cor.add_argument("--push", action="store_true", help="[correct] 커밋과 이동한 태그를 전파")
     p_cor.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_cor.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_cor.set_defaults(func=cmd_correct)
 
     p_goto = sub.add_parser("goto", help="타임머신: 사이클 시점 역행 조회·체크아웃·분기 안내")
@@ -1848,7 +1950,7 @@ def main(argv=None):
     p_web.add_argument("chains_root", nargs="?", default="rooms/experiment/chains",
                        help="체인 루트 (기본: rooms/experiment/chains)")
     p_web.add_argument("-o", "--output", default="ariadne-chains.html", help="출력 파일 경로")
-    p_web.add_argument("--title", default="Ariadne — 사이클 체인", help="페이지 제목")
+    p_web.add_argument("--title", default=_WEB_DEFAULT_TITLE, help="페이지 제목")
     p_web.add_argument("--chain", help="특정 체인만")
     p_web.set_defaults(func=cmd_web)
 

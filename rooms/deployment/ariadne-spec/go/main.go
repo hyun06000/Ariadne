@@ -2,9 +2,10 @@
 // (loom/C012: fsck·log → C014: open·close → C017: 깃 바인딩·step → loom/C020: web).
 //
 // Ariadne Spec의 구현 독립 계약(§7)에 따라, 이 바이너리는 conformance.py의 판정으로만
-// 자격을 얻는다. 이 사이클의 범위: fsck(R1~R9)·log·open·close(--git 포함)·step·verify·
-// web(자기완결 HTML + gil-data JSON + 스텝 배지 + 최근 활동 주석).
-// 나머지 명령·플래그(release·open --git)는 정직하게 "미구현"을 알린다.
+// 자격을 얻는다.
+//
+// 구현한 명령의 목록은 **여기에 적지 않는다** — `gil help`가 단일 소스다 (§7.2, loom/C039).
+// 갱신하는 목록은 또 낡지만, 위임하는 목록은 낡지 않는다.
 //
 // 외부 의존성 0 — Go 표준 라이브러리만. 깃은 참조 구현과 동일하게 CLI 호출이다
 // (참조 구현은 subprocess, 여기는 os/exec — 라이브러리 의존이 아니라 도구 의존).
@@ -12,6 +13,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -736,7 +738,7 @@ func pushWithRenumber(repo, chainDir, chain, cid, title string) (string, error) 
 type openArgs struct {
 	chain, slug, title, author, date, root string
 	parents, lineage                       []string
-	newChain, newRoot, git, push           bool
+	newChain, newRoot, git, push, noWeb    bool
 }
 
 func cmdOpen(a openArgs) error {
@@ -913,12 +915,13 @@ func cmdOpen(a openArgs) error {
 		}
 	}
 	fmt.Printf("열림: %s/%s\n", a.chain, cid)
+	refreshViewers(a.root, fmt.Sprintf("%s/%s 열림", a.chain, cid), a.noWeb, a.push)
 	return nil
 }
 
 type closeArgs struct {
 	chain, cycleID, date, root, verdict string
-	git, push, noCommit                 bool
+	git, push, noCommit, noWeb          bool
 }
 
 func cmdClose(a closeArgs) error {
@@ -1026,6 +1029,7 @@ func cmdClose(a closeArgs) error {
 		}
 	}
 	fmt.Printf("닫힘: %s/%s (%s)\n", a.chain, a.cycleID, a.date)
+	refreshViewers(a.root, fmt.Sprintf("%s/%s 닫힘", a.chain, a.cycleID), a.noWeb, a.push)
 	fmt.Println("→ 세션 핸드오프: gil handoff (사이클을 닫았으니 세션 정리를 고려하라)")
 	return nil
 }
@@ -1033,13 +1037,13 @@ func cmdClose(a closeArgs) error {
 // cmdHandoff: 세션의 매듭 — 현황·부활 경로·다음 실 요약, 사용자에게 세션 정리 요청 근거.
 type supersedeArgs struct {
 	root, oldRef, newRef string
-	noCommit             bool
+	noCommit, noWeb      bool
 }
 
 type correctArgs struct {
 	root, ref, evidence, author, reason, date string
 	fields, tos                               []string
-	push                                      bool
+	push, noWeb                                bool
 }
 
 // ---------- correct: 정정 규정 (v0.5 / loom/C041, SPEC §4.1) ----------
@@ -1376,6 +1380,7 @@ func cmdCorrect(a correctArgs) error {
 		}
 	}
 
+	refreshViewers(a.root, a.ref+" 정정", a.noWeb, a.push)
 	fmt.Printf("정정: %s\n", a.ref)
 	for _, c := range changed {
 		fmt.Printf("  ✎ %s\n", c)
@@ -1473,6 +1478,7 @@ func cmdSupersede(a supersedeArgs) error {
 		}
 	}
 	fmt.Printf("무효화: %s ↣ superseded_by %s\n", a.oldRef, a.newRef)
+	refreshViewers(a.root, a.oldRef+" ↣ superseded", a.noWeb, false)
 	return nil
 }
 
@@ -1546,7 +1552,7 @@ func cmdHandoff(root string) error {
 
 type stepArgs struct {
 	chain, cycleID, n, root string
-	git, push, noCommit     bool
+	git, push, noCommit, noWeb bool
 }
 
 func cmdStep(a stepArgs) error {
@@ -1613,6 +1619,7 @@ func cmdStep(a stepArgs) error {
 		suffix = "  각인: 커밋"
 	}
 	fmt.Printf("스텝: %s/%s → %d/5 %s%s\n", a.chain, a.cycleID, n, stepNames[n], suffix)
+	refreshViewers(a.root, fmt.Sprintf("%s/%s → %d/5", a.chain, a.cycleID, n), a.noWeb, a.push)
 	return nil
 }
 
@@ -2441,9 +2448,16 @@ func renderTables(d *webData) string {
 
 // webJSONPayload: 참조 구현 render_web_page의 json.dumps(ensure_ascii=False)와
 // 문자 단위 동일한 직렬화 — 키 삽입 순서(정렬된 체인/사이클명)와 ", "·": " 구분자.
-func webJSONPayload(d *webData) string {
+func webJSONPayload(d *webData, pageTitle, only string) string {
 	var b strings.Builder
-	b.WriteString(`{"version": "0.3", "chains": {`)
+	// v0.4 (loom/C042): bake — 산출물이 자기를 어떻게 다시 굽는지 스스로 말한다.
+	// 추론("체인이 하나뿐이니 필터겠지")은 거짓일 수 있으므로 추측하지 않고 기록한다 (C040).
+	chainVal := "null"
+	if only != "" {
+		chainVal = jsonStr(only)
+	}
+	b.WriteString(`{"version": "0.4", "bake": {"title": ` + jsonStr(pageTitle) +
+		`, "chain": ` + chainVal + `}, "chains": {`)
 	for i, name := range d.names {
 		if i > 0 {
 			b.WriteString(", ")
@@ -2489,7 +2503,7 @@ func webJSONPayload(d *webData) string {
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).
-func renderWebPage(d *webData, pageTitle, generated string) string {
+func renderWebPage(d *webData, pageTitle, generated, only string) string {
 	nCycles, nLineage := 0, 0
 	for _, name := range d.names {
 		ch := d.chains[name]
@@ -2512,7 +2526,7 @@ func renderWebPage(d *webData, pageTitle, generated string) string {
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 		webCSS, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderSVG(d), renderTables(d), webJSONPayload(d))
+		renderSVG(d), renderTables(d), webJSONPayload(d, pageTitle, only))
 	return "<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n" +
 		"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
 		"<title>" + htmlEscape(pageTitle) + "</title>\n</head>\n<body>\n" + body + "\n</body>\n</html>\n"
@@ -2597,23 +2611,153 @@ func cmdPages(root string, force, dryRun bool) error {
 	return nil
 }
 
+const webDefaultTitle = "Ariadne — 사이클 체인" // 뷰어 기본 제목 (단일 소스)
+
+// bakeViewer: 뷰어 하나를 굽는다 (cmdWeb과 자동 갱신의 단일 소스).
+func bakeViewer(chainsRoot, output, title, only string) (int, error) {
+	data, err := buildWebData(chainsRoot, only)
+	if err != nil {
+		return 0, err
+	}
+	if len(data.names) == 0 {
+		return 0, cerr("렌더할 체인이 없다: %s", chainsRoot)
+	}
+	page := renderWebPage(data, title, time.Now().Format("2006-01-02"), only)
+	if err := os.WriteFile(output, []byte(page), 0o644); err != nil {
+		return 0, cerr("%v", err)
+	}
+	return len(data.names), nil
+}
+
 func cmdWeb(a webArgs) error {
 	if fi, err := os.Stat(a.root); err != nil || !fi.IsDir() {
 		return cerr("체인 루트가 없다: %s", a.root)
 	}
-	data, err := buildWebData(a.root, a.chain) // 깨진 체인이면 여기서 실패 — 파일을 쓰지 않는다
+	n, err := bakeViewer(a.root, a.output, a.title, a.chain)
 	if err != nil {
 		return err
 	}
-	if len(data.names) == 0 {
-		return cerr("렌더할 체인이 없다: %s", a.root)
-	}
-	page := renderWebPage(data, a.title, time.Now().Format("2006-01-02"))
-	if err := os.WriteFile(a.output, []byte(page), 0o644); err != nil {
-		return cerr("%v", err)
-	}
-	fmt.Printf("생성: %s (체인 %d개)\n", a.output, len(data.names))
+	fmt.Printf("생성: %s (체인 %d개)\n", a.output, n)
 	return nil
+}
+
+// ---------- 뷰어 자동 갱신 (v2.2 / loom/C042 — 이슈 #16) ----------
+//
+// 원장이 자동으로 갱신되면 사람의 창도 자동으로 갱신되어야 한다.
+// 둘 중 하나만 자동인 상태가 가장 나쁘다 — 낡은 화면은 침묵보다 나쁘다 (maru).
+
+const gilDataHook = `id="gil-data"` // §7: 뷰어는 자기가 뷰어임을 스스로 말한다
+
+// findViewers: 탐색 루트의 비재귀 *.html 중 gil-data 훅을 가진 것.
+// 파일명 목록을 만들지 않는다 — 위임하는 목록은 낡지 않는다 (C039).
+func findViewers(root string) [][2]string {
+	var found [][2]string
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return found
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".html") {
+			continue
+		}
+		path := filepath.Join(root, e.Name())
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(b), gilDataHook) {
+			found = append(found, [2]string{path, string(b)})
+		}
+	}
+	return found
+}
+
+// bakeMeta: 뷰어가 스스로 보고한 굽기 조건. 없으면(구버전) 기본값 — 추측하지 않는다.
+func bakeMeta(text string) (title, only string) {
+	title = webDefaultTitle
+	m := regexp.MustCompile(`(?s)id="gil-data">(.*?)</script>`).FindStringSubmatch(text)
+	if m == nil {
+		return
+	}
+	var payload struct {
+		Bake struct {
+			Title string  `json:"title"`
+			Chain *string `json:"chain"`
+		} `json:"bake"`
+	}
+	if json.Unmarshal([]byte(m[1]), &payload) != nil {
+		return
+	}
+	if payload.Bake.Title != "" {
+		title = payload.Bake.Title
+	}
+	if payload.Bake.Chain != nil {
+		only = *payload.Bake.Chain
+	}
+	return
+}
+
+// refreshViewers: 원장을 바꾼 명령이 커밋한 뒤 호출한다. 뷰어가 없으면 아무것도 하지 않는다.
+// 실패는 경고일 뿐 명령의 실패가 아니다 — 원장의 각인은 이미 끝났다 (꼬리가 개를 흔들지 않는다).
+func refreshViewers(chainsRoot, label string, noWeb, push bool) {
+	if noWeb {
+		return
+	}
+	repo := repoRoot(chainsRoot)
+	root := repo
+	if root == "" {
+		if wd, err := os.Getwd(); err == nil {
+			root = wd
+		}
+	}
+	viewers := findViewers(root)
+	if len(viewers) == 0 {
+		return // 뷰어를 쓰지 않는 사용자에게 파일을 강요하지 않는다
+	}
+	var changed []string
+	for _, v := range viewers {
+		path, before := v[0], v[1]
+		title, only := bakeMeta(before)
+		if _, err := bakeViewer(chainsRoot, path, title, only); err != nil {
+			fmt.Fprintf(os.Stderr, "경고: 뷰어 갱신 실패 — %v (원장은 각인됐다. gil web으로 직접 구울 것)\n", err)
+			return
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != before {
+			changed = append(changed, path)
+		}
+	}
+	if len(changed) == 0 {
+		return
+	}
+	names := make([]string, len(changed))
+	for i, p := range changed {
+		names[i] = filepath.Base(p)
+	}
+	fmt.Printf("  ✎ 뷰어 갱신: %s\n", strings.Join(names, ", "))
+	if repo == "" {
+		return // 깃이 없어도 창은 갱신된다. 커밋만 없을 뿐이다.
+	}
+	rels := make([]string, len(changed))
+	for i, p := range changed {
+		r, err := relToRepo(repo, p)
+		if err != nil {
+			return
+		}
+		rels[i] = r
+	}
+	// 뷰어는 사이클이 아니다 — 사이클 커밋에 섞으면 태그가 사이클 밖의 것을 봉인한다 (§4)
+	if _, err := gitChecked(repo, append([]string{"add", "--"}, rels...)...); err != nil {
+		fmt.Fprintf(os.Stderr, "경고: 뷰어 커밋 실패 — %v\n", err)
+		return
+	}
+	if _, err := gitChecked(repo, append([]string{"commit", "-m", "gil: web 갱신 — " + label, "--"}, rels...)...); err != nil {
+		fmt.Fprintf(os.Stderr, "경고: 뷰어 커밋 실패 — %v\n", err)
+		return
+	}
+	if push {
+		gitRun(repo, "push")
+	}
 }
 
 // ---------- CLI ----------
@@ -2768,7 +2912,7 @@ func main() {
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
 			"title": true, "parent": true, "lineage": true, "author": true,
 			"date": true, "root": true, "new-chain": false, "new-root": false,
-			"git": false, "push": false,
+			"git": false, "push": false, "no-web": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
@@ -2790,12 +2934,13 @@ func main() {
 			newRoot:  len(flags["new-root"]) > 0,
 			git:      len(flags["git"]) > 0,
 			push:     len(flags["push"]) > 0,
+			noWeb:    len(flags["no-web"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
 	case "close":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
-			"date": true, "root": true, "verdict": true, "git": false, "push": false, "no-commit": false,
+			"date": true, "root": true, "verdict": true, "git": false, "push": false, "no-commit": false, "no-web": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
@@ -2813,12 +2958,13 @@ func main() {
 			git:      len(flags["git"]) > 0,
 			push:     len(flags["push"]) > 0,
 			noCommit: len(flags["no-commit"]) > 0,
+			noWeb:    len(flags["no-web"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
 	case "step":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
-			"root": true, "git": false, "push": false, "no-commit": false,
+			"root": true, "git": false, "push": false, "no-commit": false, "no-web": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
@@ -2834,6 +2980,7 @@ func main() {
 			git:      len(flags["git"]) > 0,
 			push:     len(flags["push"]) > 0,
 			noCommit: len(flags["no-commit"]) > 0,
+			noWeb:    len(flags["no-web"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
@@ -2851,7 +2998,7 @@ func main() {
 			fail(err)
 		}
 	case "supersede":
-		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "no-commit": false})
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "no-commit": false, "no-web": false})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
@@ -2865,13 +3012,14 @@ func main() {
 			oldRef:   pos[0],
 			newRef:   pos[1],
 			noCommit: len(flags["no-commit"]) > 0,
+			noWeb:    len(flags["no-web"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
 	case "correct":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
 			"root": true, "field": true, "to": true, "evidence": true,
-			"author": true, "reason": true, "date": true, "push": false,
+			"author": true, "reason": true, "date": true, "push": false, "no-web": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
@@ -2891,6 +3039,7 @@ func main() {
 			reason:   flagVal(flags, "reason", ""),
 			date:     flagVal(flags, "date", today),
 			push:     len(flags["push"]) > 0,
+			noWeb:    len(flags["no-web"]) > 0,
 		}); err != nil {
 			fail(err)
 		}

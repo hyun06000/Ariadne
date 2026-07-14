@@ -546,6 +546,70 @@ def main():
               r.returncode == 0 and r_v.returncode == 0,
               (r.stderr or r_v.stderr or "").strip()[-140:])
 
+        # ---- 뷰어 자동 갱신 (SPEC §5.2 — loom/C042, maru의 이슈 #16) ----
+        # 원장이 자동으로 갱신되면 사람의 창도 자동으로 갱신되어야 한다.
+        # 둘 중 하나만 자동인 상태가 가장 나쁘다 — **낡은 화면은 침묵보다 나쁘다.**
+        def viewer_repo(name, with_viewer=True, title=None):
+            d = make_sandbox(os.path.join(work, name))
+
+            def gg(*cli):
+                return subprocess.run(["git", "-C", d, *cli], capture_output=True, text=True)
+
+            gg("init", "-q"); gg("config", "user.name", "fx"); gg("config", "user.email", "fx@t")
+            write_cycle(d, "demo", "C001-first", step="1")
+            if with_viewer:  # 사용자가 뷰어를 굽는다 = "나는 뷰어를 쓴다"는 선언
+                cli = ["web", "-o", "chains.html"]
+                if title:
+                    cli += ["--title", title]
+                impl.run(d, *cli)
+            gg("add", "-A"); gg("commit", "-q", "-m", "seed")
+            return d, gg
+
+        def viewer_json(d, name="chains.html"):
+            p = os.path.join(d, name)
+            if not os.path.isfile(p):
+                return None
+            m = re.search(r'id="gil-data">(.*?)</script>', open(p, encoding="utf-8").read(), re.S)
+            return json.loads(m.group(1)) if m else None
+
+        d, gg = viewer_repo("web-auto")
+        r = impl.run(d, "step", "demo", "C001-first", "2")
+        j = viewer_json(d)
+        check("WEB-AUTO-REFRESH", "뷰어가 있으면 step이 그것을 다시 굽는다 (창이 원장을 따른다)",
+              r.returncode == 0 and j is not None
+              and j["chains"]["demo"]["cycles"]["C001-first"]["step"] == "2",
+              (r.stderr or "").strip()[-140:])
+
+        # 뷰어는 사이클이 아니다 — 태그가 사이클 밖의 것을 봉인하면 안 된다 (§4)
+        cycle_commit = gg("show", "--name-only", "--format=", "HEAD~1").stdout.split()
+        web_commit = gg("show", "--name-only", "--format=", "HEAD").stdout.split()
+        check("WEB-AUTO-PURE-COMMIT", "사이클 커밋에 뷰어가 섞이지 않는다 (뷰어는 별도 커밋)",
+              cycle_commit and all(p.startswith("rooms/experiment/chains/demo/C001-first") for p in cycle_commit)
+              and web_commit == ["chains.html"],
+              f"cycle={cycle_commit} web={web_commit}")
+
+        # 강요 금지: 뷰어를 안 쓰는 사람에게는 아무 파일도 생기지 않는다
+        d2, _ = viewer_repo("web-none", with_viewer=False)
+        before = snapshot(d2)
+        impl.run(d2, "step", "demo", "C001-first", "2")
+        impl.run(d2, "close", "demo", "C001-first", "--date", "2026-01-09", "--verdict", "supported")
+        htmls = [f for f in os.listdir(d2) if f.endswith(".html")]
+        check("WEB-AUTO-NONE", "뷰어가 없으면 아무 HTML도 만들지 않는다 (도구는 뷰어를 강요하지 않는다)",
+              htmls == [] and len(snapshot(d2)) >= len(before))
+
+        # 자기보고: 산출물이 자기를 어떻게 다시 굽는지 스스로 말한다 (추측하지 않는다)
+        d3, _ = viewer_repo("web-meta", title="maru의 체인")
+        before3 = open(os.path.join(d3, "chains.html"), encoding="utf-8").read()
+        impl.run(d3, "step", "demo", "C001-first", "2")
+        j3 = viewer_json(d3)
+        impl.run(d3, "step", "demo", "C001-first", "3", "--no-web")   # opt-out
+        after3 = viewer_json(d3)
+        check("WEB-BAKE-META", "재굽기가 사용자의 --title을 보존(bake 자기보고) + --no-web은 손대지 않는다",
+              j3 is not None and j3.get("bake", {}).get("title") == "maru의 체인"
+              and j3["chains"]["demo"]["cycles"]["C001-first"]["step"] == "2"
+              and after3["chains"]["demo"]["cycles"]["C001-first"]["step"] == "2",  # --no-web → 3이 아니다
+              f"bake={j3.get('bake') if j3 else None}")
+
         # R13 — 정정 기록의 무결성은 fsck가 집행한다 (기록 없는 정정 = 지우개)
         d, _ = sealed("cor-r13")
         ypath = os.path.join(d, f"{CYC}/cycle.yaml")
