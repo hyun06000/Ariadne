@@ -4,7 +4,7 @@ parent: C019-spec-carryovers
 lineage: [tapestry/C001-reproduce-audit]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "cycle.yaml 파싱 문법과 환경 규약을 스펙에 명문화하고, 그 문법의 까다로운 픽스처에 두 구현이 동일 판정을 내림을 증명한다"
