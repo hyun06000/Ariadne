@@ -2,3 +2,13 @@
 gil 1.12.0
 === T2 go ===
 gil 1.12.0
+
+=== 끝단 (수신자 경로 — README 설치 스니펫 그대로, 2026-07-15) ===
+$ curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
+$ curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
+$ grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
+gil-darwin-arm64: OK            ← 체크섬 문지기 통과 (C037)
+$ ./gil version
+gil 1.12.0                      ← 정직. v1.10.0은 여기서 'gil 1.9.0'이라 답했다 (이슈 #15)
+
+이번의 정직함은 내가 상수를 기억해서가 아니라, gil release가 각인했기 때문이다.
