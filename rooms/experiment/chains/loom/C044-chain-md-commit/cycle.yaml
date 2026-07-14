@@ -1,0 +1,14 @@
+id: C044-chain-md-commit
+chain: loom
+parent: C043-number-reservation
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "새 체인의 chain.md가 커밋되지 않는 결함 수정 + fsck/판정기 확장 (이슈 #14)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
