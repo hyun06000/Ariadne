@@ -1,0 +1,8 @@
+PASS T2: 무경합 open --git --push 정상 (A → C002)
+PASS T1: 병렬 경합 자동 해소 (B: C002→C003 재번호, 원장 무위반, 내용 무손상)
+FAIL T3: rebase 충돌 시 명시적 오류 + abort (조용한 실패 없음)  [경합 감지: C003-gamma-path → C004-gamma-path (원장 규율에 따라 재번호)]
+
+결과: 2/3 통과
+exit code: 1
+== conformance 회귀:
+계약 준수: 26/26  ✔ 이 구현은 gil이다
