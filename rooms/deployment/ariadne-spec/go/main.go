@@ -704,7 +704,7 @@ func cmdOpen(a openArgs) error {
 
 type closeArgs struct {
 	chain, cycleID, date, root, verdict string
-	git, push                           bool
+	git, push, noCommit                 bool
 }
 
 func cmdClose(a closeArgs) error {
@@ -721,17 +721,18 @@ func cmdClose(a closeArgs) error {
 		return cerr("%s/%s: 이미 닫힌 사이클이다 — 닫힌 사이클은 수정하지 않는다", a.chain, a.cycleID)
 	}
 
-	// --git 사전 검증: 저장소를 건드리기 전에 전부 확인한다 (참조 구현과 동일 순서)
+	// 기본 커밋 (v1.7, C033): 깃 저장소면 자동 커밋+각인. --no-commit으로만 끈다.
 	var repo, tag string
-	if a.git {
+	if !a.noCommit {
 		repo = repoRoot(a.root)
-		if repo == "" {
-			return cerr("--git: 깃 저장소가 아니다 — %s", a.root)
-		}
+	}
+	if repo != "" {
 		tag = tagName(a.chain, a.cycleID)
 		if tagExists(repo, tag) {
-			return cerr("--git: 태그 '%s'가 이미 존재한다", tag)
+			return cerr("태그 '%s'가 이미 존재한다", tag)
 		}
+	} else if a.git && !a.noCommit {
+		return cerr("--git: 깃 저장소가 아니다 — %s", a.root)
 	}
 
 	reportPath := filepath.Join(cycleDir, "5-report.md")
@@ -777,7 +778,7 @@ func cmdClose(a closeArgs) error {
 		os.WriteFile(yamlPath, original, 0o644) // 원상 복구
 		return err
 	}
-	if a.git {
+	if repo != "" {
 		cycleRel, rerr := relToRepo(repo, cycleDir)
 		if rerr != nil {
 			os.WriteFile(yamlPath, original, 0o644)
@@ -886,7 +887,7 @@ func cmdHandoff(root string) error {
 
 type stepArgs struct {
 	chain, cycleID, n, root string
-	git, push               bool
+	git, push, noCommit     bool
 }
 
 func cmdStep(a stepArgs) error {
@@ -923,32 +924,36 @@ func cmdStep(a stepArgs) error {
 		os.WriteFile(yamlPath, original, 0o644) // 원상 복구
 		return err
 	}
-	if a.git {
-		repo := repoRoot(a.root)
-		if repo == "" {
-			os.WriteFile(yamlPath, original, 0o644)
-			return cerr("--git: 깃 저장소가 아니다")
-		}
-		rel, rerr := relToRepo(repo, cycleDir)
-		if rerr != nil {
-			os.WriteFile(yamlPath, original, 0o644)
-			return cerr("%v", rerr)
-		}
-		if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
-			return err
-		}
-		if _, err := gitChecked(repo, "commit",
-			"-m", fmt.Sprintf("gil: step %s/%s → %d/5 %s", a.chain, a.cycleID, n, stepNames[n]),
-			"--", rel); err != nil {
-			return err
-		}
-		if a.push {
-			if _, err := gitChecked(repo, "push"); err != nil {
+	// 기본 커밋 (v1.7, C033): 깃 저장소면 자동 커밋. --no-commit으로만 끈다.
+	committed := false
+	if !a.noCommit {
+		if repo := repoRoot(a.root); repo != "" {
+			rel, rerr := relToRepo(repo, cycleDir)
+			if rerr != nil {
+				os.WriteFile(yamlPath, original, 0o644)
+				return cerr("%v", rerr)
+			}
+			if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
 				return err
+			}
+			if _, err := gitChecked(repo, "commit",
+				"-m", fmt.Sprintf("gil: step %s/%s → %d/5 %s", a.chain, a.cycleID, n, stepNames[n]),
+				"--", rel); err != nil {
+				return err
+			}
+			committed = true
+			if a.push {
+				if _, err := gitChecked(repo, "push"); err != nil {
+					return err
+				}
 			}
 		}
 	}
-	fmt.Printf("스텝: %s/%s → %d/5 %s\n", a.chain, a.cycleID, n, stepNames[n])
+	suffix := ""
+	if committed {
+		suffix = "  각인: 커밋"
+	}
+	fmt.Printf("스텝: %s/%s → %d/5 %s%s\n", a.chain, a.cycleID, n, stepNames[n], suffix)
 	return nil
 }
 
@@ -1979,7 +1984,7 @@ func main() {
 		}
 	case "close":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
-			"date": true, "root": true, "verdict": true, "git": false, "push": false,
+			"date": true, "root": true, "verdict": true, "git": false, "push": false, "no-commit": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
@@ -1991,17 +1996,18 @@ func main() {
 		}
 		if err := cmdClose(closeArgs{
 			chain: pos[0], cycleID: pos[1],
-			date:    flagVal(flags, "date", today),
-			root:    flagVal(flags, "root", defaultRoot),
-			verdict: flagVal(flags, "verdict", ""),
-			git:     len(flags["git"]) > 0,
-			push:    len(flags["push"]) > 0,
+			date:     flagVal(flags, "date", today),
+			root:     flagVal(flags, "root", defaultRoot),
+			verdict:  flagVal(flags, "verdict", ""),
+			git:      len(flags["git"]) > 0,
+			push:     len(flags["push"]) > 0,
+			noCommit: len(flags["no-commit"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
 	case "step":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
-			"root": true, "git": false, "push": false,
+			"root": true, "git": false, "push": false, "no-commit": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
@@ -2013,9 +2019,10 @@ func main() {
 		}
 		if err := cmdStep(stepArgs{
 			chain: pos[0], cycleID: pos[1], n: pos[2],
-			root: flagVal(flags, "root", defaultRoot),
-			git:  len(flags["git"]) > 0,
-			push: len(flags["push"]) > 0,
+			root:     flagVal(flags, "root", defaultRoot),
+			git:      len(flags["git"]) > 0,
+			push:     len(flags["push"]) > 0,
+			noCommit: len(flags["no-commit"]) > 0,
 		}); err != nil {
 			fail(err)
 		}

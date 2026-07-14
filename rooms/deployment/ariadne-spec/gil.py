@@ -1014,15 +1014,17 @@ def cmd_close(args):
     if data.get("status") == "closed":
         raise ChainError(f"{args.chain}/{args.cycle_id}: 이미 닫힌 사이클이다 — 닫힌 사이클은 수정하지 않는다")
 
-    # --git 사전 검증: 저장소를 건드리기 전에 전부 확인한다
+    # 기본 커밋 (v1.7, C033): 깃 저장소면 자동 커밋+각인. --no-commit으로만 끈다.
+    # (--git은 하위호환. 사전 검증은 저장소를 건드리기 전에 전부 확인한다.)
     repo = tag = None
-    if args.git:
-        repo = _repo_root(chains_root)
-        if not repo:
-            raise ChainError(f"--git: 깃 저장소가 아니다 — {chains_root}")
+    do_git = _repo_root(chains_root) if not getattr(args, "no_commit", False) else None
+    if do_git:
+        repo = do_git
         tag = _tag_name(args.chain, args.cycle_id)
         if _tag_exists(repo, tag):
-            raise ChainError(f"--git: 태그 '{tag}'가 이미 존재한다")
+            raise ChainError(f"태그 '{tag}'가 이미 존재한다")
+    elif args.git and not getattr(args, "no_commit", False):
+        raise ChainError(f"--git: 깃 저장소가 아니다 — {chains_root}")
 
     report_path = os.path.join(cycle_dir, "5-report.md")
     if not os.path.isfile(report_path):
@@ -1059,7 +1061,7 @@ def cmd_close(args):
         with open(yaml_path, "w", encoding="utf-8") as f:
             f.write(original)  # 원상 복구
         raise
-    if args.git:
+    if repo:
         cycle_rel = os.path.relpath(cycle_dir, repo)
         title = data.get("title") or ""
         try:
@@ -1107,18 +1109,20 @@ def cmd_step(args):
         with open(yaml_path, "w", encoding="utf-8") as f:
             f.write(original)
         raise
-    if args.git:
+    # 기본 커밋 (v1.7, C033): 깃 저장소면 자동 커밋한다. --no-commit으로만 끈다.
+    # (--git은 하위호환 — 있어도 무해하다. 커밋을 안 붙이던 사용자도 스텝마다 각인된다.)
+    committed = False
+    if not getattr(args, "no_commit", False):
         repo = _repo_root(chains_root)
-        if not repo:
-            with open(yaml_path, "w", encoding="utf-8") as f:
-                f.write(original)
-            raise ChainError("--git: 깃 저장소가 아니다")
-        rel = os.path.relpath(cycle_dir, repo)
-        _git(repo, "add", "-A", "--", rel)
-        _git(repo, "commit", "-m", f"gil: step {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}", "--", rel)
-        if args.push:
-            _git(repo, "push")
-    print(f"스텝: {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}")
+        if repo:
+            rel = os.path.relpath(cycle_dir, repo)
+            _git(repo, "add", "-A", "--", rel)
+            _git(repo, "commit", "-m", f"gil: step {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}", "--", rel)
+            committed = True
+            if args.push:
+                _git(repo, "push")
+    print(f"스텝: {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}"
+          + ("  각인: 커밋" if committed else ""))
     return 0
 
 
@@ -1311,7 +1315,8 @@ def main(argv=None):
     p_step.add_argument("chain")
     p_step.add_argument("cycle_id")
     p_step.add_argument("n", help="1 가설 · 2 설계 · 3 검증 · 4 분석 · 5 보고")
-    p_step.add_argument("--git", action="store_true", help="전이를 사이클 디렉토리만 커밋")
+    p_step.add_argument("--git", action="store_true", help="(하위호환) 커밋 — v1.7부터 깃 저장소면 기본")
+    p_step.add_argument("--no-commit", dest="no_commit", action="store_true", help="자동 커밋 끄기")
     p_step.add_argument("--push", action="store_true", help="커밋 후 push")
     p_step.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_step.set_defaults(func=cmd_step)
@@ -1322,7 +1327,8 @@ def main(argv=None):
     p_close.add_argument("--date", default=today, help="closed 일자 (기본: 오늘)")
     p_close.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_close.add_argument("--git", action="store_true",
-                         help="닫기와 동시에 사이클 디렉토리만 커밋하고 태그 cycle/<chain>/<id>를 남긴다")
+                         help="(하위호환) 커밋+태그 — v1.7부터 깃 저장소면 기본")
+    p_close.add_argument("--no-commit", dest="no_commit", action="store_true", help="자동 커밋·태그 끄기")
     p_close.add_argument("--verdict", help="결말: supported|partial|rejected|inconclusive (v0.3)")
     p_close.add_argument("--push", action="store_true", help="각인 후 push --follow-tags")
     p_close.set_defaults(func=cmd_close)
