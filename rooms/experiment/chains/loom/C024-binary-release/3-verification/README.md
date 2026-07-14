@@ -1,14 +1,7 @@
 # 3. 가설 검증
 
-이 디렉토리에 실험 실행에 사용된 **모든 것**이 저장된다: 코드, 스크립트, 입력 데이터(또는 그 출처와 해시), 실행 로그, 연산 결과, 생성된 아티팩트.
+산출물: GitHub Release v1.0.0(바이너리 4 + SHA256SUMS), .github/workflows/gil-release.yml, QUICKSTART §0 딸깍 설치, runs/ 3건.
 
-## 재현 방법
+재현: `curl -fsSL -o gil https://github.com/hyun06000/Ariadne/releases/download/v1.0.0/gil-darwin-arm64 && chmod +x gil && ./gil fsck`
 
-<!-- 이 디렉토리만 가지고 실험을 처음부터 다시 실행하는 정확한 명령 순서를 쓴다. -->
-
-```bash
-```
-
-## 실행 기록
-
-<!-- 실제 실행 일시, 환경(OS, 버전), 소요 시간, 실행 중 발생한 특이사항. -->
+실행 기록 (2026-07-15): T1 4타깃 크로스 빌드(zsh 단어 분리 함정 1회 수정) ✓ · T2 산출물 conformance 26/26 ✓ · T3 공개 URL 다운로드 체크섬 일치 + 실행 ✓ · T4 워크플로 추출 실행(신선 클론, dist 4+1 생성) ✓. 미구현 범위(release·open --git)는 릴리스 노트에 정직 고지.
