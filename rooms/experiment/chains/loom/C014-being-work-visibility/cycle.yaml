@@ -1,0 +1,10 @@
+id: C014-being-work-visibility
+chain: loom
+parent: C013-realtime-step-visibility
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-14
+closed: null
+title: "존재들의 작업(브랜치·최근 활동)이 뷰어에 보이면 병렬 노동의 관전이 가능해진다"
