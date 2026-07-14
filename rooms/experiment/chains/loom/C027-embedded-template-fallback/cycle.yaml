@@ -1,0 +1,10 @@
+id: C027-embedded-template-fallback
+chain: loom
+parent: C026-defense-lines
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "gil open이 _template 부재 시 내장 스캐폴드로 사이클을 생성하면 바이너리 하나만으로 딸깍이 진짜 성립한다"
