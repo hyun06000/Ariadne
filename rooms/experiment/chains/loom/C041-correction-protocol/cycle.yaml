@@ -1,0 +1,13 @@
+id: C041-correction-protocol
+chain: loom
+parent: C040-provenance-not-fabricated
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-14
+closed: null
+title: "닫힌 사이클의 거짓 출처를 정당하게 정정하는 규정과 도구"
+verdict: null
+deviations: 0
+superseded_by: null
