@@ -1,0 +1,10 @@
+id: C025-open-source-front
+chain: loom
+parent: C024-binary-release
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "사람(en·ko)과 AI를 위한 문서 페어와 라이선스를 갖추면 이 저장소는 완전한 오픈소스 대문이 된다"
