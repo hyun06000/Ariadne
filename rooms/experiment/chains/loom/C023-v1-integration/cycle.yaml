@@ -2,7 +2,7 @@ id: C023-v1-integration
 chain: loom
 parent: C020-go-web-port
 lineage: [genesis/C003-birth-of-a-being]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-15
