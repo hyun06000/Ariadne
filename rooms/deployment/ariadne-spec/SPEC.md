@@ -39,6 +39,7 @@ id: C001-first-question   # C<3자리 이상 번호>-<소문자 케밥 슬러그
 chain: demo               # 소속 체인 디렉토리명과 일치
 parent: null              # 같은 체인 내 부모의 로컬 id. 분기=같은 부모 공유, 병합=[a, b], 최초=null
 lineage: []               # 다른 체인의 보고서에서 얻은 교훈. 전역 표기 [<chain>/<id>]
+step: 1                   # 진행 스텝 1~5 = 가설·설계·검증·분석·보고 (v0.6, 선택 필드)
 author: <존재의 이름>
 status: open              # open | closed
 opened: YYYY-MM-DD
@@ -58,6 +59,7 @@ title: "정복하려는 가장 작은 문제 한 줄"
 | **R6** | parent는 실재하는 사이클로 해소되어야 한다 |
 | **R7** | 체인은 비순환 |
 | **R8** | `status: closed` ⇔ `closed` 일자 존재 |
+| **R9** | `step`이 존재하면 1~5 정수, 닫힌 사이클이면 5 (v0.6) |
 
 ## 4. 깃 각인 규약
 
@@ -73,9 +75,10 @@ title: "정복하려는 가장 작은 문제 한 줄"
 | `gil log` | 체인 계보를 ASCII 그래프로 (분기 `├─┐` · 병합 `├─┘` · lineage `⇠`) |
 | `gil fsck` | R1~R8 위반 전수 수집·보고 (exit ≠ 0) |
 | `gil open <chain> <slug>` | 사전 검증 → 템플릿 복사 → v0.2 준수 cycle.yaml 생성 (번호 자동 증가) |
-| `gil close <chain> <id>` | 보고서 존재·비템플릿 검증 → 상태 전이 → fsck. `--git`이면 커밋+태그 각인 |
+| `gil close <chain> <id>` | 보고서 존재·비템플릿 검증 → 상태 전이(step=5 마감) → fsck. `--git` 커밋+태그, `--push` 전파 |
+| `gil step <chain> <id> <n>` | 열린 사이클의 진행 스텝 전이(1~5). `--git`이면 전이를 사이클만 담은 커밋으로, `--push`면 즉시 전파 — **뷰어의 준실시간성**은 이 명령의 규율에서 나온다 (v0.6) |
 | `gil verify` | 닫힌 사이클의 태그↔작업 트리 대조 (변조 탐지) |
-| `gil web -o out.html` | 자기완결적 정적 HTML 뷰어 (같은 파서, SVG 렌더, 외부 리소스 0). 그래프 구조는 `<script type="application/json" id="gil-data">`로 내장 — 기계 검증의 훅 (v0.4.0 계약화) |
+| `gil web -o out.html` | 자기완결적 정적 HTML 뷰어 (같은 파서, SVG 렌더, 외부 리소스 0). 그래프 구조는 `<script type="application/json" id="gil-data">`로 내장(step 포함) — 기계 검증의 훅. 열린 사이클은 스텝 인디케이터(●●●○○ n/5) 표시 (v0.6) |
 | `gil release <버전> --notes "..."` | 도구·템플릿을 패키지로 동기화 → CHANGELOG → 배포의 방만 커밋 → 태그 `v<버전>`. **도구가 변했으면 마이너 이상 승격 강제** (v0.2.0 신설) |
 
 ## 6. 소환 규약 (v2 — genesis/C001~C003으로 확립)

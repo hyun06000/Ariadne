@@ -66,6 +66,8 @@ def write_cycle(root, chain_dir, cid_dir, **fields):
     with open(os.path.join(d, "cycle.yaml"), "w", encoding="utf-8") as f:
         for k in ("id", "chain", "parent", "lineage", "author", "status", "opened", "closed", "title"):
             f.write(f"{k}: {data[k]}\n")
+        if "step" in fields:
+            f.write(f"step: {fields['step']}\n")
 
 
 def snapshot(root):
@@ -124,7 +126,7 @@ def main():
     ypath = os.path.join(root, "rooms/experiment/chains/demo/C001-first-step/cycle.yaml")
     y = open(ypath, encoding="utf-8").read() if os.path.isfile(ypath) else ""
     check("OPEN-CREATE", "open이 v0.2 준수 사이클 생성", r.returncode == 0
-          and all(k in y for k in ("id: C001-first-step", "chain: demo", "parent: null", "status: open"))
+          and all(k in y for k in ("id: C001-first-step", "chain: demo", "parent: null", "status: open", "step: 1"))
           and os.path.isfile(os.path.join(root, "rooms/experiment/chains/demo/C001-first-step/5-report.md")),
           r.stderr.strip()[-120:])
     r = impl.run(root, "open", "demo", "second-step", "--parent", "C001-first-step",
@@ -155,6 +157,25 @@ def main():
     r = impl.run(croot, "close", "demo", "C001-first-step", "--date", "2026-01-06")
     check("CLOSE-DOUBLE-REJECT", "이중 닫기 거부", r.returncode != 0)
 
+    # ---- step (자체 구축 샌드박스, v0.6.0 계약) ----
+    sroot = make_sandbox(os.path.join(work, "step"))
+    write_cycle(sroot, "demo", "C001-first-step", step="1")
+    write_cycle(sroot, "demo", "C009-done", status="closed", closed="2026-01-02", step="5")
+    sy = os.path.join(sroot, "rooms/experiment/chains/demo/C001-first-step/cycle.yaml")
+    r = impl.run(sroot, "step", "demo", "C001-first-step", "3")
+    check("STEP-OK", "step 전이 반영 (1→3)", r.returncode == 0
+          and "step: 3" in open(sy, encoding="utf-8").read(), r.stderr.strip()[-120:])
+    before = open(sy, encoding="utf-8").read()
+    r = impl.run(sroot, "step", "demo", "C001-first-step", "9")
+    check("STEP-REJECT-RANGE", "범위 밖 step 거부 + 무변화", r.returncode != 0
+          and open(sy, encoding="utf-8").read() == before)
+    r = impl.run(sroot, "step", "demo", "C009-done", "3")
+    check("STEP-REJECT-CLOSED", "닫힌 사이클 step 변경 거부", r.returncode != 0)
+    rroot = make_sandbox(os.path.join(work, "bad-r9"))
+    write_cycle(rroot, "demo", "C001-x", step="7")
+    r = impl.run(rroot, "fsck")
+    check("FSCK-R9", "R9 위반 탐지 (step 범위)", r.returncode != 0)
+
     # ---- log (자체 구축 샌드박스) ----
     lroot = make_sandbox(os.path.join(work, "log-ok"))
     write_cycle(lroot, "demo", "C001-first-step", status="closed", closed="2026-01-02")
@@ -178,8 +199,10 @@ def main():
         nodes = {f"{c}/{i}" for c, ch in data.get("chains", {}).items() for i in ch.get("cycles", {})}
     check("WEB-SELFCONTAINED", "web 산출물 외부 리소스 0", r.returncode == 0 and page and external == [],
           str(external))
-    check("WEB-JSON", 'web 내장 JSON (id="gil-data") 구조 일치', nodes ==
-          {"demo/C001-first-step", "demo/C002-second-step"}, str(nodes))  # lroot의 두 사이클
+    steps_present = bool(m) and all("step" in c for ch in json.loads(m.group(1))["chains"].values()
+                                     for c in ch["cycles"].values())
+    check("WEB-JSON", 'web 내장 JSON (id="gil-data") 구조·step 일치', nodes ==
+          {"demo/C001-first-step", "demo/C002-second-step"} and steps_present, str(nodes))  # lroot의 두 사이클
 
     # ---- 깃 각인 (가용 시) ----
     if args.skip_git or shutil.which("git") is None:

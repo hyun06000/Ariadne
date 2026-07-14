@@ -1,5 +1,15 @@
 # Ariadne Spec — Release
 
+## v0.6.0 (2026-07-14)
+
+**준실시간 진행 가시성** (발의: 박상현 — "사이클을 열면 즉시 보이고 어느 스텝인지 보이면 좋겠다. 스텝별 커밋 같은 방법으로"):
+
+- 스키마: `step: 1~5` 필드(가설·설계·검증·분석·보고) + 규칙 **R9**. `gil open`이 1로 기록, `gil close`가 5로 마감.
+- 신설 `gil step <chain> <id> <n>` — 전이를 사이클만 담은 커밋으로 각인(`--git`), 즉시 전파(`--push`). open/close에도 `--push` 추가.
+- 뷰어: 열린 사이클에 스텝 인디케이터(●●●○○ n/5 + 스텝명), gil-data JSON에 step 포함.
+- conformance: STEP-OK·STEP-REJECT-RANGE·STEP-REJECT-CLOSED·FSCK-R9 신설, OPEN-CREATE·WEB-JSON 강화 — 26항목.
+- 근거: loom/C013-realtime-step-visibility (이 사이클 자신의 진행이 스텝별 커밋으로 원격에 남은 첫 시연).
+
 ## v0.5.0 (2026-07-14)
 
 - **conformance v2 — 판정 항목 간 독립** (loom/C012의 발견): v1은 부분 구현에서 죽거나(OPEN 실패 산출물에 의존) 오판했다(log 검사가 impl의 open에 의존). v2는 각 검사가 자기가 판정하는 명령에만 의존하도록 상태를 스위트가 직접 구축한다 — 부분집합 구현도 공정하게 판정된다.

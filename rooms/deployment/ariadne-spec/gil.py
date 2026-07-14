@@ -32,6 +32,9 @@ import subprocess
 import sys
 
 
+_STEP_NAMES = {1: "가설", 2: "설계", 3: "검증", 4: "분석", 5: "보고"}
+
+
 class ChainError(Exception):
     """계보 재구성을 불가능하게 만드는 결함 — 침묵하지 않고 보고되어야 한다."""
 
@@ -292,6 +295,12 @@ def fsck_collect(chains):
                 violations.append(("R8", loc, "status가 closed인데 closed 일자가 없다"))
             elif status == "open" and closed:
                 violations.append(("R8", loc, "status가 open인데 closed 일자가 있다"))
+            step = r.get("step")
+            if step is not None:
+                if not (isinstance(step, str) and step.isdigit() and 1 <= int(step) <= 5):
+                    violations.append(("R9", loc, f"step '{step}'는 1~5 정수여야 한다"))
+                elif status == "closed" and int(step) != 5:
+                    violations.append(("R9", loc, f"닫힌 사이클의 step은 5여야 한다 (현재 {step})"))
         for num, dupes in sorted(numbers.items()):
             if len(dupes) > 1:
                 violations.append(("R1", ch, f"번호 {num} 중복: {', '.join(sorted(dupes))}"))
@@ -399,6 +408,7 @@ def cmd_open(args):
             f"chain: {args.chain}\n"
             f"parent: {parent_val}\n"
             f"lineage: {lineage_val}\n"
+            f"step: 1\n"
             f"author: {args.author}\n"
             f"status: open\n"
             f"opened: {args.date}\n"
@@ -412,6 +422,15 @@ def cmd_open(args):
     except ChainError:
         shutil.rmtree(dest)
         raise
+    if args.git:
+        repo = _repo_root(chains_root)
+        if not repo:
+            raise ChainError("--git: 깃 저장소가 아니다")
+        rel = os.path.relpath(dest, repo)
+        _git(repo, "add", "-A", "--", rel)
+        _git(repo, "commit", "-m", f"gil: open {args.chain}/{cid} — 1/5 {_STEP_NAMES[1]}\n\n{title}", "--", rel)
+        if args.push:
+            _git(repo, "push")
     print(f"열림: {args.chain}/{cid}")
     return 0
 
@@ -496,6 +515,7 @@ def _build_web_data(chains_root, only=None):
                 cid: {
                     "status": c.get("status"), "title": c.get("title") or "",
                     "opened": c.get("opened"), "closed": c.get("closed"),
+                    "step": c.get("step"),
                     "parents": c["parents"], "lineage": c["lineage_list"],
                 } for cid, c in cycles.items()
             },
@@ -559,10 +579,20 @@ def _render_svg(data):
                          f'<text x="{x + 16}" y="{y - 1}" font-size="12" font-weight="600" '
                          f'fill="var(--ink)">{html.escape(cid)}</text>'
                          f'<text x="{x + 16}" y="{y + 13}" font-size="10.5" '
-                         f'fill="var(--muted)">{html.escape(meta["status"] or "?")}'
+                         f'fill="var(--muted)">{html.escape(meta["status"] or "?")}{_step_badge(meta)}'
                          f'{" · ⇠ " + html.escape(", ".join(meta["lineage"])) if meta["lineage"] else ""}</text></g>')
     parts.append("</svg>")
     return "".join(parts)
+
+
+def _step_badge(meta):
+    step = meta.get("step")
+    if meta.get("status") != "open" or not (isinstance(step, str) and step.isdigit()):
+        return ""
+    n = int(step)
+    if not 1 <= n <= 5:
+        return ""
+    return f' · {"●" * n}{"○" * (5 - n)} {n}/5 {_STEP_NAMES[n]}'
 
 
 def _render_tables(data):
@@ -571,7 +601,7 @@ def _render_tables(data):
         rows = []
         for cid in chain["order"]:
             m = chain["cycles"][cid]
-            pill = f'<span class="pill{" closed" if m["status"] == "closed" else ""}">{html.escape(m["status"] or "?")}</span>'
+            pill = f'<span class="pill{" closed" if m["status"] == "closed" else ""}">{html.escape(m["status"] or "?")}</span>{html.escape(_step_badge(m))}'
             parents = ", ".join(m["parents"]) or "(root)"
             lineage = ", ".join(m["lineage"]) or "—"
             period = f'{m["opened"] or "?"} → {m["closed"] or "진행 중"}'
@@ -723,6 +753,10 @@ def cmd_close(args):
         original = f.read()
     updated = re.sub(r"^status:.*$", "status: closed", original, count=1, flags=re.M)
     updated = re.sub(r"^closed:.*$", f"closed: {args.date}", updated, count=1, flags=re.M)
+    if re.search(r"^step:", updated, flags=re.M):
+        updated = re.sub(r"^step:.*$", "step: 5", updated, count=1, flags=re.M)
+    else:
+        updated = re.sub(r"^(closed:.*)$", r"\1\nstep: 5", updated, count=1, flags=re.M)
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write(updated)
     try:
@@ -746,7 +780,50 @@ def cmd_close(args):
             _git(repo, "reset", "-q", "--", cycle_rel, check=False)
             raise
         print(f"각인: 커밋 + 태그 {tag}")
+        if args.push:
+            _git(repo, "push", "--follow-tags")
     print(f"닫힘: {args.chain}/{args.cycle_id} ({args.date})")
+    return 0
+
+
+def cmd_step(args):
+    chains_root = args.root
+    cycle_dir = os.path.join(chains_root, args.chain, args.cycle_id)
+    yaml_path = os.path.join(cycle_dir, "cycle.yaml")
+    if not os.path.isfile(yaml_path):
+        raise ChainError(f"사이클이 없다: {os.path.join(args.chain, args.cycle_id)}")
+    if not (args.n.isdigit() and 1 <= int(args.n) <= 5):
+        raise ChainError(f"step '{args.n}'는 1~5여야 한다 (R9)")
+    data = parse_cycle_yaml(yaml_path)
+    if data.get("status") == "closed":
+        raise ChainError(f"{args.chain}/{args.cycle_id}: 닫힌 사이클의 step은 바꿀 수 없다")
+    n = int(args.n)
+    with open(yaml_path, encoding="utf-8") as f:
+        original = f.read()
+    if re.search(r"^step:", original, flags=re.M):
+        updated = re.sub(r"^step:.*$", f"step: {n}", original, count=1, flags=re.M)
+    else:
+        updated = re.sub(r"^(closed:.*)$", rf"\1\nstep: {n}", original, count=1, flags=re.M)
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        f.write(updated)
+    try:
+        _fsck_or_report(chains_root)
+    except ChainError:
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            f.write(original)
+        raise
+    if args.git:
+        repo = _repo_root(chains_root)
+        if not repo:
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                f.write(original)
+            raise ChainError("--git: 깃 저장소가 아니다")
+        rel = os.path.relpath(cycle_dir, repo)
+        _git(repo, "add", "-A", "--", rel)
+        _git(repo, "commit", "-m", f"gil: step {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}", "--", rel)
+        if args.push:
+            _git(repo, "push")
+    print(f"스텝: {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}")
     return 0
 
 
@@ -902,8 +979,19 @@ def main(argv=None):
     p_open.add_argument("--author", default="clew", help="수행하는 존재 (존재의 방 이름)")
     p_open.add_argument("--date", default=today, help="opened 일자 (기본: 오늘)")
     p_open.add_argument("--new-chain", action="store_true", help="체인이 없으면 chain.md 스텁과 함께 생성")
+    p_open.add_argument("--git", action="store_true", help="열림 즉시 사이클 디렉토리만 커밋")
+    p_open.add_argument("--push", action="store_true", help="커밋 후 push (준실시간 뷰어 갱신)")
     p_open.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_open.set_defaults(func=cmd_open)
+
+    p_step = sub.add_parser("step", help="열린 사이클의 진행 스텝(1~5) 전이")
+    p_step.add_argument("chain")
+    p_step.add_argument("cycle_id")
+    p_step.add_argument("n", help="1 가설 · 2 설계 · 3 검증 · 4 분석 · 5 보고")
+    p_step.add_argument("--git", action="store_true", help="전이를 사이클 디렉토리만 커밋")
+    p_step.add_argument("--push", action="store_true", help="커밋 후 push")
+    p_step.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_step.set_defaults(func=cmd_step)
 
     p_close = sub.add_parser("close", help="보고서 검증 후 사이클 닫기")
     p_close.add_argument("chain")
@@ -912,6 +1000,7 @@ def main(argv=None):
     p_close.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_close.add_argument("--git", action="store_true",
                          help="닫기와 동시에 사이클 디렉토리만 커밋하고 태그 cycle/<chain>/<id>를 남긴다")
+    p_close.add_argument("--push", action="store_true", help="각인 후 push --follow-tags")
     p_close.set_defaults(func=cmd_close)
 
     p_verify = sub.add_parser("verify", help="닫힌 사이클의 태그↔작업 트리 대조 (변조 탐지)")
