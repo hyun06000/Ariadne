@@ -2,7 +2,7 @@ id: C042-viewer-follows-ledger
 chain: loom
 parent: C041-correction-protocol
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-15
