@@ -1,0 +1,14 @@
+id: C043-number-reservation
+chain: loom
+parent: C042-viewer-follows-ledger
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: ""
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
