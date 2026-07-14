@@ -1,0 +1,17 @@
+== T1 딸깍 재현 (완전 신선 디렉토리, README 대문 블록 그대로):
+열림: demo/C001-first-question
+스텝: demo/C001-first-question → 2/5 설계
+=== chain: demo — 사이클 1개 ===
+
+●  C001-first-question [open] smallest problem first
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-first-question  ←  (root)
+
+OK — 체인 1개, 사이클 1개, 위반 0건 (스키마 v0.2)
+생성: chains.html (체인 1개)
+→ 딸깍 성공! web     4832B
+== T2 템플릿 우선 (표식 있는 _template):
+→ 템플릿 우선 확인 (표식 존재, 내장 아님)
+== T3 회귀:
+계약 준수: 26/26  ✔ 이 구현은 gil이다

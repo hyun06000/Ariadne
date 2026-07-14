@@ -399,11 +399,12 @@ def cmd_open(args):
     # ---- 사전 검증: 저장소를 건드리기 전에 전부 확인한다 (부분 생성물 방지) ----
     if not _SLUG_RE.match(args.slug):
         raise ChainError(f"슬러그 '{args.slug}' 형식 위반 — R1: 소문자·숫자·하이픈만 (마침표 금지)")
-    if not os.path.isdir(template):
-        raise ChainError(f"템플릿이 없다: {template}")
+    use_embedded = not os.path.isdir(template)  # _template 부재 시 내장 스캐폴드 (v1.1: 딸깍)
     new_chain = not os.path.isdir(chain_dir)
     if new_chain and not args.new_chain:
         raise ChainError(f"체인 '{args.chain}'이 없다 — 새로 만들려면 --new-chain")
+    if args.new_chain:
+        os.makedirs(chains_root, exist_ok=True)  # 딸깍: 체인 루트가 없으면 만든다 (git init처럼, v1.1)
     _fsck_or_report(chains_root)  # 깨진 저장소 위에는 짓지 않는다
 
     records = load_chain_records(chain_dir) if not new_chain else []
@@ -433,7 +434,19 @@ def cmd_open(args):
         os.makedirs(chain_dir)
         with open(os.path.join(chain_dir, "chain.md"), "w", encoding="utf-8") as f:
             f.write(f"# Chain: {args.chain}\n\n## 이 체인이 정복하려는 문제\n\n(작성할 것)\n")
-    shutil.copytree(template, dest)
+    if use_embedded:
+        os.makedirs(os.path.join(dest, "3-verification"))
+        for name, body in (
+            ("1-hypothesis.md", "# 1. 가설 수립\n\n(작성할 것)\n"),
+            ("2-design.md", "# 2. 실험 설계\n\n(작성할 것)\n"),
+            ("3-verification/README.md", "# 3. 가설 검증\n\n(작성할 것)\n"),
+            ("4-analysis.md", "# 4. 결과 분석\n\n(작성할 것)\n"),
+            ("5-report.md", "# 5. 결과 보고\n\n(작성할 것)\n"),
+        ):
+            with open(os.path.join(dest, name), "w", encoding="utf-8") as f:
+                f.write(body)
+    else:
+        shutil.copytree(template, dest)
     parent_val = ("null" if not args.parent
                   else args.parent[0] if len(args.parent) == 1
                   else "[" + ", ".join(args.parent) + "]")
@@ -810,10 +823,13 @@ def cmd_close(args):
     if not os.path.isfile(report_path):
         raise ChainError(f"{args.chain}/{args.cycle_id}: 5-report.md가 없다 — 보고 없이 닫을 수 없다")
     template_report = os.path.join(_template_dir(chains_root), "5-report.md")
+    stub_reports = {"# 5. 결과 보고\n\n(작성할 것)\n"}  # 내장 스캐폴드의 미작성 보고서 (v1.1)
     if os.path.isfile(template_report):
-        with open(report_path, encoding="utf-8") as f1, open(template_report, encoding="utf-8") as f2:
-            if f1.read() == f2.read():
-                raise ChainError(f"{args.chain}/{args.cycle_id}: 보고서가 템플릿 그대로다 — 결과 보고를 작성할 것")
+        with open(template_report, encoding="utf-8") as f2:
+            stub_reports.add(f2.read())
+    with open(report_path, encoding="utf-8") as f1:
+        if f1.read() in stub_reports:
+            raise ChainError(f"{args.chain}/{args.cycle_id}: 보고서가 템플릿 그대로다 — 결과 보고를 작성할 것")
 
     with open(yaml_path, encoding="utf-8") as f:
         original = f.read()

@@ -213,7 +213,9 @@ func collectFsck(root string) (violations []string, nChains, nCycles int, err er
 			idsByChain[ch][r.fields["id"]] = true
 		}
 	}
-	add := func(rule, loc, msg string) { violations = append(violations, fmt.Sprintf("%s  %s: %s", rule, loc, msg)) }
+	add := func(rule, loc, msg string) {
+		violations = append(violations, fmt.Sprintf("%s  %s: %s", rule, loc, msg))
+	}
 
 	chainNames := sortedKeys(chains)
 	total := 0
@@ -507,13 +509,17 @@ func cmdOpen(a openArgs) error {
 	if !slugRe.MatchString(a.slug) {
 		return cerr("슬러그 '%s' 형식 위반 — R1: 소문자·숫자·하이픈만 (마침표 금지)", a.slug)
 	}
-	if fi, err := os.Stat(template); err != nil || !fi.IsDir() {
-		return cerr("템플릿이 없다: %s", template)
-	}
+	tfi, terr := os.Stat(template)
+	useEmbedded := terr != nil || !tfi.IsDir() // _template 부재 시 내장 스캐폴드 (v1.1: 딸깍)
 	fi, err := os.Stat(chainDir)
 	newChain := err != nil || !fi.IsDir()
 	if newChain && !a.newChain {
 		return cerr("체인 '%s'이 없다 — 새로 만들려면 --new-chain", a.chain)
+	}
+	if a.newChain { // 딸깍: 체인 루트가 없으면 만든다 (git init처럼, v1.1)
+		if err := os.MkdirAll(a.root, 0o755); err != nil {
+			return cerr("%v", err)
+		}
 	}
 	if err := fsckOrReport(a.root); err != nil { // 깨진 저장소 위에는 짓지 않는다
 		return err
@@ -577,7 +583,23 @@ func cmdOpen(a openArgs) error {
 			return cerr("%v", err)
 		}
 	}
-	if err := copyTree(template, dest); err != nil {
+	if useEmbedded {
+		if err := os.MkdirAll(filepath.Join(dest, "3-verification"), 0o755); err != nil {
+			return cerr("%v", err)
+		}
+		scaffold := map[string]string{
+			"1-hypothesis.md":          "# 1. 가설 수립\n\n(작성할 것)\n",
+			"2-design.md":              "# 2. 실험 설계\n\n(작성할 것)\n",
+			"3-verification/README.md": "# 3. 가설 검증\n\n(작성할 것)\n",
+			"4-analysis.md":            "# 4. 결과 분석\n\n(작성할 것)\n",
+			"5-report.md":              "# 5. 결과 보고\n\n(작성할 것)\n",
+		}
+		for name, body := range scaffold {
+			if err := os.WriteFile(filepath.Join(dest, name), []byte(body), 0o644); err != nil {
+				return cerr("%v", err)
+			}
+		}
+	} else if err := copyTree(template, dest); err != nil {
 		return cerr("템플릿 복사 실패: %v", err)
 	}
 	parentVal := "null"
@@ -640,8 +662,12 @@ func cmdClose(a closeArgs) error {
 	if err != nil {
 		return cerr("%s/%s: 5-report.md가 없다 — 보고 없이 닫을 수 없다", a.chain, a.cycleID)
 	}
+	stubs := []string{"# 5. 결과 보고\n\n(작성할 것)\n"} // 내장 스캐폴드의 미작성 보고서 (v1.1)
 	if tpl, err := os.ReadFile(filepath.Join(templateDir(a.root), "5-report.md")); err == nil {
-		if string(report) == string(tpl) {
+		stubs = append(stubs, string(tpl))
+	}
+	for _, st := range stubs {
+		if string(report) == st {
 			return cerr("%s/%s: 보고서가 템플릿 그대로다 — 결과 보고를 작성할 것", a.chain, a.cycleID)
 		}
 	}
@@ -1044,8 +1070,8 @@ type webCycle struct {
 }
 
 type webChain struct {
-	order      []string             // 토폴로지 순서 (SVG 노드·표 행)
-	cycleOrder []string             // 삽입 순서 = 디렉토리 정렬 (JSON·간선 순회)
+	order      []string // 토폴로지 순서 (SVG 노드·표 행)
+	cycleOrder []string // 삽입 순서 = 디렉토리 정렬 (JSON·간선 순회)
 	cycles     map[string]*webCycle
 	children   map[string][]string
 }
