@@ -2,7 +2,7 @@ id: C035-superseded-pointer
 chain: loom
 parent: C034-scaffold-and-self-report
 lineage: [gateway/C001-agent-self-onboard]
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-15
