@@ -2,7 +2,7 @@ id: C019-spec-carryovers
 chain: loom
 parent: C018-release-baseline
 lineage: [tapestry/C001-reproduce-audit]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-14
