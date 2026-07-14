@@ -1,14 +1,15 @@
 # 3. 가설 검증
 
-이 디렉토리에 실험 실행에 사용된 **모든 것**이 저장된다: 코드, 스크립트, 입력 데이터(또는 그 출처와 해시), 실행 로그, 연산 결과, 생성된 아티팩트.
+산출물: fixtures/chains/test-grammar(문법 전수 픽스처), runs/run1-crosscheck.txt, SPEC §3.1(v0.9.2 각인).
 
 ## 재현 방법
 
-<!-- 이 디렉토리만 가지고 실험을 처음부터 다시 실행하는 정확한 명령 순서를 쓴다. -->
-
 ```bash
+go build -o /tmp/gil-go rooms/experiment/chains/loom/C017-go-git-binding/3-verification/gil-go/main.go
+FX=rooms/experiment/chains/loom/C021-parsing-contract/3-verification/fixtures/chains
+python3 rooms/deployment/ariadne-spec/gil.py fsck "$FX" ; /tmp/gil-go fsck "$FX"   # 동일해야 함
 ```
 
 ## 실행 기록
 
-<!-- 실제 실행 일시, 환경(OS, 버전), 소요 시간, 실행 중 발생한 특이사항. -->
+- 2026-07-15. fsck 바이트 동일. log에서 요약 섹션 차이 발견(파이썬에만 root:/분기점 요약) → 파싱 유래 슬라이스(노드 줄+계보)는 바이트 동일로 확증. 문법 커버리지 6요소 전부 픽스처에 존재.
