@@ -1,0 +1,10 @@
+id: C031-web-lane-layout
+chain: loom
+parent: C030-verdict-and-deviations
+lineage: [gateway/C001-agent-self-onboard]
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "형제 갈래를 세로 레인으로 분리하면(git log --graph처럼) 분기가 사람 눈에 분기로 보이고 rejected 갈래는 색으로 구별된다"
