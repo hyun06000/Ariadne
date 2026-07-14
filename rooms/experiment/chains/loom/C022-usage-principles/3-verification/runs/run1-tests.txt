@@ -1,0 +1,11 @@
+== T1 마커:
+OK: rooms/deployment/ariadne-spec/SPEC.md
+OK: CLAUDE.md
+OK: rooms/deployment/ariadne-spec/QUICKSTART.md
+== T2 퀵스타트 문서=테스트:
+PASS
+T2 exit: 0
+== T3 릴리스:
+OK — 닫힌 사이클 24개 검사, 변조 0건
+릴리스: v0.9.3 (도구 변경: 없음)
+- 도구 변경: 없음 (문서 릴리스)
