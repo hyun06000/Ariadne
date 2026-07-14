@@ -4,7 +4,7 @@ parent: C014-go-binary-open-close
 lineage: []
 step: 5
 author: weft
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-14
 title: "Go 구현에 깃 각인(close --git)과 verify를 이식하면 GIT·VERIFY 계열 3항목이 공허가 아닌 실질 통과가 된다"
