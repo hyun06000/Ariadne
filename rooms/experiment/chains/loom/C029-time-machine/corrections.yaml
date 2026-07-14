@@ -1,0 +1,11 @@
+# 출처 필드 정정 기록 (스키마 v0.5, §4.1) — 거짓은 지워지지 않는다. 덧쓰일 뿐이다.
+# 저자의 주장은 불변이다. 도구의 대필은 불변이 아니다.
+
+- field: parent
+  from: null
+  to: C028-pages-command
+  evidence: 1-hypothesis.md:5
+  evidence_source: cycle/loom/C029-time-machine
+  author: clew
+  date: 2026-07-15
+  reason: open 시 --parent 누락 — 도구가 저자의 침묵을 대필했다 (loom/C040이 진단, C041이 수술)
