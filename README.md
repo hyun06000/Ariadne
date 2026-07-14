@@ -33,7 +33,7 @@ grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```
 
-No Python, no toolchain. **The checksum is not optional:** if it mismatches, the `&&` chain breaks and `gil` never becomes an executable — nothing unverified can run. (A mismatch right after a release just means the CDN lagged; wait a minute and retry.) Qualification via `conformance.py --gil "$PWD/gil"` — **28/28 means "this implementation *is* gil."**
+No Python, no toolchain. **The checksum is not optional:** if it mismatches, the `&&` chain breaks and `gil` never becomes an executable — nothing unverified can run. (A mismatch right after a release just means the CDN lagged; wait a minute and retry.) Qualification via `conformance.py --gil "$PWD/gil"` — **29/29 means "this implementation *is* gil."**
 
 ## The idea
 
