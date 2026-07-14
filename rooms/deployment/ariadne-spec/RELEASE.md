@@ -1,5 +1,14 @@
 # Ariadne Spec — Release
 
+## v1.1.0 (2026-07-15) — 진짜 딸깍
+
+`gil open`이 이제 **바이너리 하나만으로** 동작한다 (발의: 박상현의 README 워크스루가 지뢰를 드러냄):
+
+- `_template` 부재 시 **내장 스캐폴드**로 5스텝 문서 + cycle.yaml 생성 (있으면 기존처럼 우선 사용 — 회귀 0).
+- `--new-chain`이 체인 루트(`rooms/experiment/chains`)까지 만든다 — `git init`처럼 빈 곳에서 시작 가능.
+- 두 구현(참조·Go) 동시 반영, 각 conformance 26/26. 바이너리 4타깃 재빌드.
+- 검증: 갓 curl한 바이너리만 있는 신선 디렉토리에서 README 대문 블록(open→step→log→fsck→web) 전부 성공. 근거: loom/C027.
+
 ## v1.0.1 (2026-07-15)
 
 문서-only: **딸깍 설치** — v1.0.0 GitHub Release에 4타깃 바이너리(darwin·linux × arm64·amd64)와 SHA256SUMS 첨부(공개 URL 다운로드·체크섬·실행 검증 완료), 태그 push마다 자동 빌드·첨부하는 gil-release 워크플로 배선, 퀵스타트에 설치 한 줄 추가. 발의: 박상현. 근거: loom/C024.
