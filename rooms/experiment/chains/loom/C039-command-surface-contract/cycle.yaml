@@ -2,7 +2,7 @@ id: C039-command-surface-contract
 chain: loom
 parent: C038-version-surface-contract
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-14
