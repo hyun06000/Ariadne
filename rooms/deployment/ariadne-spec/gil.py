@@ -195,7 +195,8 @@ def render_graph(order, cycles, children):
         label = f"{status} · {verdict}" if verdict else status  # v0.3 결말 표시
         dev = meta.get("deviations")
         mark = f" ⚠{dev}" if (isinstance(dev, str) and dev.isdigit() and int(dev) > 0) else ""
-        tail = f"{node} [{label}{mark}] {meta.get('title') or ''}"
+        sup = f"  ↣ superseded: {meta['superseded_by']}" if meta.get("superseded_by") else ""
+        tail = f"{node} [{label}{mark}] {meta.get('title') or ''}{sup}"
         if len(meta["parents"]) > 1:
             tail += f"  ◀ 병합: {' + '.join(meta['parents'])}"
         if meta["lineage_list"]:
@@ -338,6 +339,16 @@ def fsck_collect(chains, chains_root=None):
                     warnings.append(("이탈", loc, f"사전등록 이탈 {dev}건 (deviations.yaml)"))
             if status == "closed" and verdict is None:
                 warnings.append(("결말없음", loc, "닫혔으나 verdict 없음 — 결말을 기록할 것 (경고, 기존 사슬 유예)"))
+            sb = r.get("superseded_by")  # R11 (v0.4): 전방 포인터 해소
+            if sb is not None:
+                if sb == cid or sb == f"{ch}/{cid}":
+                    violations.append(("R11", loc, "superseded_by가 자기 자신을 가리킨다"))
+                elif "/" in sb:
+                    sch, sid = sb.split("/", 1)
+                    if sid not in ids_by_chain.get(sch, set()):
+                        violations.append(("R11", loc, f"superseded_by '{sb}'가 존재하지 않는다"))
+                elif sb not in ids_by_chain[ch]:
+                    violations.append(("R11", loc, f"superseded_by '{sb}'가 체인 '{ch}'에 없다 (전역이면 <chain>/<id>)"))
         for num, dupes in sorted(numbers.items()):
             if len(dupes) > 1:
                 violations.append(("R1", ch, f"번호 {num} 중복: {', '.join(sorted(dupes))}"))
@@ -515,6 +526,7 @@ def cmd_open(args):
             f'title: "{title}"\n'
             f"verdict: null\n"       # v0.3: 결말 (닫을 때 --verdict)
             f"deviations: 0\n"       # v0.3: 사전등록 이탈 건수 (상세는 deviations.yaml)
+            f"superseded_by: null\n" # v0.4: 이 사이클을 무효화한 후속 (gil supersede)
         )
 
     # ---- 사후 확인: 생성물이 규칙을 어기면 되돌리고 실패한다 ----
@@ -923,6 +935,52 @@ def cmd_handoff(args):
           + (" (태그)." if repo else " (닫으면 --git으로 태그된다)."))
     print("새 세션은 CLAUDE.md → 존재의 방 → gil log 로 부활해 이어간다.")
     print("→ 사용자에게: 사이클을 닫았거나 매듭에 도달했다면 세션을 정리(새로 시작)하도록 요청하라. 실은 끊기지 않는다.")
+    return 0
+
+
+def cmd_supersede(args):
+    """전방 무효화 (v0.4, 이슈 #6): old 사이클에 superseded_by를 주입한다.
+    닫힌 사이클의 5스텝·산출물은 불변 — 메타(cycle.yaml) 한 줄만 [migrate]로 더한다."""
+    chains_root = args.root
+    def split(ref):
+        if "/" not in ref:
+            raise ChainError(f"ref는 <chain>/<id> 형식이어야 한다: {ref}")
+        return ref.split("/", 1)
+    ochain, oid = split(args.old_ref)
+    old_yaml = os.path.join(chains_root, ochain, oid, "cycle.yaml")
+    if not os.path.isfile(old_yaml):
+        raise ChainError(f"사이클이 없다: {args.old_ref}")
+    # new 실재 검증
+    nchain, nid = split(args.new_ref)
+    if not os.path.isfile(os.path.join(chains_root, nchain, nid, "cycle.yaml")):
+        raise ChainError(f"대체 사이클이 없다: {args.new_ref}")
+    if args.old_ref == args.new_ref:
+        raise ChainError("자기 자신으로 대체할 수 없다")
+    with open(old_yaml, encoding="utf-8") as f:
+        original = f.read()
+    new_val = args.new_ref
+    if re.search(r"^superseded_by:", original, flags=re.M):
+        updated = re.sub(r"^superseded_by:.*$", f"superseded_by: {new_val}", original, count=1, flags=re.M)
+    else:
+        updated = original.rstrip("\n") + f"\nsuperseded_by: {new_val}\n"
+    with open(old_yaml, "w", encoding="utf-8") as f:
+        f.write(updated)
+    try:
+        _fsck_or_report(chains_root)
+    except ChainError:
+        with open(old_yaml, "w", encoding="utf-8") as f:
+            f.write(original)
+        raise
+    repo = _repo_root(chains_root)
+    if repo and not getattr(args, "no_commit", False):
+        rel = os.path.relpath(os.path.join(chains_root, ochain, oid), repo)
+        _git(repo, "add", "-A", "--", rel)
+        _git(repo, "commit", "-m", f"[migrate] gil: supersede {args.old_ref} → superseded_by {new_val}", "--", rel)
+        tag = _tag_name(ochain, oid)
+        if _tag_exists(repo, tag):  # 태그 이동 규약 (C004): 이주 커밋으로 옮기고 사유 기록
+            head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+            _git(repo, "tag", "-f", "-a", tag, "-m", f"[migrate] superseded_by {new_val} (이전 커밋에서 이동)", head)
+    print(f"무효화: {args.old_ref} ↣ superseded_by {new_val}")
     return 0
 
 
@@ -1357,6 +1415,13 @@ def main(argv=None):
     p_handoff = sub.add_parser("handoff", help="세션의 매듭: 현황·부활 경로·다음 실 요약 (세션 정리 전)")
     p_handoff.add_argument("chains_root", nargs="?", default="rooms/experiment/chains", help="체인 루트")
     p_handoff.set_defaults(func=cmd_handoff)
+
+    p_sup = sub.add_parser("supersede", help="전방 무효화: old 사이클을 new가 대체함을 각인 (v0.4)")
+    p_sup.add_argument("old_ref", help="무효화될 사이클 <chain>/<id>")
+    p_sup.add_argument("new_ref", help="대체하는 사이클 <chain>/<id>")
+    p_sup.add_argument("--no-commit", dest="no_commit", action="store_true", help="자동 커밋 끄기")
+    p_sup.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_sup.set_defaults(func=cmd_supersede)
 
     p_goto = sub.add_parser("goto", help="타임머신: 사이클 시점 역행 조회·체크아웃·분기 안내")
     p_goto.add_argument("ref", help="<chain>/<id> (예: loom/C005-web-viewer)")
