@@ -536,24 +536,34 @@ def cmd_open(args):
 # ---------- 웹 뷰어 (log와 같은 파서, 다른 렌더러) ----------
 
 def _layout_columns(order, cycles, children):
-    """render_graph와 같은 트랙 규칙으로 각 노드의 (행, 열)을 계산한다."""
-    pos, tracks = {}, []
+    """각 노드의 (행, 안정적 레인 번호)를 계산한다.
+    레인은 슬롯 인덱스이며 pop하지 않는다 — 빈 레인은 None으로 남겨 인덱스를 고정한다.
+    (loom/C031: pop이 인덱스를 당겨 둘째 갈래가 col0으로 흡수되던 버그를 고침.)"""
+    pos, tracks = {}, []  # tracks[i] = 그 레인에 대기 중인 자식 id, 또는 None(빈 슬롯)
+
+    def free_slot():
+        for i, t in enumerate(tracks):
+            if t is None:
+                return i
+        tracks.append(None)
+        return len(tracks) - 1
+
     for row, node in enumerate(order):
         incoming = [i for i, t in enumerate(tracks) if t == node]
         if incoming:
             col = incoming[0]
-            for i in reversed(incoming[1:]):
-                tracks.pop(i)
+            for i in incoming[1:]:  # 병합: 흡수된 레인을 비운다 (pop 아님 — 인덱스 유지)
+                tracks[i] = None
         else:
-            tracks.append(None)
-            col = len(tracks) - 1
+            col = free_slot()
         pos[node] = (row, col)
         kids = children[node]
         if kids:
-            tracks[col] = kids[0]
-            tracks.extend(kids[1:])
+            tracks[col] = kids[0]  # 첫째 자식이 이 레인을 상속
+            for k in kids[1:]:     # 추가 자식은 새(또는 빈) 레인 — 자기 차례까지 예약 유지
+                tracks[free_slot()] = k
         else:
-            tracks.pop(col)
+            tracks[col] = None     # 이 레인을 비운다 (인덱스는 그대로)
     return pos
 
 

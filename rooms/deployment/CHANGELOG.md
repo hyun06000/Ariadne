@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-07-14
+
+- web 레인 분리 — maru 이슈 #2. 형제 갈래를 다른 열로, rejected 색과 합류. 참조·Go 동일
+- 도구 변경: gil (마이너 이상 승격)
+
+
 ## [1.4.0] — 2026-07-14
 
 - verdict·deviations (스키마 v0.3) — maru 이슈 #1 구현. 참조·Go 양 구현, conformance 26/26

@@ -1413,11 +1413,21 @@ func fieldPtr(fields map[string]string, key string) *string {
 	return nil
 }
 
-// layoutColumns: 참조 구현 _layout_columns — render_graph와 같은 트랙 규칙으로
-// 각 노드의 (행, 열)을 계산한다. 트랙 값 ""는 파이썬의 None(루트 자리)이다.
+// layoutColumns: 참조 구현 _layout_columns — 각 노드의 (행, 안정적 레인 번호)를 계산한다.
+// 레인은 슬롯 인덱스이며 제거하지 않는다 — 빈 레인은 ""로 남겨 인덱스를 고정한다.
+// (loom/C031: 제거가 인덱스를 당겨 둘째 갈래가 col0으로 흡수되던 버그를 고침.)
 func layoutColumns(order []string, children map[string][]string) map[string][2]int {
 	pos := map[string][2]int{}
-	var tracks []string
+	var tracks []string // tracks[i] = 그 레인에 대기 중인 자식 id, 또는 ""(빈 슬롯)
+	freeSlot := func() int {
+		for i, t := range tracks {
+			if t == "" {
+				return i
+			}
+		}
+		tracks = append(tracks, "")
+		return len(tracks) - 1
+	}
 	for row, node := range order {
 		var incoming []int
 		for i, t := range tracks {
@@ -1428,21 +1438,21 @@ func layoutColumns(order []string, children map[string][]string) map[string][2]i
 		var col int
 		if len(incoming) > 0 {
 			col = incoming[0]
-			for j := len(incoming) - 1; j >= 1; j-- {
-				i := incoming[j]
-				tracks = append(tracks[:i], tracks[i+1:]...)
+			for _, i := range incoming[1:] { // 병합: 흡수된 레인 비움 (제거 아님 — 인덱스 유지)
+				tracks[i] = ""
 			}
 		} else {
-			tracks = append(tracks, "")
-			col = len(tracks) - 1
+			col = freeSlot()
 		}
 		pos[node] = [2]int{row, col}
 		kids := children[node]
 		if len(kids) > 0 {
-			tracks[col] = kids[0]
-			tracks = append(tracks, kids[1:]...)
+			tracks[col] = kids[0] // 첫째 자식이 이 레인 상속
+			for _, k := range kids[1:] {
+				tracks[freeSlot()] = k // 추가 자식은 새(또는 빈) 레인 — 자기 차례까지 예약 유지
+			}
 		} else {
-			tracks = append(tracks[:col], tracks[col+1:]...)
+			tracks[col] = "" // 이 레인 비움 (인덱스 그대로)
 		}
 	}
 	return pos
