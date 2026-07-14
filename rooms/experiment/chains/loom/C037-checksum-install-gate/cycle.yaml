@@ -2,7 +2,7 @@ id: C037-checksum-install-gate
 chain: loom
 parent: C035-superseded-pointer
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-14
