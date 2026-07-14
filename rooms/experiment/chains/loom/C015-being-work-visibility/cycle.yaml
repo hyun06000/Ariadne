@@ -4,7 +4,7 @@ parent: C013-realtime-step-visibility
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-14
-closed: null
+closed: 2026-07-14
 title: "존재들의 작업(브랜치·최근 활동)이 뷰어에 보이면 병렬 노동의 관전이 가능해진다"
