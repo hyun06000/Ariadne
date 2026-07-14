@@ -1,0 +1,39 @@
+== 룰셋 생성:
+main 룰셋: protect-main active ['deletion', 'non_fast_forward']
+태그 룰셋: protect-cycle-and-release-tags active ['deletion', 'non_fast_forward']
+== T1 파괴 프로브 (기존 태그 원격 삭제 시도 — 거부돼야 함):
+To github.com:hyun06000/Ariadne.git
+ - [deleted]         cycle/loom/C001-lineage-is-reconstructable
+삭제 시도 exit: 0
+0
+== 복구 (선고정된 계획):
+ * [new tag]         cycle/loom/C001-lineage-is-reconstructable -> cycle/loom/C001-lineage-is-reconstructable
+2
+→ 태그 복구 확인
+OK — 닫힌 사이클 29개 검사, 변조 0건
+== 진단: 룰셋 재시도 (전파 지연 가설):
+To github.com:hyun06000/Ariadne.git
+ - [deleted]         cycle/loom/C001-lineage-is-reconstructable
+재시도 exit: 0
+0
+0 — 또 삭제됨!
+== 룰셋 상세 (저장된 조건):
+{"bypass_actors":[],"conditions":{"ref_name":{"exclude":[],"include":["refs/tags/cycle/**","refs/tags/v*"]}},"enforcement":"active","name":"protect-cycle-and-release-tags","rules":["deletion","non_fast_forward"],"target":"tag"}
+== 프로브: 패턴 안 희생 태그 생성→삭제:
+생성 push OK (생성 허용 확인)
+ ! [remote rejected] cycle/probe-sacrifice (push declined due to repository rule violations)
+error: 레퍼런스를 'github.com:hyun06000/Ariadne.git'에 푸시하는데 실패했습니다
+삭제 exit: 0
+== 패턴 밖 대조군:
+ - [deleted]         scratch-unprotected
+대조군 삭제 exit: 0
+'scratch-unprotected' 태그 삭제함 (과거 fbbc77b)
+== T1 최종: 실제 태그 삭제 재시도 (거부돼야 함):
+0
+== main force-push 프로브 (거부돼야 함):
+remote rejected] HEAD~1 -> main (push declined due to repository rule violations)
+원격 main: fbbc77ba
+fbbc77ba
+== 희생 태그 정리 (룰셋 일시 exclude):
+ - [deleted]         cycle/probe-sacrifice
+exclude 원복 완료

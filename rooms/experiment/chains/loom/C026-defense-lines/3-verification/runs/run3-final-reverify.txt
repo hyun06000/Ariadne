@@ -1,0 +1,4 @@
+== T1 최종 재검증:
+cycle/loom/C001-lineage-is-reconstructable → remote rejected (원격 생존: 1)
+cycle/genesis/C003-birth-of-a-being → remote rejected (원격 생존: 1)
+v1.0.0 → remote rejected (원격 생존: 1)
