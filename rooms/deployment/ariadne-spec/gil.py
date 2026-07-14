@@ -24,7 +24,7 @@ import sys
 
 _STEP_NAMES = {1: "가설", 2: "설계", 3: "검증", 4: "분석", 5: "보고"}
 _VERDICTS = ("supported", "partial", "rejected", "inconclusive")  # v0.3
-_GIL_VERSION = "2.0.0"  # gil:version
+_GIL_VERSION = "2.1.0"  # gil:version
 
 
 class ChainError(Exception):
