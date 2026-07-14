@@ -354,6 +354,43 @@ def _fsck_or_report(chains_root):
         raise ChainError(f"fsck 위반 — {lines}")
 
 
+def _push_with_renumber(repo, chain_dir, chain, cid, title):
+    """원장 규율 (v0.8): push 거절 = 원장이 앞섰다는 신호. fetch·rebase 후
+    번호 경합이면 자동 재번호(디렉토리·id 개명 + 커밋 정정) 후 재시도한다. 최대 3회."""
+    for _ in range(3):
+        r = _git(repo, "push", check=False)
+        if r.returncode == 0:
+            return cid
+        branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        _git(repo, "fetch", "origin")
+        rb = _git(repo, "rebase", f"origin/{branch}", check=False)
+        if rb.returncode != 0:
+            _git(repo, "rebase", "--abort", check=False)
+            raise ChainError("push 경합의 rebase 해소 실패 — 수동 개입 필요: "
+                             + (rb.stderr or rb.stdout or "").strip()[-150:])
+        my_num = _ID_RE.match(cid).group(1)
+        records = load_chain_records(chain_dir)
+        dup = [rec.get("id") for rec in records if rec.get("id") and rec["id"] != cid
+               and _ID_RE.match(rec["id"]) and _ID_RE.match(rec["id"]).group(1) == my_num]
+        if dup:
+            slug = cid.split("-", 1)[1]
+            new_cid = f"C{_next_number(records):03d}-{slug}"
+            old_rel = os.path.relpath(os.path.join(chain_dir, cid), repo)
+            new_rel = os.path.relpath(os.path.join(chain_dir, new_cid), repo)
+            _git(repo, "mv", old_rel, new_rel)
+            ypath = os.path.join(repo, new_rel, "cycle.yaml")
+            with open(ypath, encoding="utf-8") as f:
+                text = f.read()
+            with open(ypath, "w", encoding="utf-8") as f:
+                f.write(text.replace(f"id: {cid}", f"id: {new_cid}", 1))
+            _git(repo, "add", "-A", "--", new_rel)
+            _git(repo, "commit", "--amend",
+                 "-m", f"gil: open {chain}/{new_cid} — 1/5 {_STEP_NAMES[1]}\n\n{title}\n(원장 경합 재번호: {cid} → {new_cid})")
+            print(f"경합 감지: {cid} → {new_cid} (원장 규율에 따라 재번호)", file=sys.stderr)
+            cid = new_cid
+    raise ChainError("push 경합 해소 3회 실패 — 원장이 계속 앞선다")
+
+
 def cmd_open(args):
     chains_root = args.root
     chain_dir = os.path.join(chains_root, args.chain)
@@ -430,7 +467,7 @@ def cmd_open(args):
         _git(repo, "add", "-A", "--", rel)
         _git(repo, "commit", "-m", f"gil: open {args.chain}/{cid} — 1/5 {_STEP_NAMES[1]}\n\n{title}", "--", rel)
         if args.push:
-            _git(repo, "push")
+            cid = _push_with_renumber(repo, chain_dir, args.chain, cid, title)
     print(f"열림: {args.chain}/{cid}")
     return 0
 
