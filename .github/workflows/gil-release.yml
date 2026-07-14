@@ -1,0 +1,33 @@
+# gil — v* 태그가 push되면 4타깃 바이너리를 빌드해 GitHub Release에 첨부한다.
+# 빌드 run 블록은 loom/C024의 검증이 신선 클론에서 그대로 추출 실행한다.
+name: gil-release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          cd rooms/deployment/ariadne-spec/go
+          for T in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            GOOS="${T%/*}" GOARCH="${T#*/}" go build -o "../../../../dist/gil-${T%/*}-${T#*/}" main.go
+          done
+          cd ../../../../dist && shasum -a 256 gil-* > SHA256SUMS && ls -la
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -n "$GITHUB_ACTIONS" ] || { echo "로컬 추출 실행 — 업로드 생략"; exit 0; }
+          gh release create "$GITHUB_REF_NAME" dist/gil-* dist/SHA256SUMS --title "gil $GITHUB_REF_NAME" --notes "자동 빌드 릴리스 — 검증: conformance.py --gil" --repo "$GITHUB_REPOSITORY" 2>/dev/null || gh release upload "$GITHUB_REF_NAME" dist/gil-* dist/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"

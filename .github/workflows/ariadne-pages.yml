@@ -24,8 +24,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build chain viewer
         run: |
-          mkdir -p _site
+          mkdir -p _site/branches
           python3 rooms/deployment/ariadne-spec/gil.py web -o _site/index.html --title "Ariadne — 사이클 체인"
+          git fetch --quiet origin '+refs/heads/worktree-*:refs/remotes/origin/worktree-*' || true
+          : > /tmp/brlist.html
+          for BR in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/worktree-*'); do
+            NAME=$(basename "$BR")
+            rm -rf /tmp/br && mkdir -p /tmp/br
+            git archive "$BR" rooms/experiment | tar -x -C /tmp/br || continue
+            python3 rooms/deployment/ariadne-spec/gil.py web /tmp/br/rooms/experiment/chains -o "_site/branches/$NAME.html" --title "Ariadne — $NAME (존재의 브랜치)" || continue
+            echo "<li><a href=\"$NAME.html\">$NAME</a></li>" >> /tmp/brlist.html
+          done
+          LIST=$(cat /tmp/brlist.html); [ -n "$LIST" ] || LIST='<li>(진행 중인 존재 브랜치 없음)</li>'
+          printf '<title>존재의 브랜치</title><h1>존재들의 작업 브랜치</h1><p><a href="../index.html">← main 뷰어</a></p><ul>%s</ul>\n' "$LIST" > _site/branches/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
