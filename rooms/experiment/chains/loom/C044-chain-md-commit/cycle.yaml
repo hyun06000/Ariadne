@@ -4,11 +4,11 @@ parent: C043-number-reservation
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "새 체인의 chain.md가 커밋되지 않는 결함 수정 + fsck/판정기 확장 (이슈 #14)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
