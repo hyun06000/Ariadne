@@ -2,7 +2,7 @@ id: C049-live-viewer-refresh
 chain: loom
 parent: C048-sibling-label-spacing
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-15
