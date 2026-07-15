@@ -4,11 +4,11 @@ parent: C031-web-lane-layout
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "분기 형제를 같은 깊이에 — 토폴로지 레이아웃(시간 순서 무시로 세로 압축)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
