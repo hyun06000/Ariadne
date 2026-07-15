@@ -4,11 +4,11 @@ parent: C044-chain-md-commit
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "라운드를 1급 시민으로 — 검증 안의 (가설→검증) 반복을 사전등록 데이터로"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
