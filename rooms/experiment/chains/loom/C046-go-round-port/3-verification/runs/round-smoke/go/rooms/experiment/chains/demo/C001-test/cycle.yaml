@@ -1,0 +1,15 @@
+id: C001-test
+chain: demo
+parent: null
+lineage: []
+step: 1
+author: fx
+status: open
+rounds: 2
+opened: 2026-01-01
+closed: null
+title: "t"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null

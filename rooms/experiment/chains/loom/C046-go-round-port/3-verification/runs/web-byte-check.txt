@@ -1,0 +1,5 @@
+생성: /tmp/web-ref-c046.html (체인 1개)
+생성: /tmp/web-go-c046.html (체인 1개)
+BYTE-IDENTICAL (chain=genesis, 무라운드·무예약)
+--- full-repo (loom 체인 포함) --- 참고: 사이클 오픈 시 예약 46이 승격되어 reservations.tsv가 이미 소거된 뒤의 상태다
+동일
