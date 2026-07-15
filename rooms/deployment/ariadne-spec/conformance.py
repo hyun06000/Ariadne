@@ -872,6 +872,31 @@ def main():
           r.returncode == 0 and yaml_made and no_crash,
           f"rc={r.returncode} yaml={yaml_made} crash={not no_crash} err={r.stderr.strip()[:80]}")
 
+    # ---- NO-REMOTE: git은 있으나 원격이 없는 환경에서 --push 우아화 (loom/C054, 비개발자 진입) ----
+    # git이 있으면 커밋은 되지만 원격이 없으면 push할 곳이 없다. 그때 날것 fatal(rc≠0)도
+    # 조용한 삼킴(침묵)도 아닌 "커밋 보존 + 원인 안내 + rc0"으로 강등해야 한다 (C052의 원격판).
+    # 계약: rc0 ∧ 사이클 파일 ∧ 로컬 커밋 존재 ∧ 무크래시. 안내 문면은 렌더(C051).
+    # realpath: macOS tmpdir의 /var→/private/var 심볼릭 링크가 git --show-toplevel와
+    # 절대 --root를 어긋나게 해 relpath를 깨뜨린다 (C028·C029 환경 함정). 이 테스트의 의도는
+    # push 우아화이지 경로 해석이 아니므로 경로를 미리 정규화한다.
+    nr = os.path.realpath(make_sandbox(os.path.join(work, "noremote")))
+    subprocess.run(["git", "-C", nr, "init", "-q", "-b", "main"], check=True)
+    subprocess.run(["git", "-C", nr, "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", nr, "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", nr, "add", "-A"], check=True)
+    subprocess.run(["git", "-C", nr, "commit", "-q", "-m", "init"], check=True)
+    nrcr = os.path.join(nr, "rooms/experiment/chains")
+    r = impl.run(nr, "open", "demo", "first-try",
+                 "--author", "tester", "--new-chain", "--git", "--push", "--root", nrcr)
+    yaml_made = os.path.isfile(os.path.join(nrcr, "demo", "C001-first-try", "cycle.yaml"))
+    no_crash = "Traceback" not in r.stderr and "panic:" not in r.stderr
+    logout = subprocess.run(["git", "-C", nr, "log", "--oneline"], capture_output=True, text=True).stdout
+    committed = "gil: open" in logout  # 원격은 없어도 로컬 각인은 보존된다
+    check("NO-REMOTE-GRACEFUL",
+          "원격 부재에서 --push가 rc0 + 사이클 파일 + 로컬 커밋 보존 + 무크래시 (날것 fatal도 침묵도 아님)",
+          r.returncode == 0 and yaml_made and committed and no_crash,
+          f"rc={r.returncode} yaml={yaml_made} committed={committed} crash={not no_crash} err={r.stderr.strip()[:80]}")
+
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
     print(f"\n계약 준수: {passed}/{total}" + ("  ✔ 이 구현은 gil이다" if passed == total else "  ✘ 계약 위반"))

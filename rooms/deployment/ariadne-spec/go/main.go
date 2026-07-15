@@ -777,6 +777,10 @@ func runeTail(s string, n int) string {
 // (디렉토리·id 개명 + 커밋 정정) 후 재시도한다. 최대 3회.
 // 참조 구현 gil.py의 _push_with_renumber와 절차·문면이 같다.
 func pushWithRenumber(repo, chainDir, chain, cid, title string) (string, error) {
+	if !hasPushRemote(repo) { // 원격 없으면 경합할 원장이 없다 — 재번호 불필요, 날것 fetch fatal 회피 (loom/C054)
+		warnNoRemoteOnce()
+		return cid, nil
+	}
 	for i := 0; i < 3; i++ {
 		if _, _, code := gitRun(repo, "push"); code == 0 {
 			return cid, nil
@@ -1084,7 +1088,7 @@ func cmdOpen(a openArgs) error {
 				}
 				cid = newCid // 원장 경합으로 재번호됐을 수 있다
 			} else if a.push {
-				gitRun(repo, "push") // check=False — 예약 승격은 재번호 없이 평범 push
+				gitPush(repo) // 원격 부재 우아화 (loom/C054) — 예약 승격은 재번호 없이 평범 push
 			}
 		}
 	}
@@ -1135,7 +1139,7 @@ func reserveCommitPush(chainsRoot, chainDir, chain string, git, push bool, verb,
 		return err
 	}
 	if push {
-		gitRun(repo, "push") // check=False
+		gitPush(repo) // 원격 부재 우아화 (loom/C054)
 	}
 	return nil
 }
@@ -1321,7 +1325,7 @@ func cmdClose(a closeArgs) error {
 		}
 		fmt.Printf("각인: 커밋 + 태그 %s\n", tag)
 		if a.push {
-			if _, err := gitChecked(repo, "push", "--follow-tags"); err != nil {
+			if _, err := gitPush(repo, "--follow-tags"); err != nil { // 원격 부재 우아화 (loom/C054)
 				return err
 			}
 		}
@@ -1670,11 +1674,14 @@ func cmdCorrect(a correctArgs) error {
 		return err
 	}
 	if a.push {
-		if _, err := gitChecked(repo, "push"); err != nil {
+		pushed, err := gitPush(repo) // 원격 부재 우아화 (loom/C054)
+		if err != nil {
 			return err
 		}
-		if _, err := gitChecked(repo, "push", "--force", "origin", "refs/tags/"+tag); err != nil {
-			return err
+		if pushed { // 원격 있을 때만 이동한 태그를 강제 전파
+			if _, err := gitChecked(repo, "push", "--force", "origin", "refs/tags/"+tag); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1906,7 +1913,7 @@ func cmdStep(a stepArgs) error {
 			}
 			committed = true
 			if a.push {
-				if _, err := gitChecked(repo, "push"); err != nil {
+				if _, err := gitPush(repo); err != nil { // 원격 부재 우아화 (loom/C054)
 					return err
 				}
 			}
@@ -2099,7 +2106,7 @@ func roundOpen(a roundArgs, cycleDir, yamlPath string, fields map[string]string)
 			return err
 		}
 		if a.push {
-			gitRun(repo, "push") // check=False 대응 — 실패해도 각인은 이미 됐다
+			gitPush(repo) // 원격 부재 우아화 (loom/C054) — 실패해도 각인은 이미 됐다
 		}
 	}
 	fmt.Printf("라운드 열림: %s/%s R%d (사전등록 — hypothesis만 각인)\n", a.chain, a.cycleID, newk)
@@ -2172,7 +2179,7 @@ func roundClose(a roundArgs, cycleDir string) error {
 			return err
 		}
 		if a.push {
-			gitRun(repo, "push") // check=False 대응
+			gitPush(repo) // 원격 부재 우아화 (loom/C054)
 		}
 	}
 	fmt.Printf("라운드 닫힘: %s/%s R%d → %s\n", a.chain, a.cycleID, targetNum, a.verdict)
@@ -2229,6 +2236,37 @@ func gitChecked(repo string, args ...string) (string, error) {
 		return out, cerr("git %s 실패: %s", strings.Join(args, " "), msg)
 	}
 	return out, nil
+}
+
+// hasPushRemote: push할 원격이 있는가 (loom/C054). 없으면 --push는 우아하게 강등된다 —
+// C052가 git 부재를 다룬 방식의 원격판. (git이 없으면 애초에 커밋이 안 돼 이 경로에 닿지 않는다.)
+func hasPushRemote(repo string) bool {
+	out, _, code := gitRun(repo, "remote")
+	return code == 0 && strings.TrimSpace(out) != ""
+}
+
+var noRemoteWarned bool
+
+// warnNoRemoteOnce: 원격 부재를 프로세스당 한 번만, 원인을 정확히 지목해 알린다 (날것 fatal·침묵 금지, loom/C054).
+func warnNoRemoteOnce() {
+	if noRemoteWarned {
+		return
+	}
+	noRemoteWarned = true
+	fmt.Fprintln(os.Stderr, "ℹ 원격이 없어 push를 건너뛴다 — 커밋은 로컬에 저장됐다. "+
+		"원격 연결(git remote add origin <URL>) 후 공유·뷰어 배포가 켜진다.")
+}
+
+// gitPush: 모든 push 경로의 단일 관문 (loom/C054). 원격 부재를 앞에서 감지해 크래시·날것 fatal·침묵
+// 대신 원인 한 줄 + rc0 유지로 강등한다. 원격이 있으면 기존 push 동작 그대로.
+// (참조 구현의 _push와 대칭. 함수명은 reserveCommitPush의 push bool 파라미터와의 충돌을 피한다.)
+func gitPush(repo string, extra ...string) (bool, error) {
+	if !hasPushRemote(repo) {
+		warnNoRemoteOnce()
+		return false, nil
+	}
+	_, err := gitChecked(repo, append([]string{"push"}, extra...)...)
+	return err == nil, err
 }
 
 func repoRoot(path string) string {
@@ -3479,7 +3517,7 @@ func refreshViewers(chainsRoot, label string, noWeb, push bool) {
 		return
 	}
 	if push {
-		gitRun(repo, "push")
+		gitPush(repo) // 원격 부재 우아화 (loom/C054)
 	}
 }
 

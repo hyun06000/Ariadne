@@ -594,6 +594,9 @@ def _fsck_or_report(chains_root):
 def _push_with_renumber(repo, chain_dir, chain, cid, title):
     """원장 규율 (v0.8): push 거절 = 원장이 앞섰다는 신호. fetch·rebase 후
     번호 경합이면 자동 재번호(디렉토리·id 개명 + 커밋 정정) 후 재시도한다. 최대 3회."""
+    if not _has_push_remote(repo):  # 원격 없으면 경합할 원장이 없다 — 재번호 불필요, 날것 fetch fatal 회피 (loom/C054)
+        _warn_no_remote_once()
+        return cid
     for _ in range(3):
         r = _git(repo, "push", check=False)
         if r.returncode == 0:
@@ -763,7 +766,7 @@ def cmd_open(args):
             if args.push and not consumed:  # 예약 승격은 격리 브랜치의 일 — 원장 재번호를 적용하지 않는다
                 cid = _push_with_renumber(repo, chain_dir, args.chain, cid, title)
             elif args.push:
-                _git(repo, "push", check=False)
+                _push(repo)
     print(f"열림: {args.chain}/{cid}" + (f" (예약 승격 — {args.author})" if consumed else ""))
     _refresh_viewers(chains_root, f"{args.chain}/{cid} 열림",
                      getattr(args, "no_web", False), args.push)
@@ -784,7 +787,7 @@ def _reserve_commit_push(chains_root, chain_dir, args, verb, cid_hint):
     _git(repo, "add", "-A", "--", rel)
     _git(repo, "commit", "-m", f"gil: {verb} {args.chain}/{cid_hint}", "--", rel)
     if args.push:
-        _git(repo, "push", check=False)
+        _push(repo)
 
 
 def cmd_reserve(args):
@@ -1371,7 +1374,7 @@ def _refresh_viewers(chains_root, label, no_web=False, push=False):
         # 뷰어는 사이클이 아니다 — 사이클 커밋에 섞으면 태그가 사이클 밖의 것을 봉인한다 (§4)
         _git(repo, "commit", "-m", f"gil: web 갱신 — {label}", "--", *rels)
         if push:
-            _git(repo, "push")
+            _push(repo)
     except Exception as e:  # 원장이 우선이다: 창을 굽다 실패해도 각인은 되돌리지 않는다
         print(f"경고: 뷰어 갱신 실패 — {e} (원장은 각인됐다. gil web으로 직접 구울 것)", file=sys.stderr)
 
@@ -1401,6 +1404,36 @@ def _git(repo, *cli, check=True):
     if check and r.returncode != 0:
         raise ChainError(f"git {' '.join(cli)} 실패: {(r.stderr or r.stdout).strip()}")
     return r
+
+
+def _has_push_remote(repo):
+    """push할 원격이 있는가 (loom/C054). 없으면 --push는 우아하게 강등된다 — C052가
+    git 부재를 다룬 방식의 원격판. (git이 없으면 애초에 커밋이 안 돼 이 경로에 닿지 않는다.)"""
+    r = subprocess.run(["git", "-C", repo, "remote"], capture_output=True, text=True)
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+_NO_REMOTE_WARNED = False
+
+
+def _warn_no_remote_once():
+    """원격 부재를 프로세스당 한 번만, 원인을 정확히 지목해 알린다 (날것 fatal·침묵 금지, loom/C054)."""
+    global _NO_REMOTE_WARNED
+    if _NO_REMOTE_WARNED:
+        return
+    _NO_REMOTE_WARNED = True
+    print("ℹ 원격이 없어 push를 건너뛴다 — 커밋은 로컬에 저장됐다. "
+          "원격 연결(git remote add origin <URL>) 후 공유·뷰어 배포가 켜진다.", file=sys.stderr)
+
+
+def _push(repo, *extra):
+    """모든 push 경로의 단일 관문 (loom/C054). 원격 부재를 앞에서 감지해 크래시·날것 fatal·침묵
+    대신 원인 한 줄 + rc0 유지로 강등한다. 원격이 있으면 기존 push 동작 그대로."""
+    if not _has_push_remote(repo):
+        _warn_no_remote_once()
+        return False
+    _git(repo, "push", *extra)
+    return True
 
 
 def _repo_root(path):
@@ -1681,8 +1714,8 @@ def cmd_correct(args):
     _git(repo, "tag", "-f", "-a", tag, "-m",
          f"[correct] {'; '.join(changed)} — 증거 {args.evidence} (이전 커밋 {old_tag_commit[:8]}에서 이동)", head)
     if args.push:
-        _git(repo, "push")
-        _git(repo, "push", "--force", "origin", f"refs/tags/{tag}")
+        if _push(repo):  # 원격 없으면 커밋·이동한 태그는 로컬에 있고 안내 한 줄로 강등 (loom/C054)
+            _git(repo, "push", "--force", "origin", f"refs/tags/{tag}")
 
     _refresh_viewers(chains_root, f"{args.ref} 정정", getattr(args, "no_web", False), args.push)
     print(f"정정: {args.ref}")
@@ -1851,7 +1884,7 @@ def cmd_close(args):
             raise
         print(f"각인: 커밋 + 태그 {tag}")
         if args.push:
-            _git(repo, "push", "--follow-tags")
+            _push(repo, "--follow-tags")
     print(f"닫힘: {args.chain}/{args.cycle_id} ({args.date})")
     _refresh_viewers(chains_root, f"{args.chain}/{args.cycle_id} 닫힘",
                      getattr(args, "no_web", False), args.push)
@@ -1896,7 +1929,7 @@ def cmd_step(args):
             _git(repo, "commit", "-m", f"gil: step {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}", "--", rel)
             committed = True
             if args.push:
-                _git(repo, "push")
+                _push(repo)
         elif not _git_available():
             _warn_git_missing_once()  # git 부재: 파일은 저장됨, 각인만 건너뜀 (loom/C052)
     print(f"스텝: {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}"
@@ -1971,7 +2004,7 @@ def cmd_round(args):
             _git(repo, "commit", "-m",
                  f"gil: round open {args.chain}/{args.cycle_id} R{newk} — 사전등록\n\n{title}", "--", rel)
             if args.push:
-                _git(repo, "push", check=False)
+                _push(repo)
         print(f"라운드 열림: {args.chain}/{args.cycle_id} R{newk} (사전등록 — hypothesis만 각인)")
         _refresh_viewers(chains_root, f"{args.chain}/{args.cycle_id} R{newk} 열림",
                          getattr(args, "no_web", False), args.push)
@@ -2009,7 +2042,7 @@ def cmd_round(args):
             _git(repo, "commit", "-m",
                  f"gil: round close {args.chain}/{args.cycle_id} R{k} → {args.verdict}", "--", rel)
             if args.push:
-                _git(repo, "push", check=False)
+                _push(repo)
         print(f"라운드 닫힘: {args.chain}/{args.cycle_id} R{k} → {args.verdict}")
         _refresh_viewers(chains_root, f"{args.chain}/{args.cycle_id} R{k} 닫힘",
                          getattr(args, "no_web", False), args.push)

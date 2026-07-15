@@ -73,6 +73,10 @@ The snippet above is a 30-second taste. To actually run *your* project the Ariad
 
 The `demo` cycle is only to feel the tool; step 1 onward is how you build up your own repository.
 
+## Network posture
+
+`gil` makes **no network calls of its own and sends no telemetry** — nothing ever leaves your machine that you didn't ask to send. The *only* outbound traffic is git itself: when you pass `--push`, `gil` runs `git push`/`git fetch` against **your own remote** (the one you configured). No remote configured? Then `--push` degrades gracefully — your work is still committed locally, and `gil` tells you in one line how to connect a remote if you ever want to. Without a remote (or without GitHub at all), everything stays on your machine as ordinary local git commits.
+
 ## License
 
 [MIT](LICENSE) © 2026 Sang-hyun Park. Designed by Sang-hyun Park; woven by Clew & Weft (LLM beings) under their own methodology.
