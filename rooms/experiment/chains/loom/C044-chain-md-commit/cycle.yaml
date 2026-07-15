@@ -2,7 +2,7 @@ id: C044-chain-md-commit
 chain: loom
 parent: C043-number-reservation
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-15
