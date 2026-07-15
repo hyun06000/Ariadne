@@ -4,11 +4,11 @@ parent: C052-git-optional
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "Windows 진입: 바이너리·PowerShell 설치·OS 인식 온보딩 (B·C·D)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
