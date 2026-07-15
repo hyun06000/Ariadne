@@ -205,6 +205,15 @@ func toposort(ids []string, parentsOf map[string][]string) (order []string, stuc
 // collectFsck는 위반 목록을 수집만 한다 — fsck 출력과 open/close의 쓰기 규율이 공유한다.
 var verdicts = map[string]bool{"supported": true, "partial": true, "rejected": true, "inconclusive": true}
 
+// roundVerdictOrder/roundVerdicts (v2.5, loom/C045 — 이슈 #9·#10): 라운드 전용 6-어휘.
+// invalid-method: 검증 방법 자체가 무효라 가설의 참/거짓을 판정 못함 (rejected와 다르다).
+// confounded: 교란 변수로 결론 불가. 둘 다 "방법이 틀림"을 "가설이 틀림"과 구별한다.
+var roundVerdictOrder = []string{"supported", "partial", "rejected", "inconclusive", "invalid-method", "confounded"}
+var roundVerdicts = map[string]bool{
+	"supported": true, "partial": true, "rejected": true, "inconclusive": true,
+	"invalid-method": true, "confounded": true,
+}
+
 func collectFsck(root string) (violations []string, warnings []string, nChains, nCycles int, err error) {
 	chains, err := scanChains(root)
 	if err != nil {
@@ -349,6 +358,33 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 					add("R11", loc, "superseded_by '"+sb+"'가 체인 '"+ch+"'에 없다 (전역이면 <chain>/<id>)")
 				}
 			}
+			// R15 (v2.5, loom/C045 — 이슈 #9·#10): 라운드 사전등록. rounds:N(N>1)이면 R2..RN 각각
+			// rounds/R{k}/hypothesis.md가 존재해야 한다 — 없으면 사전등록되지 않은 것이다. round.yaml의
+			// verdict가 있으면 6-어휘 중 하나여야 한다. rounds 필드가 없으면 규칙 불발(무라운드는 사정거리 밖).
+			if rv, ok := r.fields["rounds"]; ok && rv != "" {
+				n, aerr := strconv.Atoi(rv)
+				if !isDigits(rv) || aerr != nil || n < 1 {
+					add("R15", loc, "rounds '"+rv+"'는 1 이상의 정수여야 한다")
+				} else if n > 1 {
+					cdir := filepath.Join(root, ch, r.dir)
+					for k := 2; k <= n; k++ {
+						rk := filepath.Join(cdir, "rounds", fmt.Sprintf("R%d", k))
+						if _, e := os.Stat(filepath.Join(rk, "hypothesis.md")); e != nil {
+							add("R15", loc, fmt.Sprintf("rounds:%s인데 rounds/R%d/hypothesis.md가 없다 (사전등록 파일 누락)", rv, k))
+						}
+						ryp := filepath.Join(rk, "round.yaml")
+						if fi, e := os.Stat(ryp); e == nil && !fi.IsDir() {
+							rfields, _, _, perr := parseCycleYaml(ryp)
+							if perr == nil {
+								if rverd := rfields["verdict"]; rverd != "" && !roundVerdicts[rverd] {
+									add("R15", loc, fmt.Sprintf("rounds/R%d/round.yaml verdict '%s'는 %s 중 하나여야 한다",
+										k, rverd, strings.Join(roundVerdictOrder, "|")))
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 		for num, dupes := range numbers {
 			if len(dupes) > 1 {
@@ -484,6 +520,11 @@ func logCmd(root string) int {
 			if v := r.fields["verdict"]; v != "" { // v0.3 결말 표시
 				label = status + " · " + v
 				tally[v]++
+			}
+			if rv := r.fields["rounds"]; rv != "" && isDigits(rv) { // v2.5: 라운드는 2 이상일 때만 (무라운드 출력 불변, C045)
+				if n, _ := strconv.Atoi(rv); n > 1 {
+					label += fmt.Sprintf(" · R%d", n)
+				}
 			}
 			if dv := r.fields["deviations"]; dv != "" && isDigits(dv) {
 				if n, _ := strconv.Atoi(dv); n > 0 {
@@ -1054,7 +1095,7 @@ type supersedeArgs struct {
 type correctArgs struct {
 	root, ref, evidence, author, reason, date string
 	fields, tos                               []string
-	push, noWeb                                bool
+	push, noWeb                               bool
 }
 
 // ---------- correct: 정정 규정 (v0.5 / loom/C041, SPEC §4.1) ----------
@@ -1562,7 +1603,7 @@ func cmdHandoff(root string) error {
 }
 
 type stepArgs struct {
-	chain, cycleID, n, root string
+	chain, cycleID, n, root    string
 	git, push, noCommit, noWeb bool
 }
 
@@ -1631,6 +1672,263 @@ func cmdStep(a stepArgs) error {
 	}
 	fmt.Printf("스텝: %s/%s → %d/5 %s%s\n", a.chain, a.cycleID, n, stepNames[n], suffix)
 	refreshViewers(a.root, fmt.Sprintf("%s/%s → %d/5", a.chain, a.cycleID, n), a.noWeb, a.push)
+	return nil
+}
+
+// ---------- 라운드 (loom/C045 참조 구현 → loom/C046 Go 이식, 이슈 #9·#10) ----------
+// 라운드는 사이클 안의 (가설→검증) 단위다. R1은 기존 5스텝 문서(1-hypothesis·3-verification)이고,
+// R2부터 rounds/R{k}/{hypothesis.md, round.yaml, verification/}에 산다. cycle.yaml의 rounds:N은
+// 개수만 담고, 라운드별 메타(title·verdict·일자)는 각 round.yaml에 산다.
+// 사전등록(H1)은 fsck가 아니라 도구가 보증한다: round --open이 hypothesis.md를 verification보다 먼저 각인한다.
+
+func roundsDirPath(cycleDir string) string {
+	return filepath.Join(cycleDir, "rounds")
+}
+
+// cycleRoundsCount: cycle.yaml의 rounds 필드를 정수로 (없거나 잘못되면 1 = 단일 라운드 = 기존 문서).
+func cycleRoundsCount(fields map[string]string) int {
+	v, ok := fields["rounds"]
+	if ok && isDigits(v) {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			return n
+		}
+	}
+	return 1
+}
+
+type roundRec struct {
+	dir    string
+	fields map[string]string
+}
+
+// loadRounds: rounds/R*/round.yaml을 읽어 라운드 번호 오름차순으로 반환. 디렉토리 없으면 빈 목록.
+func loadRounds(cycleDir string) ([]roundRec, error) {
+	rdir := roundsDirPath(cycleDir)
+	entries, err := os.ReadDir(rdir)
+	if err != nil {
+		return nil, nil
+	}
+	var out []roundRec
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		yp := filepath.Join(rdir, e.Name(), "round.yaml")
+		if _, err := os.Stat(yp); err != nil {
+			continue
+		}
+		fields, _, _, err := parseCycleYaml(yp)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, roundRec{dir: e.Name(), fields: fields})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ni, nj := 0, 0
+		if isDigits(out[i].fields["round"]) {
+			ni, _ = strconv.Atoi(out[i].fields["round"])
+		}
+		if isDigits(out[j].fields["round"]) {
+			nj, _ = strconv.Atoi(out[j].fields["round"])
+		}
+		return ni < nj
+	})
+	return out, nil
+}
+
+type roundArgs struct {
+	chain, cycleID, root string
+	open, close, list    bool
+	title, verdict, date string
+	git, push, noWeb     bool
+}
+
+func cmdRound(a roundArgs) error {
+	cycleDir := filepath.Join(a.root, a.chain, a.cycleID)
+	yamlPath := filepath.Join(cycleDir, "cycle.yaml")
+	if fi, err := os.Stat(yamlPath); err != nil || fi.IsDir() {
+		return cerr("사이클이 없다: %s", filepath.Join(a.chain, a.cycleID))
+	}
+	fields, _, _, err := parseCycleYaml(yamlPath)
+	if err != nil {
+		return cerr("%v", err)
+	}
+
+	if a.list { // 부작용 없는 조회 (능력 탐침 무해, §7.2-6)
+		n := cycleRoundsCount(fields)
+		fmt.Printf("%s/%s — 라운드 %d개\n", a.chain, a.cycleID, n)
+		fmt.Printf("  R1  [기존 5스텝 문서]  %s\n", fields["title"])
+		rounds, rerr := loadRounds(cycleDir)
+		if rerr != nil {
+			return cerr("%v", rerr)
+		}
+		for _, rd := range rounds {
+			v := rd.fields["verdict"]
+			if v == "" {
+				if rd.fields["closed"] == "" {
+					v = "열림"
+				} else {
+					v = "?"
+				}
+			}
+			fmt.Printf("  R%s  [%s]  %s\n", rd.fields["round"], v, rd.fields["title"])
+		}
+		return nil
+	}
+
+	if fields["status"] == "closed" {
+		return cerr("%s/%s: 닫힌 사이클엔 라운드를 추가·수정할 수 없다 (불변)", a.chain, a.cycleID)
+	}
+
+	if a.open {
+		return roundOpen(a, cycleDir, yamlPath, fields)
+	}
+	if a.close {
+		return roundClose(a, cycleDir)
+	}
+	return cerr("--open · --close · --list 중 하나를 지정하라")
+}
+
+func roundOpen(a roundArgs, cycleDir, yamlPath string, fields map[string]string) error {
+	if a.title == "" {
+		return cerr("--open에는 --title이 필수다 — 라운드의 가설을 한 줄로")
+	}
+	newk := cycleRoundsCount(fields) + 1
+	rdir := filepath.Join(roundsDirPath(cycleDir), fmt.Sprintf("R%d", newk))
+	if _, err := os.Stat(rdir); err == nil {
+		return cerr("이미 존재한다: rounds/R%d", newk)
+	}
+	// 사전등록: hypothesis.md + round.yaml만 만든다. verification/은 만들지 않는다 (H1).
+	if err := os.MkdirAll(rdir, 0o755); err != nil {
+		return cerr("%v", err)
+	}
+	title := strings.ReplaceAll(a.title, `"`, "'")
+	hyp := fmt.Sprintf("# 라운드 R%d — 가설\n\n> **가설**: %s\n\n"+
+		"## 기각 조건 (선고정)\n\n<!-- 데이터를 보기 전에 기대값을 못박는다 -->\n", newk, title)
+	if err := os.WriteFile(filepath.Join(rdir, "hypothesis.md"), []byte(hyp), 0o644); err != nil {
+		os.RemoveAll(rdir)
+		return cerr("%v", err)
+	}
+	ry := fmt.Sprintf("round: %d\ntitle: \"%s\"\nopened: %s\nclosed: null\nverdict: null\n", newk, title, a.date)
+	if err := os.WriteFile(filepath.Join(rdir, "round.yaml"), []byte(ry), 0o644); err != nil {
+		os.RemoveAll(rdir)
+		return cerr("%v", err)
+	}
+	original, err := os.ReadFile(yamlPath)
+	if err != nil {
+		os.RemoveAll(rdir)
+		return cerr("%v", err)
+	}
+	var updated string
+	if regexp.MustCompile(`(?m)^rounds:`).MatchString(string(original)) {
+		updated = replaceFirstLine(regexp.MustCompile(`(?m)^rounds:.*$`), string(original), fmt.Sprintf("rounds: %d", newk))
+	} else { // 없으면 status 뒤에 삽입 (평탄 스키마 — 위치는 무관, 관례상 상태 계열 근처)
+		updated = insertAfterFirstLine(regexp.MustCompile(`(?m)^status:.*$`), string(original), fmt.Sprintf("rounds: %d", newk))
+	}
+	if err := os.WriteFile(yamlPath, []byte(updated), 0o644); err != nil {
+		os.RemoveAll(rdir)
+		return cerr("%v", err)
+	}
+	if err := fsckOrReport(a.root); err != nil {
+		os.WriteFile(yamlPath, original, 0o644) // 원상 복구
+		os.RemoveAll(rdir)
+		return err
+	}
+	if a.git {
+		repo := repoRoot(a.root)
+		if repo == "" {
+			return cerr("--git: 깃 저장소가 아니다")
+		}
+		rel, rerr := relToRepo(repo, cycleDir)
+		if rerr != nil {
+			return cerr("%v", rerr)
+		}
+		if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
+			return err
+		}
+		msg := fmt.Sprintf("gil: round open %s/%s R%d — 사전등록\n\n%s", a.chain, a.cycleID, newk, title)
+		if _, err := gitChecked(repo, "commit", "-m", msg, "--", rel); err != nil {
+			return err
+		}
+		if a.push {
+			gitRun(repo, "push") // check=False 대응 — 실패해도 각인은 이미 됐다
+		}
+	}
+	fmt.Printf("라운드 열림: %s/%s R%d (사전등록 — hypothesis만 각인)\n", a.chain, a.cycleID, newk)
+	refreshViewers(a.root, fmt.Sprintf("%s/%s R%d 열림", a.chain, a.cycleID, newk), a.noWeb, a.push)
+	return nil
+}
+
+func roundClose(a roundArgs, cycleDir string) error {
+	if a.verdict == "" {
+		return cerr("--close에는 --verdict가 필수다")
+	}
+	if !roundVerdicts[a.verdict] {
+		return cerr("verdict '%s'는 %s 중 하나여야 한다", a.verdict, strings.Join(roundVerdictOrder, "|"))
+	}
+	rounds, err := loadRounds(cycleDir)
+	if err != nil {
+		return cerr("%v", err)
+	}
+	var openRounds []roundRec
+	for _, r := range rounds {
+		if r.fields["closed"] == "" {
+			openRounds = append(openRounds, r)
+		}
+	}
+	if len(openRounds) == 0 {
+		return cerr("닫을 열린 라운드가 없다 — 먼저 gil round --open")
+	}
+	target := openRounds[0]
+	targetNum := 0
+	if isDigits(target.fields["round"]) {
+		targetNum, _ = strconv.Atoi(target.fields["round"])
+	}
+	for _, r := range openRounds[1:] {
+		n := 0
+		if isDigits(r.fields["round"]) {
+			n, _ = strconv.Atoi(r.fields["round"])
+		}
+		if n > targetNum {
+			target, targetNum = r, n
+		}
+	}
+	ryp := filepath.Join(roundsDirPath(cycleDir), target.dir, "round.yaml")
+	original, err := os.ReadFile(ryp)
+	if err != nil {
+		return cerr("%v", err)
+	}
+	updated := replaceFirstLine(regexp.MustCompile(`(?m)^verdict:.*$`), string(original), "verdict: "+a.verdict)
+	updated = replaceFirstLine(regexp.MustCompile(`(?m)^closed:.*$`), updated, "closed: "+a.date)
+	if err := os.WriteFile(ryp, []byte(updated), 0o644); err != nil {
+		return cerr("%v", err)
+	}
+	if err := fsckOrReport(a.root); err != nil {
+		os.WriteFile(ryp, original, 0o644) // 원상 복구
+		return err
+	}
+	if a.git {
+		repo := repoRoot(a.root)
+		if repo == "" {
+			return cerr("--git: 깃 저장소가 아니다")
+		}
+		rel, rerr := relToRepo(repo, cycleDir)
+		if rerr != nil {
+			return cerr("%v", rerr)
+		}
+		if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
+			return err
+		}
+		msg := fmt.Sprintf("gil: round close %s/%s R%d → %s", a.chain, a.cycleID, targetNum, a.verdict)
+		if _, err := gitChecked(repo, "commit", "-m", msg, "--", rel); err != nil {
+			return err
+		}
+		if a.push {
+			gitRun(repo, "push") // check=False 대응
+		}
+	}
+	fmt.Printf("라운드 닫힘: %s/%s R%d → %s\n", a.chain, a.cycleID, targetNum, a.verdict)
+	refreshViewers(a.root, fmt.Sprintf("%s/%s R%d 닫힘", a.chain, a.cycleID, targetNum), a.noWeb, a.push)
 	return nil
 }
 
@@ -1978,10 +2276,11 @@ type lastAct struct{ ago, subject string }
 
 type webCycle struct {
 	status, opened, closed, step, verdict, deviations, corrections *string // nil = JSON null
-	supersededBy                                      *string // v0.4: 전방 무효화 (nil = null)
-	title                                             string  // 참조 구현: title or ""
-	act                                               *lastAct
-	parents, lineage                                  []string
+	supersededBy                                                   *string // v0.4: 전방 무효화 (nil = null)
+	title                                                          string  // 참조 구현: title or ""
+	act                                                            *lastAct
+	parents, lineage                                               []string
+	rounds                                                         *int // v2.5 (C045): 2 이상일 때만 non-nil (무라운드 JSON 불변)
 }
 
 // supersedeRef: 참조 구현 _supersede_ref — 로컬 id면 자기 체인으로 해소한다.
@@ -2165,6 +2464,11 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 			}
 			if r.fields["status"] == "open" {
 				c.act = lastActivity(chainsRoot, name, r.dir)
+			}
+			if rv := r.fields["rounds"]; rv != "" && isDigits(rv) { // v2.5 (C045): 2 이상일 때만 키를 넣는다
+				if n, err := strconv.Atoi(rv); err == nil && n > 1 {
+					c.rounds = &n
+				}
 			}
 			wc.cycles[cid] = c
 		}
@@ -2505,6 +2809,9 @@ func webJSONPayload(d *webData, pageTitle, only string) string {
 			}
 			b.WriteString(`, "parents": ` + jsonStrList(c.parents))
 			b.WriteString(`, "lineage": ` + jsonStrList(c.lineage))
+			if c.rounds != nil { // v2.5 (C045): rounds>1일 때만 마지막 키로 (무라운드 저장소는 바이트 동일, H3)
+				b.WriteString(fmt.Sprintf(`, "rounds": %d`, *c.rounds))
+			}
 			b.WriteString("}")
 		}
 		b.WriteString("}}")
@@ -2831,6 +3138,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"open", "gil open <chain> <slug> --author <이름> [--parent …]… [--new-root] [--title …] [--lineage …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가). --author 필수, 비어있지 않은 체인은 --parent 또는 --new-root 필수 (§3.2)"},
 	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
 	{"step", "gil step <chain> <id> <n> [--no-commit] [--push]", "열린 사이클의 스텝 전이 (1~5)"},
+	{"round", "gil round <chain> <id> --open --title <t> | --close --verdict <v> | --list [--git] [--push]", "사이클 안 (가설→검증) 라운드 사전등록·마감 (v2.5, 이슈 #9·#10)"},
 	{"verify", "gil verify [chains-root] [--chain <이름>]", "닫힌 사이클의 태그↔작업 트리 대조"},
 	{"web", "gil web [chains-root] -o <출력> [--title …] [--chain …]", "자기완결적 정적 HTML 뷰어"},
 	{"pages", "gil pages [--force] [--dry-run]", "GitHub Pages 배포 워크플로 생성"},
@@ -2992,6 +3300,45 @@ func main() {
 			push:     len(flags["push"]) > 0,
 			noCommit: len(flags["no-commit"]) > 0,
 			noWeb:    len(flags["no-web"]) > 0,
+		}); err != nil {
+			fail(err)
+		}
+	case "round":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
+			"title": true, "verdict": true, "date": true, "root": true,
+			"open": false, "close": false, "list": false,
+			"git": false, "push": false, "no-web": false,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) != 2 {
+			fmt.Fprintln(os.Stderr, "사용: gil round <chain> <cycle-id> --open --title t | --close --verdict v | --list [--git] [--push] [--root r]")
+			os.Exit(2)
+		}
+		modes := 0
+		for _, m := range []string{"open", "close", "list"} {
+			if len(flags[m]) > 0 {
+				modes++
+			}
+		}
+		if modes != 1 {
+			fmt.Fprintln(os.Stderr, "사용: --open · --close · --list 중 정확히 하나를 지정하라")
+			os.Exit(2)
+		}
+		if err := cmdRound(roundArgs{
+			chain: pos[0], cycleID: pos[1],
+			root:    flagVal(flags, "root", defaultRoot),
+			open:    len(flags["open"]) > 0,
+			close:   len(flags["close"]) > 0,
+			list:    len(flags["list"]) > 0,
+			title:   flagVal(flags, "title", ""),
+			verdict: flagVal(flags, "verdict", ""),
+			date:    flagVal(flags, "date", today),
+			git:     len(flags["git"]) > 0,
+			push:    len(flags["push"]) > 0,
+			noWeb:   len(flags["no-web"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
