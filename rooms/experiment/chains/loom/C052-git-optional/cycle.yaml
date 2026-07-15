@@ -4,11 +4,11 @@ parent: C051-fsck-rule-identity
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "git 없이도 gil은 우아하게 — 비개발자 진입 문턱 낮추기 (A)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
