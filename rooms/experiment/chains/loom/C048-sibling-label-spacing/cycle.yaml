@@ -2,7 +2,7 @@ id: C048-sibling-label-spacing
 chain: loom
 parent: C047-web-topology-layout
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-15
