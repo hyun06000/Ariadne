@@ -2486,12 +2486,31 @@ func fieldPtr(fields map[string]string, key string) *string {
 	return nil
 }
 
-// layoutColumns: 참조 구현 _layout_columns — 각 노드의 (행, 안정적 레인 번호)를 계산한다.
-// 레인은 슬롯 인덱스이며 제거하지 않는다 — 빈 레인은 ""로 남겨 인덱스를 고정한다.
-// (loom/C031: 제거가 인덱스를 당겨 둘째 갈래가 col0으로 흡수되던 버그를 고침.)
+// layoutColumns: 참조 구현 _layout_columns — 각 노드의 (행=깊이, 안정적 레인 번호)를 계산한다.
+// 행 = 노드의 깊이(루트로부터 최장 경로) — 토폴로지 순서(order 인덱스)가 아니다 (loom/C047).
+// 형제 갈래는 같은 깊이=같은 행에 나란히 놓여, 세로가 노드 총수가 아니라 최장 경로로 압축된다.
+// 레인은 슬롯 인덱스이며 제거하지 않는다 — 빈 레인은 ""로 남겨 인덱스를 고정한다 (loom/C031).
 func layoutColumns(order []string, children map[string][]string) map[string][2]int {
+	// children의 역으로 parents를 구한다 (depth 계산용). 순서는 무관 — 깊이는 max다.
+	parents := map[string][]string{}
+	for p, kids := range children {
+		for _, k := range kids {
+			parents[k] = append(parents[k], p)
+		}
+	}
+	depth := map[string]int{} // 루트로부터 최장 경로. order는 토포순이라 부모가 항상 먼저 확정된다.
+	for _, node := range order {
+		d := -1
+		for _, p := range parents[node] {
+			if dp, ok := depth[p]; ok && dp > d {
+				d = dp
+			}
+		}
+		depth[node] = d + 1
+	}
 	pos := map[string][2]int{}
 	var tracks []string // tracks[i] = 그 레인에 대기 중인 자식 id, 또는 ""(빈 슬롯)
+	occupied := map[[2]int]bool{}
 	freeSlot := func() int {
 		for i, t := range tracks {
 			if t == "" {
@@ -2501,7 +2520,8 @@ func layoutColumns(order []string, children map[string][]string) map[string][2]i
 		tracks = append(tracks, "")
 		return len(tracks) - 1
 	}
-	for row, node := range order {
+	for _, node := range order {
+		row := depth[node]
 		var incoming []int
 		for i, t := range tracks {
 			if t == node {
@@ -2517,6 +2537,13 @@ func layoutColumns(order []string, children map[string][]string) map[string][2]i
 		} else {
 			col = freeSlot()
 		}
+		for occupied[[2]int{row, col}] { // D3: 레인 재사용이 같은 깊이에 겹치면 새 레인으로 민다
+			if col < len(tracks) && tracks[col] == node {
+				tracks[col] = ""
+			}
+			col = freeSlot()
+		}
+		occupied[[2]int{row, col}] = true
 		pos[node] = [2]int{row, col}
 		kids := children[node]
 		if len(kids) > 0 {
@@ -2570,8 +2597,11 @@ func renderSVG(d *webData) string {
 		}
 		lanes[name] = laneX
 		laneX += 14 + maxCol*webColW + webLabelW + webLaneGap
-		if len(ch.order) > maxRows {
-			maxRows = len(ch.order)
+		// 세로 높이는 노드 총수가 아니라 최장 경로(최대 깊이)로 정한다 (loom/C047)
+		for _, rc := range pos {
+			if rc[0]+1 > maxRows {
+				maxRows = rc[0] + 1
+			}
 		}
 	}
 	width := laneX - webLaneGap + 24
