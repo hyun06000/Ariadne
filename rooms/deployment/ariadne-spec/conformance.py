@@ -42,8 +42,18 @@ class Impl:
     def __init__(self, cmd):
         self.argv = shlex.split(cmd)
 
-    def run(self, cwd, *cli):
-        return subprocess.run(self.argv + list(cli), cwd=cwd, capture_output=True, text=True)
+    def run(self, cwd, *cli, env=None):
+        return subprocess.run(self.argv + list(cli), cwd=cwd, capture_output=True, text=True, env=env)
+
+    def run_nogit(self, cwd, *cli):
+        """git이 PATH에 없는 환경을 재현한다 (loom/C052). 런처(argv[0])는 절대경로화해
+        실행은 되게 하고, PATH는 빈 디렉토리로 두어 gil 내부의 git 조회만 실패시킨다."""
+        argv0 = shutil.which(self.argv[0]) or self.argv[0]
+        empty = os.path.join(cwd, "__no_git_path__")
+        os.makedirs(empty, exist_ok=True)
+        env = {**os.environ, "PATH": empty}
+        return subprocess.run([argv0] + self.argv[1:] + list(cli),
+                              cwd=cwd, capture_output=True, text=True, env=env)
 
 
 def make_sandbox(root):
@@ -848,6 +858,19 @@ def main():
         r = impl.run(d, "fsck")
         check("FSCK-R13", "corrections N>0인데 corrections.yaml이 없으면 위반 (R13)",
               r.returncode != 0, f"rc={r.returncode}")
+
+    # ---- NO-GIT: git 부재 환경에서 우아한 강등 (loom/C052, 비개발자 진입) ----
+    # git이 없으면 커밋할 수 없다. 그때 크래시·트레이스백·오도 경고 대신 파일을 남기고
+    # rc 0로 완주해야 한다 — 계약은 "완주 + 파일 + 무크래시"(의미), 안내 문면은 렌더(C051).
+    ng = make_sandbox(os.path.join(work, "nogit"))
+    ngcr = os.path.join(ng, "rooms/experiment/chains")
+    r = impl.run_nogit(ng, "open", "demo", "first-try",
+                       "--author", "tester", "--new-chain", "--git", "--root", ngcr)
+    yaml_made = os.path.isfile(os.path.join(ngcr, "demo", "C001-first-try", "cycle.yaml"))
+    no_crash = "Traceback" not in r.stderr and "panic:" not in r.stderr
+    check("NO-GIT-GRACEFUL", "git 부재에서 open이 rc0 + 사이클 파일 생성 + 무크래시 (파일은 남고 각인만 건너뜀)",
+          r.returncode == 0 and yaml_made and no_crash,
+          f"rc={r.returncode} yaml={yaml_made} crash={not no_crash} err={r.stderr.strip()[:80]}")
 
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)

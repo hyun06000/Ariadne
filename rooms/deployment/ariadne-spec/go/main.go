@@ -1047,42 +1047,45 @@ func cmdOpen(a openArgs) error {
 	// ---- 깃 각인 (loom/C036): 열 때부터 보이게 (SPEC §2.1-3). --push는 원장 규율과 한 몸이다. ----
 	if a.git {
 		repo := repoRoot(a.root)
-		if repo == "" {
-			return cerr("--git: 깃 저장소가 아니다")
-		}
-		rel, rerr := relToRepo(repo, dest)
-		if rerr != nil {
-			return cerr("%v", rerr)
-		}
-		paths := []string{rel}
-		if newChain { // chain.md는 사이클 디렉토리 밖(체인 최상위)이라 별도 경로다 (이슈 #14, loom/C044)
-			if cmRel, cerr2 := relToRepo(repo, filepath.Join(chainDir, "chain.md")); cerr2 == nil {
-				paths = append(paths, cmRel)
+		if repo == "" && !gitAvailable() {
+			warnGitMissingOnce() // git 부재: 크래시·하드에러 대신 파일만 남기고 강등 (loom/C052)
+		} else if repo == "" {
+			return cerr("--git: 깃 저장소가 아니다") // git 있는데 저장소 아님 = 진짜 사용자 오류
+		} else {
+			rel, rerr := relToRepo(repo, dest)
+			if rerr != nil {
+				return cerr("%v", rerr)
 			}
-		}
-		if consumed != nil { // reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
-			if resRel, cerr3 := relToRepo(repo, reservationsPath(chainDir)); cerr3 == nil {
-				paths = append(paths, resRel)
+			paths := []string{rel}
+			if newChain { // chain.md는 사이클 디렉토리 밖(체인 최상위)이라 별도 경로다 (이슈 #14, loom/C044)
+				if cmRel, cerr2 := relToRepo(repo, filepath.Join(chainDir, "chain.md")); cerr2 == nil {
+					paths = append(paths, cmRel)
+				}
 			}
-		}
-		if _, err := gitChecked(repo, append([]string{"add", "-A", "--"}, paths...)...); err != nil {
-			return err
-		}
-		msg := fmt.Sprintf("gil: open %s/%s — 1/5 %s\n\n%s", a.chain, cid, stepNames[1], title)
-		if consumed != nil {
-			msg += fmt.Sprintf("\n(예약 승격: %s의 C%03d 예약을 소비)", a.author, consumed.num)
-		}
-		if _, err := gitChecked(repo, append([]string{"commit", "-m", msg, "--"}, paths...)...); err != nil {
-			return err
-		}
-		if a.push && consumed == nil { // 예약 승격은 격리 브랜치의 일 — 원장 재번호를 적용하지 않는다
-			newCid, perr := pushWithRenumber(repo, chainDir, a.chain, cid, title)
-			if perr != nil {
-				return perr
+			if consumed != nil { // reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
+				if resRel, cerr3 := relToRepo(repo, reservationsPath(chainDir)); cerr3 == nil {
+					paths = append(paths, resRel)
+				}
 			}
-			cid = newCid // 원장 경합으로 재번호됐을 수 있다
-		} else if a.push {
-			gitRun(repo, "push") // check=False — 예약 승격은 재번호 없이 평범 push
+			if _, err := gitChecked(repo, append([]string{"add", "-A", "--"}, paths...)...); err != nil {
+				return err
+			}
+			msg := fmt.Sprintf("gil: open %s/%s — 1/5 %s\n\n%s", a.chain, cid, stepNames[1], title)
+			if consumed != nil {
+				msg += fmt.Sprintf("\n(예약 승격: %s의 C%03d 예약을 소비)", a.author, consumed.num)
+			}
+			if _, err := gitChecked(repo, append([]string{"commit", "-m", msg, "--"}, paths...)...); err != nil {
+				return err
+			}
+			if a.push && consumed == nil { // 예약 승격은 격리 브랜치의 일 — 원장 재번호를 적용하지 않는다
+				newCid, perr := pushWithRenumber(repo, chainDir, a.chain, cid, title)
+				if perr != nil {
+					return perr
+				}
+				cid = newCid // 원장 경합으로 재번호됐을 수 있다
+			} else if a.push {
+				gitRun(repo, "push") // check=False — 예약 승격은 재번호 없이 평범 push
+			}
 		}
 	}
 	promote := ""
@@ -1114,6 +1117,10 @@ func reserveCommitPush(chainsRoot, chainDir, chain string, git, push bool, verb,
 		return nil
 	}
 	repo := repoRoot(chainsRoot)
+	if repo == "" && !gitAvailable() {
+		warnGitMissingOnce() // git 부재: 예약 원장은 저장됨, 각인만 건너뜀 (loom/C052)
+		return nil
+	}
 	if repo == "" {
 		return cerr("--git: 깃 저장소가 아니다")
 	}
@@ -1237,6 +1244,8 @@ func cmdClose(a closeArgs) error {
 		if tagExists(repo, tag) {
 			return cerr("태그 '%s'가 이미 존재한다", tag)
 		}
+	} else if !a.noCommit && !gitAvailable() {
+		warnGitMissingOnce() // git 부재: 보고서 저장은 되고 각인·태그만 건너뜀 (loom/C052)
 	} else if a.git && !a.noCommit {
 		return cerr("--git: 깃 저장소가 아니다 — %s", a.root)
 	}
@@ -1901,6 +1910,8 @@ func cmdStep(a stepArgs) error {
 					return err
 				}
 			}
+		} else if !gitAvailable() {
+			warnGitMissingOnce() // git 부재: 파일은 저장됨, 각인만 건너뜀 (loom/C052)
 		}
 	}
 	suffix := ""
@@ -2172,6 +2183,24 @@ func roundClose(a roundArgs, cycleDir string) error {
 // ---------- 깃 바인딩 (loom/C017) ----------
 
 // gitRun: 깃 CLI 호출 — 참조 구현의 subprocess.run(["git", "-C", repo, ...])에 대응.
+// gitAvailable: git 실행 파일이 PATH에 있는가. 없으면 비개발자 환경 — 각인은 건너뛰고 파일만 남긴다 (loom/C052).
+func gitAvailable() bool {
+	_, err := exec.LookPath("git")
+	return err == nil
+}
+
+var gitMissingWarned bool
+
+// warnGitMissingOnce: git 부재를 프로세스당 한 번만, 원인을 정확히 지목해 알린다 (하류 증상 오도 금지, loom/C052).
+func warnGitMissingOnce() {
+	if gitMissingWarned {
+		return
+	}
+	gitMissingWarned = true
+	fmt.Fprintln(os.Stderr, "ℹ git이 없어 각인(커밋)을 건너뛴다 — 사이클 파일은 저장됐다. "+
+		"git 설치(https://git-scm.com) 후 이력·되감기·뷰어 자동갱신이 켜진다.")
+}
+
 func gitRun(repo string, args ...string) (stdout, stderr string, code int) {
 	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
 	var out, errb bytes.Buffer
@@ -3400,9 +3429,9 @@ func refreshViewers(chainsRoot, label string, noWeb, push bool) {
 	repo := repoRoot(chainsRoot)
 	root := repo
 	if root == "" {
-		if wd, err := os.Getwd(); err == nil {
-			root = wd
-		}
+		// git 부재 시 뷰어 검색을 임의의 cwd가 아니라 저장소 루트에 고정한다
+		// (안 그러면 cwd의 무관한 HTML을 주워 "렌더할 체인이 없다" 헛경고, loom/C052).
+		root = filepath.Clean(filepath.Join(chainsRoot, "..", "..", ".."))
 	}
 	viewers := findViewers(root)
 	if len(viewers) == 0 {
@@ -3503,7 +3532,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.10.0" // gil:version
+const gilVersion = "2.11.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
