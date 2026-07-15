@@ -4,11 +4,11 @@ parent: C050-go-reserve-port
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "fsck의 규칙 식별을 판정기가 보게 한다 — 진단면의 계약/렌더 경계"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
