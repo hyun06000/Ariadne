@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.8.0] — 2026-07-15
+
+- 새로고침 없는 실시간 관찰 — gil web --refresh(meta)·--watch (loom/C049)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.7.0] — 2026-07-15
 
 - 형제 라벨 겹침 해소 — 열 간격을 라벨 폭으로 (loom/C048)
