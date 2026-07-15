@@ -4,11 +4,11 @@ parent: C053-windows-entry
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-16
-closed: null
+closed: 2026-07-16
 title: ""
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
