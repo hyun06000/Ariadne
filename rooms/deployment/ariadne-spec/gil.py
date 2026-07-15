@@ -829,10 +829,18 @@ def cmd_unreserve(args):
 # ---------- 웹 뷰어 (log와 같은 파서, 다른 렌더러) ----------
 
 def _layout_columns(order, cycles, children):
-    """각 노드의 (행, 안정적 레인 번호)를 계산한다.
-    레인은 슬롯 인덱스이며 pop하지 않는다 — 빈 레인은 None으로 남겨 인덱스를 고정한다.
-    (loom/C031: pop이 인덱스를 당겨 둘째 갈래가 col0으로 흡수되던 버그를 고침.)"""
-    pos, tracks = {}, []  # tracks[i] = 그 레인에 대기 중인 자식 id, 또는 None(빈 슬롯)
+    """각 노드의 (행=깊이, 안정적 레인 번호)를 계산한다.
+    - 행 = 노드의 깊이(루트로부터 최장 경로) — 토폴로지 순서(order 인덱스)가 아니다 (loom/C047).
+      형제 갈래는 같은 깊이=같은 행에 나란히 놓여, 세로가 노드 총수가 아니라 최장 경로로 압축된다.
+      부모가 같은 갈래끼리는 서로 영향을 주지 않으니 시간 순서로 누적할 이유가 없다 (발의: 박상현).
+    - 레인은 슬롯 인덱스이며 pop하지 않는다 — 빈 레인은 None으로 남겨 인덱스를 고정한다 (loom/C031).
+      선형 체인은 깊이가 순차 증가하므로 좌표가 기존과 동일하다 (하위호환)."""
+    depth = {}  # 루트로부터 최장 경로. order는 토포순이라 부모가 항상 먼저 확정된다.
+    for node in order:
+        ps = [p for p in cycles[node]["parents"] if p in depth]
+        depth[node] = (max(depth[p] for p in ps) + 1) if ps else 0
+
+    pos, tracks, occupied = {}, [], set()  # tracks[i] = 대기 자식 id 또는 None; occupied = 점유된 (행,열)
 
     def free_slot():
         for i, t in enumerate(tracks):
@@ -841,7 +849,8 @@ def _layout_columns(order, cycles, children):
         tracks.append(None)
         return len(tracks) - 1
 
-    for row, node in enumerate(order):
+    for node in order:
+        row = depth[node]
         incoming = [i for i, t in enumerate(tracks) if t == node]
         if incoming:
             col = incoming[0]
@@ -849,6 +858,11 @@ def _layout_columns(order, cycles, children):
                 tracks[i] = None
         else:
             col = free_slot()
+        while (row, col) in occupied:  # D3: 레인 재사용이 같은 깊이에 겹치면 새 레인으로 민다
+            if tracks[col] == node:
+                tracks[col] = None
+            col = free_slot()
+        occupied.add((row, col))
         pos[node] = (row, col)
         kids = children[node]
         if kids:
@@ -983,7 +997,8 @@ def _render_svg(data):
             node_xy[f"{name}/{cid}"] = (lane_x + 14 + col * _COL_W, _TOP_PAD + 28 + row * _ROW_H)
         lanes[name] = lane_x
         lane_x += 14 + max_col * _COL_W + label_w + _LANE_GAP
-        max_rows = max(max_rows, len(chain["order"]))
+        # 세로 높이는 노드 총수가 아니라 최장 경로(최대 깊이)로 정한다 — 형제 갈래는 같은 행에 나란히 (loom/C047)
+        max_rows = max(max_rows, max((r for r, _ in pos.values()), default=-1) + 1)
     width = max(lane_x - _LANE_GAP + 24, 320)
     height = _TOP_PAD + 28 + max(max_rows - 1, 0) * _ROW_H + 56
 
