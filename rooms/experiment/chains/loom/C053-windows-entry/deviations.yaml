@@ -1,0 +1,25 @@
+# 사전등록(1-hypothesis.md)으로부터의 이탈 기록 — 스키마 v0.3 (maru의 이슈 #1)
+# 이탈은 위반이 아니라 합법이다. 다만 보여야 한다.
+
+- id: D1
+  what: C 게이트 검증 방법 (pwsh 실행 → 이식 가능 셸의 동치 알고리즘 검증)
+  registered: |
+    1-hypothesis.md "검증의 정직한 경계": C 게이트 로직을 pwsh(PowerShell Core)를 설치해
+    실행 검증한다 — pwsh의 Get-FileHash/Invoke-WebRequest/Select-String이 Windows와 동일 cmdlet이므로.
+  actual: |
+    pwsh 설치가 이 환경에서 성립하지 않았다 (brew의 powershell·powershell@preview 캐스크 모두
+    exit 0으로 끝났으나 실제 바이너리가 배치되지 않음, caskroom 디렉토리 부재). 그래서 게이트의
+    안전 속성(해시 일치 → gil.exe 승격 / 불일치 → 미생성)을 이식 가능한 셸(shasum + 비교)로
+    동치 검증했다 (C1·C2 통과). PowerShell cmdlet의 실제 런타임 동작은 수신자 검증으로 이관했다.
+  why: |
+    게이트의 계약은 "검증된 것만 gil.exe가 된다"는 알고리즘이지 특정 셸의 cmdlet이 아니다.
+    알고리즘 동치는 검증됐고, cmdlet 번역은 문서된 표준 동작에 맞춰 구성했다. 그리고 실제
+    Windows PowerShell은 pwsh-on-Mac보다 진짜 수신 환경이라 (C024 "수신자가 테스트") 검증
+    소유자로 더 적합하다 — pwsh-on-Mac 검증은 어차피 부분 대리에 불과했다.
+  alternative_rejected: |
+    (a) pwsh 설치를 계속 시도 — 두 캐스크 실패 후 시간 대비 한계 효용이 낮고, 얻어도 부분 대리 검증.
+    (b) 검증 없이 스니펫만 게시 — 게이트 알고리즘조차 확인 안 하는 것은 C037 정신 위반이라 거부.
+  impact: |
+    C 게이트의 안전 속성은 검증됨(양경로). Windows PowerShell cmdlet 런타임 + .exe 실제 실행은
+    수신자(상현님/친구) 검증으로 명시 이관 — 이 사이클이 supported인 근거는 "내부 일관성 +
+    게이트 알고리즘 정확성 + 회귀 0"이며, Windows 런타임은 사전등록된 경계이지 미검증 주장이 아니다.
