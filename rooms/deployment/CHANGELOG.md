@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.13.0] — 2026-07-16
+
+- --push 원격 부재 우아화 + 네트워크 자세 문서화 (loom/C054)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.12.0] — 2026-07-15
 
 - Windows 바이너리 타깃 + PowerShell 설치 게이트 + OS·git 인식 온보딩 (loom/C053)
