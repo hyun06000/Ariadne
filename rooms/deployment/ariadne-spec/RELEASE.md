@@ -1,5 +1,16 @@
 # Ariadne Spec — Release
 
+## v2.8.0 (2026-07-15) — 새로고침 없는 실시간 관찰 (loom/C049, 발의: 박상현)
+
+병렬 존재(워크트리)의 진행을 보려면 매번 브라우저를 새로고침해야 했다. 파일 갱신(C042 자동 재굽기, gil step마다)은 이미 있었으나, **브라우저 반영**이 빠진 조각이었다.
+
+- **`gil web --refresh N`** (양 구현): 뷰어 `<head>`에 `<meta http-equiv="refresh" content="N">`을 넣는다 — JS 아닌 HTML 표준(자기완결 계약 유지, 외부 리소스 0)으로 N초마다 리로드. JSON `bake`에 `"refresh": N`을 **있을 때만** 기록.
+- **자동 재굽기가 refresh를 보존한다** (핵심): `_bake_meta`가 bake에서 refresh를 읽어 재굽기에 넘긴다. 그래서 `gil step`이 원장을 바꿀 때마다 파일이 갱신되고 meta refresh가 브라우저를 리로드 = **새로고침 없는 실시간**. bake가 없으면 두 번째 리로드부터 meta를 잃어 죽는다("산출물이 자기 생성 조건을 말한다" — C042가 refresh에도 참).
+- **`gil web --watch [--interval N]`** (양 구현): 원장 mtime을 감시해 변경 시 재생성, `--refresh` 함축. gil을 안 거치는 외부 변경(병합·pull)도 반영. 장기 실행이라 conformance는 `--refresh`(WEB-REFRESH)만 판정.
+- 판정기 WEB-REFRESH 신설(참조 73/73·Go 65/65 회귀 0), 두 구현 web 바이트 동일(--refresh 유/무), 변이 격추. `--refresh` 없으면 개선 전과 바이트 동일(하위호환).
+
+**JS 0줄 계약이 설계를 정제했다** — 폴링/WebSocket 대신 meta refresh라는 더 단순한 답으로.
+
 ## v2.7.0 (2026-07-15) — 형제 라벨 겹침 해소 (loom/C048, 발의: 박상현)
 
 v2.6.0(토폴로지 레이아웃)이 형제 갈래를 같은 행에 놓자, 같은 위계 노드의 **이름이 겹쳐 읽을 수 없는** 부작용이 생겼다 — 열 간격(`_COL_W=26px`)이 라벨 폭(`230px`)을 수용 못 했기 때문.
