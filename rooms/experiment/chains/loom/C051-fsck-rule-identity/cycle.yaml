@@ -2,7 +2,7 @@ id: C051-fsck-rule-identity
 chain: loom
 parent: C050-go-reserve-port
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-15
