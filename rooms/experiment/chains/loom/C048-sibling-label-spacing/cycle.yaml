@@ -4,11 +4,11 @@ parent: C047-web-topology-layout
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "같은 위계 형제 노드의 라벨 겹침 해소 — 열 간격을 라벨 폭으로"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
