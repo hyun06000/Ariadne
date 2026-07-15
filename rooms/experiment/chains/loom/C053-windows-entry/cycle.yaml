@@ -1,0 +1,14 @@
+id: C053-windows-entry
+chain: loom
+parent: C052-git-optional
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "Windows 진입: 바이너리·PowerShell 설치·OS 인식 온보딩 (B·C·D)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
