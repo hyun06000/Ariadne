@@ -1,0 +1,14 @@
+id: C052-git-optional
+chain: loom
+parent: C051-fsck-rule-identity
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "git 없이도 gil은 우아하게 — 비개발자 진입 문턱 낮추기 (A)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
