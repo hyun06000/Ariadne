@@ -4,11 +4,11 @@ parent: C048-sibling-label-spacing
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-15
-closed: null
+closed: 2026-07-15
 title: "새로고침 없이 실시간 관찰 — gil web --refresh(meta)·--watch(감시 재생성)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
