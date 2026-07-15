@@ -423,6 +423,11 @@ def fsck_collect(chains, chains_root=None):
         if len(roots) > 1:
             warnings.append(("다중루트", ch, f"루트가 {len(roots)}개 — {', '.join(roots)} "
                                             f"(의도한 것이 아니면 parent 누락이다)"))
+        # R14 (v0.6): 체인 디렉토리는 chain.md를 가져야 한다 — open --new-chain이 놓치던 표면 (이슈 #14).
+        # 위반인 이유: R12(경고)와 달리 정당한 탈출구가 없다 — open --new-chain이 항상 chain.md를 만든다.
+        # v0.6에서 태어나 유예할 과거가 없다(R13의 선례). chains_root가 있을 때만 파일을 본다(R10·R13 패턴).
+        if chains_root and not os.path.isfile(os.path.join(chains_root, ch, "chain.md")):
+            violations.append(("R14", ch, "chain.md가 없다 — 체인의 문제 정의 문서가 커밋되지 않았다"))
     return violations, warnings
 
 
@@ -684,6 +689,8 @@ def cmd_open(args):
             raise ChainError("--git: 깃 저장소가 아니다")
         rel = os.path.relpath(dest, repo)
         paths = [rel]
+        if new_chain:  # chain.md는 사이클 디렉토리 밖(체인 최상위)이라 별도 경로다 (이슈 #14, loom/C044)
+            paths.append(os.path.relpath(os.path.join(chain_dir, "chain.md"), repo))
         if consumed:  # reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
             paths.append(os.path.relpath(res_path, repo) if os.path.isfile(res_path)
                          else os.path.relpath(_reservations_path(chain_dir), repo))

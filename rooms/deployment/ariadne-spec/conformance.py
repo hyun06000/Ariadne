@@ -66,8 +66,13 @@ def make_sandbox(root):
 
 
 def write_cycle(root, chain_dir, cid_dir, **fields):
-    d = os.path.join(root, "rooms", "experiment", "chains", chain_dir, cid_dir)
+    cdir = os.path.join(root, "rooms", "experiment", "chains", chain_dir)
+    d = os.path.join(cdir, cid_dir)
     os.makedirs(d, exist_ok=True)
+    cm = os.path.join(cdir, "chain.md")  # R14 (loom/C044): 정상 체인은 chain.md를 갖는다
+    if not os.path.exists(cm):
+        with open(cm, "w", encoding="utf-8") as f:
+            f.write(f"# Chain: {chain_dir}\n")
     data = {"id": cid_dir, "chain": chain_dir, "parent": "null", "lineage": "[]", "author": "fx",
             "status": "open", "opened": "2026-01-01", "closed": "null", "title": '"t"'}
     data.update(fields)
@@ -183,6 +188,18 @@ def main():
     write_cycle(root, "alpha", "C002-b", parent="C001-a")
     r = impl.run(root, "fsck")
     check("FSCK-R7", "R7 순환 탐지 (exit ≠ 0)", r.returncode != 0)
+
+    # ---- fsck R14: 체인 디렉토리는 chain.md를 가져야 한다 (loom/C044, 이슈 #14) ----
+    # OPEN-NEWCHAIN-COMMIT의 짝. fsck에만 의존한다 (open 무관 — write_cycle이 정상 체인을 심는다).
+    r14 = make_sandbox(os.path.join(work, "r14"))
+    write_cycle(r14, "demo", "C001-first-step")  # 수정된 write_cycle이 chain.md도 만든다
+    cm14 = os.path.join(r14, "rooms/experiment/chains/demo/chain.md")
+    r_ok = impl.run(r14, "fsck")   # chain.md 있음 → 위반 0
+    os.remove(cm14)
+    r_bad = impl.run(r14, "fsck")  # chain.md 없음 → R14 위반
+    check("FSCK-R14", "R14: 체인에 chain.md가 없으면 위반 (있으면 통과)",
+          r_ok.returncode == 0 and r_bad.returncode != 0 and "R14" in r_bad.stdout,
+          f"ok={r_ok.returncode} bad={r_bad.returncode} out={r_bad.stdout.strip()[:80]}")
 
     # ---- open ----
     root = make_sandbox(os.path.join(work, "open"))
@@ -461,6 +478,24 @@ def main():
               and all(p.startswith(cyc) for p in committed)
               and f"{cyc}/cycle.yaml" in committed,
               r.stderr.strip()[-120:] or str(committed))
+
+        # ---- open --new-chain --git: 새 체인의 chain.md도 같은 커밋에 (loom/C044, 이슈 #14) — 자체 샌드박스 ----
+        # 짝 항목 FSCK-R14와 함께 이슈 #14의 양면이다: open이 커밋하고, fsck가 존재를 요구한다.
+        nc = make_sandbox(os.path.join(work, "newchain"))
+
+        def ncg(*cli):
+            return subprocess.run(["git", "-C", nc, *cli], capture_output=True, text=True)
+
+        ncg("init", "-q"); ncg("config", "user.name", "fx"); ncg("config", "user.email", "fx@t")
+        r = impl.run(nc, "open", "fresh", "first-step", "--new-chain",
+                     "--title", "t", "--author", "fx", "--date", "2026-01-03", "--git")
+        nc_committed = ncg("show", "--name-only", "--format=", "HEAD").stdout.split()
+        nc_md = "rooms/experiment/chains/fresh/chain.md"
+        nc_tracked = ncg("ls-files", nc_md).stdout.strip()  # 미추적이면 빈 문자열 (_template 잡음 배제)
+        check("OPEN-NEWCHAIN-COMMIT",
+              "open --new-chain --git: 새 체인의 chain.md도 같은 커밋에 포함 (미추적으로 남기지 않는다)",
+              r.returncode == 0 and nc_md in nc_committed and nc_tracked == nc_md,
+              r.stderr.strip()[-120:] or f"committed={nc_committed} tracked={nc_tracked!r}")
 
         # ---- open --push: 번호 원장 규율 (SPEC §6-6) — 로컬 bare 원장 + 병렬 클론, 네트워크 무의존 ----
         ledger = os.path.join(work, "ledger.git")

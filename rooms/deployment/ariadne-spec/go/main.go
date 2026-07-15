@@ -372,6 +372,11 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 			warnings = append(warnings, fmt.Sprintf("다중루트\x00%s\x00루트가 %d개 — %s (의도한 것이 아니면 parent 누락이다)",
 				ch, len(roots), strings.Join(roots, ", ")))
 		}
+		// R14 (v0.6): 체인 디렉토리는 chain.md를 가져야 한다 — open --new-chain이 놓치던 표면 (이슈 #14).
+		// 위반인 이유: R12(경고)와 달리 정당한 탈출구가 없다 — open --new-chain이 항상 chain.md를 만든다.
+		if _, e := os.Stat(filepath.Join(root, ch, "chain.md")); e != nil {
+			add("R14", ch, "chain.md가 없다 — 체인의 문제 정의 문서가 커밋되지 않았다")
+		}
 	}
 	sort.Strings(violations)
 	sort.Strings(warnings)
@@ -898,12 +903,18 @@ func cmdOpen(a openArgs) error {
 		if rerr != nil {
 			return cerr("%v", rerr)
 		}
-		if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
+		paths := []string{rel}
+		if newChain { // chain.md는 사이클 디렉토리 밖(체인 최상위)이라 별도 경로다 (이슈 #14, loom/C044)
+			if cmRel, cerr2 := relToRepo(repo, filepath.Join(chainDir, "chain.md")); cerr2 == nil {
+				paths = append(paths, cmRel)
+			}
+		}
+		if _, err := gitChecked(repo, append([]string{"add", "-A", "--"}, paths...)...); err != nil {
 			return err
 		}
-		if _, err := gitChecked(repo, "commit", "-m",
+		if _, err := gitChecked(repo, append([]string{"commit", "-m",
 			fmt.Sprintf("gil: open %s/%s — 1/5 %s\n\n%s", a.chain, cid, stepNames[1], title),
-			"--", rel); err != nil {
+			"--"}, paths...)...); err != nil {
 			return err
 		}
 		if a.push {
@@ -2816,7 +2827,7 @@ const gilVersion = "2.3.0" // gil:version
 // 목록을 두 번 적지 않는다: 여기에 없는 것은 이 바이너리에 없다.
 var commandTable = []struct{ name, usage, desc string }{
 	{"log", "gil log [chains-root] [--chain <이름>]", "체인 계보를 ASCII 그래프로"},
-	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R13 위반 전수 수집·보고"},
+	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R14 위반 전수 수집·보고"},
 	{"open", "gil open <chain> <slug> --author <이름> [--parent …]… [--new-root] [--title …] [--lineage …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가). --author 필수, 비어있지 않은 체인은 --parent 또는 --new-root 필수 (§3.2)"},
 	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
 	{"step", "gil step <chain> <id> <n> [--no-commit] [--push]", "열린 사이클의 스텝 전이 (1~5)"},
