@@ -2161,7 +2161,7 @@ func cmdVerify(a verifyArgs) (int, error) {
 
 const (
 	webRowH    = 64 // _ROW_H
-	webColW    = 26 // _COL_W
+	webColW    = 260 // _COL_W — 같은 행 형제 라벨 겹침 방지 (loom/C048; 선형은 col0만 써 불변)
 	webLaneGap = 60 // _LANE_GAP
 	webTopPad  = 46 // _TOP_PAD
 	webLabelW  = 230

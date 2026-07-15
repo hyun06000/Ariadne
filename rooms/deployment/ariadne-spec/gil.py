@@ -914,7 +914,9 @@ padding:1px 8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
 .gil footer{color:var(--muted);font-size:11.5px}
 """.strip()
 
-_ROW_H, _COL_W, _LANE_GAP, _TOP_PAD = 64, 26, 60, 46
+# _COL_W: 열 간 x 거리. C047(형제를 같은 행에) 이후 같은 행 형제의 라벨(노드 오른쪽 x+16, 폭 ≤230)이
+# 겹치지 않으려면 열 간격이 라벨을 수용해야 한다 → 260 (loom/C048). 선형 체인은 col0만 써서 불변.
+_ROW_H, _COL_W, _LANE_GAP, _TOP_PAD = 64, 260, 60, 46
 
 
 def _last_activity(chains_root, chain, cid_dir):
