@@ -29,7 +29,8 @@ UNIMPLEMENTED = 3  # SPEC §7.2-4: 미구현·미지 명령의 통일된 종료 
 # 자기보고와 실제가 어긋나는 것은 금지다. 이 목록 자체가 목록형 규칙이며 — SPEC이 자라면 함께 자라야 한다.
 CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release", "version",
                      "handoff", "supersede", "goto", "pages", "web", "help", "correct",
-                     "reserve", "unreserve"]  # loom/C043 (이슈 #13) — 부분 구현은 합법, 거짓 보고만 불법
+                     "reserve", "unreserve",  # loom/C043 (이슈 #13) — 부분 구현은 합법, 거짓 보고만 불법
+                     "round"]  # loom/C045 (이슈 #9·#10) — 라운드. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
 
 
 def check(cid, desc, cond, detail=""):
@@ -355,6 +356,96 @@ def main():
         check("UNRESERVE", "unreserve 2 → 예약 제거(exit 0), 없는 99 → 거부",
               r_ok.returncode == 0 and after == [] and r_bad.returncode != 0,
               f"ok={r_ok.returncode} 잔여={after} bad={r_bad.returncode}")
+
+    # ---- 라운드 (SPEC §2.2 · 스키마 rounds · fsck R15 — loom/C045, 이슈 #9·#10) ----
+    # 검증 안의 (가설→검증) 반복을 사전등록 데이터로. R1은 기존 5스텝 문서 — 첫 round --open이 R2를 만든다.
+    # 부분 구현 합법: round를 훅에 나열한 구현만 판정한다 (나열 안 한 구현의 정직성은 HELP-COMPLETE가 판정).
+    if "round" in claimed:
+        def round_sandbox(tag):
+            p = make_sandbox(os.path.join(work, tag))
+            impl.run(p, "open", "eda", "irrigctl", "--new-chain", "--title", "t",
+                     "--author", "maru", "--date", "2026-01-01")
+            return p
+
+        def cdir_of(root, cid="C001-irrigctl"):
+            return os.path.join(root, "rooms/experiment/chains/eda", cid)
+
+        # ROUND-OPEN + ROUND-PREREG: round --open이 R2를 사전등록 —
+        # hypothesis.md·round.yaml 생성, cycle.yaml rounds=2, verification/ 부재 (사전등록 순서, H1)
+        rroot = round_sandbox("round-open")
+        r = impl.run(rroot, "round", "eda", "C001-irrigctl", "--open",
+                     "--title", "집중도로 판정", "--date", "2026-01-02")
+        r2 = os.path.join(cdir_of(rroot), "rounds", "R2")
+        cy = open(os.path.join(cdir_of(rroot), "cycle.yaml"), encoding="utf-8").read() \
+            if os.path.isfile(os.path.join(cdir_of(rroot), "cycle.yaml")) else ""
+        check("ROUND-OPEN", "round --open이 R2를 사전등록 (hypothesis.md·round.yaml, cycle.yaml rounds=2)",
+              r.returncode == 0 and os.path.isfile(os.path.join(r2, "hypothesis.md"))
+              and os.path.isfile(os.path.join(r2, "round.yaml")) and "rounds: 2" in cy,
+              f"rc={r.returncode}")
+        check("ROUND-PREREG", "사전등록: round --open이 verification/을 만들지 않는다 (hypothesis가 먼저, H1)",
+              not os.path.isdir(os.path.join(r2, "verification")))
+
+        # ROUND-OPEN-GIT: --git 커밋이 hypothesis·round.yaml만 담고 verification은 안 담는다 (사전등록 순서)
+        if not args.skip_git:
+            groot = make_sandbox(os.path.join(work, "round-git"))
+            def gg(*a):
+                return subprocess.run(["git", *a], cwd=groot, capture_output=True, text=True)
+            gg("init", "-q"); gg("config", "user.name", "fx"); gg("config", "user.email", "fx@t")
+            impl.run(groot, "open", "eda", "irrigctl", "--new-chain", "--title", "t",
+                     "--author", "maru", "--date", "2026-01-01", "--git")
+            r = impl.run(groot, "round", "eda", "C001-irrigctl", "--open",
+                         "--title", "x", "--date", "2026-01-02", "--git")
+            files = gg("show", "--stat", "--name-only", "--format=", "HEAD").stdout
+            check("ROUND-OPEN-GIT", "round --open --git 커밋이 hypothesis·round.yaml만 담고 verification 없음 (H1)",
+                  r.returncode == 0 and "rounds/R2/hypothesis.md" in files
+                  and "rounds/R2/round.yaml" in files and "rounds/R2/verification" not in files,
+                  files[:120])
+
+        # ROUND-CLOSE-VERDICT: round --close --verdict invalid-method → round.yaml에 기록 (6-어휘, H2)
+        rroot = round_sandbox("round-close")
+        impl.run(rroot, "round", "eda", "C001-irrigctl", "--open", "--title", "x", "--date", "2026-01-02")
+        r = impl.run(rroot, "round", "eda", "C001-irrigctl", "--close",
+                     "--verdict", "invalid-method", "--date", "2026-01-03")
+        ry = os.path.join(cdir_of(rroot), "rounds", "R2", "round.yaml")
+        ryc = open(ry, encoding="utf-8").read() if os.path.isfile(ry) else ""
+        check("ROUND-CLOSE-VERDICT", "round --close --verdict invalid-method 기록 (방법 무효 ≠ 가설 기각, H2)",
+              r.returncode == 0 and "verdict: invalid-method" in ryc, f"rc={r.returncode}")
+
+        # ROUND-REJECT-VOCAB: 어휘 밖 verdict 거부 + 무변화 (다른 방어선이 침묵하는 입력 — loom/C041)
+        rroot = round_sandbox("round-vocab")
+        impl.run(rroot, "round", "eda", "C001-irrigctl", "--open", "--title", "x", "--date", "2026-01-02")
+        before = snapshot(rroot)
+        r = impl.run(rroot, "round", "eda", "C001-irrigctl", "--close", "--verdict", "bogus")
+        check("ROUND-REJECT-VOCAB", "어휘 밖 라운드 verdict 거부 + 무변화",
+              r.returncode != 0 and snapshot(rroot) == before, f"rc={r.returncode}")
+
+        # ROUND-CLOSED-CYCLE: 닫힌 사이클에 round --open 거부 + 무변화 (불변)
+        croot2 = make_sandbox(os.path.join(work, "round-closed"))
+        write_cycle(croot2, "eda", "C001-done", status="closed", closed="2026-01-02", step="5")
+        before = snapshot(croot2)
+        r = impl.run(croot2, "round", "eda", "C001-done", "--open", "--title", "x")
+        check("ROUND-CLOSED-CYCLE", "닫힌 사이클에 round --open 거부 + 무변화 (불변 보호)",
+              r.returncode != 0 and snapshot(croot2) == before, f"rc={r.returncode}")
+
+        # ROUND-LIST-SAFE: round --list가 저장소를 변경하지 않는다 (상태 조회 무해)
+        rroot = round_sandbox("round-list")
+        impl.run(rroot, "round", "eda", "C001-irrigctl", "--open", "--title", "x", "--date", "2026-01-02")
+        before = snapshot(rroot)
+        r = impl.run(rroot, "round", "eda", "C001-irrigctl", "--list")
+        check("ROUND-LIST-SAFE", "round --list → exit 0 + 저장소 무변화",
+              r.returncode == 0 and snapshot(rroot) == before, f"rc={r.returncode}")
+
+        # FSCK-R15: rounds:2인데 사전등록 hypothesis.md 없으면 위반 (있으면 통과)
+        rroot = round_sandbox("round-r15")
+        impl.run(rroot, "round", "eda", "C001-irrigctl", "--open", "--title", "x", "--date", "2026-01-02")
+        r_ok = impl.run(rroot, "fsck")
+        hp = os.path.join(cdir_of(rroot), "rounds", "R2", "hypothesis.md")
+        if os.path.isfile(hp):
+            os.remove(hp)
+        r_bad = impl.run(rroot, "fsck")
+        check("FSCK-R15", "R15: rounds:N인데 사전등록 hypothesis.md 없으면 위반 (있으면 통과)",
+              r_ok.returncode == 0 and r_bad.returncode != 0 and "R15" in r_bad.stdout,
+              f"ok={r_ok.returncode} bad={r_bad.returncode}")
 
     # ---- close (자체 구축 샌드박스 — 판정 항목 간 독립: 각 검사는 자기가 판정하는 명령에만 의존한다) ----
     croot = make_sandbox(os.path.join(work, "close"))
