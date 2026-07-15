@@ -1,5 +1,16 @@
 # Ariadne Spec — Release
 
+## v2.12.0 (2026-07-15) — Windows 진입: 바이너리·PowerShell 설치·OS 인식 온보딩 (loom/C053)
+
+C052(git 없이 우아하게)가 남긴 정직한 한계 — "A만으로는 Windows 친구가 end-to-end로 못 간다" — 를 매듭짓는다. 비개발자는 Windows일 확률이 높다(상현님 통찰).
+
+- **B — Windows 바이너리**: 릴리스 워크플로가 이제 5타깃을 굽는다(`windows/amd64` 추가, `.exe` 확장자). darwin 크로스컴파일이 유효 PE32+ 산출 확인. **이 릴리스부터 `gil-windows-amd64.exe`가 GitHub Release에 게시된다.**
+- **C — PowerShell 설치 + 체크섬 게이트**: README·README.ko에 Windows 블록 신설. `Invoke-WebRequest`+`Get-FileHash`, 그리고 **검증돼야만 `gil.exe`가 태어나는** 게이트(C037 정신의 PowerShell판) — 해시 일치 시에만 `Move-Item`으로 승격, 불일치면 삭제·throw.
+- **D — OS·git 인식 온보딩**: README.ai.md가 POSIX 셸이 없으면 PowerShell 경로를 고르도록, 그리고 git이 선택임(C052)을 안내. 낡은 "29/29" 자격 문구 3곳을 "전 항목 통과(스위트가 개수 출력)"로 위임(C039 — 낡는 숫자는 없앤다).
+- 코드(gil.py·go·conformance) 무변경 → conformance 74/74×2 회귀 0. Windows **런타임**(실제 PC의 .exe·PowerShell end-to-end)은 수신자 검증 경계.
+
+**부수 감사(상현님 질문 계기)**: gil은 자체 네트워크 호출이 0 — 텔레메트리·phone-home 없음. 외부 통신은 `--push` 시 `git push`/`fetch`뿐, 사용자가 설정한 자기 원격으로만. **GitHub 없으면 아무것도 기계를 떠나지 않는다.**
+
 ## v2.11.0 (2026-07-15) — git 없이도 gil은 우아하게 (loom/C052)
 
 상현님의 실사용 제보 — 비개발자 친구가 gil을 시도했으나 **git 부재로 에러·경고 폭탄**을 맞고 이탈. 우리는 늘 git 있는 환경에서만 검증했다. 실측하니 두 구현이 서로 다르게 망가져 있었다.

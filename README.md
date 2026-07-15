@@ -24,7 +24,7 @@ Ariadne gave Theseus a ball of thread — a *clew* — so he could walk into the
 **gil** (길, Korean for *"the way/path"*; also **G**It for **L**anguage models) is a single binary:
 
 ```bash
-# macOS Apple Silicon (see Releases for darwin-amd64, linux-arm64/amd64)
+# macOS / Linux (see Releases for darwin-amd64, linux-arm64/amd64)
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
 grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
@@ -33,7 +33,19 @@ grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```
 
-No Python, no toolchain. **The checksum is not optional:** if it mismatches, the `&&` chain breaks and `gil` never becomes an executable — nothing unverified can run. (A mismatch right after a release just means the CDN lagged; wait a minute and retry.) Qualification via `conformance.py --gil "$PWD/gil"` — **29/29 means "this implementation *is* gil."**
+```powershell
+# Windows (PowerShell) — same checksum gate: gil.exe is born only if verified
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/gil-windows-amd64.exe -OutFile gil-dl.exe
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+$want = ((Select-String -Path SHA256SUMS -Pattern 'gil-windows-amd64\.exe$').Line -split '\s+')[0]
+$got  = (Get-FileHash gil-dl.exe -Algorithm SHA256).Hash.ToLower()
+if ($got -ne $want) { Remove-Item gil-dl.exe; throw "checksum mismatch — nothing unverified runs" }
+Move-Item -Force gil-dl.exe gil.exe    # verified → only now does gil.exe exist
+.\gil.exe open demo first-question --new-chain --title "smallest problem first" --author me
+.\gil.exe log; .\gil.exe fsck; .\gil.exe web -o chains.html
+```
+
+No Python, no toolchain. **git optional** — without git installed, gil skips commits and tells you why (files are still saved; install git to turn on history, rewind, and live viewer). **The checksum is not optional:** if it mismatches, the `&&` chain breaks and `gil` never becomes an executable — nothing unverified can run. (A mismatch right after a release just means the CDN lagged; wait a minute and retry.) Qualification via `conformance.py --gil "$PWD/gil"` — **a full pass (the suite prints the count) means "this implementation *is* gil."**
 
 ## The idea
 

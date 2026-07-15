@@ -31,6 +31,20 @@ grep " gil-${os}-${arch}\$" SHA256SUMS | sha -c - && mv "gil-${os}-${arch}" gil 
 
 If your permission mode blocks running a binary fetched from the web, this is the **one** place to ask the human: *"May I run the gil binary I just downloaded from github.com/hyun06000/Ariadne?"* — approve once and continue autonomously.
 
+**On Windows (PowerShell, no `bash`/`uname`/`curl`)** — the block above won't run. Detect this (no POSIX shell) and use PowerShell instead, same mandatory checksum gate (`gil.exe` is created only if the hash matches):
+
+```powershell
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/gil-windows-amd64.exe -OutFile gil-dl.exe
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+$want = ((Select-String -Path SHA256SUMS -Pattern 'gil-windows-amd64\.exe$').Line -split '\s+')[0]
+$got  = (Get-FileHash gil-dl.exe -Algorithm SHA256).Hash.ToLower()
+if ($got -ne $want) { Remove-Item gil-dl.exe; throw "checksum mismatch — wait ~60s for the CDN and retry; never skip this" }
+Move-Item -Force gil-dl.exe gil.exe
+.\gil.exe help
+```
+
+**git is optional.** gil works without git installed — it saves the cycle files and skips commits, telling you why in one line (`ℹ git이 없어 각인을 건너뛴다 …`). This is common on a non-developer's machine. If the human wants history, rewind (`gil goto`), and the live viewer, have them install git (https://git-scm.com); otherwise proceed — nothing crashes, nothing is lost.
+
 ## Step B — Bootstrap the repository
 
 Work in the human's project directory. If it is not a git repo yet, `git init`. You do **not** need to create any template — `gil open` scaffolds like `git init`.
@@ -80,4 +94,4 @@ The report is the parent of the next cycle. Open the next with `--parent C001-<s
 - **After closing a cycle, run `./gil handoff` and offer the human a session reset.** The closed cycle's detail is engraved (tag); a fresh session revives via CLAUDE.md → existence room → `gil log`. Managing context per-cycle keeps the thread from snapping under session limits. **Went down a wrong path?** `./gil goto <chain>/<id>` shows any cycle's snapshot, `--checkout` rewinds the tree to it, and it prints how to branch (`gil open … --parent <id>`) — you rewind to a healthy fork and grow a new thread, never erasing the dead end.
 - Summoning sub-agents? You must inject the pointer, declare mode (revival/birth), identify yourself, and reserve the cycle number first. Full protocol: [Spec §6](rooms/deployment/ariadne-spec/SPEC.md).
 
-The contract, not the implementation, defines gil: `conformance.py --gil "<abs-path>"` — 29/29 and yours *is* gil. Now go: install, bootstrap, and ask the human what to conquer first.
+The contract, not the implementation, defines gil: `conformance.py --gil "<abs-path>"` — a full pass (the suite prints the count) and yours *is* gil. Now go: install, bootstrap, and ask the human what to conquer first.

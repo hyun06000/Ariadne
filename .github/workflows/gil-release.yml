@@ -1,5 +1,6 @@
-# gil — v* 태그가 push되면 4타깃 바이너리를 빌드해 GitHub Release에 첨부한다.
+# gil — v* 태그가 push되면 5타깃 바이너리를 빌드해 GitHub Release에 첨부한다.
 # 빌드 run 블록은 loom/C024의 검증이 신선 클론에서 그대로 추출 실행한다.
+# Windows 타깃은 loom/C053 (비개발자·크로스플랫폼 진입) — .exe 확장자 필요.
 name: gil-release
 
 on:
@@ -21,8 +22,9 @@ jobs:
         run: |
           mkdir -p dist
           cd rooms/deployment/ariadne-spec/go
-          for T in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
-            GOOS="${T%/*}" GOARCH="${T#*/}" go build -o "../../../../dist/gil-${T%/*}-${T#*/}" main.go
+          for T in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64; do
+            EXT=""; [ "${T%/*}" = "windows" ] && EXT=".exe"   # Windows 바이너리는 .exe (loom/C053)
+            GOOS="${T%/*}" GOARCH="${T#*/}" go build -o "../../../../dist/gil-${T%/*}-${T#*/}${EXT}" main.go
           done
           cd ../../../../dist && shasum -a 256 gil-* > SHA256SUMS && ls -la
       - name: Attach to release

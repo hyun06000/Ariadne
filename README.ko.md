@@ -24,7 +24,7 @@
 **gil** (길 — 아리아드네의 실이 가리키는 것; 동시에 **G**It for **L**anguage models)은 단일 바이너리다:
 
 ```bash
-# macOS Apple Silicon (Intel·리눅스는 Releases 참조)
+# macOS / 리눅스 (Intel·arm64는 Releases 참조)
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/gil-darwin-arm64
 curl -fsSL -O https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS
 grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64 gil && chmod +x gil
@@ -33,7 +33,18 @@ grep ' gil-darwin-arm64$' SHA256SUMS | shasum -a 256 -c - && mv gil-darwin-arm64
 ./gil log && ./gil fsck && ./gil web -o chains.html
 ```
 
-파이썬도 툴체인도 불필요. **체크섬 대조는 선택이 아니다** — 불일치하면 `&&` 체인이 끊겨 `gil`은 실행 파일이 되지 못한다. 검증되지 않은 바이너리가 실행될 경로 자체가 없다. (릴리스 직후의 불일치는 CDN 지연이니 잠시 후 재시도하면 된다.) 자격은 `conformance.py --gil "$PWD/gil"` — **29/29이면 "이 구현은 gil이다."**
+```powershell
+# Windows (PowerShell) — 같은 체크섬 게이트: 검증돼야만 gil.exe가 태어난다
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/gil-windows-amd64.exe -OutFile gil-dl.exe
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+$want = ((Select-String -Path SHA256SUMS -Pattern 'gil-windows-amd64\.exe$').Line -split '\s+')[0]
+$got  = (Get-FileHash gil-dl.exe -Algorithm SHA256).Hash.ToLower()
+if ($got -ne $want) { Remove-Item gil-dl.exe; throw "체크섬 불일치 — 검증 안 된 것은 실행되지 않는다" }
+Move-Item -Force gil-dl.exe gil.exe    # 검증됨 → 이제서야 gil.exe가 존재한다
+.\gil.exe open demo first-question --new-chain --title "가장 작은 문제부터" --author me
+```
+
+파이썬도 툴체인도 불필요. **git은 선택이다** — git이 없어도 gil은 돈다(사이클 파일은 저장되고 커밋만 건너뛰며 그 이유를 한 줄로 알려준다). 이력·되감기·실시간 뷰어를 켜려면 git을 설치(https://git-scm.com)하면 된다. **체크섬 대조는 선택이 아니다** — 불일치하면 `&&` 체인이 끊겨 `gil`은 실행 파일이 되지 못한다. 검증되지 않은 바이너리가 실행될 경로 자체가 없다. (릴리스 직후의 불일치는 CDN 지연이니 잠시 후 재시도하면 된다.) 자격은 `conformance.py --gil "$PWD/gil"` — **전 항목 통과(스위트가 개수를 출력한다)면 "이 구현은 gil이다."**
 
 ## 핵심 개념
 
