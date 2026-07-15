@@ -183,12 +183,19 @@ def main():
         write_cycle(root, "alpha", "C001-first", status="closed", closed="2026-01-02")
         write_cycle(root, "alpha", spec["cid"], **{"parent": "C001-first", **spec["fields"]})
         r = impl.run(root, "fsck")
-        check(f"FSCK-{rule}", f"{rule} 위반 탐지 (exit ≠ 0)", r.returncode != 0)
+        # fsck의 계약면 = 위반 식별 집합 {(규칙 토큰, 위반 대상 id)} (SPEC §3.1, loom/C051).
+        # exit≠0만 보면 "위반이 있다"까지만 판정하고 "올바른 위반을 짚었다"는 못 본다 —
+        # 잘못된 규칙을 외치거나 규칙 토큰이 없는 구현도 만점을 받는다. 문면은 렌더(C021).
+        out = r.stdout
+        check(f"FSCK-{rule}", f"{rule} 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)",
+              r.returncode != 0 and rule in out and spec["cid"] in out, out.strip()[-120:])
     root = make_sandbox(os.path.join(work, "bad-r7"))  # R7 순환
     write_cycle(root, "alpha", "C001-a", parent="C002-b")
     write_cycle(root, "alpha", "C002-b", parent="C001-a")
     r = impl.run(root, "fsck")
-    check("FSCK-R7", "R7 순환 탐지 (exit ≠ 0)", r.returncode != 0)
+    # R7(순환)은 단일 위반 대상이 없으므로 규칙 토큰까지가 식별.
+    check("FSCK-R7", "R7 순환 식별 (exit≠0 ∧ 규칙토큰)",
+          r.returncode != 0 and "R7" in r.stdout, r.stdout.strip()[-120:])
 
     # ---- fsck R14: 체인 디렉토리는 chain.md를 가져야 한다 (loom/C044, 이슈 #14) ----
     # OPEN-NEWCHAIN-COMMIT의 짝. fsck에만 의존한다 (open 무관 — write_cycle이 정상 체인을 심는다).

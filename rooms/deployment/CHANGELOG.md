@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.10.0] — 2026-07-15
+
+- fsck 계약면(위반 식별) 명문화 + 판정기 강화 (loom/C051)
+- 도구 변경: conformance (마이너 이상 승격)
+
+
 ## [2.9.0] — 2026-07-15
 
 - Go reserve/unreserve 이식 — 완전 계약 병렬 73/73 (loom/C050, Weft)
