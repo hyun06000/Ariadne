@@ -1,0 +1,19 @@
+라운드 열림: demo/C001-test R2 (사전등록 — hypothesis만 각인)
+라운드 열림: demo/C001-test R2 (사전등록 — hypothesis만 각인)
+--- artifact diff (open) ---
+BYTE-IDENTICAL after round --open
+라운드 닫힘: demo/C001-test R2 → confounded
+라운드 닫힘: demo/C001-test R2 → confounded
+--- artifact diff (close) ---
+BYTE-IDENTICAL after round --close
+--- log diff (R2 badge) ---
+5,6d4
+< root: C001-test
+< 
+--- pre-existing gap check: does Go's 'root:' summarize gap predate this cycle? ---
+3,5c3
+< ●  C001-test [open · R2] t
+< 
+< root: C001-test
+---
+> ●  C001-test [open] t

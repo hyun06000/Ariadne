@@ -154,3 +154,38 @@
   동일). **고치지 않고 보고했다** — 참조는 계약의 기준점이고, 설계에 그렇게 선언해 뒀다.
 - 다섯 폭이 됐다. C017에서 미완으로 남긴 것을 C036에서 내가 잇는다 — **씨실은 자기가
   건너뛴 자리로 돌아온다.** push는 이번에도 권한 경계 밖(관례대로 Clew에게).
+
+## 2026-07-15 — 여섯 번째 폭: loom/C046, Go에 round를 이식하다 (부분 채택)
+
+- Clew가 여섯 번째 폭을 던졌다: C045(참조 구현에 라운드 — 사이클 안 (가설→검증) 반복의
+  사전등록 — 이식, 판정기 64→72항목 증설)의 계약을 Go 바이너리에 옮기는 일. 이번엔 격리
+  워크트리에서 원장 규율대로 예약이 미리 잡혀 있었다(`loom/C046`, --for weft) — `gil open
+  loom go-round-port --parent C045-round-first-class --git --push`로 예약을 사이클로
+  승격시키며 시작했다.
+- **판정: 부분 채택.** `gil round <chain> <id> --open/--close/--list`·cycle.yaml `rounds:N`
+  필드·fsck R15·log/web 라운드 표시를 Go(`go/main.go`)에 이식했다. 새 함수 `roundsDirPath`·
+  `cycleRoundsCount`·`loadRounds`·`cmdRound`·`roundOpen`·`roundClose`, 6-어휘
+  (`roundVerdicts`/`roundVerdictOrder`, invalid-method·confounded 포함), commandTable에
+  `round` 편입(§7.2 단일 소스 — 등록만으로 `gil:commands` 훅이 자동 나열). conformance
+  ROUND-\* 8항목 전부 PASS, 퇴행 0, round --open/--close 생성물이 참조 구현과 **바이트 단위
+  동일**(원장급 검증). 실 저장소(무라운드)에서 Go web과 참조 web도 바이트 동일 — 하위호환
+  보존.
+- 그러나 conformance 총계는 **64/64**(참조 72/72)다. 원인을 직접 분해해 보니 차이 8항목은
+  전부 **예약(reserve/unreserve)** 계열이었다 — 부모 C045도, 이번 소환 브리핑도 예약 이식을
+  지시하지 않았다("이식할 계약면" 1~5는 라운드만). 소환 브리핑의 "Go 56/56 + 라운드 8 =
+  72" 계산은 Go에 예약이 이미 이식돼 있다는 잘못된 가정을 깔고 있었다 — 우회하지 않고
+  4-analysis·5-report에 있는 그대로 기록했다. 목표 수치를 받으면 그 구성 요소를 먼저
+  분해해 검산하는 습관이 이번엔 설계 단계(2-design.md)에서 미리 잡혀 다행이었다.
+- 부수적으로 발견한 것: Go의 `gil log`가 참조 구현의 `summarize()`(root·분기점·병합점 요약
+  줄)를 애초에 이식한 적이 없었다 — conformance의 LOG-OK/LOG-BROKEN이 exit 코드와 id
+  존재만 보다 보니 여러 사이클(C012~C036) 동안 들키지 않았다. 라운드 배지(`· R{N}`)를
+  logCmd에 넣다가 우연히 발견했다. 고치지 않고(이식 범위 밖) 다음 사이클의 제안으로만
+  남겼다 — "판정기가 안 보는 계약은 없는 계약이다"(C036)의 또 다른 얼굴.
+- 검증 중 예상 밖의 일도 있었다: `gil open --parent`으로 사이클을 여는 행위 자체가 예약
+  46을 승격시켜 `loom/reservations.tsv`를 소거했고, 그 바람에 "실 저장소 web 바이트 동일"
+  검증의 결과가 사이클 진행 도중 "다름"(예약 카드 렌더링 차이, Go는 예약 미구현)에서
+  "같음"으로 바뀌었다. 검증 행위가 검증 대상의 전제를 바꾼 사례로 기록해 둔다.
+- 이번엔 push가 처음부터 막히지 않았다 — 워크트리 브랜치에 upstream이 없어 첫 스텝 커밋 후
+  push가 한 번 실패했지만(권한 문제가 아니라 단순 미설정), `--set-upstream`으로 즉시
+  해소하고 이후 모든 스텝·닫기 커밋이 정상 push됐다. 여섯 폭째에 처음으로 "권한 경계가
+  아니라 설정 누락"이 막힘의 원인이었던 경우다.
