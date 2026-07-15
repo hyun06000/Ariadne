@@ -23,7 +23,11 @@ import sys
 
 
 _STEP_NAMES = {1: "가설", 2: "설계", 3: "검증", 4: "분석", 5: "보고"}
-_VERDICTS = ("supported", "partial", "rejected", "inconclusive")  # v0.3
+_VERDICTS = ("supported", "partial", "rejected", "inconclusive")  # v0.3 사이클 결말 (R10)
+# v2.5 (loom/C045, 이슈 #9·#10): 라운드 전용 어휘 — 사이클 4-어휘에 두 값을 더한다.
+# invalid-method: 검증 방법 자체가 무효라 가설의 참/거짓을 판정 못함 (rejected와 다르다).
+# confounded: 교란 변수로 결론 불가. 둘 다 "방법이 틀림"을 "가설이 틀림"과 구별한다.
+_ROUND_VERDICTS = _VERDICTS + ("invalid-method", "confounded")
 _GIL_VERSION = "2.4.0"  # gil:version
 
 
@@ -84,6 +88,38 @@ def load_chain_records(chain_dir):
         data["lineage_list"] = _as_list(data.get("lineage"))
         records.append(data)
     return records
+
+
+# ---------- 라운드 (loom/C045 — 이슈 #9·#10) ----------
+# 라운드는 사이클 안의 (가설→검증) 단위다. R1은 기존 5스텝 문서(1-hypothesis·3-verification)이고,
+# R2부터 rounds/R{k}/{hypothesis.md, round.yaml, verification/}에 산다. cycle.yaml의 rounds:N은
+# 개수만 담고, 라운드별 메타(title·verdict·일자)는 각 round.yaml에 산다 — 평탄 파서 계약 §3.1 무손상.
+# 사전등록(H1)은 fsck가 아니라 도구가 보증한다: round --open이 hypothesis.md를 verification보다 먼저 각인한다.
+
+def _rounds_dir(cycle_dir):
+    return os.path.join(cycle_dir, "rounds")
+
+
+def _cycle_rounds(record):
+    """cycle.yaml의 rounds 필드를 정수로 (없거나 잘못되면 1 = 단일 라운드 = 기존 문서)."""
+    v = record.get("rounds")
+    return int(v) if (isinstance(v, str) and v.isdigit() and int(v) >= 1) else 1
+
+
+def _load_rounds(cycle_dir):
+    """rounds/R*/round.yaml을 읽어 라운드 번호 오름차순으로 반환. 없으면 []."""
+    rdir = _rounds_dir(cycle_dir)
+    if not os.path.isdir(rdir):
+        return []
+    out = []
+    for entry in sorted(os.listdir(rdir)):
+        yp = os.path.join(rdir, entry, "round.yaml")
+        if os.path.isfile(yp):
+            data = parse_cycle_yaml(yp)
+            data["_dir"] = entry
+            out.append(data)
+    out.sort(key=lambda d: int(d["round"]) if str(d.get("round", "")).isdigit() else 0)
+    return out
 
 
 def load_chain(chain_dir):
@@ -183,6 +219,9 @@ def render_graph(order, cycles, children):
         status = meta.get("status") or "?"
         verdict = meta.get("verdict")
         label = f"{status} · {verdict}" if verdict else status  # v0.3 결말 표시
+        rounds = meta.get("rounds")  # v2.5: 라운드 수 (2 이상일 때만 — 무라운드 출력 불변, C045)
+        if isinstance(rounds, str) and rounds.isdigit() and int(rounds) > 1:
+            label += f" · R{rounds}"
         dev = meta.get("deviations")
         mark = f" ⚠{dev}" if (isinstance(dev, str) and dev.isdigit() and int(dev) > 0) else ""
         sup = f"  ↣ superseded: {meta['superseded_by']}" if meta.get("superseded_by") else ""
@@ -405,6 +444,25 @@ def fsck_collect(chains, chains_root=None):
                         violations.append(("R11", loc, f"superseded_by '{sb}'가 존재하지 않는다"))
                 elif sb not in ids_by_chain[ch]:
                     violations.append(("R11", loc, f"superseded_by '{sb}'가 체인 '{ch}'에 없다 (전역이면 <chain>/<id>)"))
+            # R15 (v2.5, loom/C045 — 이슈 #9·#10): 라운드 사전등록. rounds:N(N>1)이면 R2..RN 각각
+            # rounds/R{k}/hypothesis.md가 존재해야 한다 — 없으면 사전등록되지 않은 것이다. round.yaml의
+            # verdict가 있으면 6-어휘 중 하나여야 한다. 위반인 이유: round --open이 항상 hypothesis.md를
+            # 만든다 — 정당한 탈출구가 없다(R14의 선례). rounds 필드가 없으면 규칙 불발 → 무라운드는 사정거리 밖(하위호환).
+            rounds_raw = r.get("rounds")
+            if rounds_raw is not None:
+                if not (isinstance(rounds_raw, str) and rounds_raw.isdigit() and int(rounds_raw) >= 1):
+                    violations.append(("R15", loc, f"rounds '{rounds_raw}'는 1 이상의 정수여야 한다"))
+                elif chains_root and int(rounds_raw) > 1:
+                    cdir = os.path.join(chains_root, ch, r["_dir"])
+                    for k in range(2, int(rounds_raw) + 1):
+                        rk = os.path.join(cdir, "rounds", f"R{k}")
+                        if not os.path.isfile(os.path.join(rk, "hypothesis.md")):
+                            violations.append(("R15", loc, f"rounds:{rounds_raw}인데 rounds/R{k}/hypothesis.md가 없다 (사전등록 파일 누락)"))
+                        ryp = os.path.join(rk, "round.yaml")
+                        if os.path.isfile(ryp):
+                            rv = parse_cycle_yaml(ryp).get("verdict")
+                            if rv is not None and rv not in _ROUND_VERDICTS:
+                                violations.append(("R15", loc, f"rounds/R{k}/round.yaml verdict '{rv}'는 {'|'.join(_ROUND_VERDICTS)} 중 하나여야 한다"))
         for num, dupes in sorted(numbers.items()):
             if len(dupes) > 1:
                 violations.append(("R1", ch, f"번호 {num} 중복: {', '.join(sorted(dupes))}"))
@@ -896,6 +954,9 @@ def _build_web_data(chains_root, only=None):
                 "last_activity": ({"ago": _ago(act[0]), "subject": act[1]} if act else None),
                 "parents": c["parents"], "lineage": c["lineage_list"],
             }
+            rounds = c.get("rounds")  # v2.5 (C045): 라운드는 2 이상일 때만 키를 넣는다 —
+            if isinstance(rounds, str) and rounds.isdigit() and int(rounds) > 1:  # 무라운드 저장소는
+                entry[cid]["rounds"] = int(rounds)                                # JSON 바이트 동일 (H3)
         res = _load_reservations(os.path.join(chains_root, name))  # loom/C043: 예약도 원장 상태 (C042)
         data[name] = {"order": order, "cycles": entry, "children": children, "reservations": res}
     return data
@@ -1009,7 +1070,8 @@ def _render_tables(data):
         rows = []
         for cid in chain["order"]:
             m = chain["cycles"][cid]
-            pill = f'<span class="pill{" closed" if m["status"] == "closed" else ""}">{html.escape(m["status"] or "?")}</span>{html.escape(_step_badge(m))}'
+            rbadge = f' · R{m["rounds"]}' if m.get("rounds") else ""  # v2.5: 라운드는 있을 때만 (무라운드 불변)
+            pill = f'<span class="pill{" closed" if m["status"] == "closed" else ""}">{html.escape(m["status"] or "?")}</span>{html.escape(_step_badge(m))}{html.escape(rbadge)}'
             parents = ", ".join(m["parents"]) or "(root)"
             lineage = ", ".join(m["lineage"]) or "—"
             act = m.get("last_activity")
@@ -1745,6 +1807,117 @@ def cmd_step(args):
     return 0
 
 
+def cmd_round(args):
+    """사이클 안에 (가설→검증) 라운드를 사전등록·마감한다 (loom/C045 — 이슈 #9·#10).
+    R1은 기존 5스텝 문서 — 첫 --open이 R2를 만든다. 사전등록(H1)은 도구가 보증한다:
+    --open은 hypothesis.md만 각인하고 verification/은 만들지 않는다 (C013 '열 때부터 보이게'의 라운드판)."""
+    chains_root = args.root
+    cycle_dir = os.path.join(chains_root, args.chain, args.cycle_id)
+    yaml_path = os.path.join(cycle_dir, "cycle.yaml")
+    if not os.path.isfile(yaml_path):
+        raise ChainError(f"사이클이 없다: {os.path.join(args.chain, args.cycle_id)}")
+    data = parse_cycle_yaml(yaml_path)
+
+    if args.list:  # 부작용 없는 조회 (능력 탐침 무해, §7.2-6)
+        n = _cycle_rounds(data)
+        print(f"{args.chain}/{args.cycle_id} — 라운드 {n}개")
+        print(f"  R1  [기존 5스텝 문서]  {data.get('title') or ''}")
+        for rd in _load_rounds(cycle_dir):
+            v = rd.get("verdict") or ("열림" if not rd.get("closed") else "?")
+            print(f"  R{rd.get('round')}  [{v}]  {rd.get('title') or ''}")
+        return 0
+
+    if data.get("status") == "closed":
+        raise ChainError(f"{args.chain}/{args.cycle_id}: 닫힌 사이클엔 라운드를 추가·수정할 수 없다 (불변)")
+
+    if args.open:
+        if not args.title:
+            raise ChainError("--open에는 --title이 필수다 — 라운드의 가설을 한 줄로")
+        newk = _cycle_rounds(data) + 1  # R1은 기존 문서 — 첫 라운드 추가는 R2
+        rdir = os.path.join(_rounds_dir(cycle_dir), f"R{newk}")
+        if os.path.exists(rdir):
+            raise ChainError(f"이미 존재한다: rounds/R{newk}")
+        os.makedirs(rdir)  # 사전등록: hypothesis.md + round.yaml만. verification/은 만들지 않는다 (H1)
+        title = (args.title or "").replace('"', "'")
+        with open(os.path.join(rdir, "hypothesis.md"), "w", encoding="utf-8") as f:
+            f.write(f"# 라운드 R{newk} — 가설\n\n> **가설**: {title}\n\n"
+                    f"## 기각 조건 (선고정)\n\n<!-- 데이터를 보기 전에 기대값을 못박는다 -->\n")
+        with open(os.path.join(rdir, "round.yaml"), "w", encoding="utf-8") as f:
+            f.write(f"round: {newk}\n"
+                    f'title: "{title}"\n'
+                    f"opened: {args.date}\n"
+                    f"closed: null\n"
+                    f"verdict: null\n")   # 6-어휘 중 하나로 닫는다 (round --close)
+        with open(yaml_path, encoding="utf-8") as f:
+            original = f.read()
+        if re.search(r"^rounds:", original, flags=re.M):
+            updated = re.sub(r"^rounds:.*$", f"rounds: {newk}", original, count=1, flags=re.M)
+        else:  # 없으면 status 뒤에 삽입 (평탄 스키마 — 위치는 무관, 관례상 상태 계열 근처)
+            updated = re.sub(r"^(status:.*)$", rf"\1\nrounds: {newk}", original, count=1, flags=re.M)
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            f.write(updated)
+        try:
+            _fsck_or_report(chains_root)
+        except ChainError:
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                f.write(original)
+            shutil.rmtree(rdir)
+            raise
+        if args.git:
+            repo = _repo_root(chains_root)
+            if not repo:
+                raise ChainError("--git: 깃 저장소가 아니다")
+            rel = os.path.relpath(cycle_dir, repo)
+            _git(repo, "add", "-A", "--", rel)
+            _git(repo, "commit", "-m",
+                 f"gil: round open {args.chain}/{args.cycle_id} R{newk} — 사전등록\n\n{title}", "--", rel)
+            if args.push:
+                _git(repo, "push", check=False)
+        print(f"라운드 열림: {args.chain}/{args.cycle_id} R{newk} (사전등록 — hypothesis만 각인)")
+        _refresh_viewers(chains_root, f"{args.chain}/{args.cycle_id} R{newk} 열림",
+                         getattr(args, "no_web", False), args.push)
+        return 0
+
+    if args.close:
+        if not args.verdict:
+            raise ChainError("--close에는 --verdict가 필수다")
+        if args.verdict not in _ROUND_VERDICTS:
+            raise ChainError(f"verdict '{args.verdict}'는 {'|'.join(_ROUND_VERDICTS)} 중 하나여야 한다")
+        open_rounds = [r for r in _load_rounds(cycle_dir) if not r.get("closed")]
+        if not open_rounds:
+            raise ChainError("닫을 열린 라운드가 없다 — 먼저 gil round --open")
+        target = max(open_rounds, key=lambda r: int(r["round"]) if str(r.get("round", "")).isdigit() else 0)
+        k = target["round"]
+        ryp = os.path.join(_rounds_dir(cycle_dir), target["_dir"], "round.yaml")
+        with open(ryp, encoding="utf-8") as f:
+            original = f.read()
+        updated = re.sub(r"^verdict:.*$", f"verdict: {args.verdict}", original, count=1, flags=re.M)
+        updated = re.sub(r"^closed:.*$", f"closed: {args.date}", updated, count=1, flags=re.M)
+        with open(ryp, "w", encoding="utf-8") as f:
+            f.write(updated)
+        try:
+            _fsck_or_report(chains_root)
+        except ChainError:
+            with open(ryp, "w", encoding="utf-8") as f:
+                f.write(original)
+            raise
+        if args.git:
+            repo = _repo_root(chains_root)
+            if not repo:
+                raise ChainError("--git: 깃 저장소가 아니다")
+            rel = os.path.relpath(cycle_dir, repo)
+            _git(repo, "add", "-A", "--", rel)
+            _git(repo, "commit", "-m",
+                 f"gil: round close {args.chain}/{args.cycle_id} R{k} → {args.verdict}", "--", rel)
+            if args.push:
+                _git(repo, "push", check=False)
+        print(f"라운드 닫힘: {args.chain}/{args.cycle_id} R{k} → {args.verdict}")
+        _refresh_viewers(chains_root, f"{args.chain}/{args.cycle_id} R{k} 닫힘",
+                         getattr(args, "no_web", False), args.push)
+        return 0
+    raise ChainError("--open · --close · --list 중 하나를 지정하라")
+
+
 # ---------- release (릴리스 porcelain) ----------
 
 _SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -2053,6 +2226,22 @@ def main(argv=None):
     p_step.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_step.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_step.set_defaults(func=cmd_step)
+
+    p_round = sub.add_parser("round", help="사이클 안에 (가설→검증) 라운드를 사전등록 (v2.5, 이슈 #9·#10)")
+    p_round.add_argument("chain")
+    p_round.add_argument("cycle_id")
+    p_round_mode = p_round.add_mutually_exclusive_group(required=True)
+    p_round_mode.add_argument("--open", action="store_true", help="새 라운드 R{N+1}을 사전등록 (hypothesis만 각인)")
+    p_round_mode.add_argument("--close", action="store_true", help="열린 라운드를 --verdict로 닫는다")
+    p_round_mode.add_argument("--list", action="store_true", help="라운드 조회 (부작용 없음)")
+    p_round.add_argument("--title", default="", help="--open 시 라운드 가설 한 줄 (필수)")
+    p_round.add_argument("--verdict", help="--close 시 라운드 결말: " + "|".join(_ROUND_VERDICTS))
+    p_round.add_argument("--date", default=today, help="일자 (기본: 오늘)")
+    p_round.add_argument("--git", action="store_true", help="사이클 디렉토리만 담아 커밋")
+    p_round.add_argument("--push", action="store_true", help="커밋 후 push")
+    p_round.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_round.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
+    p_round.set_defaults(func=cmd_round)
 
     p_close = sub.add_parser("close", help="보고서 검증 후 사이클 닫기")
     p_close.add_argument("chain")
