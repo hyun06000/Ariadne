@@ -1118,12 +1118,14 @@ def _render_tables(data):
     return "".join(out)
 
 
-def render_web_page(data, page_title, generated, only=None):
+def render_web_page(data, page_title, generated, only=None, refresh=None):
     json_payload = {
         # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
         # 추론(체인이 하나뿐이니 필터겠지)은 거짓일 수 있다 — 그래서 추측하지 않고 기록한다 (C040).
+        # v0.5 (loom/C049): refresh — 자동 리로드 주기. 자동 재굽기가 이 값을 보존해 실시간이 유지된다.
         "version": "0.4",
-        "bake": {"title": page_title, "chain": only},
+        "bake": {"title": page_title, "chain": only,
+                 **({"refresh": refresh} if refresh else {})},  # 있을 때만 (C043) — 무리프레시 바이트 동일
         "chains": {
             name: {
                 "order": chain["order"],
@@ -1148,8 +1150,11 @@ def render_web_page(data, page_title, generated, only=None):
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">{json.dumps(json_payload, ensure_ascii=False)}</script>"""
+    # v0.5 (loom/C049): meta refresh — JS 아닌 HTML 표준으로 N초마다 같은 URL 리로드 (자기완결 계약 유지)
+    refresh_meta = (f"<meta http-equiv=\"refresh\" content=\"{refresh}\">\n" if refresh else "")
     return ("<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+            f"{refresh_meta}"
             f"<title>{html.escape(page_title)}</title>\n</head>\n<body>\n{body}\n</body>\n</html>\n")
 
 
@@ -1222,12 +1227,12 @@ def cmd_pages(args):
     return 0
 
 
-def _bake_viewer(chains_root, output, title, only):
+def _bake_viewer(chains_root, output, title, only, refresh=None):
     """뷰어 하나를 굽는다 (cmd_web과 자동 갱신의 단일 소스)."""
     data = _build_web_data(chains_root, only)  # 깨진 체인이면 여기서 실패 — 파일을 쓰지 않는다
     if not data:
         raise ChainError(f"렌더할 체인이 없다: {chains_root}")
-    page = render_web_page(data, title, datetime.date.today().isoformat(), only)
+    page = render_web_page(data, title, datetime.date.today().isoformat(), only, refresh)
     with open(output, "w", encoding="utf-8") as f:
         f.write(page)
     return data
@@ -1237,8 +1242,50 @@ def cmd_web(args):
     chains_root = args.chains_root
     if not os.path.isdir(chains_root):
         raise ChainError(f"체인 루트가 없다: {chains_root}")
-    data = _bake_viewer(chains_root, args.output, args.title, args.chain)
-    print(f"생성: {args.output} (체인 {len(data)}개)")
+    refresh = getattr(args, "refresh", None)
+    if getattr(args, "watch", False):
+        return _web_watch(args, chains_root, refresh)
+    data = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh)
+    print(f"생성: {args.output} (체인 {len(data)}개)"
+          + (f" · 자동 리로드 {refresh}초" if refresh else ""))
+    return 0
+
+
+def _web_watch(args, chains_root, refresh):
+    """--watch: 원장 변경을 감시해 뷰어를 재생성한다 (loom/C049, 선택 기능).
+    gil step을 거치지 않는 외부 변경(병합·pull)도 반영한다. Ctrl-C까지 지속.
+    refresh 기본 5초 — meta refresh가 브라우저를 자동 리로드한다."""
+    import time
+    interval = getattr(args, "interval", None) or 5
+    if not refresh:
+        refresh = interval  # --watch는 자동 리로드를 함축한다
+    def snapshot():
+        out = {}
+        for base, _, files in os.walk(chains_root):
+            for n in files:
+                if n == "cycle.yaml" or n.endswith(".tsv") or n == "round.yaml":
+                    p = os.path.join(base, n)
+                    try:
+                        out[p] = os.path.getmtime(p)
+                    except OSError:
+                        pass
+        return out
+    data = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh)
+    print(f"감시 시작: {args.output} (체인 {len(data)}개, {interval}초 간격, 자동 리로드 {refresh}초). Ctrl-C로 종료.")
+    last = snapshot()
+    try:
+        while True:
+            time.sleep(interval)
+            cur = snapshot()
+            if cur != last:
+                last = cur
+                try:
+                    d = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh)
+                    print(f"  ✎ 재생성: {args.output} (체인 {len(d)}개)")
+                except ChainError as e:
+                    print(f"경고: 재생성 실패 — {e}", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\n감시 종료.")
     return 0
 
 
@@ -1275,15 +1322,16 @@ def _find_viewers(root):
 
 
 def _bake_meta(text):
-    """뷰어가 스스로 보고한 굽기 조건. 없으면(구버전) 기본값 — 추측하지 않고 도구의 기본으로 돌아간다."""
+    """뷰어가 스스로 보고한 굽기 조건. 없으면(구버전) 기본값 — 추측하지 않고 도구의 기본으로 돌아간다.
+    refresh(loom/C049)도 함께 읽어 자동 재굽기가 자동 리로드를 보존하게 한다."""
     m = re.search(r'id="gil-data">(.*?)</script>', text, flags=re.S)
     if m:
         try:
             bake = json.loads(m.group(1)).get("bake") or {}
-            return bake.get("title") or _WEB_DEFAULT_TITLE, bake.get("chain")
+            return bake.get("title") or _WEB_DEFAULT_TITLE, bake.get("chain"), bake.get("refresh")
         except (ValueError, AttributeError):
             pass
-    return _WEB_DEFAULT_TITLE, None
+    return _WEB_DEFAULT_TITLE, None, None
 
 
 def _refresh_viewers(chains_root, label, no_web=False, push=False):
@@ -1300,8 +1348,8 @@ def _refresh_viewers(chains_root, label, no_web=False, push=False):
             return  # 뷰어를 쓰지 않는 사용자에게 파일을 강요하지 않는다
         changed = []
         for path, text in viewers:
-            title, only = _bake_meta(text)
-            _bake_viewer(chains_root, path, title, only)
+            title, only, refresh = _bake_meta(text)  # refresh 보존 (loom/C049) — 재굽기가 자동 리로드를 잃지 않게
+            _bake_viewer(chains_root, path, title, only, refresh)
             with open(path, encoding="utf-8") as f:
                 if f.read() != text:
                     changed.append(path)
@@ -2335,6 +2383,9 @@ def main(argv=None):
     p_web.add_argument("-o", "--output", default="ariadne-chains.html", help="출력 파일 경로")
     p_web.add_argument("--title", default=_WEB_DEFAULT_TITLE, help="페이지 제목")
     p_web.add_argument("--chain", help="특정 체인만")
+    p_web.add_argument("--refresh", type=int, help="meta refresh 주기(초) — 새로고침 없이 자동 리로드 (v2.8, C049)")
+    p_web.add_argument("--watch", action="store_true", help="원장 변경을 감시해 뷰어 재생성 (--refresh 함축, C049)")
+    p_web.add_argument("--interval", type=int, help="--watch 감시 간격(초, 기본 5)")
     p_web.set_defaults(func=cmd_web)
 
     p_help = sub.add_parser("help", help="구현 명령 목록 — gil help <명령>이면 그 명령의 사용법")
