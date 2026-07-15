@@ -1,0 +1,14 @@
+id: C050-go-reserve-port
+chain: loom
+parent: C046-go-round-port
+lineage: []
+step: 1
+author: weft
+status: open
+opened: 2026-07-15
+closed: null
+title: "Go 구현에 reserve/unreserve 이식 → 완전 계약 병렬 (73/73)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
