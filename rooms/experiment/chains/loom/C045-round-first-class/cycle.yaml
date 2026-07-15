@@ -1,0 +1,14 @@
+id: C045-round-first-class
+chain: loom
+parent: C044-chain-md-commit
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "라운드를 1급 시민으로 — 검증 안의 (가설→검증) 반복을 사전등록 데이터로"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
