@@ -1,0 +1,14 @@
+id: C049-live-viewer-refresh
+chain: loom
+parent: C048-sibling-label-spacing
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-15
+closed: null
+title: "새로고침 없이 실시간 관찰 — gil web --refresh(meta)·--watch(감시 재생성)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
