@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.12.0] — 2026-07-15
+
+- Windows 바이너리 타깃 + PowerShell 설치 게이트 + OS·git 인식 온보딩 (loom/C053)
+- 도구 변경: 없음 (문서 릴리스)
+
+
 ## [2.11.0] — 2026-07-15
 
 - git 부재 우아한 강등 + NO-GIT-GRACEFUL 판정기 (loom/C052, 비개발자 진입 A)
