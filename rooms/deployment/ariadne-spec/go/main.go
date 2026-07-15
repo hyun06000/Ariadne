@@ -572,6 +572,13 @@ func logCmd(root string) int {
 			}
 			fmt.Println(line)
 		}
+		// 예약은 사이클이 아니다 — 그래프 밖 별도 섹션 (loom/C043). 무예약이면 출력 불변.
+		if reservations := loadReservations(filepath.Join(root, ch)); len(reservations) > 0 {
+			fmt.Println("\n예약됨 (아직 사이클 아님 — 번호 공간 선점):")
+			for _, rv := range reservations {
+				fmt.Printf("  C%03d  → %s  (%s, %s)\n", rv.num, rv.who, rv.slug, rv.date)
+			}
+		}
 		fmt.Println()
 	}
 	return 0
@@ -616,8 +623,15 @@ func fsckOrReport(chainsRoot string) error {
 	return nil
 }
 
-func nextNumber(records []cycle) int {
+// nextNumber: 다음 번호 = max(사이클 번호 ∪ 예약 번호) + 1 (참조 _next_number).
+// 예약(loom/C043)은 사이클이 아니지만 번호 공간을 선점한다 — 남의 예약 번호는 자동 발급되지 않는다.
+func nextNumber(records []cycle, reservedNums []int) int {
 	max := 0
+	for _, n := range reservedNums {
+		if n > max {
+			max = n
+		}
+	}
 	for _, r := range records {
 		if m := idRe.FindStringSubmatch(r.fields["id"]); m != nil {
 			if n, err := strconv.Atoi(m[1]); err == nil && n > max {
@@ -626,6 +640,67 @@ func nextNumber(records []cycle) int {
 		}
 	}
 	return max + 1
+}
+
+// ---------- 번호 예약 원장 (loom/C043 — 이슈 #13) ----------
+// 예약은 사이클이 아니다. 체인 최상위의 평문 원장(reservations.tsv)에 산다 —
+// loadChain/scanChains는 <entry>/cycle.yaml만 record로 수집하므로 fsck·verify·graph는
+// 예약을 record로 보지 않는다. "예약은 사이클이 아니다"를 파일 위치가 물리적으로 보증한다.
+// 형식: 주석(#) + 예약 한 줄당 "<번호> <for> <slug> <일자>" (공백 구분, 번호 오름차순).
+
+type reservation struct {
+	num  int
+	who  string // 참조 구현의 for (예약 대상 존재의 이름 — Go 예약어라 who)
+	slug string
+	date string
+}
+
+func reservationsPath(chainDir string) string {
+	return filepath.Join(chainDir, "reservations.tsv")
+}
+
+// loadReservations: 예약 목록을 번호 오름차순으로 반환 (파일 없으면 nil).
+func loadReservations(chainDir string) []reservation {
+	data, err := os.ReadFile(reservationsPath(chainDir))
+	if err != nil {
+		return nil
+	}
+	var out []reservation
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 4 || !isDigits(parts[0]) { // 관대한 파서 — 깨진 줄은 건너뛴다
+			continue
+		}
+		n, _ := strconv.Atoi(parts[0])
+		out = append(out, reservation{num: n, who: parts[1], slug: parts[2], date: parts[3]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].num < out[j].num })
+	return out
+}
+
+const reservationsHeader = "# gil 예약 원장 — 이 파일은 사이클이 아니다 (loom/C043). 번호 공간의 선점만 기록한다.\n" +
+	"# <번호> <for> <slug> <일자>\n"
+
+// saveReservations: 예약 목록을 원장에 쓴다. 비면 파일을 지운다 (참조 _save_reservations).
+func saveReservations(chainDir string, reservations []reservation) error {
+	path := reservationsPath(chainDir)
+	if len(reservations) == 0 {
+		if _, err := os.Stat(path); err == nil {
+			return os.Remove(path)
+		}
+		return nil
+	}
+	sort.Slice(reservations, func(i, j int) bool { return reservations[i].num < reservations[j].num })
+	var b strings.Builder
+	b.WriteString(reservationsHeader)
+	for _, r := range reservations {
+		b.WriteString(fmt.Sprintf("%d %s %s %s\n", r.num, r.who, r.slug, r.date))
+	}
+	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 // copyTree: 템플릿 디렉토리를 재귀 복사한다 (심링크 없음 전제 — 템플릿은 일반 파일뿐).
@@ -746,7 +821,11 @@ func pushWithRenumber(repo, chainDir, chain, cid, title string) (string, error) 
 			continue // 경합이 번호가 아니었다 (다른 사이클의 커밋) — 재번호 없이 재시도
 		}
 		slug := cid[strings.Index(cid, "-")+1:]
-		newCid := fmt.Sprintf("C%03d-%s", nextNumber(records), slug)
+		var reserved []int // 재번호도 예약을 회피한다 (참조 _push_with_renumber)
+		for _, rv := range loadReservations(chainDir) {
+			reserved = append(reserved, rv.num)
+		}
+		newCid := fmt.Sprintf("C%03d-%s", nextNumber(records, reserved), slug)
 		oldRel, err := relToRepo(repo, filepath.Join(chainDir, cid))
 		if err != nil {
 			return cid, cerr("%v", err)
@@ -879,7 +958,26 @@ func cmdOpen(a openArgs) error {
 		}
 	}
 
-	cid := fmt.Sprintf("C%03d-%s", nextNumber(records), a.slug)
+	// 번호 예약 (loom/C043): 저자가 예약을 가지면 그 번호로 승격, 아니면 예약을 회피해 발급.
+	reservations := loadReservations(chainDir)
+	var consumed *reservation
+	for i := range reservations {
+		if reservations[i].who == a.author && (consumed == nil || reservations[i].num < consumed.num) {
+			r := reservations[i] // 자기 예약 중 가장 낮은 번호를 승격
+			consumed = &r
+		}
+	}
+	var num int
+	if consumed != nil {
+		num = consumed.num
+	} else {
+		reserved := make([]int, 0, len(reservations)) // 남의 예약 번호는 건너뛴다
+		for _, r := range reservations {
+			reserved = append(reserved, r.num)
+		}
+		num = nextNumber(records, reserved)
+	}
+	cid := fmt.Sprintf("C%03d-%s", num, a.slug)
 	dest := filepath.Join(chainDir, cid)
 	if _, err := os.Stat(dest); err == nil {
 		return cerr("이미 존재한다: %s", dest)
@@ -933,6 +1031,18 @@ func cmdOpen(a openArgs) error {
 		os.RemoveAll(dest)
 		return err
 	}
+	if consumed != nil { // 예약을 소비했다 — 원장에서 그 줄을 제거한다 (승격 = 예약의 죽음)
+		var remaining []reservation
+		for _, r := range reservations {
+			if r.num != consumed.num {
+				remaining = append(remaining, r)
+			}
+		}
+		if err := saveReservations(chainDir, remaining); err != nil {
+			os.RemoveAll(dest)
+			return cerr("%v", err)
+		}
+	}
 
 	// ---- 깃 각인 (loom/C036): 열 때부터 보이게 (SPEC §2.1-3). --push는 원장 규율과 한 몸이다. ----
 	if a.git {
@@ -950,24 +1060,151 @@ func cmdOpen(a openArgs) error {
 				paths = append(paths, cmRel)
 			}
 		}
+		if consumed != nil { // reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
+			if resRel, cerr3 := relToRepo(repo, reservationsPath(chainDir)); cerr3 == nil {
+				paths = append(paths, resRel)
+			}
+		}
 		if _, err := gitChecked(repo, append([]string{"add", "-A", "--"}, paths...)...); err != nil {
 			return err
 		}
-		if _, err := gitChecked(repo, append([]string{"commit", "-m",
-			fmt.Sprintf("gil: open %s/%s — 1/5 %s\n\n%s", a.chain, cid, stepNames[1], title),
-			"--"}, paths...)...); err != nil {
+		msg := fmt.Sprintf("gil: open %s/%s — 1/5 %s\n\n%s", a.chain, cid, stepNames[1], title)
+		if consumed != nil {
+			msg += fmt.Sprintf("\n(예약 승격: %s의 C%03d 예약을 소비)", a.author, consumed.num)
+		}
+		if _, err := gitChecked(repo, append([]string{"commit", "-m", msg, "--"}, paths...)...); err != nil {
 			return err
 		}
-		if a.push {
+		if a.push && consumed == nil { // 예약 승격은 격리 브랜치의 일 — 원장 재번호를 적용하지 않는다
 			newCid, perr := pushWithRenumber(repo, chainDir, a.chain, cid, title)
 			if perr != nil {
 				return perr
 			}
 			cid = newCid // 원장 경합으로 재번호됐을 수 있다
+		} else if a.push {
+			gitRun(repo, "push") // check=False — 예약 승격은 재번호 없이 평범 push
 		}
 	}
-	fmt.Printf("열림: %s/%s\n", a.chain, cid)
+	promote := ""
+	if consumed != nil {
+		promote = fmt.Sprintf(" (예약 승격 — %s)", a.author)
+	}
+	fmt.Printf("열림: %s/%s%s\n", a.chain, cid, promote)
 	refreshViewers(a.root, fmt.Sprintf("%s/%s 열림", a.chain, cid), a.noWeb, a.push)
+	return nil
+}
+
+// ---------- reserve / unreserve (번호 예약 원장 — loom/C043, 이슈 #13) ----------
+
+type reserveArgs struct {
+	chain, slug, author, date, root string
+	git, push                       bool
+}
+
+type unreserveArgs struct {
+	chain, number, root string
+	git, push           bool
+}
+
+var unreserveNumRe = regexp.MustCompile(`^C?0*(\d+)$`) // 44 · 044 · C044 모두 허용
+
+// reserveCommitPush: 예약 원장 변경을 커밋·push한다 (예약 원장은 사이클 밖 — 태그 봉인 무관).
+func reserveCommitPush(chainsRoot, chainDir, chain string, git, push bool, verb, cidHint string) error {
+	if !git {
+		return nil
+	}
+	repo := repoRoot(chainsRoot)
+	if repo == "" {
+		return cerr("--git: 깃 저장소가 아니다")
+	}
+	rel, err := relToRepo(repo, reservationsPath(chainDir))
+	if err != nil {
+		return cerr("%v", err)
+	}
+	if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
+		return err
+	}
+	if _, err := gitChecked(repo, "commit", "-m", fmt.Sprintf("gil: %s %s/%s", verb, chain, cidHint), "--", rel); err != nil {
+		return err
+	}
+	if push {
+		gitRun(repo, "push") // check=False
+	}
+	return nil
+}
+
+// cmdReserve: 번호 예약을 데이터로 만든다 (참조 cmd_reserve). 예약 마커가 원장에 있으면
+// 다른 워크트리의 gil open은 그 번호를 재발급하지 않는다 — push 경합 이전에 선점된다.
+func cmdReserve(a reserveArgs) error {
+	chainDir := filepath.Join(a.root, a.chain)
+	if a.author == "" { // §3.2 P1/P2 — 도구는 예약의 주인을 지어내지 않는다 (이슈 #17)
+		return cerr("예약의 주인을 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"+
+			"      존재의 이름을 명시하라:  gil reserve %s %s --for <이름>", a.chain, a.slug)
+	}
+	if !slugRe.MatchString(a.slug) {
+		return cerr("슬러그 '%s' 형식 위반 — R1: 소문자·숫자·하이픈만", a.slug)
+	}
+	if fi, err := os.Stat(chainDir); err != nil || !fi.IsDir() {
+		return cerr("체인 '%s'이 없다 — 예약은 진행 중인 체인의 다음 번호를 선점한다", a.chain)
+	}
+	if err := fsckOrReport(a.root); err != nil { // 깨진 저장소 위에는 예약하지 않는다
+		return err
+	}
+	records, err := loadChain(chainDir)
+	if err != nil {
+		return cerr("%v", err)
+	}
+	reservations := loadReservations(chainDir)
+	reserved := make([]int, 0, len(reservations))
+	for _, r := range reservations {
+		reserved = append(reserved, r.num)
+	}
+	num := nextNumber(records, reserved)
+	reservations = append(reservations, reservation{num: num, who: a.author, slug: a.slug, date: a.date})
+	if err := saveReservations(chainDir, reservations); err != nil {
+		return cerr("%v", err)
+	}
+	cidHint := fmt.Sprintf("C%03d", num)
+	if err := reserveCommitPush(a.root, chainDir, a.chain, a.git, a.push, "reserve",
+		fmt.Sprintf("%s → %s", cidHint, a.author)); err != nil {
+		return err
+	}
+	fmt.Printf("예약됨: %s/%s → %s (%s)\n", a.chain, cidHint, a.author, a.slug)
+	return nil
+}
+
+// cmdUnreserve: 예약 취소 — 만료의 수동 해법 (참조 cmd_unreserve). 없는 번호는 거부한다.
+func cmdUnreserve(a unreserveArgs) error {
+	chainDir := filepath.Join(a.root, a.chain)
+	if fi, err := os.Stat(chainDir); err != nil || !fi.IsDir() {
+		return cerr("체인 '%s'이 없다", a.chain)
+	}
+	m := unreserveNumRe.FindStringSubmatch(a.number)
+	if m == nil {
+		return cerr("번호 '%s' 형식 위반 — 정수 또는 C0NN", a.number)
+	}
+	num, _ := strconv.Atoi(m[1])
+	reservations := loadReservations(chainDir)
+	found := false
+	var remaining []reservation
+	for _, r := range reservations {
+		if r.num == num {
+			found = true
+			continue
+		}
+		remaining = append(remaining, r)
+	}
+	if !found {
+		return cerr("%s에 C%03d 예약이 없다", a.chain, num)
+	}
+	if err := saveReservations(chainDir, remaining); err != nil {
+		return cerr("%v", err)
+	}
+	if err := reserveCommitPush(a.root, chainDir, a.chain, a.git, a.push, "unreserve",
+		fmt.Sprintf("C%03d", num)); err != nil {
+		return err
+	}
+	fmt.Printf("예약 취소: %s/C%03d\n", a.chain, num)
 	return nil
 }
 
@@ -2295,10 +2532,11 @@ func supersedeRef(chain string, sb *string) string {
 }
 
 type webChain struct {
-	order      []string // 토폴로지 순서 (SVG 노드·표 행)
-	cycleOrder []string // 삽입 순서 = 디렉토리 정렬 (JSON·간선 순회)
-	cycles     map[string]*webCycle
-	children   map[string][]string
+	order        []string // 토폴로지 순서 (SVG 노드·표 행)
+	cycleOrder   []string // 삽입 순서 = 디렉토리 정렬 (JSON·간선 순회)
+	cycles       map[string]*webCycle
+	children     map[string][]string
+	reservations []reservation // loom/C043: 예약도 원장 상태 (그래프 밖, 카드로만)
 }
 
 type webData struct {
@@ -2472,6 +2710,7 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 			}
 			wc.cycles[cid] = c
 		}
+		wc.reservations = loadReservations(filepath.Join(chainsRoot, name)) // loom/C043: 예약도 원장 상태
 		d.names = append(d.names, name)
 		d.chains[name] = wc
 	}
@@ -2787,6 +3026,20 @@ func renderTables(d *webData) string {
 			`<th>parent</th><th>lineage</th><th>superseded_by</th><th>기간</th></tr></thead>`+
 			`<tbody>%s</tbody></table></div>`,
 			htmlEscape(name), len(ch.order), strings.Join(rows, "")))
+		// 예약 섹션 — 예약이 있을 때만 렌더한다 (무예약이면 이전 산출물과 바이트 동일). loom/C043.
+		if res := ch.reservations; len(res) > 0 {
+			var rres strings.Builder
+			for _, r := range res {
+				rres.WriteString(fmt.Sprintf(`<tr><td class="id">C%03d</td><td>%s</td>`+
+					`<td>%s</td><td>%s</td></tr>`,
+					r.num, htmlEscape(r.who), htmlEscape(r.slug), htmlEscape(r.date)))
+			}
+			out = append(out, fmt.Sprintf(`<div class="card"><h2>chain: %s — 예약 %d건 `+
+				`(아직 사이클 아님 · 번호 선점)</h2>`+
+				`<table><thead><tr><th>번호</th><th>예약 대상</th><th>슬러그</th>`+
+				`<th>예약일</th></tr></thead><tbody>%s</tbody></table></div>`,
+				htmlEscape(name), len(res), rres.String()))
+		}
 	}
 	return strings.Join(out, "")
 }
@@ -2848,7 +3101,20 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int) string {
 			}
 			b.WriteString("}")
 		}
-		b.WriteString("}}")
+		b.WriteString("}") // cycles 딕트 닫기
+		// 예약이 있을 때만 키를 넣는다 — 무예약 저장소는 이전 산출물과 바이트 동일 (파서 계약 보존). loom/C043.
+		if len(ch.reservations) > 0 {
+			b.WriteString(`, "reservations": [`)
+			for k, r := range ch.reservations {
+				if k > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(fmt.Sprintf(`{"num": %d, "for": %s, "slug": %s, "date": %s}`,
+					r.num, jsonStr(r.who), jsonStr(r.slug), jsonStr(r.date)))
+			}
+			b.WriteString("]")
+		}
+		b.WriteString("}") // 체인 객체 닫기
 	}
 	b.WriteString("}}")
 	return b.String()
@@ -3246,6 +3512,8 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"log", "gil log [chains-root] [--chain <이름>]", "체인 계보를 ASCII 그래프로"},
 	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R14 위반 전수 수집·보고"},
 	{"open", "gil open <chain> <slug> --author <이름> [--parent …]… [--new-root] [--title …] [--lineage …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가). --author 필수, 비어있지 않은 체인은 --parent 또는 --new-root 필수 (§3.2)"},
+	{"reserve", "gil reserve <chain> <slug> --for <이름> [--date …] [--git] [--push] [--root …]", "병렬 존재에게 사이클 번호를 예약 (원장 선점, v2.3). --for 필수 (§3.2 P1)"},
+	{"unreserve", "gil unreserve <chain> <번호> [--git] [--push] [--root …]", "예약 취소 — 만료의 수동 해법 (v2.3). 없는 번호는 거부"},
 	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
 	{"step", "gil step <chain> <id> <n> [--no-commit] [--push]", "열린 사이클의 스텝 전이 (1~5)"},
 	{"round", "gil round <chain> <id> --open --title <t> | --close --verdict <v> | --list [--git] [--push]", "사이클 안 (가설→검증) 라운드 사전등록·마감 (v2.5, 이슈 #9·#10)"},
@@ -3364,6 +3632,49 @@ func main() {
 			git:      len(flags["git"]) > 0,
 			push:     len(flags["push"]) > 0,
 			noWeb:    len(flags["no-web"]) > 0,
+		}); err != nil {
+			fail(err)
+		}
+	case "reserve":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
+			"for": true, "date": true, "root": true,
+			"git": false, "push": false, "no-web": false,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) != 2 {
+			fmt.Fprintln(os.Stderr, "사용: gil reserve <chain> <slug> --for <이름> [--date d] [--git] [--push] [--root r]")
+			os.Exit(2)
+		}
+		if err := cmdReserve(reserveArgs{
+			chain: pos[0], slug: pos[1],
+			author: flagVal(flags, "for", ""), // §3.2 P1: 기본값 없다 — 예약 주인을 지어내지 않는다
+			date:   flagVal(flags, "date", today),
+			root:   flagVal(flags, "root", defaultRoot),
+			git:    len(flags["git"]) > 0,
+			push:   len(flags["push"]) > 0,
+		}); err != nil {
+			fail(err)
+		}
+	case "unreserve":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
+			"root": true, "git": false, "push": false, "no-web": false,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) != 2 {
+			fmt.Fprintln(os.Stderr, "사용: gil unreserve <chain> <번호> [--git] [--push] [--root r]")
+			os.Exit(2)
+		}
+		if err := cmdUnreserve(unreserveArgs{
+			chain: pos[0], number: pos[1],
+			root: flagVal(flags, "root", defaultRoot),
+			git:  len(flags["git"]) > 0,
+			push: len(flags["push"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
