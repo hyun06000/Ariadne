@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-07-15
+
+- chain.md도 같은 커밋에 + fsck R14 (이슈 #14, loom/C044)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.3.0] — 2026-07-15
 
 - 번호 예약을 데이터로 — gil reserve/unreserve, 선점·승격, 예약은 사이클이 아니다 (이슈 #13, loom/C043)
