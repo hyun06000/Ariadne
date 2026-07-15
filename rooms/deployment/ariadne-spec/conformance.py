@@ -514,6 +514,19 @@ def main():
     check("WEB-JSON", 'web 내장 JSON (id="gil-data") 구조·step 일치', nodes ==
           {"demo/C001-first-step", "demo/C002-second-step"} and steps_present, str(nodes))  # lroot의 두 사이클
 
+    # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
+    # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
+    outr = os.path.join(work, "chains-refresh.html")
+    rr = impl.run(lroot, "web", "-o", outr, "--title", "t", "--refresh", "3")
+    pager = open(outr, encoding="utf-8").read() if os.path.isfile(outr) else ""
+    ext_r = re.findall(r'(?:src=|href=|url\(|@import)[^>\n]*https?://', pager)
+    mr = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pager, re.S)
+    refresh_baked = bool(mr) and (json.loads(mr.group(1)).get("bake") or {}).get("refresh") == 3
+    check("WEB-REFRESH", '--refresh N → meta refresh(자동 리로드) + bake 기록, 자기완결 유지',
+          rr.returncode == 0 and 'http-equiv="refresh" content="3"' in pager
+          and ext_r == [] and refresh_baked,
+          f"rc={rr.returncode} baked={refresh_baked} ext={ext_r}")
+
     # ---- 깃 각인 (가용 시) ----
     if args.skip_git or shutil.which("git") is None:
         print("SKIP GIT-*: 깃 검사 생략")

@@ -2793,7 +2793,7 @@ func renderTables(d *webData) string {
 
 // webJSONPayload: 참조 구현 render_web_page의 json.dumps(ensure_ascii=False)와
 // 문자 단위 동일한 직렬화 — 키 삽입 순서(정렬된 체인/사이클명)와 ", "·": " 구분자.
-func webJSONPayload(d *webData, pageTitle, only string) string {
+func webJSONPayload(d *webData, pageTitle, only string, refresh int) string {
 	var b strings.Builder
 	// v0.4 (loom/C042): bake — 산출물이 자기를 어떻게 다시 굽는지 스스로 말한다.
 	// 추론("체인이 하나뿐이니 필터겠지")은 거짓일 수 있으므로 추측하지 않고 기록한다 (C040).
@@ -2801,8 +2801,12 @@ func webJSONPayload(d *webData, pageTitle, only string) string {
 	if only != "" {
 		chainVal = jsonStr(only)
 	}
+	bakeExtra := "" // v0.5 (loom/C049): refresh는 있을 때만 (C043) — 무리프레시 바이트 동일
+	if refresh > 0 {
+		bakeExtra = `, "refresh": ` + strconv.Itoa(refresh)
+	}
 	b.WriteString(`{"version": "0.4", "bake": {"title": ` + jsonStr(pageTitle) +
-		`, "chain": ` + chainVal + `}, "chains": {`)
+		`, "chain": ` + chainVal + bakeExtra + `}, "chains": {`)
 	for i, name := range d.names {
 		if i > 0 {
 			b.WriteString(", ")
@@ -2851,7 +2855,7 @@ func webJSONPayload(d *webData, pageTitle, only string) string {
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).
-func renderWebPage(d *webData, pageTitle, generated, only string) string {
+func renderWebPage(d *webData, pageTitle, generated, only string, refresh int) string {
 	nCycles, nLineage := 0, 0
 	for _, name := range d.names {
 		ch := d.chains[name]
@@ -2874,13 +2878,23 @@ func renderWebPage(d *webData, pageTitle, generated, only string) string {
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 		webCSS, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderSVG(d), renderTables(d), webJSONPayload(d, pageTitle, only))
+		renderSVG(d), renderTables(d), webJSONPayload(d, pageTitle, only, refresh))
+	// v0.5 (loom/C049): meta refresh — JS 아닌 HTML 표준으로 N초마다 리로드 (자기완결 계약 유지)
+	refreshMeta := ""
+	if refresh > 0 {
+		refreshMeta = fmt.Sprintf("<meta http-equiv=\"refresh\" content=\"%d\">\n", refresh)
+	}
 	return "<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n" +
 		"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
+		refreshMeta +
 		"<title>" + htmlEscape(pageTitle) + "</title>\n</head>\n<body>\n" + body + "\n</body>\n</html>\n"
 }
 
-type webArgs struct{ root, output, title, chain string }
+type webArgs struct {
+	root, output, title, chain string
+	refresh, interval          int
+	watch                      bool
+}
 
 const pagesWorkflow = `# gil-pages — push마다 사이클 체인 뷰어를 GitHub Pages로 배포한다.
 # gil pages가 생성. 저장소에 특정되지 않는다 — 어떤 Ariadne 저장소든 그대로 쓴다.
@@ -2962,7 +2976,7 @@ func cmdPages(root string, force, dryRun bool) error {
 const webDefaultTitle = "Ariadne — 사이클 체인" // 뷰어 기본 제목 (단일 소스)
 
 // bakeViewer: 뷰어 하나를 굽는다 (cmdWeb과 자동 갱신의 단일 소스).
-func bakeViewer(chainsRoot, output, title, only string) (int, error) {
+func bakeViewer(chainsRoot, output, title, only string, refresh int) (int, error) {
 	data, err := buildWebData(chainsRoot, only)
 	if err != nil {
 		return 0, err
@@ -2970,7 +2984,7 @@ func bakeViewer(chainsRoot, output, title, only string) (int, error) {
 	if len(data.names) == 0 {
 		return 0, cerr("렌더할 체인이 없다: %s", chainsRoot)
 	}
-	page := renderWebPage(data, title, time.Now().Format("2006-01-02"), only)
+	page := renderWebPage(data, title, time.Now().Format("2006-01-02"), only, refresh)
 	if err := os.WriteFile(output, []byte(page), 0o644); err != nil {
 		return 0, cerr("%v", err)
 	}
@@ -2981,12 +2995,75 @@ func cmdWeb(a webArgs) error {
 	if fi, err := os.Stat(a.root); err != nil || !fi.IsDir() {
 		return cerr("체인 루트가 없다: %s", a.root)
 	}
-	n, err := bakeViewer(a.root, a.output, a.title, a.chain)
+	if a.watch {
+		return webWatch(a)
+	}
+	n, err := bakeViewer(a.root, a.output, a.title, a.chain, a.refresh)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("생성: %s (체인 %d개)\n", a.output, n)
+	if a.refresh > 0 {
+		fmt.Printf("생성: %s (체인 %d개 · 자동 리로드 %d초)\n", a.output, n, a.refresh)
+	} else {
+		fmt.Printf("생성: %s (체인 %d개)\n", a.output, n)
+	}
 	return nil
+}
+
+// webWatch: --watch — 원장 변경을 감시해 뷰어를 재생성한다 (loom/C049).
+// gil step을 거치지 않는 외부 변경(병합·pull)도 반영한다. Ctrl-C까지 지속.
+func webWatch(a webArgs) error {
+	interval := a.interval
+	if interval <= 0 {
+		interval = 5
+	}
+	refresh := a.refresh
+	if refresh <= 0 {
+		refresh = interval // --watch는 자동 리로드를 함축한다
+	}
+	snapshot := func() map[string]int64 {
+		out := map[string]int64{}
+		filepath.Walk(a.root, func(p string, fi os.FileInfo, err error) error {
+			if err != nil || fi.IsDir() {
+				return nil
+			}
+			n := fi.Name()
+			if n == "cycle.yaml" || n == "round.yaml" || strings.HasSuffix(n, ".tsv") {
+				out[p] = fi.ModTime().UnixNano()
+			}
+			return nil
+		})
+		return out
+	}
+	n, err := bakeViewer(a.root, a.output, a.title, a.chain, refresh)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("감시 시작: %s (체인 %d개, %d초 간격, 자동 리로드 %d초). Ctrl-C로 종료.\n", a.output, n, interval, refresh)
+	last := snapshot()
+	eq := func(x, y map[string]int64) bool {
+		if len(x) != len(y) {
+			return false
+		}
+		for k, v := range x {
+			if y[k] != v {
+				return false
+			}
+		}
+		return true
+	}
+	for {
+		time.Sleep(time.Duration(interval) * time.Second)
+		cur := snapshot()
+		if !eq(cur, last) {
+			last = cur
+			if m, err := bakeViewer(a.root, a.output, a.title, a.chain, refresh); err != nil {
+				fmt.Fprintf(os.Stderr, "경고: 재생성 실패 — %v\n", err)
+			} else {
+				fmt.Printf("  ✎ 재생성: %s (체인 %d개)\n", a.output, m)
+			}
+		}
+	}
 }
 
 // ---------- 뷰어 자동 갱신 (v2.2 / loom/C042 — 이슈 #16) ----------
@@ -3021,7 +3098,8 @@ func findViewers(root string) [][2]string {
 }
 
 // bakeMeta: 뷰어가 스스로 보고한 굽기 조건. 없으면(구버전) 기본값 — 추측하지 않는다.
-func bakeMeta(text string) (title, only string) {
+// refresh(loom/C049)도 함께 읽어 자동 재굽기가 자동 리로드를 보존하게 한다.
+func bakeMeta(text string) (title, only string, refresh int) {
 	title = webDefaultTitle
 	m := regexp.MustCompile(`(?s)id="gil-data">(.*?)</script>`).FindStringSubmatch(text)
 	if m == nil {
@@ -3029,8 +3107,9 @@ func bakeMeta(text string) (title, only string) {
 	}
 	var payload struct {
 		Bake struct {
-			Title string  `json:"title"`
-			Chain *string `json:"chain"`
+			Title   string  `json:"title"`
+			Chain   *string `json:"chain"`
+			Refresh int     `json:"refresh"`
 		} `json:"bake"`
 	}
 	if json.Unmarshal([]byte(m[1]), &payload) != nil {
@@ -3042,6 +3121,7 @@ func bakeMeta(text string) (title, only string) {
 	if payload.Bake.Chain != nil {
 		only = *payload.Bake.Chain
 	}
+	refresh = payload.Bake.Refresh
 	return
 }
 
@@ -3065,8 +3145,8 @@ func refreshViewers(chainsRoot, label string, noWeb, push bool) {
 	var changed []string
 	for _, v := range viewers {
 		path, before := v[0], v[1]
-		title, only := bakeMeta(before)
-		if _, err := bakeViewer(chainsRoot, path, title, only); err != nil {
+		title, only, refresh := bakeMeta(before) // refresh 보존 (loom/C049)
+		if _, err := bakeViewer(chainsRoot, path, title, only, refresh); err != nil {
 			fmt.Fprintf(os.Stderr, "경고: 뷰어 갱신 실패 — %v (원장은 각인됐다. gil web으로 직접 구울 것)\n", err)
 			return
 		}
@@ -3463,24 +3543,30 @@ func main() {
 		}
 		pos, flags, err := parseCLI(norm, map[string]bool{
 			"output": true, "title": true, "chain": true,
+			"refresh": true, "interval": true, "watch": false, // v2.8 (C049): 실시간 관찰
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
 		if len(pos) > 1 {
-			fmt.Fprintln(os.Stderr, "사용: gil web [chains-root] [-o out.html] [--title t] [--chain c]")
+			fmt.Fprintln(os.Stderr, "사용: gil web [chains-root] [-o out.html] [--title t] [--chain c] [--refresh N] [--watch]")
 			os.Exit(2)
 		}
 		root := defaultRoot
 		if len(pos) == 1 {
 			root = pos[0]
 		}
+		refresh, _ := strconv.Atoi(flagVal(flags, "refresh", "0"))
+		interval, _ := strconv.Atoi(flagVal(flags, "interval", "0"))
 		if err := cmdWeb(webArgs{
-			root:   root,
-			output: flagVal(flags, "output", "ariadne-chains.html"),
-			title:  flagVal(flags, "title", "Ariadne — 사이클 체인"),
-			chain:  flagVal(flags, "chain", ""),
+			root:     root,
+			output:   flagVal(flags, "output", "ariadne-chains.html"),
+			title:    flagVal(flags, "title", "Ariadne — 사이클 체인"),
+			chain:    flagVal(flags, "chain", ""),
+			refresh:  refresh,
+			interval: interval,
+			watch:    len(flags["watch"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
