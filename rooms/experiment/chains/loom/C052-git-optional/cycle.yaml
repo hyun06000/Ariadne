@@ -2,7 +2,7 @@ id: C052-git-optional
 chain: loom
 parent: C051-fsck-rule-identity
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-15
