@@ -1,0 +1,14 @@
+id: C055-path-symlink-parity
+chain: loom
+parent: C054-push-remote-graceful
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-16
+closed: null
+title: "경로 해석 비대칭: 참조를 Go에 맞춰 심볼릭 링크 --root에서 우아하게"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
