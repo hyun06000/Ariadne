@@ -457,3 +457,14 @@
 - **이번엔 C053 슬립을 재발 안 했다**: 이탈 0이라 deviations.yaml 불필요, close 전 카운트 확인 완료. (C053의 "봉인 전 이탈 카운트 안 셈" 슬립은 여전히 도구 공백 — 후보 (B).)
 - **하네스가 안 막았다** — open·step·close·release·push·태그 push 전부 통과.
 - 다음 추천: **(A) 경로 해석 비대칭**(Go는 심볼릭 링크 해석, 참조는 안 함 — 두 구현 갈림, 계약면 후보, C028·C029 데이터 축적) / **(B) close의 deviations 카운트 조정**(C053 슬립 공백) / (C) Windows end-to-end 수신자 검증(v2.13.0부터 .exe 게시) / (D) verify·release의 git·원격 부재 경로 점검(이 아크의 마지막 미점검 명령).
+
+## 2026-07-16 — loom/C055 채택(supported·이탈 0), v2.14.0: 심볼릭 링크 `--root` 경로 해석 우아화 (C054 (A))
+
+- "이어서 가자"로 C054 1순위 후보 (A) 착수 — 비개발자·크로스플랫폼 아크의 마지막 환경 함정. **직접 재현부터**(C007): 심링크 `symrepo→realdir` 안에 git 저장소를 만들고 심링크 통과 절대 `--root`로 `open --git` → 참조는 `git add -- ../×8/var/… 'is outside repository'`로 붕괴(사이클 파일은 생겼으나 커밋 실패 — 반쪽 상태), Go는 `열림`+커밋. **두 몸, 한 계약의 실제 위반.** Go가 옳고 참조가 깨졌다.
+- 참조에 Go `relToRepo`와 동치인 단일 헬퍼 `_rel_to_repo`(양쪽 `os.path.realpath` 정규화 후 relpath)를 도입, git 지향 relpath **22곳** 대체. 제외 4곳은 "두 번째 인자가 git-toplevel `repo`인가"라는 단일 구문 기준으로 자동 분리(자기일관 `_hash_tree`·pages repo_root·display getcwd). Go 무변경. 판정기 `PATH-SYMLINK-GIT` 신설(75→76). **수정 전 참조 FAIL(75/76)/Go PASS로 비대칭 재현**, 수정 후 양 구현 **76/76**, 회귀 0, 변이(realpath 제거→75/76) 격추. **v2.14.0.**
+- **핵심 교훈 — 한 사이클이 우회한 결함을 다음 사이클이 계약으로 가둔다.** C054는 NO-REMOTE 테스트에서 `os.path.realpath(make_sandbox(...))`로 경로를 미리 정규화해 이 결함을 범위 밖으로 우회했다. PATH-SYMLINK-GIT은 정확히 그 반대 — realpath한 실디렉토리를 가리키는 **심링크를 새로 만들어 `--root`를 심링크로 통과**. **C054가 지운 비대칭(테스트의 realpath 한 줄)이 이 계약면의 설계도였다.** C009("미완을 정직히 남기면 다음 가설의 재료")의 판정기판.
+- **환경을 앞에서 정규화하는 것이 견고함의 공통 골격.** git 부재(C052, `shutil.which`)→원격 부재(C054, `_has_push_remote`)→심링크 공간(C055, `realpath`). 축만 다르고 처방은 같다 — "실행 직전에 환경을 확인·정규화."
+- **반쪽 상태 두 종류.** 둘 다 `파일=있음, 커밋=없음`이나, C052 git 부재는 rc0+안내(의도된 강등), C055 심링크 붕괴는 rc1+날것 fatal(의도되지 않은 실패). 판정 detail `yaml=True committed=False`를 눈으로 본 것이 둘을 갈랐다.
+- **두 구현의 구조적 평행이 리팩터링 경계를 그어 준다.** 대체 대상 22곳이 Go `relToRepo(repo, …)` 사용처와 정확히 일대일 — 한 몸의 수정 범위를 다른 몸이 알려 줬다.
+- **하네스가 안 막았다** — open·step·close·release·push·태그 push 전부 통과. C053 슬립 재발 없음(이탈 0, close 전 확인).
+- 다음 추천: **(A) close의 deviations 카운트 조정**(C053 슬립 공백, 이제 두 사이클 이월) / **(B) 명령별 환경 계약면 전수 감사**(verify·release의 git·원격·심링크 경로 — open 계열만 덮임, C051·C052·C054·C055 계열 완결) / (C) Windows end-to-end 수신자 검증(v2.13.0부터 .exe) / (D) `_hash_tree` 심링크 경계 재점검(지금은 사각 없음 확인만).
