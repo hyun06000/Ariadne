@@ -1,0 +1,5 @@
+=== [A-2] 위조 체크섬 (안전속성) ===
+[31;1m[36;1m[36;1m   4 | [0m … tem gil-dl.exe; [36;1mthrow "checksum mismatch — nothing unverified runs"[0m }
+[36;1m[31;1m[31;1m[36;1m     | [31;1mchecksum mismatch — nothing unverified runs[0m
+gil.exe 생성(안돼야): NO-정상
+gil-dl.exe: 삭제됨

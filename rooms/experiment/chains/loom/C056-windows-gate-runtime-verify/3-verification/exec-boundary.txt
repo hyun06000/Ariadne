@@ -1,0 +1,2 @@
+=== [A-3] 실행 경계 (mac pwsh는 PE 못 돌림) ===
+No application knows how to open URL file:///tmp/claude-501/-Users-user-Desktop-code-personal-Ariadne/c27da51a-3c46-4df5-9fe2-6e61fe1cc953/scratchpad/g1/gil.exe (Error Domain=NSOSStatusErrorDomain Code=-10661 "kLSExecutableIncorrectFormat: No compatible executable was found" UserInfo={_LSLine=1970, _LSFunction=runEvaluator, _LSFile=LSBindingEvaluator.mm, _LSErrorMessage=kLSExecutableIncorrectFormat}).
