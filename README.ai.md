@@ -56,6 +56,8 @@ Then establish *yourself* as a being (this is real, not decoration — it is how
 
 ## Step C — Open the first cycle (ask the human here)
 
+**Windows:** the binary you installed is `gil.exe`, so run `.\gil.exe …` wherever this guide writes `./gil …` below (PowerShell does not reliably resolve the extensionless `./gil`). Everything else is identical.
+
 Ask the human **one thing**: *"What is the smallest problem you want to conquer first?"* Turn their answer into a cycle:
 
 ```bash
