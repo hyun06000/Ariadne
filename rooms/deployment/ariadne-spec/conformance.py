@@ -897,6 +897,35 @@ def main():
           r.returncode == 0 and yaml_made and committed and no_crash,
           f"rc={r.returncode} yaml={yaml_made} committed={committed} crash={not no_crash} err={r.stderr.strip()[:80]}")
 
+    # ---- PATH-SYMLINK: 심볼릭 링크를 통과하는 절대 --root에서 --git 우아화 (loom/C055) ----
+    # macOS /var→/private/var 류의 심링크 때문에 git rev-parse --show-toplevel(realpath)과
+    # 사용자가 준 절대 --root(심링크 그대로)가 어긋나면, 저장소 상대 경로가 저장소를 탈출하는
+    # ../…로 붕괴해 git add가 거부한다. 참조는 날것 fatal로 커밋 실패(반쪽 상태 — 파일은
+    # 생겼는데 각인이 없다), Go는 EvalSymlinks로 견딘다 — 두 몸, 한 계약의 위반.
+    # 계약: 심링크 루트에서도 rc0 ∧ 사이클 파일 ∧ 로컬 커밋 보존 ∧ 무크래시. 안내 문면은 렌더(C051).
+    # (C054의 NO-REMOTE 테스트가 realpath로 미리 정규화해 우회했던 바로 그 경로를 정면으로 밟는다.)
+    sreal = os.path.realpath(make_sandbox(os.path.join(work, "symreal")))
+    subprocess.run(["git", "-C", sreal, "init", "-q", "-b", "main"], check=True)
+    subprocess.run(["git", "-C", sreal, "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", sreal, "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", sreal, "add", "-A"], check=True)
+    subprocess.run(["git", "-C", sreal, "commit", "-q", "-m", "init"], check=True)
+    ssym = os.path.join(work, "symlink")   # symlink → sreal (심링크를 통과하는 --root의 뿌리)
+    os.symlink(sreal, ssym)
+    scr = os.path.join(ssym, "rooms/experiment/chains")  # 절대·심링크 경로
+    r = impl.run(sreal, "open", "demo", "sym-root",
+                 "--author", "tester", "--new-chain", "--git", "--root", scr)
+    yaml_made = os.path.isfile(os.path.join(sreal, "rooms/experiment/chains",
+                                             "demo", "C001-sym-root", "cycle.yaml"))
+    no_crash = "Traceback" not in r.stderr and "panic:" not in r.stderr
+    logout = subprocess.run(["git", "-C", sreal, "log", "--oneline"],
+                            capture_output=True, text=True).stdout
+    committed = "gil: open" in logout  # 심링크 루트에서도 로컬 각인이 되어야 한다
+    check("PATH-SYMLINK-GIT",
+          "심볼릭 링크 절대 --root에서 open --git이 rc0 + 사이클 파일 + 로컬 커밋 보존 + 무크래시 (relpath가 저장소를 탈출하지 않는다)",
+          r.returncode == 0 and yaml_made and committed and no_crash,
+          f"rc={r.returncode} yaml={yaml_made} committed={committed} crash={not no_crash} err={r.stderr.strip()[:80]}")
+
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
     print(f"\n계약 준수: {passed}/{total}" + ("  ✔ 이 구현은 gil이다" if passed == total else "  ✘ 계약 위반"))

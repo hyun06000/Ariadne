@@ -616,8 +616,8 @@ def _push_with_renumber(repo, chain_dir, chain, cid, title):
             slug = cid.split("-", 1)[1]
             reserved = [r["num"] for r in _load_reservations(chain_dir)]  # 재번호도 예약을 회피한다
             new_cid = f"C{_next_number(records, reserved):03d}-{slug}"
-            old_rel = os.path.relpath(os.path.join(chain_dir, cid), repo)
-            new_rel = os.path.relpath(os.path.join(chain_dir, new_cid), repo)
+            old_rel = _rel_to_repo(os.path.join(chain_dir, cid), repo)
+            new_rel = _rel_to_repo(os.path.join(chain_dir, new_cid), repo)
             _git(repo, "mv", old_rel, new_rel)
             ypath = os.path.join(repo, new_rel, "cycle.yaml")
             with open(ypath, encoding="utf-8") as f:
@@ -751,13 +751,13 @@ def cmd_open(args):
         elif not repo:
             raise ChainError("--git: 깃 저장소가 아니다")  # git 있는데 저장소 아님 = 진짜 사용자 오류
         else:
-            rel = os.path.relpath(dest, repo)
+            rel = _rel_to_repo(dest, repo)
             paths = [rel]
             if new_chain:  # chain.md는 사이클 디렉토리 밖(체인 최상위)이라 별도 경로다 (이슈 #14, loom/C044)
-                paths.append(os.path.relpath(os.path.join(chain_dir, "chain.md"), repo))
+                paths.append(_rel_to_repo(os.path.join(chain_dir, "chain.md"), repo))
             if consumed:  # reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
-                paths.append(os.path.relpath(res_path, repo) if os.path.isfile(res_path)
-                             else os.path.relpath(_reservations_path(chain_dir), repo))
+                paths.append(_rel_to_repo(res_path, repo) if os.path.isfile(res_path)
+                             else _rel_to_repo(_reservations_path(chain_dir), repo))
             _git(repo, "add", "-A", "--", *paths)
             msg = f"gil: open {args.chain}/{cid} — 1/5 {_STEP_NAMES[1]}\n\n{title}"
             if consumed:
@@ -783,7 +783,7 @@ def _reserve_commit_push(chains_root, chain_dir, args, verb, cid_hint):
         return
     if not repo:
         raise ChainError("--git: 깃 저장소가 아니다")
-    rel = os.path.relpath(_reservations_path(chain_dir), repo)
+    rel = _rel_to_repo(_reservations_path(chain_dir), repo)
     _git(repo, "add", "-A", "--", rel)
     _git(repo, "commit", "-m", f"gil: {verb} {args.chain}/{cid_hint}", "--", rel)
     if args.push:
@@ -934,7 +934,7 @@ def _last_activity(chains_root, chain, cid_dir):
         repo = _repo_root(chains_root)
         if not repo:
             return None
-        rel = os.path.relpath(os.path.join(chains_root, chain, cid_dir), repo)
+        rel = _rel_to_repo(os.path.join(chains_root, chain, cid_dir), repo)
         r = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%ct|%s", "--", rel],
                            capture_output=True, text=True)
         if r.returncode != 0 or "|" not in r.stdout:
@@ -1369,7 +1369,7 @@ def _refresh_viewers(chains_root, label, no_web=False, push=False):
         print(f"  ✎ 뷰어 갱신: {', '.join(os.path.basename(p) for p in changed)}")
         if not repo:
             return  # 깃이 없어도 창은 갱신된다. 커밋만 없을 뿐이다.
-        rels = [os.path.relpath(p, repo) for p in changed]
+        rels = [_rel_to_repo(p, repo) for p in changed]
         _git(repo, "add", "--", *rels)
         # 뷰어는 사이클이 아니다 — 사이클 커밋에 섞으면 태그가 사이클 밖의 것을 봉인한다 (§4)
         _git(repo, "commit", "-m", f"gil: web 갱신 — {label}", "--", *rels)
@@ -1434,6 +1434,14 @@ def _push(repo, *extra):
         return False
     _git(repo, "push", *extra)
     return True
+
+
+def _rel_to_repo(path, repo):
+    """저장소 루트 기준 상대 경로. git rev-parse --show-toplevel(realpath화됨)과 사용자가 준
+    --root(심볼릭 링크 그대로)가 서로 다른 심링크 공간에 있으면 os.path.relpath가 저장소를
+    탈출하는 ../…를 만들어 git add가 거부한다(macOS /tmp·/var → /private/*). 양쪽을 realpath로
+    정규화한 뒤 상대화해 이 불일치를 흡수한다 — Go relToRepo(EvalSymlinks)와 동치 (loom/C055)."""
+    return os.path.relpath(os.path.realpath(path), os.path.realpath(repo))
 
 
 def _repo_root(path):
@@ -1531,7 +1539,7 @@ def cmd_supersede(args):
         raise
     repo = _repo_root(chains_root)
     if repo and not getattr(args, "no_commit", False):
-        rel = os.path.relpath(os.path.join(chains_root, ochain, oid), repo)
+        rel = _rel_to_repo(os.path.join(chains_root, ochain, oid), repo)
         _git(repo, "add", "-A", "--", rel)
         _git(repo, "commit", "-m", f"[migrate] gil: supersede {args.old_ref} → superseded_by {new_val}", "--", rel)
         tag = _tag_name(ochain, oid)
@@ -1569,7 +1577,7 @@ def _read_sealed(repo, tag, relpath):
 
 def _cycle_diff_vs_tag(repo, chains_root, chain, cdir, tag):
     """verify와 같은 판정 — 태그↔작업 트리 대조 (변조된 경로 목록)."""
-    cycle_rel = os.path.relpath(os.path.join(chains_root, chain, cdir), repo)
+    cycle_rel = _rel_to_repo(os.path.join(chains_root, chain, cdir), repo)
     diff = _git(repo, "diff", "--name-only", tag, "--", cycle_rel)
     new = _git(repo, "status", "--porcelain", "--untracked-files=all", "--", cycle_rel)
     return sorted(set(diff.stdout.split())
@@ -1629,7 +1637,7 @@ def cmd_correct(args):
 
     # C5 — 증거 검사 (원칙 4: 증거는 인용이 아니라 검사다). 봉인본에서 읽는다.
     ev_path, _, ev_line = args.evidence.partition(":")
-    ev_rel = os.path.relpath(os.path.join(cycle_dir, ev_path), repo)
+    ev_rel = _rel_to_repo(os.path.join(cycle_dir, ev_path), repo)
     sealed = _read_sealed(repo, tag, ev_rel)
     if sealed is None:
         raise ChainError(f"증거 문서가 봉인본에 없다: {ev_path} (태그 {tag})")
@@ -1703,8 +1711,8 @@ def cmd_correct(args):
         raise
 
     # ---- [correct] 커밋: 그 두 파일만 담는다 (변조를 태그 안으로 밀반입할 수 없다) ----
-    rel_yaml = os.path.relpath(yaml_path, repo)
-    rel_corr = os.path.relpath(corr_path, repo)
+    rel_yaml = _rel_to_repo(yaml_path, repo)
+    rel_corr = _rel_to_repo(corr_path, repo)
     _git(repo, "add", "--", rel_yaml, rel_corr)
     _git(repo, "commit", "-m",
          f"[correct] gil: {args.ref} — {'; '.join(changed)}", "--", rel_yaml, rel_corr)
@@ -1783,7 +1791,7 @@ def cmd_verify(args):
                 continue
             checked += 1
             tag = _tag_name(ch, r["id"])
-            cycle_rel = os.path.relpath(
+            cycle_rel = _rel_to_repo(
                 os.path.join(chains_root, ch, r["_dir"]), repo)
             if not _tag_exists(repo, tag):
                 untagged.append(f"{ch}/{r['id']}")
@@ -1869,7 +1877,7 @@ def cmd_close(args):
             f.write(original)  # 원상 복구
         raise
     if repo:
-        cycle_rel = os.path.relpath(cycle_dir, repo)
+        cycle_rel = _rel_to_repo(cycle_dir, repo)
         title = data.get("title") or ""
         try:
             _git(repo, "add", "-A", "--", cycle_rel)
@@ -1924,7 +1932,7 @@ def cmd_step(args):
     if not getattr(args, "no_commit", False):
         repo = _repo_root(chains_root)
         if repo:
-            rel = os.path.relpath(cycle_dir, repo)
+            rel = _rel_to_repo(cycle_dir, repo)
             _git(repo, "add", "-A", "--", rel)
             _git(repo, "commit", "-m", f"gil: step {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}", "--", rel)
             committed = True
@@ -1999,7 +2007,7 @@ def cmd_round(args):
             repo = _repo_root(chains_root)
             if not repo:
                 raise ChainError("--git: 깃 저장소가 아니다")
-            rel = os.path.relpath(cycle_dir, repo)
+            rel = _rel_to_repo(cycle_dir, repo)
             _git(repo, "add", "-A", "--", rel)
             _git(repo, "commit", "-m",
                  f"gil: round open {args.chain}/{args.cycle_id} R{newk} — 사전등록\n\n{title}", "--", rel)
@@ -2037,7 +2045,7 @@ def cmd_round(args):
             repo = _repo_root(chains_root)
             if not repo:
                 raise ChainError("--git: 깃 저장소가 아니다")
-            rel = os.path.relpath(cycle_dir, repo)
+            rel = _rel_to_repo(cycle_dir, repo)
             _git(repo, "add", "-A", "--", rel)
             _git(repo, "commit", "-m",
                  f"gil: round close {args.chain}/{args.cycle_id} R{k} → {args.verdict}", "--", rel)
@@ -2121,7 +2129,7 @@ def _check_version_surface(path):
 def _changed_vs_last_tag(repo, tag, worktree_path):
     """마지막 릴리스 태그의 blob과 작업 트리 파일을 비교한다 (v0.9 승격 기준).
     태그에 없던 파일이 생겼거나 내용이 다르면 변경. 둘 다 없으면 무변경."""
-    rel = os.path.relpath(worktree_path, repo).replace(os.sep, "/")
+    rel = _rel_to_repo(worktree_path, repo).replace(os.sep, "/")
     r = _git(repo, "show", f"{tag}:{rel}", check=False)
     tagged = r.stdout if r.returncode == 0 else None
     exists = os.path.isfile(worktree_path)
@@ -2180,7 +2188,7 @@ def cmd_release(args):
         last_tag = f"v{'.'.join(map(str, last))}"
         changed_parts = []
         for name, src, pkg_path in blobs:
-            rel = os.path.relpath(pkg_path, repo).replace(os.sep, "/")
+            rel = _rel_to_repo(pkg_path, repo).replace(os.sep, "/")
             r = _git(repo, "show", f"{last_tag}:{rel}", check=False)
             with open(src, encoding="utf-8") as f:
                 if r.returncode != 0 or _mask_version(f.read()) != _mask_version(r.stdout):
@@ -2228,7 +2236,7 @@ def cmd_release(args):
     with open(changelog, "w", encoding="utf-8") as f:
         f.write(log_text.replace("## [Unreleased]", f"## [Unreleased]\n\n{entry}", 1))
 
-    deploy_rel = os.path.relpath(os.path.normpath(os.path.join(pkg, "..")), repo)
+    deploy_rel = _rel_to_repo(os.path.normpath(os.path.join(pkg, "..")), repo)
     try:
         _git(repo, "add", "-A", "--", deploy_rel)
         _git(repo, "commit", "-m", f"gil: release {tag}\n\n{args.notes}", "--", deploy_rel)
