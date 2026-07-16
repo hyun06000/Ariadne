@@ -4,11 +4,11 @@ parent: C054-push-remote-graceful
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-16
-closed: null
+closed: 2026-07-16
 title: "경로 해석 비대칭: 참조를 Go에 맞춰 심볼릭 링크 --root에서 우아하게"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
