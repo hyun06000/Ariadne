@@ -2,7 +2,7 @@ id: C055-path-symlink-parity
 chain: loom
 parent: C054-push-remote-graceful
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-16
