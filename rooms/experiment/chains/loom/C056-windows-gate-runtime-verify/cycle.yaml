@@ -1,0 +1,14 @@
+id: C056-windows-gate-runtime-verify
+chain: loom
+parent: C053-windows-entry
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-16
+closed: null
+title: "Windows 에이전트 경로 경화: 설치 게이트 pwsh 런타임 검증 + Step C 명령형"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
