@@ -812,6 +812,76 @@ def _reserve_commit_push(chains_root, chain_dir, args, verb, cid_hint):
         _push(repo)
 
 
+def _branch_exists(repo, branch):
+    r = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+                       capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def cmd_worktree(args):
+    """병렬 사이클 모드 (loom/C058, 발의: 박상현 #1). git worktree 명사에 올라탄다."""
+    if args.wt_action == "add":
+        return _worktree_add(args)
+    raise ChainError(f"알 수 없는 worktree 하위명령: {args.wt_action}")
+
+
+def _worktree_add(args):
+    """워크트리 생성 + 새 브랜치 + 사이클 열기를 원자적으로 묶는다 (loom/C058).
+
+    open을 복제하지 않고 워크트리 안에서 gil을 self-invoke한다 — 두 이득:
+    (1) open의 계약(번호 규율·fsck·스키마)이 검증된 한 곳에만 산다,
+    (2) open이 워크트리 안(git toplevel=워크트리)에서 돌아 커밋이 그 브랜치에만 간다 —
+        '메인에 잘못 open'(C050의 뼈아픈 사고)이 구조적으로 불가능해진다. cwd 계약을 도구가 집행한다."""
+    chains_root = args.root
+    if not _git_available():
+        raise ChainError("worktree add: git이 필요하다 (병렬 사이클 모드는 워크트리 격리를 쓴다)")
+    repo = _repo_root(chains_root)
+    if not repo:
+        raise ChainError(f"worktree add: 깃 저장소가 아니다 — {chains_root}")
+    if not args.author:
+        raise ChainError("worktree add: 저자를 알 수 없다 — --author <이름> (§3.2 P1)")
+    if not _SLUG_RE.match(args.slug):
+        raise ChainError(f"슬러그 '{args.slug}' 형식 위반 — R1: 소문자·숫자·하이픈만")
+
+    # 결정론적 유도 — 사이클에서 브랜치·경로를 계산한다 (하네스 무의존, §7 이식 계약).
+    branch = f"{args.author}/{args.chain}-{args.slug}"
+    wt_path = os.path.join(os.path.dirname(repo),
+                           f"{os.path.basename(repo)}-worktrees", f"{args.chain}-{args.slug}")
+    if os.path.exists(wt_path):
+        raise ChainError(f"worktree add: 경로가 이미 있다 — {wt_path}")
+    if _branch_exists(repo, branch):
+        raise ChainError(f"worktree add: 브랜치가 이미 있다 — {branch}")
+
+    os.makedirs(os.path.dirname(wt_path), exist_ok=True)
+    _git(repo, "worktree", "add", "-b", branch, wt_path, "HEAD")  # 새 브랜치로 격리 체크아웃
+
+    # 워크트리 안의 chains 경로를 대상으로 gil self-invoke → open이 그 브랜치에 사이클을 커밋.
+    chains_rel = _rel_to_repo(chains_root, repo)
+    wt_chains = os.path.join(wt_path, chains_rel)
+    cmd = [sys.executable, os.path.abspath(__file__), "open", args.chain, args.slug,
+           "--author", args.author, "--root", wt_chains, "--date", args.date, "--git", "--no-web"]
+    for p in args.parent:
+        cmd += ["--parent", p]
+    for l in args.lineage:
+        cmd += ["--lineage", l]
+    if args.new_chain:
+        cmd.append("--new-chain")
+    if args.new_root:
+        cmd.append("--new-root")
+    r = subprocess.run(cmd, cwd=wt_path, capture_output=True, text=True)
+    if r.returncode != 0:
+        # 원자성: open이 실패하면 워크트리·브랜치를 잔여 없이 되돌린다 (open 계열 무변화 규율 계승).
+        _git(repo, "worktree", "remove", "--force", wt_path, check=False)
+        _git(repo, "branch", "-D", branch, check=False)
+        raise ChainError(f"worktree add: 워크트리 안 open 실패 — 되돌림\n{(r.stderr or r.stdout).strip()}")
+
+    print(f"워크트리: {wt_path}")
+    print(f"브랜치:   {branch}")
+    print(f"→ 존재는 여기서 일한다:  cd {wt_path}  (메인 저장소로 돌아오지 말 것 — C050)")
+    print(f"→ 돌아오면 소환자가 병합한다 (다음: gil worktree land, C059 예정)")
+    return 0
+
+
 def cmd_reserve(args):
     """번호 예약을 데이터로 만든다 (loom/C043 — 이슈 #13). 예약 마커가 원장에 있으면
     다른 워크트리의 gil open은 그 번호를 재발급하지 않는다 — push 경합 이전에 선점된다."""
@@ -2376,6 +2446,19 @@ def main(argv=None):
     p_open.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_open.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_open.set_defaults(func=cmd_open)
+
+    p_wt = sub.add_parser("worktree", help="병렬 사이클 모드 — 워크트리+브랜치+사이클을 원자적으로 (v2.15, #1)")
+    p_wt.add_argument("wt_action", choices=["add"], help="add: 격리 워크트리에서 새 사이클을 연다")
+    p_wt.add_argument("chain")
+    p_wt.add_argument("slug", help="id의 슬러그 부분 (소문자 케밥)")
+    p_wt.add_argument("--author", help="이 워크트리에서 일할 존재 — 필수 (§3.2 P1)")
+    p_wt.add_argument("--parent", action="append", default=[], help="부모 사이클의 로컬 id (병합이면 여러 번)")
+    p_wt.add_argument("--lineage", action="append", default=[], help="교훈의 연원 <chain>/<id> (여러 번)")
+    p_wt.add_argument("--new-chain", action="store_true", help="체인이 없으면 생성")
+    p_wt.add_argument("--new-root", action="store_true", help="비어있지 않은 체인에 새 루트")
+    p_wt.add_argument("--date", default=today, help="opened 일자 (기본: 오늘)")
+    p_wt.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_wt.set_defaults(func=cmd_worktree)
 
     p_res = sub.add_parser("reserve", help="병렬 존재에게 사이클 번호를 예약 (원장 선점, v2.3)")
     p_res.add_argument("chain")

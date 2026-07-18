@@ -30,7 +30,8 @@ UNIMPLEMENTED = 3  # SPEC §7.2-4: 미구현·미지 명령의 통일된 종료 
 CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release", "version",
                      "handoff", "supersede", "goto", "pages", "web", "help", "correct",
                      "reserve", "unreserve",  # loom/C043 (이슈 #13) — 부분 구현은 합법, 거짓 보고만 불법
-                     "round"]  # loom/C045 (이슈 #9·#10) — 라운드. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "round",  # loom/C045 (이슈 #9·#10) — 라운드. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "worktree"]  # loom/C058 (#1) — 병렬 사이클 모드 spawn
 
 
 def check(cid, desc, cond, detail=""):
@@ -952,6 +953,39 @@ def main():
           "close는 deviations.yaml 레코드 수 ≠ deviations 카운트면 봉인 거부, 맞추면 봉인 (C053 슬립 차단)",
           rejected and accepted,
           f"rejected={rejected} accepted={accepted} bad_rc={r_bad.returncode} ok_rc={r_ok.returncode}")
+
+    # ---- WORKTREE-SPAWN: gil worktree add가 워크트리+브랜치+사이클을 원자적으로, 메인 격리 (loom/C058, #1) ----
+    # 병렬 사이클 모드의 진입점. open을 워크트리 안에서 self-invoke하므로 커밋이 그 브랜치에만 가고
+    # 메인 저장소는 오염되지 않는다 — C050(워크트리 아닌 메인에 잘못 open)의 구조적 봉인.
+    # 계약: rc0 ∧ 워크트리에 사이클 ∧ 브랜치 생성 ∧ 메인 작업트리 격리 ∧ 메인 log에 open 커밋 없음 ∧ 무크래시.
+    # 음성(쌍 검증, C038): 비저장소에서 거부(rc≠0). realpath: sibling 워크트리 경로 계산의 심링크 흡수.
+    wsroot = os.path.realpath(make_sandbox(os.path.join(work, "wtspawn")))
+    for cfg in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", wsroot, *cfg], check=True)
+    subprocess.run(["git", "-C", wsroot, "add", "-A"], check=True)
+    subprocess.run(["git", "-C", wsroot, "commit", "-q", "-m", "init"], check=True)
+    wscr = os.path.join(wsroot, "rooms/experiment/chains")
+    r = impl.run(wsroot, "worktree", "add", "demo", "para", "--author", "tester", "--new-chain", "--root", wscr)
+    wt_path = os.path.join(os.path.dirname(wsroot), os.path.basename(wsroot) + "-worktrees", "demo-para")
+    cyc_in_wt = os.path.isfile(os.path.join(wt_path, "rooms/experiment/chains/demo/C001-para/cycle.yaml"))
+    br = subprocess.run(["git", "-C", wsroot, "branch", "--list", "tester/demo-para"], capture_output=True, text=True).stdout
+    branch_made = "tester/demo-para" in br
+    main_isolated = not os.path.isdir(os.path.join(wscr, "demo"))  # 메인 작업트리에 사이클 없음
+    mlog = subprocess.run(["git", "-C", wsroot, "log", "--oneline", "main"], capture_output=True, text=True).stdout
+    main_no_open = "gil: open" not in mlog  # C050 봉인: open 커밋이 main에 안 샜다
+    no_crash = "Traceback" not in r.stderr and "panic:" not in r.stderr
+    # 음성: 비저장소에서 거부
+    nbroot = make_sandbox(os.path.join(work, "wtnorepo"))
+    nbcr = os.path.join(nbroot, "rooms/experiment/chains")
+    r_neg = impl.run(nbroot, "worktree", "add", "demo", "x", "--author", "t", "--new-chain", "--root", nbcr)
+    check("WORKTREE-SPAWN",
+          "worktree add가 rc0 + 워크트리에 사이클 + 브랜치 + 메인 격리 + main에 open 커밋 없음 + 무크래시; 비저장소는 거부 (C050 봉인)",
+          r.returncode == 0 and cyc_in_wt and branch_made and main_isolated and main_no_open
+          and no_crash and r_neg.returncode != 0,
+          f"rc={r.returncode} cyc={cyc_in_wt} br={branch_made} iso={main_isolated} noopen={main_no_open} "
+          f"crash={not no_crash} neg_rc={r_neg.returncode}")
+    subprocess.run(["git", "-C", wsroot, "worktree", "remove", "--force", wt_path], capture_output=True)
+    shutil.rmtree(os.path.join(os.path.dirname(wsroot), os.path.basename(wsroot) + "-worktrees"), ignore_errors=True)
 
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)

@@ -1232,6 +1232,96 @@ func cmdUnreserve(a unreserveArgs) error {
 	return nil
 }
 
+type worktreeArgs struct {
+	action, chain, slug, author, date, root string
+	parents, lineage                        []string
+	newChain, newRoot                       bool
+}
+
+func branchExists(repo, branch string) bool {
+	_, _, code := gitRun(repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return code == 0
+}
+
+// cmdWorktree — 병렬 사이클 모드 (loom/C058, 발의: 박상현 #1). git worktree 명사에 올라탄다.
+func cmdWorktree(a worktreeArgs) error {
+	if a.action != "add" {
+		return cerr("알 수 없는 worktree 하위명령: %s", a.action)
+	}
+	return worktreeAdd(a)
+}
+
+// worktreeAdd — 워크트리 생성 + 새 브랜치 + 사이클 열기를 원자적으로 묶는다 (loom/C058).
+// open을 복제하지 않고 워크트리 안에서 gil을 self-invoke한다 — (1) open의 계약이 검증된 한 곳에만
+// 살고, (2) open이 워크트리 안(git toplevel=워크트리)에서 돌아 커밋이 그 브랜치에만 간다 —
+// '메인에 잘못 open'(C050 사고)이 구조적으로 불가능해진다. cwd 계약을 도구가 집행한다.
+func worktreeAdd(a worktreeArgs) error {
+	if !gitAvailable() {
+		return cerr("worktree add: git이 필요하다 (병렬 사이클 모드는 워크트리 격리를 쓴다)")
+	}
+	repo := repoRoot(a.root)
+	if repo == "" {
+		return cerr("worktree add: 깃 저장소가 아니다 — %s", a.root)
+	}
+	if a.author == "" {
+		return cerr("worktree add: 저자를 알 수 없다 — --author <이름> (§3.2 P1)")
+	}
+	if !slugRe.MatchString(a.slug) {
+		return cerr("슬러그 '%s' 형식 위반 — R1: 소문자·숫자·하이픈만", a.slug)
+	}
+	branch := a.author + "/" + a.chain + "-" + a.slug
+	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-worktrees", a.chain+"-"+a.slug)
+	if _, err := os.Stat(wtPath); err == nil {
+		return cerr("worktree add: 경로가 이미 있다 — %s", wtPath)
+	}
+	if branchExists(repo, branch) {
+		return cerr("worktree add: 브랜치가 이미 있다 — %s", branch)
+	}
+	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
+		return cerr("%v", err)
+	}
+	if _, err := gitChecked(repo, "worktree", "add", "-b", branch, wtPath, "HEAD"); err != nil {
+		return err
+	}
+	undo := func() { gitRun(repo, "worktree", "remove", "--force", wtPath); gitRun(repo, "branch", "-D", branch) }
+	chainsRel, err := relToRepo(repo, a.root)
+	if err != nil {
+		undo()
+		return cerr("%v", err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		undo()
+		return cerr("자기 실행 경로를 찾을 수 없다: %v", err)
+	}
+	openArgv := []string{"open", a.chain, a.slug, "--author", a.author,
+		"--root", filepath.Join(wtPath, chainsRel), "--date", a.date, "--git", "--no-web"}
+	for _, p := range a.parents {
+		openArgv = append(openArgv, "--parent", p)
+	}
+	for _, l := range a.lineage {
+		openArgv = append(openArgv, "--lineage", l)
+	}
+	if a.newChain {
+		openArgv = append(openArgv, "--new-chain")
+	}
+	if a.newRoot {
+		openArgv = append(openArgv, "--new-root")
+	}
+	cmd := exec.Command(self, openArgv...)
+	cmd.Dir = wtPath
+	if out, e := cmd.CombinedOutput(); e != nil {
+		// 원자성: open이 실패하면 워크트리·브랜치를 잔여 없이 되돌린다.
+		undo()
+		return cerr("worktree add: 워크트리 안 open 실패 — 되돌림\n%s", strings.TrimSpace(string(out)))
+	}
+	fmt.Printf("워크트리: %s\n", wtPath)
+	fmt.Printf("브랜치:   %s\n", branch)
+	fmt.Printf("→ 존재는 여기서 일한다:  cd %s  (메인 저장소로 돌아오지 말 것 — C050)\n", wtPath)
+	fmt.Printf("→ 돌아오면 소환자가 병합한다 (다음: gil worktree land, C059 예정)\n")
+	return nil
+}
+
 type closeArgs struct {
 	chain, cycleID, date, root, verdict string
 	git, push, noCommit, noWeb          bool
@@ -3626,6 +3716,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"log", "gil log [chains-root] [--chain <이름>]", "체인 계보를 ASCII 그래프로"},
 	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R14 위반 전수 수집·보고"},
 	{"open", "gil open <chain> <slug> --author <이름> [--parent …]… [--new-root] [--title …] [--lineage …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가). --author 필수, 비어있지 않은 체인은 --parent 또는 --new-root 필수 (§3.2)"},
+	{"worktree", "gil worktree add <chain> <slug> --author <이름> [--parent …]… [--lineage …] [--new-chain] [--new-root] [--root …]", "병렬 사이클 모드: 격리 워크트리+브랜치에서 새 사이클을 원자적으로 연다 (v2.15, #1)"},
 	{"reserve", "gil reserve <chain> <slug> --for <이름> [--date …] [--git] [--push] [--root …]", "병렬 존재에게 사이클 번호를 예약 (원장 선점, v2.3). --for 필수 (§3.2 P1)"},
 	{"unreserve", "gil unreserve <chain> <번호> [--git] [--push] [--root …]", "예약 취소 — 만료의 수동 해법 (v2.3). 없는 번호는 거부"},
 	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
@@ -3746,6 +3837,31 @@ func main() {
 			git:      len(flags["git"]) > 0,
 			push:     len(flags["push"]) > 0,
 			noWeb:    len(flags["no-web"]) > 0,
+		}); err != nil {
+			fail(err)
+		}
+	case "worktree":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
+			"author": true, "parent": true, "lineage": true, "date": true, "root": true,
+			"new-chain": false, "new-root": false,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) != 3 || pos[0] != "add" {
+			fmt.Fprintln(os.Stderr, "사용: gil worktree add <chain> <slug> --author <이름> [--parent id]… [--lineage chain/id]… [--new-chain] [--new-root] [--root r]")
+			os.Exit(2)
+		}
+		if err := cmdWorktree(worktreeArgs{
+			action: pos[0], chain: pos[1], slug: pos[2],
+			author:   flagVal(flags, "author", ""),
+			date:     flagVal(flags, "date", today),
+			root:     flagVal(flags, "root", defaultRoot),
+			parents:  flags["parent"],
+			lineage:  flags["lineage"],
+			newChain: len(flags["new-chain"]) > 0,
+			newRoot:  len(flags["new-root"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
