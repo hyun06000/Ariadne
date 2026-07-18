@@ -23,3 +23,5 @@ gil 사용 원칙 (스펙 §2.1, 모든 LLM 공통): `gil open … --git --push`
 문제 풀이는 [rooms/experiment/README.md](rooms/experiment/README.md)의 5스텝 사이클 방법론을 따른다.
 모든 사이클은 부모 사이클(의 보고서)을 명시하고, 산출물은 재현 가능하게 저장하며, 닫힌 사이클은 수정하지 않는다.
 검증 완료된 배포물만 [rooms/deployment/](rooms/deployment/README.md)에 버저닝하여 들어간다.
+
+**병렬로 일하라 — 갈래가 독립이면 동시에 (스펙 §6.8, 소환 규약 v3).** 서로 독립인 사이클이 여럿이면 순차로 줄 세우지 말고 병렬로 돌린다: 존재를 갈래마다 소환하고(§2의 소환 4의무 + 상호 기록), 각 존재는 **`gil worktree add <chain> <slug> --author <이름>`** 로 자기 **격리 워크트리+브랜치**에서 사이클을 열어 거기서만 일하며 스텝마다 자기 브랜치를 push한다(main push 금지). 소환자는 완료된 브랜치를 **`gil worktree land … --push`** 로 `--no-ff` 병합해 거둔다. **철칙: 네 워크트리에서 일하라 — 공유 main 체크아웃으로 cd해 `gil open`을 실행하지 마라.** 그 유출이 다른 존재의 미커밋 작업을 지운 사고가 세 번 났고(C050), 이제 저장소에 `git config gil.owner <주-존재>`를 두면 주 체크아웃에서 주인 아닌 author의 `open`·`correct`를 도구가 거부한다(C062 guard, opt-in). 갈래가 나뉘는 지점에서는 사용자에게 묻는다.

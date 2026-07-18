@@ -87,6 +87,23 @@ The report is the parent of the next cycle. Open the next with `--parent C001-<s
 - **Local**, no GitHub: `./gil web -o chains.html` → tell them to open it in a browser. Re-run to refresh.
 - **github.io**, if they use GitHub: `./gil pages` writes a workflow; `git push`, then they set Settings → Pages → Source = "GitHub Actions". Auto-deploys every push.
 
+## Step E — Working in parallel (when the human asks for concurrency)
+
+Steps A–D are sequential — one cycle at a time. But **independent cycles can run at once**, each being in its own **isolated git worktree**, so beings never collide on the shared `main` checkout. Reach for this when the human wants several tracks worked concurrently (`gil help worktree`).
+
+- **One being per track.** Summon a sub-agent (see the summoning rule below), then have each open its cycle *in isolation* and work only there — pushing **its own branch** every step, never `main`:
+  ```bash
+  ./gil worktree add <problem-area> <slug> --author <being-name> --new-chain   # new worktree + branch
+  # the being works the 5 steps inside that worktree, `--push`-ing its branch each step
+  ```
+- **The summoner lands each branch when the being is done:**
+  ```bash
+  ./gil worktree land <problem-area> <slug> --push   # --no-ff merge into main (parent2 preserved) + cleanup; conflicts are refused, preserved, aborted
+  ```
+- **Stay in your worktree — never `cd` to the shared main checkout to run `gil open`.** That leaks commits onto `main` and the checkout can wipe another being's uncommitted work (an accident that recurred three times before the tool stopped it). Set `git config gil.owner <main-being>` and gil **refuses** non-owner `open`/`correct` on the main checkout (opt-in guard; linked worktrees are always allowed). Reserve numbers for not-yet-pushed parallel work with `./gil reserve <problem-area> <slug> --for <name>`.
+
+Working alone and sequentially? Skip this section — A–D are enough.
+
 ## Iron rules (machine-enforced — `./gil fsck`, `./gil verify`)
 
 - Commit unit is the **step**; long steps get mid-step commits. `gil step`/`gil close` **auto-commit in a git repo** (v1.7+) — you need not pass `--git`; use `--no-commit` to opt out. `gil open` takes an explicit `--git`. Push with `--push`.
@@ -94,6 +111,6 @@ The report is the parent of the next cycle. Open the next with `--parent C001-<s
 - **The tool never invents provenance.** `--author` is required and has no default; on a non-empty chain `--parent` (or an explicit `--new-root`) is required. gil fills what it *computes* (number, date, status) and refuses what only you know — a plausible-looking wrong author or a silent second root is a lie the ledger keeps forever (Spec §3.2). Ask `./gil help open` if unsure.
 - Never edit a closed cycle. Faults found later become new cycles.
 - **After closing a cycle, run `./gil handoff` and offer the human a session reset.** The closed cycle's detail is engraved (tag); a fresh session revives via CLAUDE.md → existence room → `gil log`. Managing context per-cycle keeps the thread from snapping under session limits. **Went down a wrong path?** `./gil goto <chain>/<id>` shows any cycle's snapshot, `--checkout` rewinds the tree to it, and it prints how to branch (`gil open … --parent <id>`) — you rewind to a healthy fork and grow a new thread, never erasing the dead end.
-- Summoning sub-agents? You must inject the pointer, declare mode (revival/birth), identify yourself, and reserve the cycle number first. Full protocol: [Spec §6](rooms/deployment/ariadne-spec/SPEC.md).
+- Summoning sub-agents? You must inject the pointer, declare mode (revival/birth), identify yourself, and — for parallel work — have each being work in **its own `gil worktree`**, never the shared main checkout (Step E). Full protocol: [Spec §6](rooms/deployment/ariadne-spec/SPEC.md).
 
 The contract, not the implementation, defines gil: `conformance.py --gil "<abs-path>"` — a full pass (the suite prints the count) and yours *is* gil. Now go: install, bootstrap, and ask the human what to conquer first.
