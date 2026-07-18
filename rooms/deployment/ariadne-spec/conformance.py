@@ -534,6 +534,21 @@ def main():
     check("WEB-JSON", 'web 내장 JSON (id="gil-data") 구조·step 일치', nodes ==
           {"demo/C001-first-step", "demo/C002-second-step"} and steps_present, str(nodes))  # lroot의 두 사이클
 
+    # WEB-HIERARCHY-DEFAULT (loom/C063): 위계(드릴다운)가 기본, --flat이 평면 옵트아웃.
+    # 계약면은 렌더 형식이 아니라 bake.hierarchy 자기보고다 (§7 · "렌더는 계약이 아니다").
+    # 무옵션 out(위 WEB-JSON의 것)은 hierarchy=true, --flat은 hierarchy 키 부재(false), 둘 다 자기완결.
+    default_hier = bool(m) and bool((json.loads(m.group(1)).get("bake") or {}).get("hierarchy"))
+    outf = os.path.join(work, "chains-flat.html")
+    rf = impl.run(lroot, "web", "-o", outf, "--title", "t", "--flat")
+    pagef = open(outf, encoding="utf-8").read() if os.path.isfile(outf) else ""
+    mf = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pagef, re.S)
+    flat_hier = bool(mf) and bool((json.loads(mf.group(1)).get("bake") or {}).get("hierarchy"))
+    extf = re.findall(r'(?:src=|href=|url\(|@import)[^>\n]*https?://', pagef)
+    check("WEB-HIERARCHY-DEFAULT",
+          'web 기본은 위계(bake.hierarchy=true) · --flat은 평면 옵트아웃 · 둘 다 자기완결',
+          default_hier and not flat_hier and rf.returncode == 0 and extf == [],
+          f"default_hier={default_hier} flat_hier={flat_hier} rc={rf.returncode} extf={extf}")
+
     # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
     # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
     outr = os.path.join(work, "chains-refresh.html")

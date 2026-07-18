@@ -3707,7 +3707,7 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <p class="hhint">위계 뷰어 — 체인을 눌러 그래프를, 사이클을 눌러 5스텝 보고서를 연다 (JS 없이 &lt;details&gt;로).</p></header>
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
 %s
-<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web --hierarchy가 생성한 자기완결적 정적 페이지다.</footer>
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
@@ -3741,7 +3741,7 @@ func renderWebPage(d *webData, pageTitle, generated, only string, refresh int, h
 <span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--supersede)" stroke-width="1.6" stroke-dasharray="2 3"/></svg>superseded_by (무효화 — 흐린 노드가 대체 사이클을 가리킨다)</span></div>
 <div class="card">%s</div>
 %s
-<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web --flat이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 			webCSS, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
@@ -3872,8 +3872,8 @@ func cmdWeb(a webArgs) error {
 		return err
 	}
 	suffix := ""
-	if a.hierarchy {
-		suffix += " · 위계"
+	if !a.hierarchy {
+		suffix += " · 평면"
 	}
 	if a.refresh > 0 {
 		suffix += fmt.Sprintf(" · 자동 리로드 %d초", a.refresh)
@@ -4111,7 +4111,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.18.0" // gil:version
+const gilVersion = "2.19.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
@@ -4491,14 +4491,15 @@ func main() {
 		pos, flags, err := parseCLI(norm, map[string]bool{
 			"output": true, "title": true, "chain": true,
 			"refresh": true, "interval": true, "watch": false, // v2.8 (C049): 실시간 관찰
-			"hierarchy": false, // v2.16 (loomlight/C003): 위계(드릴다운) 뷰어
+			"flat":      false, // v2.19 (loom/C063): 위계가 기본 — 평면 옵트아웃
+			"hierarchy": false, // v2.19 (loom/C063): 하위호환 no-op 별칭 (조용히 수용)
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
 		if len(pos) > 1 {
-			fmt.Fprintln(os.Stderr, "사용: gil web [chains-root] [-o out.html] [--title t] [--chain c] [--refresh N] [--hierarchy] [--watch]")
+			fmt.Fprintln(os.Stderr, "사용: gil web [chains-root] [-o out.html] [--title t] [--chain c] [--refresh N] [--flat] [--watch]")
 			os.Exit(2)
 		}
 		root := defaultRoot
@@ -4515,7 +4516,7 @@ func main() {
 			refresh:   refresh,
 			interval:  interval,
 			watch:     len(flags["watch"]) > 0,
-			hierarchy: len(flags["hierarchy"]) > 0,
+			hierarchy: len(flags["flat"]) == 0, // v2.19 (loom/C063): 위계가 기본, --flat만 평면으로 (--flat이 --hierarchy보다 우선)
 		}); err != nil {
 			fail(err)
 		}

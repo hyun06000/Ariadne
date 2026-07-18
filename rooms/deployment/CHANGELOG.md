@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.19.0] — 2026-07-19
+
+- gil web 기본을 위계(드릴다운)로 승격, --flat 옵트아웃·--hierarchy no-op 별칭 (loom/C063, 발의 박상현)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.18.0] — 2026-07-19
 
 - 주 체크아웃 소유 guard (loom/C062) — open·correct가 author≠gil.owner면 커밋 이전 거부. C050 사고 봉인.
