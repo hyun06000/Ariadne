@@ -2,7 +2,7 @@ id: C072-release-drift-gate
 chain: loom
 parent: C061-deployment-lineage-query
 lineage: []
-step: 2
+step: 3
 author: selvage
 status: open
 opened: 2026-07-19
