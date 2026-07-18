@@ -1,5 +1,17 @@
 # Ariadne Spec — Release
 
+## v2.26.0 (2026-07-19) — 병렬 가시성과 배포 무결성: threads·미니맵·web 병렬 배너·drift 게이트 (loom/C070·C072·C073 + loomlight/C004, 네 갈래 병렬)
+
+상현님이 "4트랙 전부 병렬"을 승인해 네 존재(Clew·Weft·Sheen·Selvage)가 각자 격리 워크트리에서 동시에 정복하고 거둔 수확. 관통 주제 둘: **병렬로 뭐가 도는지 보이게** 하고, **배포 계보가 어긋나면 막는다.**
+
+- **`gil threads` (loom/C070, #4 LLM 위키)**: 열린 실 훑기 — 미소비 예약(=진행 중 병렬 사이클, main에 커밋된 `reservations.tsv`)+전역 열린 사이클을 `--json` 계약면으로 반환. `gil show`가 단일 노드 이웃이면 threads는 그 **그래프 전역판**. 워크트리 브랜치에 사는 병렬 사이클을 브랜치 체크아웃 없이 드러낸다. 새 파서 0줄. 소비된 예약은 제외(지어냄 방지, C040). SPEC §5에 `show`·`threads` 행 복원.
+- **`gil web` 병렬 배너 (loom/C073, 상현님 요청)**: 위 예약 데이터를 뷰어 상단 "⟳ 병렬 진행 중" 배너로. threads(CLI)의 뷰어판 — 상현님의 *"워크트리 병렬이 뷰어에 실시간으로 안 잡힌다"*를 답한다. 예약 0이면 부재(바이트 동일). gil-data의 reservations(이미 계약면)를 렌더할 뿐, 새 계약 0.
+- **넓은 그래프 미니맵 (loomlight/C004, Sheen)**: loom(69사이클·자연폭 ~6288px)의 가로 그래프 위에 폭맞춤 미니맵 — 임의 사이클로 한 번에. JS 0·기본 레이아웃 불변·좁은 체인 미출력. Go 이식 바이트 동일.
+- **release drift 게이트 (loom/C072, Selvage)**: `gil release`가 각인 전 태그(`v<semver>`)↔CHANGELOG drift를 검사, 어긋나면 **하드 거부**(무변화). C061 `gil releases`(조회)를 게이트로 승격. **이 릴리스가 그 게이트의 첫 자기적용 대상.**
+- 참조 **98/98**·Go **84/84**(threads·release-gate는 Go 정직한 부재, web 배너는 양 구현 바이트 동일). fsck 위반 0. 병렬 4사이클 `--no-ff` 무충돌 3 + `reservations.tsv` 충돌 1(land가 C060대로 거부·해소 후 재 land). **C050 사고 0.**
+
+**설계 관찰(상현님)**: "사이클마다 별도 디렉토리인데 굳이 워크트리가?" → 결론: 워크트리 트리거는 "사이클당"이 아니라 **"동시성당"**이다. 사이클 디렉토리는 산출물만 격리하고 공유 도구 소스(gil.py)·동시 작업상태는 격리 못 한다. 동시 다중 에이전트가 gil.py를 고치는 Ariadne엔 load-bearing(이 릴리스가 산 증거). C073은 순차라 워크트리 없이 main에서 열어 이 정련을 실천.
+
 ## v2.25.0 (2026-07-19) — 병렬(worktree) 기능을 온보딩에 안내 (loom/C069, 발의: 박상현) · 문서
 
 상현님 관찰 **"최신 gil을 받은 Claude가 병렬 기능을 안 쓴다 — 안내가 잘 되어 있나?"** 감사 결과: **기능 부재가 아니라 안내 부재**였다. C050~C062로 `gil worktree add/land`·예약·소유 guard를 다 만들었지만, 신규 에이전트가 읽는 경로(README.ai.md·QUICKSTART·CLAUDE.md·experiment/README)의 병렬 언급이 **전부 0**이고 SPEC 명령 표엔 `gil worktree` 행조차 없었다. `gil help worktree`로 탐침은 되나, 무엇을 물어야 할지 모르면 못 묻는다.

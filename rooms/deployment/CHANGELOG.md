@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.26.0] — 2026-07-19
+
+- threads(#4 열린 실 훑기)·release drift 게이트·넓은 그래프 미니맵·web 병렬 배너 — 병렬 가시성과 배포 무결성
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.25.0] — 2026-07-19
 
 - 병렬(worktree) 기능을 온보딩 문서에 안내 — README.ai(Step E)·CLAUDE §3·SPEC 명령표+§6.8·QUICKSTART §4.5, 도구 무변경 (loom/C069, 발의 박상현)
