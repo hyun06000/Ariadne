@@ -1,0 +1,98 @@
+PASS VERSION-SEMVER: version이 'gil X.Y.Z' (SemVer) 형태로 자기를 보고
+PASS HELP-EXIT0: help이 exit 0으로 능력 목록 보고 (기계 훅 gil:commands 정확히 1줄)
+PASS HELP-SAFE: 능력 탐침(help·help <명령>·pages --dry-run)이 저장소를 변경하지 않는다
+PASS HELP-TRUTHFUL: 훅이 나열한 모든 명령이 실재한다 (미구현 신호 없음)
+PASS HELP-COMPLETE: 나열하지 않은 명령은 미구현 신호(exit 3)로 답한다
+PASS PAGES-DRYRUN: pages --dry-run이 경로만 보고하고 파일을 만들지 않는다 (대조: pages는 만든다)
+PASS FSCK-CLEAN: 규칙 준수 저장소에서 fsck exit 0
+PASS FSCK-R1: R1 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R2: R2 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R3: R3 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R4: R4 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R5: R5 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R6: R6 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R8: R8 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R7: R7 순환 식별 (exit≠0 ∧ 규칙토큰)
+PASS FSCK-R14: R14: 체인에 chain.md가 없으면 위반 (있으면 통과)
+PASS OPEN-CREATE: open이 v0.2 준수 사이클 생성
+PASS OPEN-INCREMENT: 번호 자동 증가 (C002)
+PASS OPEN-REJECT-SLUG: 형식 위반 슬러그 거부 + 무변화
+PASS OPEN-AUTHOR-REQUIRED: O1: --author 없이 open 거부 + 무변화 (고유명사 기본값 금지)
+PASS OPEN-PARENT-REQUIRED: O2: 비어있지 않은 체인에서 부모 플래그 없이 open 거부 + 무변화
+PASS OPEN-ROOT-CONFLICT: O3: --parent와 --new-root 동시 지정 거부 + 무변화
+PASS OPEN-NEW-ROOT: O5: --new-root로 의도된 두 번째 루트 생성 (parent: null)
+PASS OPEN-ROOT-EMPTY-CHAIN: P3: 빈 체인의 첫 사이클은 부모 플래그 없이 열린다 (과잉 거부 금지)
+PASS FSCK-MULTI-ROOT: R12: 다중 루트를 경고로 판정 (exit 0 — 위반 아님)
+PASS RESERVE-BASIC: reserve → exit 0 + 원장에 예약 1줄 (번호 선점 데이터화)
+PASS RESERVE-NEEDS-FOR: --for 없는 reserve 거부 + 무변화 (§3.2 P1)
+PASS RESERVE-NEEDS-CHAIN: 없는 체인에 reserve 거부
+PASS OPEN-SKIPS-RESERVED: 예약된 번호를 open이 건너뛴다 (clew→C003, 예약 잔존) — 선점
+PASS OPEN-PROMOTES-OWNER: 예약자가 열면 예약 번호로 승격 + 예약 소거 (C002-final-slug, 원장 비움)
+PASS RESERVE-NON-INVASIVE: 예약 있어도 fsck 위반 0 + log 그래프에 예약 노드 없음 (예약은 사이클 아님)
+PASS RESERVE-IN-LOG: log가 예약을 구별해 표시한다 (예약 대상 이름 포함)
+PASS UNRESERVE: unreserve 2 → 예약 제거(exit 0), 없는 99 → 거부
+PASS ROUND-OPEN: round --open이 R2를 사전등록 (hypothesis.md·round.yaml, cycle.yaml rounds=2)
+PASS ROUND-PREREG: 사전등록: round --open이 verification/을 만들지 않는다 (hypothesis가 먼저, H1)
+PASS ROUND-OPEN-GIT: round --open --git 커밋이 hypothesis·round.yaml만 담고 verification 없음 (H1)
+PASS ROUND-CLOSE-VERDICT: round --close --verdict invalid-method 기록 (방법 무효 ≠ 가설 기각, H2)
+PASS ROUND-REJECT-VOCAB: 어휘 밖 라운드 verdict 거부 + 무변화
+PASS ROUND-CLOSED-CYCLE: 닫힌 사이클에 round --open 거부 + 무변화 (불변 보호)
+PASS ROUND-LIST-SAFE: round --list → exit 0 + 저장소 무변화
+PASS FSCK-R15: R15: rounds:N인데 사전등록 hypothesis.md 없으면 위반 (있으면 통과)
+PASS CLOSE-TEMPLATE-REJECT: 템플릿 그대로의 보고서로는 닫기 거부
+PASS CLOSE-OK: 정상 닫기 (status·closed 전이)
+PASS CLOSE-DOUBLE-REJECT: 이중 닫기 거부
+PASS STEP-OK: step 전이 반영 (1→3)
+PASS STEP-REJECT-RANGE: 범위 밖 step 거부 + 무변화
+PASS STEP-REJECT-CLOSED: 닫힌 사이클 step 변경 거부
+PASS FSCK-R9: R9 위반 탐지 (step 범위)
+PASS LOG-OK: log 정상 렌더 (exit 0 + 사이클 id 표기)
+PASS LOG-BROKEN: 끊어진 참조에서 log 거부
+PASS WEB-SELFCONTAINED: web 산출물 외부 리소스 0
+PASS WEB-JSON: web 내장 JSON (id="gil-data") 구조·step 일치
+PASS WEB-HIERARCHY-DEFAULT: web 기본은 위계(bake.hierarchy=true) · --flat은 평면 옵트아웃 · 둘 다 자기완결
+PASS WEB-REFRESH: --refresh N → meta refresh(자동 리로드) + bake 기록, 자기완결 유지
+PASS GIT-CLOSE: close --git: 태그 + 사이클 경로만 커밋
+PASS VERIFY-CLEAN: 무변조 verify exit 0
+PASS VERIFY-TAMPER: 닫힌 사이클 변조 탐지 (exit ≠ 0)
+PASS RELEASE-LIST: releases가 태그↔CHANGELOG를 대조 (3릴리스 훅 ∧ drift=2 ∧ cycle태그 배제 ∧ exit0 ∧ 저장소 무변화)
+PASS OPEN-GIT: open --git: 새 사이클 경로만 커밋 (열림 즉시 각인)
+PASS OPEN-NEWCHAIN-COMMIT: open --new-chain --git: 새 체인의 chain.md도 같은 커밋에 포함 (미추적으로 남기지 않는다)
+PASS OPEN-PUSH-RENUMBER: open --push: 번호 경합을 자동 재번호로 해소 (원장 규율)
+PASS CORRECT-UNSEALED-REJECT: 봉인되지 않은 사이클의 정정 거부 (exit≠0 + 저장소 무변화)
+PASS CORRECT-NO-AUTHOR: --author 없는 정정 거부 (정정의 출처도 지어내지 않는다)
+PASS CORRECT-FIELD-LIMIT: 출처 필드가 아닌 것(verdict)의 정정 거부 (L1 — 증거가 있어도 저자의 주장은 불변)
+PASS CORRECT-EVIDENCE-REQUIRED: 증거 없는/증언되지 않는 정정 거부 (L2 — 스키마상 합법인 거짓도)
+PASS CORRECT-RECORD: 정정 2회: 색인 수리 + 계수 + **모든** 거짓값(from) 영구 보존 (L3 — 덧붙임)
+PASS CORRECT-TAG-MOVE: 정정 후 verify OK (태그 이동) + fsck 위반 0 — 다중루트 해소
+PASS CORRECT-VERIFY-STILL-CATCHES: 정정 후에도 문서 변조를 verify가 탐지 (불변성 보증 생존)
+PASS CORRECT-TAMPER-GUARD: 이미 변조된 사이클의 정정 거부 (변조 세탁 뒷문 차단)
+PASS SUPERSEDE-TAG-MOVE: supersede([migrate]) 후 verify OK — 태그 이동 규약 (§4)
+PASS WEB-AUTO-REFRESH: 뷰어가 있으면 step이 그것을 다시 굽는다 (창이 원장을 따른다)
+PASS WEB-AUTO-PURE-COMMIT: 사이클 커밋에 뷰어가 섞이지 않는다 (뷰어는 별도 커밋)
+PASS WEB-AUTO-NONE: 뷰어가 없으면 아무 HTML도 만들지 않는다 (도구는 뷰어를 강요하지 않는다)
+PASS WEB-BAKE-META: 재굽기가 사용자의 --title을 보존(bake 자기보고) + --no-web은 손대지 않는다
+PASS FSCK-R13: corrections N>0인데 corrections.yaml이 없으면 위반 (R13)
+PASS NO-GIT-GRACEFUL: git 부재에서 open이 rc0 + 사이클 파일 생성 + 무크래시 (파일은 남고 각인만 건너뜀)
+PASS NO-REMOTE-GRACEFUL: 원격 부재에서 --push가 rc0 + 사이클 파일 + 로컬 커밋 보존 + 무크래시 (날것 fatal도 침묵도 아님)
+PASS PATH-SYMLINK-GIT: 심볼릭 링크 절대 --root에서 open --git이 rc0 + 사이클 파일 + 로컬 커밋 보존 + 무크래시 (relpath가 저장소를 탈출하지 않는다)
+PASS DEVIATIONS-COUNT: close는 deviations.yaml 레코드 수 ≠ deviations 카운트면 봉인 거부, 맞추면 봉인 (C053 슬립 차단)
+PASS WORKTREE-SPAWN: worktree add가 rc0 + 워크트리에 사이클 + 브랜치 + 메인 격리 + main에 open 커밋 없음 + 무크래시; 비저장소는 거부 (C050 봉인)
+PASS WORKTREE-LAND: worktree land가 rc0 + main에 --no-ff 병합(부모2) + 워크트리·브랜치 정리 + 무크래시; 충돌은 거부+보존+abort (C060 봉합)
+PASS SHOW-NODE: show <chain>/<id> --json이 그 노드의 신원을 반환 (exit0 ∧ id·chain 일치)
+PASS SHOW-FORWARD: 정방향 lineage 엣지가 대상+존재여부로 해석된다 (X ⇠ alpha/A, exists)
+PASS SHOW-BACKLINKS-PARENT: parent 백링크(체인 내 cited-by): alpha/B ← alpha/C
+PASS SHOW-BACKLINKS-LINEAGE: lineage 백링크(cross-chain cited-by): alpha/A ← beta/X
+PASS SHOW-EDGES-MATCH-GRAPH: show의 정방향 parent 엣지 == web JSON(build_graph) 엣지
+PASS SHOW-MISSING: 부재 노드 → exit≠0 ∧ 지어낸 JSON 없음
+PASS THREADS-JSON-SHAPE: threads --json이 reserved·open·*_count 키를 가진 유효 JSON (exit0)
+PASS THREADS-RESERVED: 미소비 예약이 reserved에 정확히 나온다 (num5·for=bob·slug)
+PASS THREADS-CONSUMED-EXCLUDED: 소비된 예약(num1=C001-open 존재)은 reserved에서 제외 (지어냄 방지, C040)
+PASS THREADS-OPEN: status=open 사이클은 open에, closed는 제외 (gamma/C001-open ∈, C002-done ∉)
+PASS THREADS-OPEN-MATCHES-SCAN: threads의 open 집합 == 직접 스캔한 open 집합 (불일치 기각, C042)
+PASS THREADS-EMPTY: 예약·열린 사이클 0 → reserved==[]·open==[], exit0 (빈 상태 정직)
+PASS GUARD-PRIMARY-REFUSE: 주 체크아웃에서 author≠gil.owner의 open을 거부 (exit≠0 ∧ 사이클 미생성 ∧ HEAD 무변화) — C050 봉인
+PASS GUARD-OWNER-OK: 주 체크아웃에서 주인(gil.owner) author의 open은 통과
+PASS GUARD-LINKED-OK: 링크드 워크트리에서는 남의 author open도 통과 (오탐 0 — 존재의 작업공간)
+
+계약 준수: 96/96  ✔ 이 구현은 gil이다
