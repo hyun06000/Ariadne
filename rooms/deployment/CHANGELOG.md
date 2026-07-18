@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.15.0] — 2026-07-19
+
+- close에 deviations.yaml 카운트 관문(불일치 봉인 거부) + fsck R10 역방향 경고 — 이탈 카운트 슬립 원천 차단 (양 구현, 판정기 76→77, loom/C057)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.14.0] — 2026-07-16
 
 - 심볼릭 링크 --root 경로 해석 우아화 (참조를 Go에 맞춤, PATH-SYMLINK-GIT 76/76×2), loom/C055
