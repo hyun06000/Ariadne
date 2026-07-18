@@ -632,6 +632,46 @@ def main():
                   and drift_seen and after == before,
                   f"rc={r.returncode} 훅={len(hooks)} drift={drift_seen} 무변화={after == before}")
 
+        # ---- release drift 게이트: 봉인 전 배포 계보의 두 기록 일치를 요구 (loom/C072, #3 배포 강화) ----
+        # cmd_release는 태그 v<semver>와 CHANGELOG를 한 커밋에 각인 → 정상 경로 drift=0. 한쪽에만 있는
+        # 릴리스(drift)는 정상 경로 밖의 손댐 신호. 게이트 계약: drift 저장소는 무변화로 거부(하드 등급),
+        # 일치 저장소는 게이트 통과(위양성 0). release는 Go에서 referenceOnly → help release로 참조 구현만 판정.
+        if impl.run(g, "help", "release").returncode == 0:
+            def _mk_release_repo(name, changelog_body):
+                d = make_sandbox(os.path.join(work, name))          # rooms/experiment/{_template,chains}
+                os.makedirs(os.path.join(d, "rooms/deployment/ariadne-spec"))
+                with open(os.path.join(d, "rooms/deployment/CHANGELOG.md"), "w", encoding="utf-8") as f:
+                    f.write(changelog_body)
+                with open(os.path.join(d, "rooms/deployment/ariadne-spec/f.txt"), "w", encoding="utf-8") as f:
+                    f.write("x\n")
+                dg = lambda *c: subprocess.run(["git", "-C", d, *c], capture_output=True, text=True)
+                dg("init", "-q", "-b", "main"); dg("config", "user.name", "fx"); dg("config", "user.email", "fx@t")
+                dg("add", "-A"); dg("commit", "-q", "-m", "init")
+                dg("tag", "-a", "v1.0.0", "-m", "Ariadne release v1.0.0")   # 깃의 진실: v1.0.0 태그
+                return d, dg
+
+            def _run_release(d, ver):
+                return impl.run(d, "release", ver, "--notes", "n",
+                                "--package", os.path.join(d, "rooms/deployment/ariadne-spec"),
+                                "--root", os.path.join(d, "rooms/experiment/chains"))
+
+            # (1) drift: 태그 v1.0.0 존재 · CHANGELOG엔 1.0.0 엔트리 없음 → release는 무변화로 거부해야
+            dd, ddg = _mk_release_repo("reldrift", "# Changelog\n\n## [Unreleased]\n")
+            before = snapshot(dd); head0 = ddg("rev-parse", "HEAD").stdout; tags0 = ddg("tag", "-l").stdout
+            rd = _run_release(dd, "1.1.0")
+            after = snapshot(dd); head1 = ddg("rev-parse", "HEAD").stdout; tags1 = ddg("tag", "-l").stdout
+            drift_msg = "drift" in (rd.stderr + rd.stdout)
+            no_change = after == before and head0 == head1 and tags0 == tags1   # 작업트리·커밋·태그 불변
+            # (2) 일치: CHANGELOG에 1.0.0 엔트리 → drift 0 → 게이트 통과(하류에서 비-drift 사유로 멈춤)
+            dc, _ = _mk_release_repo("relclean",
+                "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] — 2026-07-18\n\n- 첫 릴리스\n- 도구 변경: gil (마이너 이상 승격)\n")
+            rc = _run_release(dc, "1.1.0")
+            gate_passed = "drift" not in (rc.stderr + rc.stdout)   # 위양성 0: 일치 저장소를 drift로 막지 않는다
+            check("RELEASE-DRIFT-GATE",
+                  "release가 배포 계보 drift를 하드 거부 (drift→exit≠0 ∧ 무변화(트리·커밋·태그) ∧ 처방 ∧ 일치는 통과)",
+                  rd.returncode != 0 and drift_msg and no_change and gate_passed,
+                  f"drift_rc={rd.returncode} 처방={drift_msg} 무변화={no_change} 일치통과={gate_passed}")
+
         # ---- open --git: 열 때부터 보이게 (SPEC §2.1-3) — 자체 구축 샌드박스 (판정 항목 독립) ----
         og = make_sandbox(os.path.join(work, "gitopen"))
 

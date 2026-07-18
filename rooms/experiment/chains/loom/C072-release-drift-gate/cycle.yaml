@@ -1,0 +1,14 @@
+id: C072-release-drift-gate
+chain: loom
+parent: C061-deployment-lineage-query
+lineage: []
+step: 5
+author: selvage
+status: closed
+opened: 2026-07-19
+closed: 2026-07-19
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null

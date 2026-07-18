@@ -2872,6 +2872,18 @@ def cmd_release(args):
     tag = f"v{args.version}"
     if _tag_exists(repo, tag):
         raise ChainError(f"태그 '{tag}'가 이미 존재한다")
+    # ---- drift 게이트 (loom/C072): 봉인 전, 기존 배포 계보의 두 기록 일치를 요구한다 ----
+    # cmd_release는 태그 v<semver>와 CHANGELOG를 한 커밋에 각인하므로 정상 경로의 drift는 0이다.
+    # 한쪽 기록에만 있는 릴리스(drift)는 정상 경로 밖에서 배포 기록을 손댔다는 신호 — 어긋난 계보 위에
+    # 새 봉인을 얹으면 어긋남이 봉인된다. 하드 위반: 무변화로 거부·처방한다(인접 verify 게이트와 같은 등급).
+    # drift 정의는 cmd_releases(loom/C061)와 같은 헬퍼를 재사용해 조회와 게이트가 같은 진실을 본다.
+    changelog = os.path.normpath(os.path.join(pkg, "..", "CHANGELOG.md"))
+    drifted = _release_drift(repo, changelog)
+    if drifted:
+        raise ChainError(
+            f"배포 계보 drift {len(drifted)}건 — 태그와 CHANGELOG가 어긋난 릴리스가 있다"
+            f"({', '.join('v' + v for v in drifted)}). 어긋난 계보 위엔 새 릴리스를 봉인할 수 없다: "
+            f"'gil releases'로 확인하고 두 기록을 일치시킨 뒤 다시 릴리스할 것")
     if not os.path.isdir(pkg):
         raise ChainError(f"패키지 디렉토리가 없다: {pkg}")
     _fsck_or_report(chains_root)  # 깨진 저장소 위에는 릴리스하지 않는다
@@ -2920,7 +2932,7 @@ def cmd_release(args):
             f"RELEASE.md에 {args.version} 서술이 없다 — 도구는 절차를, 존재는 진실을: 먼저 릴리스를 문서화할 것")
 
     template_src = os.path.normpath(os.path.join(chains_root, "..", "_template"))
-    changelog = os.path.normpath(os.path.join(pkg, "..", "CHANGELOG.md"))
+    # changelog 경로는 drift 게이트에서 이미 계산됐다(사전 검증 상단) — 재사용.
     if not os.path.isfile(changelog):
         raise ChainError(f"CHANGELOG가 없다: {changelog}")
     log_text = open(changelog, encoding="utf-8").read()
@@ -3016,6 +3028,20 @@ def _git_release_tags(repo):
         out[name[1:]] = {"date": parts[1] if len(parts) > 1 else "",
                          "subject": parts[2] if len(parts) > 2 else ""}
     return out
+
+
+def _release_drift(repo, changelog_path):
+    """배포 계보의 drift = 태그 v<semver>와 CHANGELOG 중 정확히 한쪽에만 있는 릴리스.
+    cmd_releases(loom/C061)와 같은 두 헬퍼를 재사용해 조회와 게이트가 같은 drift를 본다.
+    태그가 하나도 없으면(None=비저장소/git부재 또는 {}=태그 없음) 대조 기준이 없어 drift 없음으로 본다
+    — 첫 릴리스(태그 0)를 게이트가 막지 않게, 그리고 CHANGELOG-only 원장을 손댐으로 오판하지 않게.
+    반환: 최신 우선 정렬된 drift 버전 리스트(빈 리스트면 게이트 통과)."""
+    tags = _git_release_tags(repo)
+    if not tags:                                 # None 또는 {} — 대조할 깃의 진실이 없다
+        return []
+    cl = _parse_changelog_releases(changelog_path)
+    drifted = [v for v in (set(tags) | set(cl)) if (v in tags) != (v in cl)]
+    return sorted(drifted, key=lambda v: tuple(int(x) for x in v.split(".")), reverse=True)
 
 
 def cmd_releases(args):
