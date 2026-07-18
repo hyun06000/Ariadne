@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -3454,6 +3455,14 @@ const webHierCSS = `.gil .htoc{background:var(--surface);border:1px solid var(--
 .gil .htoc a:hover{text-decoration:underline}
 .gil .toc-stat{color:var(--muted);font-size:12px}
 .gil .hhint{color:var(--muted);font-size:12px;margin:6px 0 0}
+.gil .card.hmap{overflow-x:auto;padding:8px 12px}
+.gil .hmap svg{display:block;margin:0 auto;max-width:100%}
+.gil a.chainnode{cursor:pointer}
+.gil a.chainnode circle{transition:fill .12s,stroke-width .12s}
+.gil a.chainnode:hover circle{fill:var(--page);stroke-width:3.5}
+.gil a.chainnode:focus{outline:none}
+.gil a.chainnode:focus circle{stroke-width:3.5}
+.gil .hanchor{display:block;height:0;overflow:hidden;scroll-margin-top:10px}
 .gil details.hchain{background:var(--surface);border:1px solid var(--ring);border-radius:8px}
 .gil details.hchain>summary{cursor:pointer;padding:14px 20px;font-size:15px;font-weight:650;
 list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
@@ -3672,7 +3681,223 @@ func renderCycleDetail(name, cid string, c *webCycle, chainsRoot, cdir string) s
 		anchor, htmlEscape(sumline), metaRows.String(), steps.String())
 }
 
-// renderHierarchyBody: 참조 구현 _render_hierarchy_body — L1 목차 → 체인 <details>(그래프+표) → 사이클 <details>(5스텝).
+// renderChainMap: 참조 구현 _render_chain_map (loom/C064) — L0 체인 지도(원=체인, 점선 화살표=체인 간 lineage).
+// 삼각함수 없이 sqrt·사칙연산만 써 참조와 바이트 동일(sin/cos/atan2는 IEEE correctly-rounded 미보장, Go와 갈릴 위험).
+func renderChainMap(d *webData) string {
+	names := d.names
+	if len(names) == 0 {
+		return ""
+	}
+	ncyc := func(nm string) int { return len(d.chains[nm].order) }
+	openn := func(nm string) int {
+		k, ch := 0, d.chains[nm]
+		for _, c := range ch.order {
+			if cy := ch.cycles[c]; cy.status == nil || *cy.status != "closed" {
+				k++
+			}
+		}
+		return k
+	}
+	hasRejected := func(nm string) bool {
+		ch := d.chains[nm]
+		for _, c := range ch.order {
+			if cy := ch.cycles[c]; cy.verdict != nil && *cy.verdict == "rejected" {
+				return true
+			}
+		}
+		return false
+	}
+	firstDate := func(nm string) string {
+		best, ch := "", d.chains[nm]
+		for _, c := range ch.order {
+			if op := ch.cycles[c].opened; op != nil && *op != "" && (best == "" || *op < best) {
+				best = *op
+			}
+		}
+		if best == "" {
+			return "9999-99-99"
+		}
+		return best
+	}
+
+	// 엣지 집계: source(교훈 원천) → target(인용 체인), 방향은 기존 사이클 그래프와 동일.
+	type ek struct{ src, tgt string }
+	edges := map[ek]int{}
+	for _, name := range names {
+		ch := d.chains[name]
+		for _, cid := range ch.order {
+			for _, ref := range ch.cycles[cid].lineage {
+				other := ref
+				if i := strings.IndexByte(ref, '/'); i >= 0 {
+					other = ref[:i]
+				}
+				if _, ok := d.chains[other]; ok && other != name {
+					edges[ek{other, name}]++
+				}
+			}
+		}
+	}
+	nbr := map[string]map[string]bool{}
+	for _, nm := range names {
+		nbr[nm] = map[string]bool{}
+	}
+	for e := range edges {
+		nbr[e.src][e.tgt] = true
+		nbr[e.tgt][e.src] = true
+	}
+
+	// base = 연대순(first_date, tiebreak 이름). 허브(최다 연결, 동률이면 사이클 많은 쪽)를 가운데로.
+	base := append([]string(nil), names...)
+	sort.SliceStable(base, func(i, j int) bool {
+		fi, fj := firstDate(base[i]), firstDate(base[j])
+		if fi != fj {
+			return fi < fj
+		}
+		return base[i] < base[j]
+	})
+	var order []string
+	if len(base) > 2 && len(edges) > 0 {
+		hub := base[0]
+		for _, nm := range base {
+			dn, dh := len(nbr[nm]), len(nbr[hub])
+			if dn > dh || (dn == dh && ncyc(nm) > ncyc(hub)) {
+				hub = nm
+			}
+		}
+		var rest []string
+		for _, nm := range base {
+			if nm != hub {
+				rest = append(rest, nm)
+			}
+		}
+		mid := len(rest) / 2
+		order = append(order, rest[:mid]...)
+		order = append(order, hub)
+		order = append(order, rest[mid:]...)
+	} else {
+		order = base
+	}
+
+	radius := func(nm string) float64 { // math.Sqrt는 IEEE 보장(correctly-rounded) → 참조 math.sqrt와 비트 동일
+		return math.Max(16.0, math.Min(46.0, 12.0+4.6*math.Sqrt(float64(ncyc(nm)))))
+	}
+	rad := map[string]float64{}
+	rmax := 0.0
+	for _, nm := range order {
+		rad[nm] = radius(nm)
+		if rad[nm] > rmax {
+			rmax = rad[nm]
+		}
+	}
+	spacing := 2*rmax + 104
+	x0 := 44 + rmax
+	cx := map[string]float64{}
+	for i, nm := range order {
+		cx[nm] = x0 + float64(i)*spacing
+	}
+
+	arc := map[ek]float64{}
+	maxArc := 0.0
+	for e := range edges {
+		dist := math.Abs(cx[e.tgt] - cx[e.src])
+		extra := 0.0
+		if _, ok := edges[ek{e.tgt, e.src}]; ok && cx[e.src] > cx[e.tgt] {
+			extra = 26
+		}
+		arc[e] = 38 + 0.12*dist + extra
+		if arc[e] > maxArc {
+			maxArc = arc[e]
+		}
+	}
+	ycen := math.Max(maxArc/2+18, rmax+8)
+	width := x0 + float64(len(order)-1)*spacing + rmax + 44
+	height := ycen + rmax + 46
+
+	var p strings.Builder
+	p.WriteString(fmt.Sprintf(`<svg viewBox="0 0 %.0f %.0f" width="%.0f" height="%.0f" `+
+		`role="img" aria-label="체인 지도 — 체인 간 lineage 그래프">`+
+		`<defs><marker id="chainarrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" `+
+		`markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" `+
+		`fill="var(--lineage)"/></marker></defs>`, width, height, width, height))
+	// lineage 아치 — sorted(src,tgt) 순회. 끝점을 아치 정점 방향 원 둘레에 놓아(부채꼴) 화살표 겹침을 줄인다.
+	ekeys := make([]ek, 0, len(edges))
+	for e := range edges {
+		ekeys = append(ekeys, e)
+	}
+	sort.Slice(ekeys, func(i, j int) bool {
+		if ekeys[i].src != ekeys[j].src {
+			return ekeys[i].src < ekeys[j].src
+		}
+		return ekeys[i].tgt < ekeys[j].tgt
+	})
+	for _, e := range ekeys {
+		n := edges[e]
+		xs, xt := cx[e.src], cx[e.tgt]
+		ah := arc[e]
+		mx, apex := (xs+xt)/2, ycen-ah
+		dx1, dy1 := mx-xs, apex-ycen
+		l1 := math.Sqrt(dx1*dx1 + dy1*dy1)
+		dx2, dy2 := mx-xt, apex-ycen
+		l2 := math.Sqrt(dx2*dx2 + dy2*dy2)
+		x1, y1 := xs+rad[e.src]*dx1/l1, ycen+rad[e.src]*dy1/l1
+		x2, y2 := xt+rad[e.tgt]*dx2/l2, ycen+rad[e.tgt]*dy2/l2
+		nn := n
+		if nn > 5 {
+			nn = 5
+		}
+		w := 1.2 + 0.55*float64(nn)
+		p.WriteString(fmt.Sprintf(`<path d="M%.1f,%.1f Q%.1f,%.1f %.1f,%.1f" `+
+			`fill="none" stroke="var(--lineage)" stroke-width="%.1f" stroke-dasharray="5 4" `+
+			`marker-end="url(#chainarrow)" opacity="0.8"/>`, x1, y1, mx, apex, x2, y2, w))
+		if n > 1 {
+			vy := ycen - ah/2
+			p.WriteString(fmt.Sprintf(`<text x="%.1f" y="%.1f" text-anchor="middle" font-size="10" `+
+				`font-weight="700" fill="var(--lineage)" stroke="var(--surface)" `+
+				`stroke-width="3" paint-order="stroke">%d</text>`, mx, vy-3, n))
+		}
+	}
+	// 체인 노드 — 큰 원(안에 사이클 수), 아래 이름+요약. 색=상태(rejected→빨강, 열림→점선 링).
+	for _, nm := range order {
+		x, r := cx[nm], rad[nm]
+		ch := d.chains[nm]
+		nc, no := ncyc(nm), openn(nm)
+		col := "var(--node)"
+		if hasRejected(nm) {
+			col = "var(--rejected)"
+		}
+		tip := htmlEscape(fmt.Sprintf("%s — 사이클 %d개 · %s · %s", nm, nc, verdictTally(ch), chainRecent(ch)))
+		numFs := math.Max(12, math.Min(22, r*0.82))
+		ring := ""
+		if no > 0 {
+			ring = fmt.Sprintf(`<circle cx="%.0f" cy="%.0f" r="%.0f" fill="none" stroke="%s" `+
+				`stroke-width="1.2" stroke-dasharray="3 3" opacity="0.55"/>`, x, ycen, r+4, col)
+		}
+		openTxt := ""
+		if no > 0 {
+			openTxt = fmt.Sprintf(" · 열림 %d", no)
+		}
+		p.WriteString(fmt.Sprintf(`<a href="#chainbody-%s" class="chainnode" aria-label="%s">`+
+			`<title>%s</title>%s`+
+			`<circle cx="%.0f" cy="%.0f" r="%.0f" fill="var(--surface)" `+
+			`stroke="%s" stroke-width="2.5"/>`+
+			`<text x="%.0f" y="%.0f" text-anchor="middle" `+
+			`font-size="%.0f" font-weight="700" fill="%s">%d</text>`+
+			`<text x="%.0f" y="%.0f" text-anchor="middle" font-size="13" `+
+			`font-weight="650" fill="var(--ink)">%s</text>`+
+			`<text x="%.0f" y="%.0f" text-anchor="middle" font-size="10.5" `+
+			`fill="var(--muted)">사이클 %d%s</text>`+
+			`</a>`,
+			htmlEscape(nm), tip, tip, ring,
+			x, ycen, r, col,
+			x, ycen+numFs*0.34, numFs, col, nc,
+			x, ycen+r+17, htmlEscape(nm),
+			x, ycen+r+32, nc, openTxt))
+	}
+	p.WriteString("</svg>")
+	return p.String()
+}
+
+// renderHierarchyBody: 참조 구현 _render_hierarchy_body — L0 체인 지도 → L1 목차 → 체인 <details>(그래프+표) → 사이클 <details>(5스텝).
 func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLineage int, chainsRoot, gilDataJSON string) string {
 	style := webCSS + "\n" + webHierCSS
 	var toc, chainsHTML strings.Builder
@@ -3696,22 +3921,23 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 		chainsHTML.WriteString(fmt.Sprintf(`<details class="hchain" id="chain-%s">`+
 			`<summary><span class="hname">%s</span>`+
 			`<span class="hstat">%s</span></summary>`+
-			`<div class="hbody"><div class="card">%s</div>%s`+
+			`<div class="hbody"><span id="chainbody-%s" class="hanchor"></span><div class="card">%s</div>%s`+
 			`<div class="hcycles"><h3>사이클 상세 — 눌러서 5스텝 보고서 열기</h3>%s</div></div></details>`,
 			htmlEscape(name), htmlEscape(name), htmlEscape(stats),
-			renderSVG(single), renderTables(single), cyc.String()))
+			htmlEscape(name), renderSVG(single), renderTables(single), cyc.String()))
 	}
 	return fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
 <p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p>
-<p class="hhint">위계 뷰어 — 체인을 눌러 그래프를, 사이클을 눌러 5스텝 보고서를 연다 (JS 없이 &lt;details&gt;로).</p></header>
+<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 아래 그 체인이 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 사이클을 누르면 5스텝 보고서가 열린다 (JS 없이 &lt;details&gt;로).</p></header>
+<div class="card hmap">%s</div>
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
 %s
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		toc.String(), chainsHTML.String(), gilDataJSON)
+		renderChainMap(d), toc.String(), chainsHTML.String(), gilDataJSON)
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).
@@ -4111,7 +4337,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.19.0" // gil:version
+const gilVersion = "2.20.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
