@@ -1,0 +1,14 @@
+id: C065-chain-node-stream
+chain: loom
+parent: C064-chain-map-lineage-overview
+lineage: [loomlight/C002-hierarchical-viewer]
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "위계를 노드 스트림으로 — 카드 제거·아코디언·lineage 칩·노드 클릭 시 5스텝 인라인"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
