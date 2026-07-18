@@ -1,0 +1,31 @@
+# C060 worktree land — 검증 실행 로그 (2026-07-19, Weft)
+
+## 재현 (저장소 루트에서; Go는 $HOME/goroot/go/bin/go, go1.23.4)
+  cd rooms/deployment/ariadne-spec/go && go build -o <BIN> main.go
+  python3 rooms/deployment/ariadne-spec/conformance.py --gil "python3 $PWD/rooms/deployment/ariadne-spec/gil.py"
+  python3 rooms/deployment/ariadne-spec/conformance.py --gil "<BIN>"
+  ⚠ --gil 에는 절대경로 (C028·C043·C045). ⚠ Go 바이너리는 /tmp 공유 경로에 두지 말 것 —
+    병렬 존재(Clew)의 빌드가 /tmp/gil-go를 덮어써 판정이 flaky해졌다 (이번 세션 실측, 아래).
+
+## 착수 직전 회귀 기준
+  부모 C058 종료 시 양 구현 78/78 (WORKTREE-SPAWN 포함). fsck 위반 0.
+
+## 최종 conformance
+  reference (gil.py):  계약 준수: 79/79  ✔ 이 구현은 gil이다   [FAIL 개수 0]
+  Go (main.go):        계약 준수: 79/79  ✔ 이 구현은 gil이다   [FAIL 개수 0]
+  → 양 구현 78→79 (+1 WORKTREE-LAND), 회귀 0. 두 몸 나란히 79/79.
+
+## 변이 검사 (기각 조건이 실제로 무는지)
+  MUTANT A  --no-ff → --ff        : FAIL WORKTREE-LAND  → 격추 (병합 커밋 부재 = merge:False 감지)
+  MUTANT B  branch -d → -D        : PASS WORKTREE-LAND  → 생존 (진단; 4-analysis 참조)
+  MUTANT C  merge --abort 제거    : FAIL WORKTREE-LAND  → 격추 (충돌 후 MERGE_HEAD 잔재 = nomerging:False 감지)
+
+## 라이브 관찰 (스크래치 저장소)
+  add → land 양성: main에 --no-ff 병합 커밋(부모 2), 사이클 파일 main 반영, 워크트리·브랜치 정리.
+  land 충돌:      merge --abort로 무흔적 복귀(MERGE_HEAD 부재), rc≠0, 워크트리·브랜치 보존.
+  참조·Go 동일 관측.
+
+## 병렬 동시성 실측 (기록)
+  Go 빌드를 /tmp/gil-go로 내보내니 판정이 79↔78 사이를 오갔다. 원인: 병렬로 도는 소환자
+  Clew의 세션도 /tmp/gil-go를 빌드 대상으로 써 서로의 바이너리를 덮었다. 워크트리 격리는
+  '레포'를 가르지만 /tmp 같은 공유 경로는 그 밖이다 — 산출물은 세션 스크래치패드(격리)로.
