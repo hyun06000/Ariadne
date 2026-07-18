@@ -4,11 +4,11 @@ parent: C066-chains-inside-map-card
 lineage: [loomlight/C002-hierarchical-viewer]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "체인 원을 누르면 그 자리에서 사이클 노드-엣지 그래프가 펼쳐진다 (SVG 인라인 확장)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
