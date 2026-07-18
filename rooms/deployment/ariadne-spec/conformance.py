@@ -33,7 +33,8 @@ CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release"
                      "round",  # loom/C045 (이슈 #9·#10) — 라운드. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
                      "worktree",  # loom/C058 (#1) — 병렬 사이클 모드 spawn
                      "releases",  # loom/C061 (#3) — 배포 계보 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
-                     "show"]  # loom/C059 (#4 LLM 위키) — 지식그래프 노드 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "show",  # loom/C059 (#4 LLM 위키) — 지식그래프 노드 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "threads"]  # loom/C070 (#4 LLM 위키) — 열린 실 훑기(병렬 진행+열린 사이클). Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
 
 
 def check(cid, desc, cond, detail=""):
@@ -1147,6 +1148,72 @@ def main():
         r, dG = showj("alpha/C999-ghost")
         check("SHOW-MISSING", "부재 노드 → exit≠0 ∧ 지어낸 JSON 없음",
               r.returncode != 0 and dG is None, f"rc={r.returncode}")
+
+    # ---- threads: 열린 실 훑기 — 진행 중 병렬(예약)+열린 사이클 전역 조회 (loom/C070, #4 LLM 위키) ----
+    # 병렬 워크트리 사이클은 브랜치에 살아 main 뷰어에 안 잡힌다. 그러나 reserve가 reservations.tsv를
+    # main에 커밋하므로 "진행 중 병렬"은 이미 데이터다. threads는 그 미소비 예약 + status=open 사이클을
+    # 기계 계약면(--json)으로 반환한다. 지어내지 않는다: 소비된(사이클로 존재하는) 예약은 제외.
+    # 구현이 threads를 구현했을 때만 판정(부분 구현 합법). 미구현이면 HELP-COMPLETE가 정직성을 본다.
+    if impl.run(work, "help", "threads").returncode == 0:
+        def write_res(root, chain_dir, lines):
+            p = os.path.join(root, "rooms/experiment/chains", chain_dir, "reservations.tsv")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("# gil 예약 원장\n")
+                for ln in lines:
+                    f.write(ln + "\n")
+
+        def threadsj(root_sb, cr):
+            r = impl.run(root_sb, "threads", "--json", "--root", cr)
+            try:
+                return r, json.loads(r.stdout)
+            except Exception:
+                return r, None
+
+        # 픽스처 gamma: C001-open(열림)·C002-done(닫힘), 예약 5(미소비)·1(=C001 소비됨)
+        th = make_sandbox(os.path.join(work, "threads"))
+        thr = os.path.join(th, "rooms/experiment/chains")
+        write_cycle(th, "gamma", "C001-open", status="open", author="alice", step="3")
+        write_cycle(th, "gamma", "C002-done", status="closed")
+        write_res(th, "gamma", ["5 bob newthing 2026-01-01", "1 alice already 2026-01-01"])
+        r, d = threadsj(th, thr)
+        shape_ok = (r.returncode == 0 and d is not None and isinstance(d.get("reserved"), list)
+                    and isinstance(d.get("open"), list)
+                    and d.get("reserved_count") == len(d["reserved"])
+                    and d.get("open_count") == len(d["open"]))
+        check("THREADS-JSON-SHAPE", "threads --json이 reserved·open·*_count 키를 가진 유효 JSON (exit0)",
+              shape_ok, f"rc={r.returncode} keys={sorted(d) if d else None}")
+        res_nums = {x["num"]: x for x in (d["reserved"] if d else [])}
+        check("THREADS-RESERVED", "미소비 예약이 reserved에 정확히 나온다 (num5·for=bob·slug)",
+              5 in res_nums and res_nums[5]["for"] == "bob" and res_nums[5]["slug"] == "newthing",
+              f"reserved={d and d['reserved']}")
+        check("THREADS-CONSUMED-EXCLUDED", "소비된 예약(num1=C001-open 존재)은 reserved에서 제외 (지어냄 방지, C040)",
+              d is not None and 1 not in res_nums, f"reserved_nums={sorted(res_nums)}")
+        open_ids = {(x["chain"], x["id"]) for x in (d["open"] if d else [])}
+        check("THREADS-OPEN", "status=open 사이클은 open에, closed는 제외 (gamma/C001-open ∈, C002-done ∉)",
+              ("gamma", "C001-open") in open_ids and ("gamma", "C002-done") not in open_ids,
+              f"open={sorted(open_ids)}")
+        # threads의 open 집합 == 픽스처를 직접 스캔한 open 집합 (두 표면이 다른 그래프를 말하면 안 됨, C042 threads판)
+        scanned = set()
+        for ch in os.listdir(thr):
+            chp = os.path.join(thr, ch)
+            if not os.path.isdir(chp):
+                continue
+            for cyc in os.listdir(chp):
+                yp = os.path.join(chp, cyc, "cycle.yaml")
+                if os.path.isfile(yp):
+                    txt = open(yp, encoding="utf-8").read()
+                    if re.search(r"^status:\s*open\s*$", txt, re.M):
+                        scanned.add((ch, cyc))
+        check("THREADS-OPEN-MATCHES-SCAN", "threads의 open 집합 == 직접 스캔한 open 집합 (불일치 기각, C042)",
+              open_ids == scanned, f"threads={sorted(open_ids)} scan={sorted(scanned)}")
+        # 빈 상태: 닫힌 사이클만·예약 없음 → reserved==[]·open==[], exit0 (부재 정직)
+        te = make_sandbox(os.path.join(work, "threads_empty"))
+        ter = os.path.join(te, "rooms/experiment/chains")
+        write_cycle(te, "delta", "C001-only", status="closed")
+        r, de = threadsj(te, ter)
+        check("THREADS-EMPTY", "예약·열린 사이클 0 → reserved==[]·open==[], exit0 (빈 상태 정직)",
+              r.returncode == 0 and de is not None and de["reserved"] == [] and de["open"] == [],
+              f"rc={r.returncode} d={de}")
 
     # ---- worktree owner guard: 주 체크아웃 소유 강제 (loom/C062, #1 — 상현님 발의) ----
     # 존재가 자기 워크트리 밖 공유 main으로 cd해 커밋하는 C050 사고를 도구가 커밋 이전에 거부한다.
