@@ -1,0 +1,19 @@
+# C058 검증 로그 (재현 가능) — gil worktree add (병렬 사이클 spawn)
+생성: 2026-07-18T17:11:17Z  Go: go1.23.4 로컬 빌드
+
+## 1. 참조 conformance (77→78, WORKTREE-SPAWN PASS)
+PASS HELP-COMPLETE: 나열하지 않은 명령은 미구현 신호(exit 3)로 답한다
+PASS WORKTREE-SPAWN: worktree add가 rc0 + 워크트리에 사이클 + 브랜치 + 메인 격리 + main에 open 커밋 없음 + 무크래시; 비저장소는 거부 (C050 봉인)
+계약 준수: 78/78  ✔ 이 구현은 gil이다
+
+## 2. Go conformance (두 몸 한 계약: 78/78)
+PASS HELP-COMPLETE: 나열하지 않은 명령은 미구현 신호(exit 3)로 답한다
+PASS WORKTREE-SPAWN: worktree add가 rc0 + 워크트리에 사이클 + 브랜치 + 메인 격리 + main에 open 커밋 없음 + 무크래시; 비저장소는 거부 (C050 봉인)
+계약 준수: 78/78  ✔ 이 구현은 gil이다
+
+## 3. 변이 격추 (self-invoke --root를 메인으로 → 격리 위반, WORKTREE-SPAWN FAIL 77/78)
+FAIL WORKTREE-SPAWN: worktree add가 rc0 + 워크트리에 사이클 + 브랜치 + 메인 격리 + main에 open 커밋 없음 + 무크래시; 비저장소는 거부 (C050 봉인)  [rc=0 cyc=False br=True iso=False noopen=False crash=False neg_rc=1]
+계약 준수: 77/78  ✘ 계약 위반
+
+## 4. 실저장소 fsck (회귀 0 확인)
+OK — 체인 5개, 사이클 64개, 위반 0건 (스키마 v0.5), 경고 37건
