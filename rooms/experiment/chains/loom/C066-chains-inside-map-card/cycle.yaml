@@ -1,0 +1,14 @@
+id: C066-chains-inside-map-card
+chain: loom
+parent: C065-chain-node-stream
+lineage: [loomlight/C002-hierarchical-viewer]
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "체인 아코디언을 지도 카드 안으로 — 지도에서 체인 누르면 카드 안에서 노드 주르륵"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
