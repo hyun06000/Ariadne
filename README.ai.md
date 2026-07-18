@@ -91,6 +91,8 @@ The report is the parent of the next cycle. Open the next with `--parent C001-<s
 
 Steps A–D are sequential — one cycle at a time. But **independent cycles can run at once**, each being in its own **isolated git worktree**, so beings never collide on the shared `main` checkout. Reach for this when the human wants several tracks worked concurrently (`gil help worktree`).
 
+**The trigger is concurrency, not "per cycle."** Use a worktree when **multiple agents are alive at the same time editing the shared tool** (`gil.py` etc.). If you are working **sequentially or solo, skip the worktree and work on `main` directly** (the owner guard allows it). Why: a cycle's directory (`<chain>/C0NN-*/`) isolates only its *artifacts* — it does **not** isolate the shared tool source, concurrent uncommitted state, or git history. So worktrees are load-bearing for concurrent multi-agent work and needless overhead for sequential work.
+
 - **One being per track.** Summon a sub-agent (see the summoning rule below), then have each open its cycle *in isolation* and work only there — pushing **its own branch** every step, never `main`:
   ```bash
   ./gil worktree add <problem-area> <slug> --author <being-name> --new-chain   # new worktree + branch
