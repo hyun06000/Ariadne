@@ -2740,7 +2740,8 @@ type webChain struct {
 	cycleOrder   []string // 삽입 순서 = 디렉토리 정렬 (JSON·간선 순회)
 	cycles       map[string]*webCycle
 	children     map[string][]string
-	reservations []reservation // loom/C043: 예약도 원장 상태 (그래프 밖, 카드로만)
+	reservations []reservation     // loom/C043: 예약도 원장 상태 (그래프 밖, 카드로만)
+	dirs         map[string]string // 참조 _dirs: cid → 디스크 디렉토리명. 위계 뷰어가 스텝 파일을 찾는 데만 쓴다 (loomlight/C002).
 }
 
 type webData struct {
@@ -2886,9 +2887,11 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 			continue
 		}
 		wc := &webChain{order: g.order, cycleOrder: g.idList,
-			cycles: map[string]*webCycle{}, children: g.children}
+			cycles: map[string]*webCycle{}, children: g.children,
+			dirs: map[string]string{}}
 		for _, cid := range g.idList {
 			r := g.byID[cid]
+			wc.dirs[cid] = r.dir // 참조 _dirs: JSON은 이 키를 직렬화하지 않으므로 기본 출력 바이트 동일
 			c := &webCycle{
 				status:       fieldPtr(r.fields, "status"),
 				opened:       fieldPtr(r.fields, "opened"),
@@ -3250,7 +3253,7 @@ func renderTables(d *webData) string {
 
 // webJSONPayload: 참조 구현 render_web_page의 json.dumps(ensure_ascii=False)와
 // 문자 단위 동일한 직렬화 — 키 삽입 순서(정렬된 체인/사이클명)와 ", "·": " 구분자.
-func webJSONPayload(d *webData, pageTitle, only string, refresh int) string {
+func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy bool) string {
 	var b strings.Builder
 	// v0.4 (loom/C042): bake — 산출물이 자기를 어떻게 다시 굽는지 스스로 말한다.
 	// 추론("체인이 하나뿐이니 필터겠지")은 거짓일 수 있으므로 추측하지 않고 기록한다 (C040).
@@ -3261,6 +3264,10 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int) string {
 	bakeExtra := "" // v0.5 (loom/C049): refresh는 있을 때만 (C043) — 무리프레시 바이트 동일
 	if refresh > 0 {
 		bakeExtra = `, "refresh": ` + strconv.Itoa(refresh)
+	}
+	// v2.16 (loomlight/C003): hierarchy — 있을 때만, refresh 뒤에 (참조 dict 순서와 동일). 무옵션 바이트 동일.
+	if hierarchy {
+		bakeExtra += `, "hierarchy": true`
 	}
 	b.WriteString(`{"version": "0.4", "bake": {"title": ` + jsonStr(pageTitle) +
 		`, "chain": ` + chainVal + bakeExtra + `}, "chains": {`)
@@ -3324,8 +3331,282 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int) string {
 	return b.String()
 }
 
+// ---------- 위계(드릴다운) 뷰어 (v2.16 / loomlight/C002→C003 — 이슈 없음, Clew 임무) ----------
+//
+// 참조 구현 gil.py의 위계 렌더 경로를 문자 단위 동형 이식한다. opt-in(`--hierarchy`)이라
+// 기본 경로는 한 바이트도 건드리지 않는다. 정확성은 두 구현 `cmp`로 세운다 (렌더는 계약 아님, §3.1).
+
+// webHierCSS: 참조 구현 _WEB_HIER_CSS와 문자 단위 동일 (details/summary·중첩 여백·메타표·pre).
+const webHierCSS = `.gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
+.gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
+.gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.gil .htoc li{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px}
+.gil .htoc a{color:var(--node);text-decoration:none;font-weight:600}
+.gil .htoc a:hover{text-decoration:underline}
+.gil .toc-stat{color:var(--muted);font-size:12px}
+.gil .hhint{color:var(--muted);font-size:12px;margin:6px 0 0}
+.gil details.hchain{background:var(--surface);border:1px solid var(--ring);border-radius:8px}
+.gil details.hchain>summary{cursor:pointer;padding:14px 20px;font-size:15px;font-weight:650;
+list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.gil details.hchain>summary::-webkit-details-marker{display:none}
+.gil details.hchain>summary::before{content:"\25B8";color:var(--muted);font-weight:400}
+.gil details.hchain[open]>summary::before{content:"\25BE"}
+.gil .hname{color:var(--ink)}
+.gil .hstat{color:var(--muted);font-size:12.5px;font-weight:400}
+.gil .hbody{padding:0 20px 20px;display:flex;flex-direction:column;gap:16px}
+.gil .hbody .card{margin:0}
+.gil .hcycles h3{font-size:13px;font-weight:650;margin:4px 0 8px;color:var(--ink-2)}
+.gil details.hcycle{border:1px solid var(--hairline);border-radius:6px;margin-bottom:6px}
+.gil details.hcycle>summary{cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink);
+list-style:none;font-variant-numeric:tabular-nums}
+.gil details.hcycle>summary::-webkit-details-marker{display:none}
+.gil details.hcycle>summary::before{content:"\25B8  ";color:var(--muted)}
+.gil details.hcycle[open]>summary::before{content:"\25BE  "}
+.gil .hcycle-body{padding:0 12px 12px}
+.gil table.hmeta{width:auto;margin:4px 0 12px;font-size:12px}
+.gil table.hmeta th{color:var(--muted);font-weight:600;padding:3px 14px 3px 0;text-align:left;
+border:none;white-space:nowrap;vertical-align:top}
+.gil table.hmeta td{color:var(--ink-2);padding:3px 0;border:none}
+.gil details.hstep{margin:4px 0}
+.gil details.hstep>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--node);
+padding:3px 0;list-style:none}
+.gil details.hstep>summary::-webkit-details-marker{display:none}
+.gil details.hstep>summary::before{content:"+  "}
+.gil details.hstep[open]>summary::before{content:"\2212  "}
+.gil details.hstep pre{background:var(--page);border:1px solid var(--hairline);border-radius:6px;
+padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+color:var(--ink-2);margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.gil details.hstep pre.empty{color:var(--muted);font-style:italic}`
+
+// stepFiles: 참조 구현 _STEP_FILES — 라벨과 스텝 파일(3-verification은 디렉토리).
+var stepFiles = [][2]string{
+	{"1 · 가설", "1-hypothesis.md"}, {"2 · 설계", "2-design.md"},
+	{"3 · 검증", "3-verification"}, // 디렉토리 — README + 산출물 목록
+	{"4 · 분석", "4-analysis.md"}, {"5 · 보고", "5-report.md"},
+}
+
+// verdictTally: 참조 구현 _verdict_tally — 닫힌 사이클을 verdict별로, 열린 사이클을 따로 센다.
+func verdictTally(ch *webChain) string {
+	counts := map[string]int{}
+	var firstSeen []string // 미지 verdict의 삽입 순서 보존 (파이썬 dict 순서 대응)
+	openn := 0
+	for _, cid := range ch.order {
+		c := ch.cycles[cid]
+		if c.isClosed() {
+			key := "무결론"
+			if c.verdict != nil {
+				key = *c.verdict
+			}
+			if counts[key] == 0 {
+				firstSeen = append(firstSeen, key)
+			}
+			counts[key]++
+		} else {
+			openn++
+		}
+	}
+	known := []string{"supported", "rejected", "refuted", "inconclusive", "무결론"}
+	knownSet := map[string]bool{}
+	for _, v := range known {
+		knownSet[v] = true
+	}
+	var parts []string
+	for _, v := range known {
+		if counts[v] > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", v, counts[v]))
+		}
+	}
+	for _, v := range firstSeen { // 미지 verdict도 정직히 (삽입 순서)
+		if !knownSet[v] {
+			parts = append(parts, fmt.Sprintf("%s %d", v, counts[v]))
+		}
+	}
+	if openn > 0 {
+		parts = append(parts, fmt.Sprintf("열림 %d", openn))
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, " · ")
+}
+
+// chainRecent: 참조 구현 _chain_recent — 가장 최근 활동일(closed·opened 중 최댓값, ISO 문자열 비교).
+func chainRecent(ch *webChain) string {
+	var dates []string
+	for _, cid := range ch.order {
+		c := ch.cycles[cid]
+		d := ""
+		if c.closed != nil && *c.closed != "" {
+			d = *c.closed
+		} else if c.opened != nil && *c.opened != "" {
+			d = *c.opened
+		}
+		if d != "" {
+			dates = append(dates, d)
+		}
+	}
+	if len(dates) == 0 {
+		return "최근 —"
+	}
+	mx := dates[0]
+	for _, d := range dates[1:] {
+		if d > mx {
+			mx = d
+		}
+	}
+	return "최근 " + mx
+}
+
+// readStep: 참조 구현 _read_step — 스텝 파일(또는 3-verification 디렉토리)의 원문. 없으면 "" + false.
+// 마크다운 파싱 없이 <pre>로 원문 그대로 — 정직·자기완결·JS 불요.
+func readStep(chainsRoot, name, cdir, fname string) (string, bool) {
+	if chainsRoot == "" {
+		return "", false
+	}
+	path := filepath.Join(chainsRoot, name, cdir, fname)
+	if fname == "3-verification" {
+		var parts []string
+		readme := filepath.Join(path, "README.md")
+		if fi, err := os.Stat(readme); err == nil && !fi.IsDir() {
+			if b, err := os.ReadFile(readme); err == nil {
+				parts = append(parts, string(b))
+			}
+		}
+		var entries []string
+		if es, err := os.ReadDir(path); err == nil {
+			for _, e := range es {
+				if e.Name() != "README.md" {
+					entries = append(entries, e.Name())
+				}
+			}
+		}
+		sort.Strings(entries)
+		if len(entries) > 0 {
+			lines := make([]string, len(entries))
+			for i, e := range entries {
+				lines[i] = "- " + e
+			}
+			parts = append(parts, "[검증 산출물]\n"+strings.Join(lines, "\n"))
+		}
+		if len(parts) == 0 {
+			return "", false
+		}
+		return strings.Join(parts, "\n\n"), true
+	}
+	if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+		if b, err := os.ReadFile(path); err == nil {
+			return string(b), true
+		}
+	}
+	return "", false
+}
+
+// renderCycleDetail: 참조 구현 _render_cycle_detail — L3: 한 사이클의 5스텝 + cycle.yaml 메타를 중첩 <details>로.
+func renderCycleDetail(name, cid string, c *webCycle, chainsRoot, cdir string) string {
+	vtip := ""
+	if c.verdict != nil {
+		vtip = " · " + *c.verdict
+	}
+	status := c.statusText()
+	title := c.title
+	sumline := fmt.Sprintf("%s [%s%s] %s", cid, status, vtip, title)
+
+	orDash := func(p *string) string {
+		if p == nil {
+			return "—"
+		}
+		return *p
+	}
+	parent := strings.Join(c.parents, ", ")
+	if parent == "" {
+		parent = "(root)"
+	}
+	lineage := strings.Join(c.lineage, ", ")
+	if lineage == "" {
+		lineage = "—"
+	}
+	closed := "진행 중"
+	if c.closed != nil && *c.closed != "" {
+		closed = *c.closed
+	}
+	type kv struct{ k, v string }
+	fields := []kv{
+		{"status", status}, {"verdict", orDash(c.verdict)},
+		{"step", orDash(c.step)},
+		{"parent", parent}, {"lineage", lineage},
+		{"opened", orDash(c.opened)}, {"closed", closed},
+		{"deviations", orDash(c.deviations)}, {"corrections", orDash(c.corrections)},
+		{"superseded_by", orDash(c.supersededBy)},
+	}
+	if c.rounds != nil { // 참조: if meta.get("rounds")
+		fields = append(fields, kv{"rounds", strconv.Itoa(*c.rounds)})
+	}
+	var metaRows strings.Builder
+	for _, f := range fields {
+		metaRows.WriteString(fmt.Sprintf("<tr><th>%s</th><td>%s</td></tr>",
+			htmlEscape(f.k), htmlEscape(f.v)))
+	}
+	var steps strings.Builder
+	for _, sf := range stepFiles {
+		label, fname := sf[0], sf[1]
+		content, ok := readStep(chainsRoot, name, cdir, fname)
+		pre := `<pre class="empty">(없음)</pre>`
+		if ok {
+			pre = "<pre>" + htmlEscape(content) + "</pre>"
+		}
+		steps.WriteString(fmt.Sprintf(`<details class="hstep"><summary>%s</summary>%s</details>`,
+			htmlEscape(label), pre))
+	}
+	anchor := htmlEscape(name + "-" + cid)
+	return fmt.Sprintf(`<details class="hcycle" id="cycle-%s"><summary>%s</summary>`+
+		`<div class="hcycle-body"><table class="hmeta"><tbody>%s</tbody></table>%s</div></details>`,
+		anchor, htmlEscape(sumline), metaRows.String(), steps.String())
+}
+
+// renderHierarchyBody: 참조 구현 _render_hierarchy_body — L1 목차 → 체인 <details>(그래프+표) → 사이클 <details>(5스텝).
+func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLineage int, chainsRoot, gilDataJSON string) string {
+	style := webCSS + "\n" + webHierCSS
+	var toc, chainsHTML strings.Builder
+	for _, name := range d.names {
+		ch := d.chains[name]
+		n := len(ch.order)
+		tally := verdictTally(ch)
+		toc.WriteString(fmt.Sprintf(`<li><a href="#chain-%s">%s</a>`+
+			`<span class="toc-stat">사이클 %d개 · %s</span></li>`,
+			htmlEscape(name), htmlEscape(name), n, htmlEscape(tally)))
+		stats := fmt.Sprintf("사이클 %d개 · %s · %s", n, tally, chainRecent(ch))
+		single := &webData{names: []string{name}, chains: map[string]*webChain{name: ch}}
+		var cyc strings.Builder
+		for _, cid := range ch.order {
+			cdir := ch.dirs[cid]
+			if cdir == "" {
+				cdir = cid
+			}
+			cyc.WriteString(renderCycleDetail(name, cid, ch.cycles[cid], chainsRoot, cdir))
+		}
+		chainsHTML.WriteString(fmt.Sprintf(`<details class="hchain" id="chain-%s">`+
+			`<summary><span class="hname">%s</span>`+
+			`<span class="hstat">%s</span></summary>`+
+			`<div class="hbody"><div class="card">%s</div>%s`+
+			`<div class="hcycles"><h3>사이클 상세 — 눌러서 5스텝 보고서 열기</h3>%s</div></div></details>`,
+			htmlEscape(name), htmlEscape(name), htmlEscape(stats),
+			renderSVG(single), renderTables(single), cyc.String()))
+	}
+	return fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
+<header><h1>%s</h1>
+<p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p>
+<p class="hhint">위계 뷰어 — 체인을 눌러 그래프를, 사이클을 눌러 5스텝 보고서를 연다 (JS 없이 &lt;details&gt;로).</p></header>
+<nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
+%s
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web --hierarchy가 생성한 자기완결적 정적 페이지다.</footer>
+</div></div>
+<script type="application/json" id="gil-data">%s</script>`,
+		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
+		toc.String(), chainsHTML.String(), gilDataJSON)
+}
+
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).
-func renderWebPage(d *webData, pageTitle, generated, only string, refresh int) string {
+func renderWebPage(d *webData, pageTitle, generated, only string, refresh int, hierarchy bool, chainsRoot string) string {
 	nCycles, nLineage := 0, 0
 	for _, name := range d.names {
 		ch := d.chains[name]
@@ -3334,7 +3615,14 @@ func renderWebPage(d *webData, pageTitle, generated, only string, refresh int) s
 			nLineage += len(ch.cycles[cid].lineage)
 		}
 	}
-	body := fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
+	gilData := webJSONPayload(d, pageTitle, only, refresh, hierarchy)
+	var body string
+	if hierarchy {
+		// v2.16 (loomlight/C003): 위계(드릴다운) 몸체 — 기본 경로를 건드리지 않도록 완전히 분기한다
+		// (아래 else는 개선 전과 바이트 동일).
+		body = renderHierarchyBody(d, pageTitle, generated, nCycles, nLineage, chainsRoot, gilData)
+	} else {
+		body = fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
 <p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p></header>
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
@@ -3347,8 +3635,9 @@ func renderWebPage(d *webData, pageTitle, generated, only string, refresh int) s
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
-		webCSS, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderSVG(d), renderTables(d), webJSONPayload(d, pageTitle, only, refresh))
+			webCSS, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
+			renderSVG(d), renderTables(d), gilData)
+	}
 	// v0.5 (loom/C049): meta refresh — JS 아닌 HTML 표준으로 N초마다 리로드 (자기완결 계약 유지)
 	refreshMeta := ""
 	if refresh > 0 {
@@ -3364,6 +3653,7 @@ type webArgs struct {
 	root, output, title, chain string
 	refresh, interval          int
 	watch                      bool
+	hierarchy                  bool // v2.16 (loomlight/C003): 위계(드릴다운) 뷰어
 }
 
 const pagesWorkflow = `# gil-pages — push마다 사이클 체인 뷰어를 GitHub Pages로 배포한다.
@@ -3446,7 +3736,7 @@ func cmdPages(root string, force, dryRun bool) error {
 const webDefaultTitle = "Ariadne — 사이클 체인" // 뷰어 기본 제목 (단일 소스)
 
 // bakeViewer: 뷰어 하나를 굽는다 (cmdWeb과 자동 갱신의 단일 소스).
-func bakeViewer(chainsRoot, output, title, only string, refresh int) (int, error) {
+func bakeViewer(chainsRoot, output, title, only string, refresh int, hierarchy bool) (int, error) {
 	data, err := buildWebData(chainsRoot, only)
 	if err != nil {
 		return 0, err
@@ -3454,7 +3744,7 @@ func bakeViewer(chainsRoot, output, title, only string, refresh int) (int, error
 	if len(data.names) == 0 {
 		return 0, cerr("렌더할 체인이 없다: %s", chainsRoot)
 	}
-	page := renderWebPage(data, title, time.Now().Format("2006-01-02"), only, refresh)
+	page := renderWebPage(data, title, time.Now().Format("2006-01-02"), only, refresh, hierarchy, chainsRoot)
 	if err := os.WriteFile(output, []byte(page), 0o644); err != nil {
 		return 0, cerr("%v", err)
 	}
@@ -3468,15 +3758,18 @@ func cmdWeb(a webArgs) error {
 	if a.watch {
 		return webWatch(a)
 	}
-	n, err := bakeViewer(a.root, a.output, a.title, a.chain, a.refresh)
+	n, err := bakeViewer(a.root, a.output, a.title, a.chain, a.refresh, a.hierarchy)
 	if err != nil {
 		return err
 	}
-	if a.refresh > 0 {
-		fmt.Printf("생성: %s (체인 %d개 · 자동 리로드 %d초)\n", a.output, n, a.refresh)
-	} else {
-		fmt.Printf("생성: %s (체인 %d개)\n", a.output, n)
+	suffix := ""
+	if a.hierarchy {
+		suffix += " · 위계"
 	}
+	if a.refresh > 0 {
+		suffix += fmt.Sprintf(" · 자동 리로드 %d초", a.refresh)
+	}
+	fmt.Printf("생성: %s (체인 %d개)%s\n", a.output, n, suffix)
 	return nil
 }
 
@@ -3505,7 +3798,7 @@ func webWatch(a webArgs) error {
 		})
 		return out
 	}
-	n, err := bakeViewer(a.root, a.output, a.title, a.chain, refresh)
+	n, err := bakeViewer(a.root, a.output, a.title, a.chain, refresh, a.hierarchy)
 	if err != nil {
 		return err
 	}
@@ -3527,7 +3820,7 @@ func webWatch(a webArgs) error {
 		cur := snapshot()
 		if !eq(cur, last) {
 			last = cur
-			if m, err := bakeViewer(a.root, a.output, a.title, a.chain, refresh); err != nil {
+			if m, err := bakeViewer(a.root, a.output, a.title, a.chain, refresh, a.hierarchy); err != nil {
 				fmt.Fprintf(os.Stderr, "경고: 재생성 실패 — %v\n", err)
 			} else {
 				fmt.Printf("  ✎ 재생성: %s (체인 %d개)\n", a.output, m)
@@ -3569,7 +3862,7 @@ func findViewers(root string) [][2]string {
 
 // bakeMeta: 뷰어가 스스로 보고한 굽기 조건. 없으면(구버전) 기본값 — 추측하지 않는다.
 // refresh(loom/C049)도 함께 읽어 자동 재굽기가 자동 리로드를 보존하게 한다.
-func bakeMeta(text string) (title, only string, refresh int) {
+func bakeMeta(text string) (title, only string, refresh int, hierarchy bool) {
 	title = webDefaultTitle
 	m := regexp.MustCompile(`(?s)id="gil-data">(.*?)</script>`).FindStringSubmatch(text)
 	if m == nil {
@@ -3577,9 +3870,10 @@ func bakeMeta(text string) (title, only string, refresh int) {
 	}
 	var payload struct {
 		Bake struct {
-			Title   string  `json:"title"`
-			Chain   *string `json:"chain"`
-			Refresh int     `json:"refresh"`
+			Title     string  `json:"title"`
+			Chain     *string `json:"chain"`
+			Refresh   int     `json:"refresh"`
+			Hierarchy bool    `json:"hierarchy"` // loomlight/C003: 자동 재굽기가 위계 드릴다운을 잃지 않게 한다
 		} `json:"bake"`
 	}
 	if json.Unmarshal([]byte(m[1]), &payload) != nil {
@@ -3592,6 +3886,7 @@ func bakeMeta(text string) (title, only string, refresh int) {
 		only = *payload.Bake.Chain
 	}
 	refresh = payload.Bake.Refresh
+	hierarchy = payload.Bake.Hierarchy
 	return
 }
 
@@ -3615,8 +3910,8 @@ func refreshViewers(chainsRoot, label string, noWeb, push bool) {
 	var changed []string
 	for _, v := range viewers {
 		path, before := v[0], v[1]
-		title, only, refresh := bakeMeta(before) // refresh 보존 (loom/C049)
-		if _, err := bakeViewer(chainsRoot, path, title, only, refresh); err != nil {
+		title, only, refresh, hierarchy := bakeMeta(before) // refresh·hierarchy 보존 (C049·C003)
+		if _, err := bakeViewer(chainsRoot, path, title, only, refresh, hierarchy); err != nil {
 			fmt.Fprintf(os.Stderr, "경고: 뷰어 갱신 실패 — %v (원장은 각인됐다. gil web으로 직접 구울 것)\n", err)
 			return
 		}
@@ -4085,13 +4380,14 @@ func main() {
 		pos, flags, err := parseCLI(norm, map[string]bool{
 			"output": true, "title": true, "chain": true,
 			"refresh": true, "interval": true, "watch": false, // v2.8 (C049): 실시간 관찰
+			"hierarchy": false, // v2.16 (loomlight/C003): 위계(드릴다운) 뷰어
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
 		if len(pos) > 1 {
-			fmt.Fprintln(os.Stderr, "사용: gil web [chains-root] [-o out.html] [--title t] [--chain c] [--refresh N] [--watch]")
+			fmt.Fprintln(os.Stderr, "사용: gil web [chains-root] [-o out.html] [--title t] [--chain c] [--refresh N] [--hierarchy] [--watch]")
 			os.Exit(2)
 		}
 		root := defaultRoot
@@ -4105,9 +4401,10 @@ func main() {
 			output:   flagVal(flags, "output", "ariadne-chains.html"),
 			title:    flagVal(flags, "title", "Ariadne — 사이클 체인"),
 			chain:    flagVal(flags, "chain", ""),
-			refresh:  refresh,
-			interval: interval,
-			watch:    len(flags["watch"]) > 0,
+			refresh:   refresh,
+			interval:  interval,
+			watch:     len(flags["watch"]) > 0,
+			hierarchy: len(flags["hierarchy"]) > 0,
 		}); err != nil {
 			fail(err)
 		}

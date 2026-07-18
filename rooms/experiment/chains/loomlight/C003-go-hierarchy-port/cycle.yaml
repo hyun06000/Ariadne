@@ -1,0 +1,14 @@
+id: C003-go-hierarchy-port
+chain: loomlight
+parent: C002-hierarchical-viewer
+lineage: []
+step: 5
+author: sheen
+status: closed
+opened: 2026-07-19
+closed: 2026-07-19
+title: "Go에 gil web --hierarchy 이식 — 참조와 위계 출력 바이트 동일(C020 복원)"
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null
