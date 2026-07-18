@@ -2716,6 +2716,12 @@ const (
 	webLaneGap = 60 // _LANE_GAP
 	webTopPad  = 46 // _TOP_PAD
 	webLabelW  = 230
+	// 가로 사이클 그래프 (loom/C067): _H_COLW·_H_ROWH·_H_X0·_H_Y0·_H_R
+	hColW = 116
+	hRowH = 60
+	hX0   = 50
+	hY0   = 46
+	hR    = 9
 )
 
 // webCSS: 참조 구현 _WEB_CSS와 문자 단위 동일 (검증된 기본 팔레트).
@@ -3477,27 +3483,23 @@ list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
 .gil .hstat{color:var(--muted);font-size:12.5px;font-weight:400}
 .gil .hbody{padding:2px 4px 16px 14px;display:flex;flex-direction:column;gap:0}
 .gil .hbody .card{margin:0}
-/* 노드 스트림 (loom/C065): 카드 없이 좌측 레일에 사이클 노드가 주루룩. 각 노드를 열면 5스텝이 그 아래로. */
-.gil ol.cycstream{list-style:none;margin:0;padding:0 0 0 10px;border-left:2px solid var(--hairline)}
-.gil ol.cycstream>li{position:relative}
-.gil details.cyc{margin:0}
-.gil details.cyc>summary{cursor:pointer;list-style:none;position:relative;
-padding:7px 0 7px 20px;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;
-font-size:13px;font-variant-numeric:tabular-nums;border-radius:6px}
-.gil details.cyc>summary::-webkit-details-marker{display:none}
-.gil details.cyc>summary:hover{background:var(--page)}
-.gil .cdot{position:absolute;left:-17px;top:11px;width:11px;height:11px;border-radius:50%;
-background:var(--node);box-sizing:border-box}
-.gil .cdot.open{background:var(--surface);border:2.5px solid var(--node)}
-.gil .cdot.rej{background:var(--rejected);border-color:var(--rejected)}
+/* 가로 사이클 노드-엣지 그래프 (loom/C067): 체인 원을 누르면 그 자리에서 0—o—o—o 로 펼쳐진다.
+   노드를 누르면 :target으로 그 사이클 문서가 그래프 아래에 뜬다(평소 숨김). */
+.gil .cyclegraph{overflow-x:auto;padding:4px 0 2px}
+.gil a.gnode{cursor:pointer}
+.gil a.gnode circle{transition:stroke-width .1s}
+.gil a.gnode:hover circle{stroke:var(--node);stroke-width:4}
+.gil .cycdoc{display:none}
+.gil .cycdoc:target{display:block;border-top:1px solid var(--ring);margin-top:6px;padding-top:12px}
+.gil .cycdoc-head{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px;
+font-size:13px;font-variant-numeric:tabular-nums}
 .gil .ccid{color:var(--ink);font-weight:650}
 .gil .cyst{color:var(--muted);font-size:11.5px}
-.gil .cytitle{color:var(--ink-2);font-size:12px;flex:1 1 40%;min-width:0}
+.gil .cytitle{color:var(--ink-2);font-size:12px}
 .gil .cyclin{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:baseline}
 .gil a.linchip{color:var(--lineage);text-decoration:none;font-size:11px;font-weight:600;white-space:nowrap}
 .gil a.linchip:hover{text-decoration:underline}
 .gil a.linchip.sup{color:var(--supersede)}
-.gil .cbody{padding:2px 0 12px 20px}
 .gil .hcycles h3{font-size:13px;font-weight:650;margin:4px 0 8px;color:var(--ink-2)}
 .gil details.hcycle{border:1px solid var(--hairline);border-radius:6px;margin-bottom:6px}
 .gil details.hcycle>summary{cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink);
@@ -3652,27 +3654,20 @@ func renderCycleDetail(name, cid string, c *webCycle, chainsRoot, cdir string) s
 	}
 	status := c.statusText()
 	title := c.title
-	// 노드 스트림 행 (loom/C065): ● cid · 상태 · ⇠lineage, 열면 그 자리 아래로 5스텝 문서.
-	dotCls := "cdot"
-	if status != "closed" {
-		dotCls += " open"
-	}
-	if c.verdict != nil && *c.verdict == "rejected" {
-		dotCls += " rej"
-	}
+	// 가로 사이클 그래프(loom/C067)의 노드를 누르면 :target으로 드러나는 그 사이클의 5스텝 문서.
 	state := status + vtip + stepBadge(c)
 	lin := ""
 	if len(c.lineage) > 0 {
 		var chips strings.Builder
 		for _, ref := range c.lineage {
-			chips.WriteString(fmt.Sprintf(`<a class="linchip" href="#cyc-%s">⇠ %s</a>`,
+			chips.WriteString(fmt.Sprintf(`<a class="linchip" href="#cycdoc-%s">⇠ %s</a>`,
 				htmlEscape(strings.ReplaceAll(ref, "/", "-")), htmlEscape(ref)))
 		}
 		lin = `<span class="cyclin">` + chips.String() + `</span>`
 	}
 	supHTML := ""
 	if c.supersededBy != nil {
-		supHTML = fmt.Sprintf(`<a class="linchip sup" href="#cyc-%s">↣ %s</a>`,
+		supHTML = fmt.Sprintf(`<a class="linchip sup" href="#cycdoc-%s">↣ %s</a>`,
 			htmlEscape(strings.ReplaceAll(supersedeRef(name, c.supersededBy), "/", "-")),
 			htmlEscape(*c.supersededBy))
 	}
@@ -3728,13 +3723,93 @@ func renderCycleDetail(name, cid string, c *webCycle, chainsRoot, cdir string) s
 			htmlEscape(label), pre))
 	}
 	anchor := htmlEscape(name + "-" + cid)
-	summary := fmt.Sprintf(`<span class="%s"></span><span class="ccid">%s</span>`+
-		`<span class="cyst">%s</span>%s%s%s`,
-		dotCls, htmlEscape(cid), htmlEscape(state), titleHTML, lin, supHTML)
-	return fmt.Sprintf(`<li><details class="cyc" name="cyc-%s"><summary>%s</summary>`+
-		`<div class="cbody"><span id="cyc-%s" class="hanchor"></span>`+
-		`<table class="hmeta"><tbody>%s</tbody></table>%s</div></details></li>`,
-		htmlEscape(name), summary, anchor, metaRows.String(), steps.String())
+	head := fmt.Sprintf(`<div class="cycdoc-head"><span class="ccid">%s</span>`+
+		`<span class="cyst">%s</span>%s%s%s</div>`,
+		htmlEscape(cid), htmlEscape(state), titleHTML, lin, supHTML)
+	return fmt.Sprintf(`<div class="cycdoc" id="cycdoc-%s">%s`+
+		`<table class="hmeta"><tbody>%s</tbody></table>%s</div>`,
+		anchor, head, metaRows.String(), steps.String())
+}
+
+// renderCycleGraphH: 참조 구현 _render_cycle_graph_h (loom/C067) — 가로 사이클 노드-엣지 그래프.
+// x=깊이, y=레인. 정수 좌표만 써 참조와 바이트 동일. 노드 클릭 → #cycdoc-*(:target).
+func renderCycleGraphH(name string, ch *webChain) string {
+	order := ch.order
+	if len(order) == 0 {
+		return ""
+	}
+	pos := layoutColumns(order, ch.children)
+	nodeXY := map[string][2]int{}
+	maxDepth, maxLane := 0, 0
+	for cid, rc := range pos {
+		nodeXY[cid] = [2]int{hX0 + rc[0]*hColW, hY0 + rc[1]*hRowH}
+		if rc[0] > maxDepth {
+			maxDepth = rc[0]
+		}
+		if rc[1] > maxLane {
+			maxLane = rc[1]
+		}
+	}
+	width := hX0 + maxDepth*hColW + 90
+	height := hY0 + maxLane*hRowH + 46
+	var p strings.Builder
+	p.WriteString(fmt.Sprintf(`<svg viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s 사이클 그래프">`,
+		width, height, width, height, htmlEscape(name)))
+	for _, cid := range order {
+		xy2 := nodeXY[cid]
+		for _, par := range ch.cycles[cid].parents {
+			if xy1, ok := nodeXY[par]; ok {
+				mx := (xy1[0] + xy2[0]) / 2
+				p.WriteString(fmt.Sprintf(`<path d="M%d,%d C%d,%d %d,%d %d,%d" fill="none" stroke="var(--edge)" stroke-width="1.6"/>`,
+					xy1[0]+hR, xy1[1], mx, xy1[1], mx, xy2[1], xy2[0]-hR, xy2[1]))
+			}
+		}
+	}
+	for _, cid := range order {
+		xy := nodeXY[cid]
+		x, y := xy[0], xy[1]
+		meta := ch.cycles[cid]
+		closed := meta.status != nil && *meta.status == "closed"
+		fill := "var(--node)"
+		if meta.verdict != nil && *meta.verdict == "rejected" {
+			fill = "var(--rejected)"
+		}
+		var shape string
+		if closed {
+			shape = fmt.Sprintf(`<circle cx="%d" cy="%d" r="%d" fill="%s"/>`, x, y, hR, fill)
+		} else {
+			shape = fmt.Sprintf(`<circle cx="%d" cy="%d" r="%d" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/>`, x, y, hR-1)
+		}
+		num := cid
+		if i := strings.IndexByte(cid, '-'); i >= 0 {
+			num = cid[:i]
+		}
+		vtip := ""
+		if meta.verdict != nil {
+			vtip = " · " + *meta.verdict
+		}
+		tip := fmt.Sprintf("%s [%s%s] %s", cid, meta.statusText(), vtip, meta.title)
+		if len(meta.lineage) > 0 {
+			tip += "  ⇠ " + strings.Join(meta.lineage, ", ")
+		}
+		linTxt := ""
+		if len(meta.lineage) > 0 {
+			first := meta.lineage[0]
+			if i := strings.IndexByte(first, '/'); i >= 0 {
+				first = first[i+1:]
+			}
+			more := ""
+			if len(meta.lineage) > 1 {
+				more = fmt.Sprintf(" +%d", len(meta.lineage)-1)
+			}
+			linTxt = fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="9.5" fill="var(--lineage)">⇠ %s%s</text>`,
+				x, y+hR+28, htmlEscape(first), more)
+		}
+		p.WriteString(fmt.Sprintf(`<a href="#cycdoc-%s" class="gnode"><title>%s</title>%s<text x="%d" y="%d" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--ink-2)">%s</text>%s</a>`,
+			htmlEscape(name+"-"+cid), htmlEscape(tip), shape, x, y+hR+14, htmlEscape(num), linTxt))
+	}
+	p.WriteString("</svg>")
+	return p.String()
 }
 
 // renderChainMap: 참조 구현 _render_chain_map (loom/C064) — L0 체인 지도(원=체인, 점선 화살표=체인 간 lineage).
@@ -3973,14 +4048,16 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 			}
 			cyc.WriteString(renderCycleDetail(name, cid, ch.cycles[cid], chainsRoot, cdir))
 		}
-		// 카드·SVG·표를 걷어내고 연결된 사이클 노드가 좌측 레일로 주루룩 (loom/C065). name="hchain" 아코디언.
+		// 체인을 누르면 그 자리에서 가로 사이클 노드-엣지 그래프가 펼쳐진다 (loom/C067): SVG 그래프(0—o—o—o)
+		// + 그 아래 숨은 문서들. 노드를 누르면 :target으로 그 사이클 문서가 뜬다. name="hchain" 아코디언.
 		chainsHTML.WriteString(fmt.Sprintf(`<details class="hchain" name="hchain" id="chain-%s">`+
 			`<summary><span class="hname">%s</span>`+
 			`<span class="hstat">%s</span></summary>`+
 			`<div class="hbody"><span id="chainbody-%s" class="hanchor"></span>`+
-			`<ol class="cycstream">%s</ol></div></details>`,
+			`<div class="cyclegraph">%s</div>`+
+			`<div class="cycdocs">%s</div></div></details>`,
 			htmlEscape(name), htmlEscape(name), htmlEscape(stats),
-			htmlEscape(name), cyc.String()))
+			htmlEscape(name), renderCycleGraphH(name, ch), cyc.String()))
 	}
 	return fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
@@ -4393,7 +4470,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.22.0" // gil:version
+const gilVersion = "2.23.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
