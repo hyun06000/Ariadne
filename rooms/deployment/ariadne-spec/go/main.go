@@ -3463,15 +3463,19 @@ const webHierCSS = `.gil .htoc{background:var(--surface);border:1px solid var(--
 .gil a.chainnode:focus{outline:none}
 .gil a.chainnode:focus circle{stroke-width:3.5}
 .gil .hanchor{display:block;height:0;overflow:hidden;scroll-margin-top:10px}
-.gil details.hchain{background:var(--surface);border:1px solid var(--ring);border-radius:8px}
-.gil details.hchain>summary{cursor:pointer;padding:14px 20px;font-size:15px;font-weight:650;
+/* 체인 아코디언을 지도 카드 안에 녹인다 (loom/C066): 서브카드 테두리 없이 구분선만 — 지도에서
+   체인을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 등장한다. */
+.gil .mapchains{margin-top:12px;border-top:1px solid var(--ring)}
+.gil details.hchain{border-bottom:1px solid var(--ring)}
+.gil details.hchain>summary{cursor:pointer;padding:11px 4px;font-size:14px;font-weight:650;
 list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
 .gil details.hchain>summary::-webkit-details-marker{display:none}
 .gil details.hchain>summary::before{content:"\25B8";color:var(--muted);font-weight:400}
 .gil details.hchain[open]>summary::before{content:"\25BE"}
+.gil details.hchain[open]>summary{background:var(--page);border-radius:6px}
 .gil .hname{color:var(--ink)}
 .gil .hstat{color:var(--muted);font-size:12.5px;font-weight:400}
-.gil .hbody{padding:2px 20px 18px;display:flex;flex-direction:column;gap:0}
+.gil .hbody{padding:2px 4px 16px 14px;display:flex;flex-direction:column;gap:0}
 .gil .hbody .card{margin:0}
 /* 노드 스트림 (loom/C065): 카드 없이 좌측 레일에 사이클 노드가 주루룩. 각 노드를 열면 5스텝이 그 아래로. */
 .gil ol.cycstream{list-style:none;margin:0;padding:0 0 0 10px;border-left:2px solid var(--hairline)}
@@ -3981,15 +3985,15 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 	return fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
 <p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p>
-<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 아래 그 체인이 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 사이클을 누르면 5스텝 보고서가 열린다 (JS 없이 &lt;details&gt;로).</p></header>
-<div class="card hmap">%s</div>
+<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 5스텝 문서가 그 자리에 열린다 (JS 없이 &lt;details&gt;로).</p></header>
+<div class="card hmap">%s
+<div class="mapchains">%s</div></div>
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
-%s
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderChainMap(d), toc.String(), chainsHTML.String(), gilDataJSON)
+		renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON)
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).
@@ -4389,7 +4393,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.21.0" // gil:version
+const gilVersion = "2.22.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
