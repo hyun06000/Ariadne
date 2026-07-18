@@ -1075,7 +1075,11 @@ def _build_web_data(chains_root, only=None):
             if isinstance(rounds, str) and rounds.isdigit() and int(rounds) > 1:  # 무라운드 저장소는
                 entry[cid]["rounds"] = int(rounds)                                # JSON 바이트 동일 (H3)
         res = _load_reservations(os.path.join(chains_root, name))  # loom/C043: 예약도 원장 상태 (C042)
-        data[name] = {"order": order, "cycles": entry, "children": children, "reservations": res}
+        # _dirs: cid → 디스크 디렉토리명. 위계 뷰어(loomlight/C002)가 스텝 파일을 찾는 데만 쓴다.
+        # json_payload는 이 키를 직렬화하지 않으므로 기본 web 산출물은 바이트 동일로 남는다.
+        dirs = {cid: c["_dir"] for cid, c in cycles.items()}
+        data[name] = {"order": order, "cycles": entry, "children": children,
+                      "reservations": res, "_dirs": dirs}
     return data
 
 
@@ -1219,14 +1223,196 @@ def _render_tables(data):
     return "".join(out)
 
 
-def render_web_page(data, page_title, generated, only=None, refresh=None):
+# ---------- 위계(드릴다운) 뷰어 (v2.16 / loomlight/C002) ----------
+#
+# 사이클이 많아질수록 평면 그래프 하나는 한눈에 안 들어온다. 위계로 나눠 드릴다운한다:
+#   L1 체인 목록(요약) → L2 체인 그래프(지금의 평면 뷰어를 체인 하나로) → L3 사이클 5스텝 보고서.
+# 근본 계약을 지킨다: JS 0줄·외부 리소스 0·자기완결. 드릴다운은 순수 HTML <details>/<summary>로,
+# 딥링크는 앵커 id(#chain-*, #cycle-*)로 — 프래그먼트로 이동하면 브라우저가 조상 details를 자동으로
+# 연다(HTML 표준). 이 위계는 한 화면에 전부를 안 그리므로 백로그 B1·B2·B3(가로·lineage밀도·라벨)을
+# 구조적으로 완화한다.
+
+_STEP_FILES = [("1 · 가설", "1-hypothesis.md"), ("2 · 설계", "2-design.md"),
+               ("3 · 검증", "3-verification"),  # 디렉토리 — README + 산출물 목록
+               ("4 · 분석", "4-analysis.md"), ("5 · 보고", "5-report.md")]
+
+_WEB_HIER_CSS = """
+.gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
+.gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
+.gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.gil .htoc li{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px}
+.gil .htoc a{color:var(--node);text-decoration:none;font-weight:600}
+.gil .htoc a:hover{text-decoration:underline}
+.gil .toc-stat{color:var(--muted);font-size:12px}
+.gil .hhint{color:var(--muted);font-size:12px;margin:6px 0 0}
+.gil details.hchain{background:var(--surface);border:1px solid var(--ring);border-radius:8px}
+.gil details.hchain>summary{cursor:pointer;padding:14px 20px;font-size:15px;font-weight:650;
+list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.gil details.hchain>summary::-webkit-details-marker{display:none}
+.gil details.hchain>summary::before{content:"\\25B8";color:var(--muted);font-weight:400}
+.gil details.hchain[open]>summary::before{content:"\\25BE"}
+.gil .hname{color:var(--ink)}
+.gil .hstat{color:var(--muted);font-size:12.5px;font-weight:400}
+.gil .hbody{padding:0 20px 20px;display:flex;flex-direction:column;gap:16px}
+.gil .hbody .card{margin:0}
+.gil .hcycles h3{font-size:13px;font-weight:650;margin:4px 0 8px;color:var(--ink-2)}
+.gil details.hcycle{border:1px solid var(--hairline);border-radius:6px;margin-bottom:6px}
+.gil details.hcycle>summary{cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink);
+list-style:none;font-variant-numeric:tabular-nums}
+.gil details.hcycle>summary::-webkit-details-marker{display:none}
+.gil details.hcycle>summary::before{content:"\\25B8  ";color:var(--muted)}
+.gil details.hcycle[open]>summary::before{content:"\\25BE  "}
+.gil .hcycle-body{padding:0 12px 12px}
+.gil table.hmeta{width:auto;margin:4px 0 12px;font-size:12px}
+.gil table.hmeta th{color:var(--muted);font-weight:600;padding:3px 14px 3px 0;text-align:left;
+border:none;white-space:nowrap;vertical-align:top}
+.gil table.hmeta td{color:var(--ink-2);padding:3px 0;border:none}
+.gil details.hstep{margin:4px 0}
+.gil details.hstep>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--node);
+padding:3px 0;list-style:none}
+.gil details.hstep>summary::-webkit-details-marker{display:none}
+.gil details.hstep>summary::before{content:"+  "}
+.gil details.hstep[open]>summary::before{content:"\\2212  "}
+.gil details.hstep pre{background:var(--page);border:1px solid var(--hairline);border-radius:6px;
+padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+color:var(--ink-2);margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.gil details.hstep pre.empty{color:var(--muted);font-style:italic}
+""".strip()
+
+
+def _verdict_tally(chain):
+    """체인 요약: 닫힌 사이클을 verdict별로, 열린 사이클을 따로 센다."""
+    counts, openn = {}, 0
+    for cid in chain["order"]:
+        m = chain["cycles"][cid]
+        if m.get("status") == "closed":
+            key = m.get("verdict") or "무결론"
+            counts[key] = counts.get(key, 0) + 1
+        else:
+            openn += 1
+    order = ["supported", "rejected", "refuted", "inconclusive", "무결론"]
+    parts = [f"{v} {counts[v]}" for v in order if counts.get(v)]
+    parts += [f"{v} {n}" for v, n in counts.items() if v not in order]  # 미지 verdict도 정직히
+    if openn:
+        parts.append(f"열림 {openn}")
+    return " · ".join(parts) if parts else "—"
+
+
+def _chain_recent(chain):
+    """체인의 가장 최근 활동일 — opened/closed 중 최댓값(ISO 날짜는 문자열 비교로 정렬된다)."""
+    dates = [d for cid in chain["order"]
+             for d in (chain["cycles"][cid].get("closed") or chain["cycles"][cid].get("opened"),)
+             if d]
+    return f"최근 {max(dates)}" if dates else "최근 —"
+
+
+def _read_step(chains_root, name, cdir, fname):
+    """스텝 파일(또는 3-verification 디렉토리)의 원문을 읽는다. 없으면 None.
+    렌더는 마크다운 파싱 없이 <pre>로 원문 그대로 — 정직하고 자기완결적이며 JS가 필요 없다."""
+    if not chains_root:
+        return None
+    path = os.path.join(chains_root, name, cdir, fname)
+    if fname == "3-verification":
+        parts = []
+        readme = os.path.join(path, "README.md")
+        if os.path.isfile(readme):
+            try:
+                with open(readme, encoding="utf-8") as f:
+                    parts.append(f.read())
+            except OSError:
+                pass
+        try:
+            entries = sorted(e for e in os.listdir(path) if e != "README.md")
+        except OSError:
+            entries = []
+        if entries:
+            parts.append("[검증 산출물]\n" + "\n".join("- " + e for e in entries))
+        return "\n\n".join(parts) if parts else None
+    if os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            return None
+    return None
+
+
+def _render_cycle_detail(name, cid, meta, chains_root, cdir):
+    """L3: 한 사이클의 5스텝 보고서 + cycle.yaml 메타를 중첩 <details>로."""
+    vtip = f" · {meta['verdict']}" if meta.get("verdict") else ""
+    status = meta.get("status") or "?"
+    sumline = f"{cid} [{status}{vtip}] {meta.get('title') or ''}"
+    fields = [("status", status), ("verdict", meta.get("verdict") or "—"),
+              ("step", meta.get("step") or "—"),
+              ("parent", ", ".join(meta.get("parents") or []) or "(root)"),
+              ("lineage", ", ".join(meta.get("lineage") or []) or "—"),
+              ("opened", meta.get("opened") or "—"),
+              ("closed", meta.get("closed") or "진행 중"),
+              ("deviations", meta.get("deviations") if meta.get("deviations") is not None else "—"),
+              ("corrections", meta.get("corrections") if meta.get("corrections") is not None else "—"),
+              ("superseded_by", meta.get("superseded_by") or "—")]
+    if meta.get("rounds"):
+        fields.append(("rounds", meta["rounds"]))
+    meta_rows = "".join(f"<tr><th>{html.escape(k)}</th><td>{html.escape(str(v))}</td></tr>"
+                        for k, v in fields)
+    steps = []
+    for label, fname in _STEP_FILES:
+        content = _read_step(chains_root, name, cdir, fname)
+        pre = ('<pre class="empty">(없음)</pre>' if content is None
+               else f"<pre>{html.escape(content)}</pre>")
+        steps.append(f'<details class="hstep"><summary>{html.escape(label)}</summary>{pre}</details>')
+    anchor = html.escape(f"{name}-{cid}")
+    return (f'<details class="hcycle" id="cycle-{anchor}">'
+            f"<summary>{html.escape(sumline)}</summary>"
+            f'<div class="hcycle-body">'
+            f'<table class="hmeta"><tbody>{meta_rows}</tbody></table>'
+            f'{"".join(steps)}</div></details>')
+
+
+def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json):
+    """위계 뷰어 몸체. L1 목차 → 체인별 <details>(그래프+표) → 사이클별 <details>(5스텝)."""
+    style = _WEB_CSS + "\n" + _WEB_HIER_CSS
+    toc = []
+    chains_html = []
+    for name, chain in data.items():
+        n = len(chain["order"])
+        toc.append(f'<li><a href="#chain-{html.escape(name)}">{html.escape(name)}</a>'
+                   f'<span class="toc-stat">사이클 {n}개 · {html.escape(_verdict_tally(chain))}</span></li>')
+        stats = f"사이클 {n}개 · {_verdict_tally(chain)} · {_chain_recent(chain)}"
+        single = {name: chain}
+        dirs = chain.get("_dirs", {})
+        cyc = [_render_cycle_detail(name, cid, chain["cycles"][cid], chains_root, dirs.get(cid, cid))
+               for cid in chain["order"]]
+        chains_html.append(
+            f'<details class="hchain" id="chain-{html.escape(name)}">'
+            f'<summary><span class="hname">{html.escape(name)}</span>'
+            f'<span class="hstat">{html.escape(stats)}</span></summary>'
+            f'<div class="hbody"><div class="card">{_render_svg(single)}</div>'
+            f'{_render_tables(single)}'
+            f'<div class="hcycles"><h3>사이클 상세 — 눌러서 5스텝 보고서 열기</h3>'
+            f'{"".join(cyc)}</div></div></details>')
+    return f"""<div class="gil"><style>{style}</style><div class="wrap">
+<header><h1>{html.escape(page_title)}</h1>
+<p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p>
+<p class="hhint">위계 뷰어 — 체인을 눌러 그래프를, 사이클을 눌러 5스텝 보고서를 연다 (JS 없이 &lt;details&gt;로).</p></header>
+<nav class="htoc"><h2>체인 목록</h2><ul>{"".join(toc)}</ul></nav>
+{"".join(chains_html)}
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web --hierarchy가 생성한 자기완결적 정적 페이지다.</footer>
+</div></div>
+<script type="application/json" id="gil-data">{gil_data_json}</script>"""
+
+
+def render_web_page(data, page_title, generated, only=None, refresh=None, hierarchy=False, chains_root=None):
     json_payload = {
         # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
         # 추론(체인이 하나뿐이니 필터겠지)은 거짓일 수 있다 — 그래서 추측하지 않고 기록한다 (C040).
         # v0.5 (loom/C049): refresh — 자동 리로드 주기. 자동 재굽기가 이 값을 보존해 실시간이 유지된다.
         "version": "0.4",
         "bake": {"title": page_title, "chain": only,
-                 **({"refresh": refresh} if refresh else {})},  # 있을 때만 (C043) — 무리프레시 바이트 동일
+                 **({"refresh": refresh} if refresh else {}),  # 있을 때만 (C043) — 무리프레시 바이트 동일
+                 # v2.16 (loomlight/C002): hierarchy — 위계(드릴다운) 모드. 자동 재굽기가 이 값을
+                 # 보존해 위계가 유지된다(C042의 "창이 원장을 따른다"를 위계에도 확장). 무옵션 바이트 동일.
+                 **({"hierarchy": True} if hierarchy else {})},
         "chains": {
             name: {
                 "order": chain["order"],
@@ -1238,7 +1424,12 @@ def render_web_page(data, page_title, generated, only=None, refresh=None):
     }
     n_cycles = sum(len(c["order"]) for c in data.values())
     n_lineage = sum(len(m["lineage"]) for c in data.values() for m in c["cycles"].values())
-    body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
+    if hierarchy:
+        # 위계(드릴다운) 몸체 — 기본 경로를 건드리지 않도록 완전히 분기한다 (아래 else는 개선 전과 바이트 동일).
+        body = _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage,
+                                      chains_root, json.dumps(json_payload, ensure_ascii=False))
+    else:
+        body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p></header>
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
@@ -1328,12 +1519,13 @@ def cmd_pages(args):
     return 0
 
 
-def _bake_viewer(chains_root, output, title, only, refresh=None):
+def _bake_viewer(chains_root, output, title, only, refresh=None, hierarchy=False):
     """뷰어 하나를 굽는다 (cmd_web과 자동 갱신의 단일 소스)."""
     data = _build_web_data(chains_root, only)  # 깨진 체인이면 여기서 실패 — 파일을 쓰지 않는다
     if not data:
         raise ChainError(f"렌더할 체인이 없다: {chains_root}")
-    page = render_web_page(data, title, datetime.date.today().isoformat(), only, refresh)
+    page = render_web_page(data, title, datetime.date.today().isoformat(), only, refresh,
+                           hierarchy=hierarchy, chains_root=chains_root)
     with open(output, "w", encoding="utf-8") as f:
         f.write(page)
     return data
@@ -1344,15 +1536,17 @@ def cmd_web(args):
     if not os.path.isdir(chains_root):
         raise ChainError(f"체인 루트가 없다: {chains_root}")
     refresh = getattr(args, "refresh", None)
+    hierarchy = getattr(args, "hierarchy", False)
     if getattr(args, "watch", False):
-        return _web_watch(args, chains_root, refresh)
-    data = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh)
+        return _web_watch(args, chains_root, refresh, hierarchy)
+    data = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh, hierarchy)
     print(f"생성: {args.output} (체인 {len(data)}개)"
+          + (" · 위계" if hierarchy else "")
           + (f" · 자동 리로드 {refresh}초" if refresh else ""))
     return 0
 
 
-def _web_watch(args, chains_root, refresh):
+def _web_watch(args, chains_root, refresh, hierarchy=False):
     """--watch: 원장 변경을 감시해 뷰어를 재생성한다 (loom/C049, 선택 기능).
     gil step을 거치지 않는 외부 변경(병합·pull)도 반영한다. Ctrl-C까지 지속.
     refresh 기본 5초 — meta refresh가 브라우저를 자동 리로드한다."""
@@ -1371,7 +1565,7 @@ def _web_watch(args, chains_root, refresh):
                     except OSError:
                         pass
         return out
-    data = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh)
+    data = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh, hierarchy)
     print(f"감시 시작: {args.output} (체인 {len(data)}개, {interval}초 간격, 자동 리로드 {refresh}초). Ctrl-C로 종료.")
     last = snapshot()
     try:
@@ -1381,7 +1575,7 @@ def _web_watch(args, chains_root, refresh):
             if cur != last:
                 last = cur
                 try:
-                    d = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh)
+                    d = _bake_viewer(chains_root, args.output, args.title, args.chain, refresh, hierarchy)
                     print(f"  ✎ 재생성: {args.output} (체인 {len(d)}개)")
                 except ChainError as e:
                     print(f"경고: 재생성 실패 — {e}", file=sys.stderr)
@@ -1429,10 +1623,12 @@ def _bake_meta(text):
     if m:
         try:
             bake = json.loads(m.group(1)).get("bake") or {}
-            return bake.get("title") or _WEB_DEFAULT_TITLE, bake.get("chain"), bake.get("refresh")
+            # hierarchy(loomlight/C002)도 읽어 자동 재굽기가 위계 드릴다운을 잃지 않게 한다.
+            return (bake.get("title") or _WEB_DEFAULT_TITLE, bake.get("chain"),
+                    bake.get("refresh"), bool(bake.get("hierarchy")))
         except (ValueError, AttributeError):
             pass
-    return _WEB_DEFAULT_TITLE, None, None
+    return _WEB_DEFAULT_TITLE, None, None, False
 
 
 def _refresh_viewers(chains_root, label, no_web=False, push=False):
@@ -1451,8 +1647,8 @@ def _refresh_viewers(chains_root, label, no_web=False, push=False):
             return  # 뷰어를 쓰지 않는 사용자에게 파일을 강요하지 않는다
         changed = []
         for path, text in viewers:
-            title, only, refresh = _bake_meta(text)  # refresh 보존 (loom/C049) — 재굽기가 자동 리로드를 잃지 않게
-            _bake_viewer(chains_root, path, title, only, refresh)
+            title, only, refresh, hierarchy = _bake_meta(text)  # refresh·hierarchy 보존 (C049·C002)
+            _bake_viewer(chains_root, path, title, only, refresh, hierarchy)
             with open(path, encoding="utf-8") as f:
                 if f.read() != text:
                     changed.append(path)
@@ -2581,6 +2777,8 @@ def main(argv=None):
     p_web.add_argument("--title", default=_WEB_DEFAULT_TITLE, help="페이지 제목")
     p_web.add_argument("--chain", help="특정 체인만")
     p_web.add_argument("--refresh", type=int, help="meta refresh 주기(초) — 새로고침 없이 자동 리로드 (v2.8, C049)")
+    p_web.add_argument("--hierarchy", action="store_true",
+                       help="위계(드릴다운) 뷰어 — 체인 목록→체인 그래프→사이클 5스텝. JS 0 (v2.16, loomlight/C002)")
     p_web.add_argument("--watch", action="store_true", help="원장 변경을 감시해 뷰어 재생성 (--refresh 함축, C049)")
     p_web.add_argument("--interval", type=int, help="--watch 감시 간격(초, 기본 5)")
     p_web.set_defaults(func=cmd_web)

@@ -1,0 +1,14 @@
+id: C002-hierarchical-viewer
+chain: loomlight
+parent: C001-gather-viewer-lineage
+lineage: []
+step: 5
+author: sheen
+status: closed
+opened: 2026-07-19
+closed: 2026-07-19
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null
