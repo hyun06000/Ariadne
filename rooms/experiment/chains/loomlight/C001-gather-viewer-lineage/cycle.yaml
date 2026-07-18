@@ -2,7 +2,7 @@ id: C001-gather-viewer-lineage
 chain: loomlight
 parent: null
 lineage: [loom/C005-web-viewer, loom/C013-realtime-step-visibility, loom/C015-being-work-visibility, loom/C020-go-web-port, loom/C028-pages-command, loom/C031-web-lane-layout, loom/C042-viewer-follows-ledger, loom/C047-web-topology-layout, loom/C048-sibling-label-spacing, loom/C049-live-viewer-refresh]
-step: 4
+step: 5
 author: sheen
 status: open
 opened: 2026-07-19
