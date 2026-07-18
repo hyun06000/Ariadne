@@ -1,0 +1,14 @@
+id: C063-web-hierarchy-default
+chain: loom
+parent: C062-worktree-owner-guard
+lineage: [loomlight/C002-hierarchical-viewer, loomlight/C003-go-hierarchy-port]
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "gil web의 기본을 위계(드릴다운)로 — --flat 옵트아웃"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
