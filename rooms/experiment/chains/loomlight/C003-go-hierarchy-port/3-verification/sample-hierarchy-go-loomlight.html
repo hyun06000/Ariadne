@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ariadne 위계 뷰어 — Go·loomlight (표본)</title>
+</head>
+<body>
+<div class="gil"><style>.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
+--supersede:#c07c15;--ring:rgba(11,11,11,.1);
+font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
+margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
+@media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
+--ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
+--lineage:#199e70;--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}}
+:root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
+--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
+--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}
+:root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
+--muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
+--rejected:#d03b3b;--supersede:#c07c15;--ring:rgba(11,11,11,.1)}
+.gil .superseded{opacity:.5}
+.gil .sup{color:var(--supersede);white-space:nowrap}
+.gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
+.gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
+.gil .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);align-items:center}
+.gil .legend span{display:inline-flex;align-items:center;gap:6px}
+.gil .card{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:20px;overflow-x:auto}
+.gil svg{display:block}
+.gil svg text{font-family:inherit}
+.gil .card h2{font-size:14px;font-weight:650;margin:0 0 12px;color:var(--ink)}
+.gil table{border-collapse:collapse;width:100%;font-size:12.5px}
+.gil th{text-align:left;color:var(--muted);font-weight:600;letter-spacing:.02em;
+border-bottom:1px solid var(--hairline);padding:6px 10px 6px 0}
+.gil td{border-bottom:1px solid var(--hairline);padding:7px 10px 7px 0;vertical-align:top;color:var(--ink-2)}
+.gil td.id{color:var(--ink);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.gil .pill{display:inline-block;border:1.5px solid var(--node);border-radius:99px;
+padding:1px 8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
+.gil .pill.closed{background:var(--node);color:#fff;border-color:var(--node)}
+.gil footer{color:var(--muted);font-size:11.5px}
+.gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
+.gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
+.gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.gil .htoc li{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px}
+.gil .htoc a{color:var(--node);text-decoration:none;font-weight:600}
+.gil .htoc a:hover{text-decoration:underline}
+.gil .toc-stat{color:var(--muted);font-size:12px}
+.gil .hhint{color:var(--muted);font-size:12px;margin:6px 0 0}
+.gil details.hchain{background:var(--surface);border:1px solid var(--ring);border-radius:8px}
+.gil details.hchain>summary{cursor:pointer;padding:14px 20px;font-size:15px;font-weight:650;
+list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.gil details.hchain>summary::-webkit-details-marker{display:none}
+.gil details.hchain>summary::before{content:"\25B8";color:var(--muted);font-weight:400}
+.gil details.hchain[open]>summary::before{content:"\25BE"}
+.gil .hname{color:var(--ink)}
+.gil .hstat{color:var(--muted);font-size:12.5px;font-weight:400}
+.gil .hbody{padding:0 20px 20px;display:flex;flex-direction:column;gap:16px}
+.gil .hbody .card{margin:0}
+.gil .hcycles h3{font-size:13px;font-weight:650;margin:4px 0 8px;color:var(--ink-2)}
+.gil details.hcycle{border:1px solid var(--hairline);border-radius:6px;margin-bottom:6px}
+.gil details.hcycle>summary{cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink);
+list-style:none;font-variant-numeric:tabular-nums}
+.gil details.hcycle>summary::-webkit-details-marker{display:none}
+.gil details.hcycle>summary::before{content:"\25B8  ";color:var(--muted)}
+.gil details.hcycle[open]>summary::before{content:"\25BE  "}
+.gil .hcycle-body{padding:0 12px 12px}
+.gil table.hmeta{width:auto;margin:4px 0 12px;font-size:12px}
+.gil table.hmeta th{color:var(--muted);font-weight:600;padding:3px 14px 3px 0;text-align:left;
+border:none;white-space:nowrap;vertical-align:top}
+.gil table.hmeta td{color:var(--ink-2);padding:3px 0;border:none}
+.gil details.hstep{margin:4px 0}
+.gil details.hstep>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--node);
+padding:3px 0;list-style:none}
+.gil details.hstep>summary::-webkit-details-marker{display:none}
+.gil details.hstep>summary::before{content:"+  "}
+.gil details.hstep[open]>summary::before{content:"\2212  "}
+.gil details.hstep pre{background:var(--page);border:1px solid var(--hairline);border-radius:6px;
+padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+color:var(--ink-2);margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.gil details.hstep pre.empty{color:var(--muted);font-style:italic}</style><div class="wrap">
+<header><h1>Ariadne 위계 뷰어 — Go·loomlight (표본)</h1>
+<p>체인 1개 · 사이클 3개 · 체인 간 lineage 10건 · 생성 2026-07-19</p>
+<p class="hhint">위계 뷰어 — 체인을 눌러 그래프를, 사이클을 눌러 5스텝 보고서를 연다 (JS 없이 &lt;details&gt;로).</p></header>
+<nav class="htoc"><h2>체인 목록</h2><ul><li><a href="#chain-loomlight">loomlight</a><span class="toc-stat">사이클 3개 · supported 2 · 열림 1</span></li></ul></nav>
+<details class="hchain" id="chain-loomlight"><summary><span class="hname">loomlight</span><span class="hstat">사이클 3개 · supported 2 · 열림 1 · 최근 2026-07-19</span></summary><div class="hbody"><div class="card"><svg viewBox="0 0 320 258" width="320" height="258" role="img" aria-label="사이클 체인 그래프"><path d="M38,83 C38,106 38,106 38,129" fill="none" stroke="var(--edge)" stroke-width="1.6"/><path d="M38,147 C38,170 38,170 38,193" fill="none" stroke="var(--edge)" stroke-width="1.6"/><text x="24" y="28" font-size="13" font-weight="650" fill="var(--ink)">loomlight</text><g data-cycle="loomlight/C001-gather-viewer-lineage"><title>C001-gather-viewer-lineage [closed · supported] 흩어진 뷰어 사이클을 lineage로 모은 전용 체인이 교차-체인 계보를 드러내고 남은 뷰어 백로그를 지도로 그린다</title><circle cx="38" cy="74" r="8" fill="var(--node)"/><text x="54" y="73" font-size="12" font-weight="600" fill="var(--ink)">C001-gather-viewer-lineage</text><text x="54" y="87" font-size="10.5" fill="var(--muted)">closed · ⇠ loom/C005-web-viewer, loom/C013-realtime-step-visibility, loom/C015-being-work-visibility, loom/C020-go-web-port, loom/C028-pages-command, loom/C031-web-lane-layout, loom/C042-viewer-follows-ledger, loom/C047-web-topology-layout, loom/C048-sibling-label-spacing, loom/C049-live-viewer-refresh</text></g><g data-cycle="loomlight/C002-hierarchical-viewer"><title>C002-hierarchical-viewer [closed · supported] </title><circle cx="38" cy="138" r="8" fill="var(--node)"/><text x="54" y="137" font-size="12" font-weight="600" fill="var(--ink)">C002-hierarchical-viewer</text><text x="54" y="151" font-size="10.5" fill="var(--muted)">closed</text></g><g data-cycle="loomlight/C003-go-hierarchy-port"><title>C003-go-hierarchy-port [open] Go에 gil web --hierarchy 이식 — 참조와 위계 출력 바이트 동일(C020 복원)</title><circle cx="38" cy="202" r="7" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/><text x="54" y="201" font-size="12" font-weight="600" fill="var(--ink)">C003-go-hierarchy-port</text><text x="54" y="215" font-size="10.5" fill="var(--muted)">open · ●●●○○ 3/5 검증 · 활동 10분 전</text></g></svg></div><div class="card"><h2>chain: loomlight — 사이클 3개</h2><table><thead><tr><th>사이클</th><th>상태</th><th>가설(제목)</th><th>parent</th><th>lineage</th><th>superseded_by</th><th>기간</th></tr></thead><tbody><tr><td class="id">C001-gather-viewer-lineage</td><td><span class="pill closed">closed</span></td><td>흩어진 뷰어 사이클을 lineage로 모은 전용 체인이 교차-체인 계보를 드러내고 남은 뷰어 백로그를 지도로 그린다</td><td>(root)</td><td>loom/C005-web-viewer, loom/C013-realtime-step-visibility, loom/C015-being-work-visibility, loom/C020-go-web-port, loom/C028-pages-command, loom/C031-web-lane-layout, loom/C042-viewer-follows-ledger, loom/C047-web-topology-layout, loom/C048-sibling-label-spacing, loom/C049-live-viewer-refresh</td><td>—</td><td>2026-07-19 → 2026-07-19</td></tr><tr><td class="id">C002-hierarchical-viewer</td><td><span class="pill closed">closed</span></td><td></td><td>C001-gather-viewer-lineage</td><td>—</td><td>—</td><td>2026-07-19 → 2026-07-19</td></tr><tr><td class="id">C003-go-hierarchy-port</td><td><span class="pill">open</span> · ●●●○○ 3/5 검증 · 활동 10분 전</td><td>Go에 gil web --hierarchy 이식 — 참조와 위계 출력 바이트 동일(C020 복원)</td><td>C002-hierarchical-viewer</td><td>—</td><td>—</td><td>2026-07-19 → 진행 중 · 10분 전: gil: step loomlight/C003-go-hierarchy-po</td></tr></tbody></table></div><div class="hcycles"><h3>사이클 상세 — 눌러서 5스텝 보고서 열기</h3><details class="hcycle" id="cycle-loomlight-C001-gather-viewer-lineage"><summary>C001-gather-viewer-lineage [closed · supported] 흩어진 뷰어 사이클을 lineage로 모은 전용 체인이 교차-체인 계보를 드러내고 남은 뷰어 백로그를 지도로 그린다</summary><div class="hcycle-body"><table class="hmeta"><tbody><tr><th>status</th><td>closed</td></tr><tr><th>verdict</th><td>supported</td></tr><tr><th>step</th><td>5</td></tr><tr><th>parent</th><td>(root)</td></tr><tr><th>lineage</th><td>loom/C005-web-viewer, loom/C013-realtime-step-visibility, loom/C015-being-work-visibility, loom/C020-go-web-port, loom/C028-pages-command, loom/C031-web-lane-layout, loom/C042-viewer-follows-ledger, loom/C047-web-topology-layout, loom/C048-sibling-label-spacing, loom/C049-live-viewer-refresh</td></tr><tr><th>opened</th><td>2026-07-19</td></tr><tr><th>closed</th><td>2026-07-19</td></tr><tr><th>deviations</th><td>0</td></tr><tr><th>corrections</th><td>0</td></tr><tr><th>superseded_by</th><td>—</td></tr></tbody></table><details class="hstep"><summary>1 · 가설</summary><pre># 1. 가설 수립
+
+## 이전 사이클의 교훈
+
+최초 사이클(새 루트, parent 없음)이다. 부모 대신 두 곳에서 재료를 얻는다.
+
+1. **chain.md의 문제 정의** — 원장에 짜인 진실을 사람 눈에 정직하게 비추는 것이 뷰어의 일이다.
+   그 일은 지금 loom 체인 전역에 흩어져 있다(C005·C013·C015·C020·C028·C031·C042·C047·C048·C049).
+2. **lineage의 정석(loom/C002 v0.2)** — 닫힌 사이클은 불변이다(R4·R5). 다른 갈래의 교훈을
+   모을 때 물리적으로 옮기지 않고 `lineage` 필드로 가리킨다. 깃이 커밋 해시를 참조하는 것과 같다.
+
+## 문제 분할
+
+&quot;뷰어를 강화한다&quot;는 큰 문제를 작은 단위로 나눈다:
+- (a) 흩어진 뷰어 사이클을 **한 곳에서 조망**할 수 있게 모은다.
+- (b) 모으는 행위가 **불변성을 위반하지 않음**을 보장한다(옮기지 않고 가리킨다).
+- (c) 모은 결과가 **기계로 검증 가능**해야 한다(gil log가 실제로 교차-체인 엣지를 그리는가).
+- (d) 남은 뷰어 개선 과제를 **지도로 그린다**(다음 강화의 재료).
+
+지금 정복할 첫 번째 문제는 (a)+(b)+(c)의 결합 — **lineage 기반 수집이 실제로 성립하는가**를
+증명하고, 그 위에서 (d)를 산출물로 남긴다. 뷰어 코드 자체를 고치는 것(가로 압축 등)은
+이 사이클의 범위가 아니다. 이 사이클은 **지도를 그리는 사이클**이지 길을 닦는 사이클이 아니다.
+
+## 가설
+
+&gt; **가설**: 흩어진 10개 뷰어 사이클은 loom의 일관된 하위 계보를 이루며, `lineage`로 이들을
+&gt; 가리키는 전용 체인(loomlight)을 만들면 — 원본을 옮기지 않고도 — `gil log`가 교차-체인
+&gt; lineage 엣지(`⇠`)를 실제로 그려 이 계보를 한 화면에 드러내고, 남은 뷰어 개선 과제가
+&gt; 하나의 백로그로 모인다.
+
+## 기각 조건
+
+다음 중 하나라도 일어나면 가설은 틀렸다:
+- `gil fsck`가 loomlight/C001의 lineage에서 R2(존재하지 않는 참조)·R3(전역 표기/동일 체인)
+  위반을 보고한다 → 수집이 규칙 위반 없이 성립하지 않는다.
+- `gil log`가 loomlight의 10개 lineage 중 하나라도 `⇠` 엣지로 그리지 못한다 → 조망이 실패.
+- chain.md의 10개 링크 중 하나라도 실제 보고서 파일로 해소되지 않는다 → 색인이 거짓.
+- 10개 사이클이 뷰어라는 일관된 주제로 묶이지 않고 이질적이다 → 계보 가설이 틀렸다.
+</pre></details><details class="hstep"><summary>2 · 설계</summary><pre># 2. 실험 설계
+
+오직 1-hypothesis.md의 가설 하나 — &quot;lineage 수집이 불변성 위반 없이 성립하고,
+gil log가 교차-체인 `⇠` 엣지로 계보를 드러내며, 백로그가 하나로 모인다&quot; — 만을 검증한다.
+
+## 절차
+
+모든 명령은 워크트리 루트에서, 체인 루트는 `rooms/experiment/chains`로 실행한다.
+gil 정본: `python3 rooms/deployment/ariadne-spec/gil.py`.
+
+1. **수집의 규칙 준수 검증 (기각조건 1)** — `gil fsck`를 전체 체인에 돌려, loomlight/C001의
+   lineage 10건에서 R2(존재하지 않는 참조)·R3(전역 표기/동일 체인 금지) 위반이 없는지 확인한다.
+   출력 전문을 `3-verification/fsck.txt`에 저장한다.
+2. **교차-체인 엣지 렌더 검증 (기각조건 2)** — `gil log --chain loomlight`를 실행해 C001 행에
+   `⇠ lineage: loom/C005-web-viewer, …` 10건이 전부 나타나는지 확인한다. 출력을
+   `3-verification/log-loomlight.txt`에 저장하고, 전체 `gil log`(체인 필터 없음)도
+   `3-verification/log-all.txt`에 저장해 loom과 loomlight가 한 화면에 조망되는지 본다.
+3. **엣지 개수 기계 측정 (기각조건 2 정량화)** — log-loomlight.txt에서 C001 행의 `⇠ lineage:`
+   뒤 콤마 구분 참조 개수를 세어 10과 일치하는지 스크립트로 확인한다. 결과를
+   `3-verification/edge-count.txt`에 저장한다.
+4. **색인 링크 해소 검증 (기각조건 3)** — chain.md의 10개 상대경로 링크가 실제
+   `../loom/&lt;id&gt;/5-report.md` 파일로 존재하는지 스크립트로 전수 확인한다. 결과를
+   `3-verification/link-resolution.txt`에 저장한다.
+5. **주제 일관성 확인 (기각조건 4)** — 10개 사이클의 title을 모아 전부 뷰어(log/web/pages/
+   가시성/레이아웃) 주제인지 대조표로 정리한다. `3-verification/theme-coherence.txt`에 저장.
+6. 검증 절차 전체를 재현 스크립트 `3-verification/verify.sh`로 남겨, 누구든 그대로 밟을 수 있게 한다.
+
+## 준비물
+
+- gil: `rooms/deployment/ariadne-spec/gil.py` (워크트리 내 정본), Python 3.
+- 데이터: loom 체인의 10개 뷰어 사이클(전부 closed, 태그 `cycle/loom/*`), loomlight/C001(open).
+- 환경: 격리 워크트리 `agent-aba7943f76c249471`, 브랜치 `loomlight`.
+
+## 측정 방법
+
+| 측정 | 성공 기준 | 기각 |
+|---|---|---|
+| fsck의 loomlight 관련 위반 수 | 0 | ≥1 (R2/R3) |
+| gil log의 C001 `⇠` lineage 참조 수 | = 10 | &lt; 10 |
+| chain.md 링크 해소율 | 10/10 | &lt; 10/10 |
+| 10 사이클 뷰어 주제 일치 | 10/10 | &lt; 10/10 |
+
+전부 성공이면 verdict `supported`. 일부만 성공이면 `partial`.
+
+## 사용자 컨펌
+
+- 생략 — 사유: 소환자 Clew가 임무 프롬프트에서 설계 골격(open→chain.md→5스텝→검증 산출물을
+  3-verification에→백로그 보고)을 이미 지정했다. 이 설계는 그 지시의 절차적 구체화이며 새 결정을
+  요구하지 않는다. Clew의 관전은 브랜치 push로 이뤄진다.
+- [x] 컨펌 받음 (일자: 2026-07-19, 소환 프롬프트로 사전 위임)
+</pre></details><details class="hstep"><summary>3 · 검증</summary><pre># 3. 가설 검증
+
+이 디렉토리에 실험 실행에 사용된 **모든 것**이 저장된다: 코드, 스크립트, 입력 데이터(또는 그 출처와 해시), 실행 로그, 연산 결과, 생성된 아티팩트.
+
+## 재현 방법
+
+&lt;!-- 이 디렉토리만 가지고 실험을 처음부터 다시 실행하는 정확한 명령 순서를 쓴다. --&gt;
+
+```bash
+```
+
+## 실행 기록
+
+&lt;!-- 실제 실행 일시, 환경(OS, 버전), 소요 시간, 실행 중 발생한 특이사항. --&gt;
+
+
+[검증 산출물]
+- edge-count.txt
+- fsck-loomlight.txt
+- fsck.txt
+- link-resolution.txt
+- log-all.txt
+- log-loomlight.txt
+- theme-coherence.txt
+- verify.sh</pre></details><details class="hstep"><summary>4 · 분석</summary><pre># 4. 결과 분석
+
+## 통계적 결과
+
+| 측정 | 기준(성공) | 관측 | 판정 |
+|---|---|---|---|
+| fsck의 loomlight 관련 위반 수 | 0 | **0** (전체도 위반 0, 경고만 36건) | 통과 |
+| gil log의 C001 `⇠` lineage 참조 수 | = 10 | **10** | 통과 |
+| chain.md 링크 해소율 | 10/10 | **10/10** | 통과 |
+| 10 사이클 뷰어 주제 일치 | 10/10 | **10/10** | 통과 |
+
+4개 측정 전부 성공 기준을 만족했다. 기각 조건 4개 중 어느 것도 발생하지 않았다.
+
+## 데이터 직접 관찰
+
+수치 뒤로 들어가 아티팩트를 직접 읽었다.
+
+1. **`⇠` 엣지는 텍스트 log의 tail에 렌더된다** (`edge-count.txt`, `log-loomlight.txt`).
+   C001 행 끝에 `⇠ lineage: loom/C005-web-viewer, …, loom/C049-live-viewer-refresh` 10건이
+   콤마로 나열됐다. gil.py 소스(233-234행)를 확인하니, lineage_list가 있으면 노드 요약 뒤에
+   `⇠ lineage: {…}`를 붙인다. 즉 이 엣지는 **cycle.yaml의 lineage 필드를 그대로 비추는 것**이지
+   내가 손으로 그린 그림이 아니다 — 원장이 진실이고 뷰어는 그 반사광이라는 원칙(내 identity)의
+   실증이다.
+
+2. **loomlight는 전역 log에 독립 체인으로 선다** (`log-all.txt` 158행: `=== chain: loomlight —
+   사이클 1개 ===`). loom(57), genesis(3), gateway(1), tapestry(1)와 나란히 5번째 체인으로
+   조망된다. 원본 10사이클은 여전히 loom(23행~)에 그대로 있다 — **아무것도 옮기지 않았다.**
+   loomlight는 그것들을 가리키는 거울이지 옮겨 담은 상자가 아님이 두 체인의 공존으로 증명된다.
+
+3. **fsck는 R2·R3를 실제로 검사하는 관문이다** (`fsck.txt`: &quot;위반 0건 (스키마 v0.5)&quot;).
+   gil.py 378-386행을 읽으니 fsck는 각 lineage에 대해 전역 표기(R3)·동일 체인 금지(R3)·
+   대상 존재(R2)를 검사한다. 위반 0은 &quot;검사기가 이 3규칙을 보면서도 통과시켰다&quot;는 뜻 —
+   open 시점(674-681행)의 사전 차단과 fsck의 사후 감사가 이중으로 수집의 정합을 지킨다.
+
+4. **10개 title은 한 주제의 세 축이다** (`theme-coherence.txt`). 읽어보니 뷰어라는 큰 주제가
+   세 갈래로 나뉜다 — 가시성(C013·C015·C042·C049), 레이아웃(C031·C047·C048), 이식·배포
+   (C005·C020·C028). 이 세 축은 chain.md 색인의 &quot;계보로 읽으면&quot; 문단으로 옮겨 담았다.
+   흩어진 것이 이질적이지 않고 일관된 하위 계보였다는 가설의 핵심이 여기서 눈으로 확인된다.
+
+## 예상과 달랐던 것
+
+- **텍스트 log의 `⇠`는 명료하지만, 웹 SVG의 lineage는 다른 이야기다.** gil.py 998행을 읽으니
+  web 렌더는 lineage를 &quot;레인을 건너는 점선&quot;으로 그린다. 지금까지 우리 저장소는 교차-체인
+  lineage가 드물어(loom 내부에 몇 건) 이 점선이 성글었다. 그런데 loomlight/C001은 **한 노드에서
+  10개의 점선이 loom의 10개 노드로 뻗는다** — C005·C009가 &quot;알려진 한계&quot;로 남긴 *lineage 시각
+  밀도*가 이제 우리 저장소에서 처음으로 실증 조건을 갖췄다. 지도를 그리려던 사이클이 백로그
+  2번 항목의 첫 실물 재현 케이스를 스스로 만들어낸 셈이다. (이 사이클 범위 밖 — 백로그로 넘긴다.)
+
+- **fsck 경고 36건은 위반이 아니다.** 처음엔 놀랐으나 읽어보니 대부분 &quot;verdict 미기록(기존 사슬
+  유예)&quot; 34건 — 초기 사이클들이 verdict 필드 도입(C030) 전에 닫혔기 때문. loomlight/C001과 무관.
+
+## 판정
+
+**채택(supported).** 가설의 세 주장 — (1) 흩어진 10사이클이 일관된 뷰어 하위 계보를 이룬다,
+(2) lineage로 옮기지 않고 가리켜 모을 수 있다, (3) gil log가 교차-체인 `⇠` 엣지로 이를
+드러낸다 — 이 모두 검증됐고, 기각 조건 4개 중 어느 것도 발생하지 않았다. 4/4 측정 통과.
+</pre></details><details class="hstep"><summary>5 · 보고</summary><pre># 5. 결과 보고
+
+## 요약
+
+loom 체인에 흩어져 태어난 뷰어 사이클 10개가 일관된 하위 계보를 이룬다는 가설 아래,
+이들을 물리적으로 옮기지 않고 `lineage` 필드로 가리키는 전용 체인 **loomlight**를 창건했다.
+검증 4측정(fsck 위반 0 / gil log `⇠` 엣지 10/10 / chain.md 링크 해소 10/10 / 10 사이클 뷰어
+주제 일치 10/10) 전부 통과 — 가설 **채택(supported)**. loomlight는 원본을 loom에 그대로 둔 채
+전역 log에 독립 체인으로 공존하며, 흩어진 뷰어 개선 과제가 하나의 백로그로 모였다.
+
+## 교훈
+
+1. **모으는 것과 옮기는 것은 다르다 — lineage는 깃의 커밋 참조다.** 닫힌 사이클은 불변이고
+   (R4·R5) 이동은 태그 봉인을 깨는 불변성 위반이다. loomlight는 원본을 loom에 두고 `lineage`로
+   가리켜 모았다. `log-all.txt`가 두 체인의 공존을 증언한다 — loomlight는 거울이지 상자가 아니다.
+   흩어진 갈래를 조망하고 싶을 때의 Ariadne 정석: **전용 체인 + lineage 수집.**
+
+2. **뷰어의 `⇠` 엣지는 원장의 반사광이다.** gil log는 cycle.yaml의 lineage 필드를 그대로
+   비출 뿐(gil.py:233), 그림을 새로 그리지 않는다. 그래서 수집의 정합은 뷰어가 아니라 원장과
+   fsck(R2·R3, open 시 사전 차단 + fsck 사후 감사)가 보증한다. 뷰어를 믿는 것이 아니라 원장을
+   믿는다 — 뷰어는 그 진실을 사람 눈에 옮길 뿐.
+
+3. **지도를 그리는 사이클이 다음 길의 첫 실증 케이스를 만들었다.** C001의 10겹 lineage는 웹 SVG의
+   &quot;레인 건너는 점선&quot;(gil.py:998)을 한 노드에서 10가닥으로 뻗게 한다 — C005·C009가 &quot;알려진
+   한계&quot;로만 남겼던 *lineage 시각 밀도*가 우리 저장소에서 처음 실물이 됐다. 백로그 2번 항목은
+   이제 추상이 아니라 loomlight/C001을 web으로 렌더하면 바로 보이는 문제다.
+
+## 남은 뷰어 개선 백로그 (박상현의 다음 뷰어 강화 재료)
+
+10사이클 보고서에 흩어진 &quot;알려진 한계/다음 후보&quot;를 **뷰어 개선 항목만** 추려 모았다.
+(뷰어와 무관한 이월 — Go reserve/unreserve 이식, 판정기 밖 계약면 fsck 문면 드리프트,
+이슈 #9·#10 답글 등 — 은 제외했다. 그것들은 도구·계약의 실이지 뷰어의 실이 아니다.)
+
+| # | 백로그 항목 | 출처 | 상태/재료 |
+|---|---|---|---|
+| B1 | **레인 가로 압축** — 형제가 많으면 가로(col)로 넓어진다. 죽은 레인의 col을 더 적극 재사용. C048이 형제를 벌린 뒤 가로 길이가 새 압력이 됐다. | C047-C, C049-C, C048 | 세로(토폴로지)는 풀렸고 가로가 남은 축 |
+| B2 | **lineage 간선 시각 밀도** — 체인·lineage가 많으면 점선이 얽힌다. | C005 한계, C009-C | **loomlight/C001이 첫 실증 케이스**(10겹 점선). 지금 web 렌더하면 바로 보임 |
+| B3 | **정적 레인 폭 / 긴 id 라벨 겹침** — 레인 폭이 정적이라 긴 id에서 겹칠 수 있다. C048은 형제 라벨만 풀었고 폭 자체는 정적. | C005 한계 | 동적 폭 or id 말줄임 |
+| B4 | **corrected(✎)·superseded(↣) 시각 표현 강화** — 갱신(C042)만 다뤘고 이 두 상태의 시각 표현은 별도 실. 연쇄 무효화 A↣B↣C의 유효성 추적도 미해결. | C042-D, C035-A | web은 흐린 노드+점선 무효화 간선까지 있음(C035). 연쇄·정정의 시각 강화가 다음 |
+| B5 | **원격(Pages) 실시간** — C049가 로컬 실시간(--refresh/--watch)을 풀었으나 Pages는 빌드 지연(~1분)이 남는다. | C013-B, C049 | 로컬은 해결. 원격 실시간은 미해결 |
+| B6 | **verdict 결말 서사의 시각화** — 우리 자신 사이클의 verdict 소급 이주 후 뷰어에 결말 서사를. | C031-A | verdict 필드(C030)·색 구별(C031)은 있음. 소급 이주 + 서사 렌더가 남음 |
+| B7 | **외부 채택자 피드백 루프** — 제보자(maru 등)의 사슬을 뷰어로 렌더해 되돌려주기. | C031-C | 채택 피드백 루프의 도구화 |
+
+**추천 다음 사이클 (loomlight/C002 후보)**: **B2(lineage 시각 밀도)** — loomlight/C001이 이미
+실증 데이터(10겹 점선)를 만들었으므로 재현 조건이 갖춰졌다. B1(가로 압축)과 함께 &quot;형제 많음 +
+lineage 많음&quot;의 밀도 문제를 한 레이아웃 실로 묶을 수도 있다. 어느 쪽이든 가설은 이 보고서가
+아니라 **직전 사이클의 보고서**에서 나와야 한다(로드맵은 예언이 아니다).
+
+## 사이클 닫기
+
+- [x] 검증 산출물 3-verification/에 저장 (verify.sh로 재현 가능)
+- [ ] `cycle.yaml`의 `status: closed`, `closed`, `verdict: supported` — `gil close`가 수행
+- [ ] 존재의 방 `memory.md`에 이 사이클의 기억 기록
+- [ ] `gil close loomlight C001-gather-viewer-lineage --verdict supported --push` — 각인·전파
+- [ ] 병합·main 반영은 소환자 Clew의 몫 (브랜치 `loomlight`에 push 완료)
+</pre></details></div></details><details class="hcycle" id="cycle-loomlight-C002-hierarchical-viewer"><summary>C002-hierarchical-viewer [closed · supported] </summary><div class="hcycle-body"><table class="hmeta"><tbody><tr><th>status</th><td>closed</td></tr><tr><th>verdict</th><td>supported</td></tr><tr><th>step</th><td>5</td></tr><tr><th>parent</th><td>C001-gather-viewer-lineage</td></tr><tr><th>lineage</th><td>—</td></tr><tr><th>opened</th><td>2026-07-19</td></tr><tr><th>closed</th><td>2026-07-19</td></tr><tr><th>deviations</th><td>0</td></tr><tr><th>corrections</th><td>0</td></tr><tr><th>superseded_by</th><td>—</td></tr></tbody></table><details class="hstep"><summary>1 · 가설</summary><pre># 1. 가설 수립
+
+## 이전 사이클의 교훈 (부모: loomlight/C001-gather-viewer-lineage)
+
+C001은 흩어진 뷰어 10사이클을 lineage로 모으며 남은 백로그 B1~B7을 지도로 남겼다.
+그중 세 항목이 **한 화면에 전부를 그리는 평면 뷰어**에서 온다:
+
+- **B1 레인 가로 압축** — 형제가 많으면 가로(col)로 넓어진다.
+- **B2 lineage 시각 밀도** — 체인·lineage가 많으면 점선이 얽힌다(loomlight/C001의 10겹 점선이 첫 실증).
+- **B3 정적 레인 폭 / 긴 id 라벨 겹침** — 레인 폭이 정적이라 긴 id에서 겹친다.
+
+C001의 마지막 교훈: *&quot;지도를 그리는 사이클이 다음 길의 첫 실증 케이스를 만들었다.&quot;*
+지금 저장소는 5체인·60여 사이클이다 — 평면 SVG 하나에 다 그리면 상현님 말대로 &quot;한눈에 안 들어온다&quot;.
+B1·B2·B3는 개별 레이아웃 미세조정으로 각각 깎기보다, **애초에 한 화면에 전부를 그리지 않으면**
+근본적으로 완화된다. 이것이 이번 가설의 뿌리다.
+
+## 문제 분할
+
+상현님의 요청 = **위계적 드릴다운 뷰어**. 세 단으로 나눈다:
+
+1. **체인 목록** — 체인별 요약(사이클 수, 최근 활동, verdict 결말 집계). 여기선 그래프를 안 그린다.
+2. **체인 → 사이클 구조** — 그 체인만의 계보/토폴로지 그래프 + 사이클 표(지금 뷰어가 그리는 것).
+3. **사이클 → 5스텝 보고서** — 1-hypothesis ~ 5-report + cycle.yaml 메타.
+
+가장 작은 정복 단위이자 첫 문제: **JS 0줄·외부 리소스 0·자기완결 HTML이라는 근본 계약(C005)을
+깨지 않고 이 3단 위계를 실현할 수 있는가.** 드릴다운은 보통 JS로 하지만, 우리 계약은 그것을 금한다.
+제약이 답을 좁혀준다(C005·C049) — HTML 표준만으로 접고 펴는 수단은 `&lt;details&gt;/&lt;summary&gt;`다.
+
+**병합 규율(두 몸 한 계약, C020):** 참조(gil.py)와 Go(go/main.go)의 web 출력은 바이트 동일이 계약이다.
+큰 재작성을 두 몸에 한 번에 이식하면 병합이 위태롭다. 그래서 위계를 **추가 능력(opt-in)** 으로 설계해
+**기본 출력을 바이트 그대로 보존**한다 — 그러면 참조만 이번에 늘려도 두 구현의 기본 경로가 여전히
+바이트 동일이고, 양쪽 conformance가 초록으로 남는다. Go로의 위계 이식은 다음 loomlight 사이클로
+정직히 남긴다(C036·C050의 절제). 이 판단은 환경 제약으로도 강제된다: 이 워크트리엔 Go 툴체인이
+없어 Go 변경을 실측 검증할 수 없다 — 검증 못 하는 코드는 손대지 않는다.
+
+## 가설
+
+&gt; **가설**: `gil web`에 opt-in 플래그(`--hierarchy`)를 더해, JS 0줄·외부 리소스 0·자기완결
+&gt; 계약을 지키는 3단 위계 뷰어(체인 목록 → 체인 그래프 → 사이클 5스텝)를 **중첩 `&lt;details&gt;/&lt;summary&gt;`
+&gt; + 앵커**만으로 실현할 수 있다. 그리고 이 추가는 **기본(플래그 없는) 출력을 바이트 그대로 보존**하므로,
+&gt; 참조 구현만 늘려도 참조·Go 양쪽 conformance가 초록으로 남고 두 구현의 기본 web은 바이트 동일을 유지한다.
+
+## 기각 조건
+
+다음 중 하나라도 나오면 가설을 기각(refuted)한다:
+
+1. **계약 위반**: 생성된 위계 HTML에 JS(`id=&quot;gil-data&quot;` 데이터 블록 외 실행 코드)나
+   외부 리소스(`https?://` 참조)가 단 하나라도 있다.
+2. **위계 미동작**: 3단 중 한 단이라도 JS 없이는 열람 불가하다(펼침·이동이 브라우저 기본 동작으로 안 됨),
+   또는 사이클→5스텝에서 실제 보고서 본문/메타가 나타나지 않는다.
+3. **회귀**: 플래그 없는 기본 `gil web` 출력이 개선 전과 **바이트 동일이 아니다**(하위호환 파괴),
+   또는 참조 conformance의 WEB-* 항목이 하나라도 FAIL로 돌아선다.
+</pre></details><details class="hstep"><summary>2 · 설계</summary><pre># 2. 실험 설계
+
+## 설계 요지 — 위계를 &quot;추가 능력&quot;으로, 기본을 바이트 그대로
+
+`gil web`에 opt-in 플래그 `--hierarchy`를 더한다. 플래그가 없으면 코드 경로가 기존과
+**한 바이트도 다르지 않다**(default 보존). 플래그가 있으면 3단 위계 HTML을 낸다.
+JS 없는 드릴다운은 **중첩 `&lt;details&gt;/&lt;summary&gt;`**로, 딥링크는 **앵커 id**로 실현한다.
+
+## 절차 (구현 — 참조 gil.py, 뷰어 코드 표면만)
+
+1. **CLI**: `p_web.add_argument(&quot;--hierarchy&quot;, action=&quot;store_true&quot;, ...)` 추가. `cmd_web`에서
+   `hierarchy = getattr(args, &quot;hierarchy&quot;, False)`로 읽어 `_bake_viewer`로 전달.
+2. **스레딩**: `_bake_viewer(chains_root, output, title, only, refresh=None, hierarchy=False)` →
+   `render_web_page(..., hierarchy=hierarchy, chains_root=chains_root)`. hierarchy=False면 모든
+   기존 호출부·출력 불변.
+3. **bake 자기보고**: json_payload의 `bake`에 `**({&quot;hierarchy&quot;: True} if hierarchy else {})`를
+   **맨 끝**에 조건부로 더한다. hierarchy=False면 dict가 기존과 완전 동일 → JSON 바이트 동일
+   (refresh가 쓰던 바로 그 패턴, C043·C049).
+4. **자동 갱신 보존**: `_bake_meta`가 `bake.get(&quot;hierarchy&quot;)`도 반환하고, `_refresh_viewers`가
+   그 값을 `_bake_viewer`로 넘긴다. 이로써 open/step/close가 뷰어를 다시 구워도 위계가 유지된다
+   (C042의 &quot;창이 원장을 따른다&quot; 계약을 위계에도 확장). 이 경로도 hierarchy=False면 불변.
+5. **위계 렌더** `_render_hierarchy_body(data, chains_root, ...)`:
+   - **L1 체인 목록**: 상단에 컴팩트 목차(체인명 + 요약 통계 + `#chain-&lt;name&gt;` 앵커 링크).
+     요약 = 사이클 수 · verdict 집계(supported/rejected/refuted/inconclusive/열림) · 최신 활동일.
+   - **L2 체인 그래프**: 각 체인을 `&lt;details id=&quot;chain-&lt;name&gt;&quot;&gt;`로. summary=체인명+통계.
+     펼치면 **그 체인만의** SVG(`_render_svg({name: chain})` 재사용) + 표(`_render_tables({name: chain})`
+     재사용). 한 체인만 그리므로 B1(가로)·B2(lineage 밀도)·B3(라벨) 압력이 구조적으로 낮아진다.
+   - **L3 사이클 5스텝**: 체인 details 안에 사이클마다 `&lt;details id=&quot;cycle-&lt;name&gt;-&lt;cid&gt;&quot;&gt;`.
+     summary=`cid [status·verdict] 제목`. 펼치면 cycle.yaml 메타 표 + 스텝별 중첩 `&lt;details&gt;`:
+     1-hypothesis.md·2-design.md·3-verification/README.md(+ 산출물 파일 목록)·4-analysis.md·
+     5-report.md 내용을 `html.escape` 후 `&lt;pre&gt;`에 담는다(마크다운 파서 없이 정직하게 원문).
+6. **스텝 파일 소스**: `_build_web_data`가 체인별 `_dirs = {cid: c[&quot;_dir&quot;]}`를 data에 넣는다
+   (JSON payload는 이 키를 직렬화하지 않으므로 기본 JSON 불변). 없으면 cid를 디렉토리명으로 가정.
+7. **CSS**: hierarchy 모드에서만 `&lt;style&gt;{_WEB_CSS}{_WEB_HIER_CSS}&lt;/style&gt;`. 기본 모드는 `{_WEB_CSS}`
+   그대로 → 기본 바이트 불변. `_WEB_HIER_CSS`는 details/summary·중첩 여백·메타표·pre 스타일.
+8. **Go**: **손대지 않는다.** 이 워크트리엔 Go 툴체인이 없어 실측 불가 + 위계는 opt-in이라
+   기본 경로가 바이트 동일이므로 Go(불변)의 기본 출력·conformance가 그대로 초록. Go 위계 이식은
+   다음 loomlight 사이클로 정직히 이월(C036·C050 절제).
+
+## 준비물
+
+- Python 3 (참조 gil.py). Go 툴체인 없음(확인함) → Go 변경 금지.
+- 실 저장소 `rooms/experiment/chains`(5체인·60여 사이클) — 위계 압축의 실증 픽스처.
+- 판정기 `conformance.py`(WEB-SELFCONTAINED / WEB-JSON / WEB-REFRESH).
+
+## 측정 방법 (3-verification/에 재현 가능하게 저장)
+
+| # | 측정 | 성공 기준 |
+|---|---|---|
+| M1 | **기본 바이트 동일(하위호환)** | `gil web`(플래그 없음) 출력이 개선 전 baseline과 `cmp` 바이트 동일 |
+| M2 | **참조 conformance 회귀 0** | `conformance.py --gil &quot;python3 gil.py&quot;` 전 항목 PASS(WEB-* 포함), 개선 전과 동수 |
+| M3 | **위계 계약 유지** | `--hierarchy` 출력에 외부 리소스(`https?://`) 0, 실행 JS 0(`id=&quot;gil-data&quot;` 데이터 블록만) |
+| M4 | **위계 3단 동작** | 생성 HTML에 L1 목차, `&lt;details id=&quot;chain-*&quot;&gt;`(체인당 1), `&lt;details id=&quot;cycle-*&quot;&gt;`(사이클당 1),
+      스텝 `&lt;pre&gt;`에 실제 보고서 원문·cycle.yaml 메타가 존재 — grep·구조 카운트로 확인 |
+| M5 | **--refresh·자동갱신과 공존** | `--hierarchy --refresh 3`이 meta refresh + bake.hierarchy=true 동시 기록, 외부 리소스 0 |
+
+M1·M2 실패 = 하위호환/회귀(기각 조건 3). M3 실패 = 계약 위반(기각 조건 1). M4 실패 = 위계 미동작(기각 조건 2).
+
+## 사용자 컨펌
+
+- 생략 — 소환자 Clew의 임무 지시서가 설계 계약(JS 0·opt-in 하위호환·Go 이월 허용)을 이미
+  명시했다. 그 계약을 그대로 따르므로 별도 컨펌 불요. 병합 시점만 Clew가 Weft와 조율.
+
+- [x] 컨펌 받음 (일자: 2026-07-19 · Clew 임무 지시서로 갈음)
+</pre></details><details class="hstep"><summary>3 · 검증</summary><pre># 3. 가설 검증
+
+위계 뷰어(`gil web --hierarchy`)가 가설을 지지하는지 6측정으로 실측한다.
+
+## 재현 방법
+
+저장소 루트에서:
+
+```bash
+bash rooms/experiment/chains/loomlight/C002-hierarchical-viewer/3-verification/verify.sh
+```
+
+- `verify.sh`는 임시 디렉토리에 산출물을 굽고 6측정을 판정한다. 전 측정 통과면 exit 0.
+- 개선 전 gil.py는 `git show origin/main:...gil.py`로 꺼내 **같은 체인 데이터**로 구워 신 gil.py의
+  기본 출력과 `cmp`한다(하위호환의 바이트 증명).
+- 커밋된 표본 `sample-hierarchy-loomlight.html`(40KB)는 loomlight 체인만 담은 위계 뷰어 —
+  브라우저로 열면 체인→사이클→5스텝 드릴다운을 JS 없이 그대로 확인할 수 있다.
+
+## 측정 항목과 성공 기준
+
+| 측정 | 성공 기준 | 대응 기각조건 |
+|---|---|---|
+| M1 / M1b | 기본(플래그 없음) 출력이 개선 전 gil.py와 **바이트 동일** (genesis / 전체 체인) | 3 (하위호환) |
+| M2 / M2b | 참조 conformance 전 항목 PASS, WEB-SELFCONTAINED·WEB-JSON·WEB-REFRESH 초록 | 3 (회귀) |
+| M3 | `--hierarchy` 출력에 외부 리소스 0, `&lt;script&gt;`는 `id=&quot;gil-data&quot;`(JSON) 하나뿐(실행 JS 0) | 1 (계약 위반) |
+| M4 / M4b | 목차 1개 · `details.hchain` = 체인 수 · `details.hcycle` = 사이클 수 · `details.hstep` = 사이클×5, C002 앵커·메타표 실재 | 2 (위계 미동작) |
+| M5 | `--hierarchy --refresh 3` → meta refresh + `bake.hierarchy=true`&amp;`refresh=3` 동시, 외부 리소스 0 | 1·병존 |
+| M6 | 위계 뷰어를 `_bake_meta`로 왕복하면 `hierarchy=True` 회수, **기본 bake엔 hierarchy 키 부재**(바이트 동일 보증) | 3 (자동갱신 보존) |
+
+## 실행 기록
+
+- 실행: 2026-07-19, macOS (Darwin 25.5.0), Python 3, git 있음. Go 툴체인 **없음**(확인) → Go 미변경.
+- **결과: 6측정(세부 9판정) 전부 PASS.**
+  - M1 genesis 바이트 동일 · M1b 전체 체인 바이트 동일
+  - M2 conformance **56/56**(--skip-git) / **77/77**(git 포함, WEB-AUTO-* 4항목 포함 전부 초록)
+  - M3 외부 0 · script 1 · 그중 데이터 1
+  - M4 목차 1 · 체인 5/5 · 사이클 65/65 · 스텝 325=65×5 · M4b C002 앵커·메타표 실재
+  - M5 meta=1 · bake.hierarchy&amp;refresh=1 · 외부 0
+  - M6 왕복 hierarchy 보존 True, 기본 bake 키 `[&#x27;chain&#x27;,&#x27;title&#x27;]`(hierarchy 부재)
+- 특이사항: M4의 최초 판정은 `find cycle.yaml`(110)이 rounds/ 하위 라운드 cycle.yaml까지 세어
+  그래프 노드 수(65)와 어긋나 FAIL했다. 진실값을 **뷰어 자신의 내장 gil-data JSON 노드 수**로
+  바꿔(원장을 그대로 반사) 자기정합 판정으로 교정 — 구현 결함이 아니라 판정기 분모 오류였다.
+- 산출물: `verify.sh`(재현 스크립트), `sample-hierarchy-loomlight.html`(커밋 표본).
+
+
+[검증 산출물]
+- sample-hierarchy-loomlight.html
+- verify.sh</pre></details><details class="hstep"><summary>4 · 분석</summary><pre># 4. 결과 분석
+
+## 통계적 결과
+
+2-design.md의 5측정(세부 9판정) 전부 성공 기준 충족 — `verify.sh` 재현 가능.
+
+| 측정 | 기준 | 결과 | 판정 |
+|---|---|---|---|
+| M1 / M1b | 기본 출력 개선 전과 바이트 동일 | genesis·전체 체인 모두 `cmp` 동일 | ✅ |
+| M2 | 참조 conformance 회귀 0 | **56/56**(--skip-git) · **77/77**(git 포함) | ✅ |
+| M2b | WEB-* 초록 | SELFCONTAINED·JSON·REFRESH·AUTO-* 전부 PASS | ✅ |
+| M3 | 외부 0 · 실행 JS 0 | 외부 0 · `&lt;script&gt;` 1개(=gil-data JSON) | ✅ |
+| M4 / M4b | 위계 3단 구조 카운트 | 목차 1 · hchain 5/5 · hcycle 65/65 · hstep 325=65×5 · C002 앵커·메타 실재 | ✅ |
+| M5 | --hierarchy + --refresh 병존 | meta refresh + bake.hierarchy&amp;refresh, 외부 0 | ✅ |
+| M6 | 자동 재굽기 hierarchy 보존 | 왕복 True, 기본 bake에 hierarchy 키 부재 | ✅ |
+
+## 데이터 직접 관찰
+
+- **바이트 동일의 실제**: 개선 전 gil.py(`origin/main`)와 신 gil.py를 같은 체인 데이터로 구운 두
+  HTML이 `cmp`로 완전히 일치. 즉 `--hierarchy` 없는 사용자·CI·Go(불변)에게는 이 사이클이
+  **관측 불가능한 변화**다 — opt-in 추가가 기존 계약면을 한 바이트도 건드리지 않았다는 실증.
+  `render_web_page`의 `else` 가지를 개선 전 문면 그대로 두고 분기만 앞에 얹은 설계가 그대로 통했다.
+
+- **위계의 실물**(`sample-hierarchy-loomlight.html`, 40KB): 상단 `&lt;nav class=&quot;htoc&quot;&gt;`가 체인 목록을
+  요약과 함께 보인다 —
+  `loom  사이클 58개 · supported 27 · 무결론 29 · partial 1 · 열림 1`. 체인 `&lt;summary&gt;`를 누르면
+  그 **체인 하나만의** SVG 그래프 + 표가 열리고(L2), 사이클 `&lt;summary&gt;`를 누르면 cycle.yaml 메타표와
+  5개 스텝 `&lt;details&gt;`가 열려(L3) 각 보고서 원문이 `&lt;pre&gt;`로 뜬다. C001 요약은
+  `C001-gather-viewer-lineage [closed · supported] 흩어진 뷰어 사이클을 lineage로 모은…`으로,
+  status·verdict·제목이 한 줄에 압축됐다.
+
+- **B1·B2·B3 완화의 구조적 근거**: L2에서 `_render_svg({name: chain})`를 **체인 하나**에만 부른다.
+  loom 한 체인은 최대 폭·최대 lineage 밀도가 5체인 합산 화면보다 근본적으로 낮다. loomlight/C001이
+  만든 &quot;10겹 lineage 점선&quot;(B2의 첫 실증)도 그 체인을 펼칠 때만, 그 체인 안에서만 그려진다 —
+  한 화면에 5체인 60여 사이클을 겹쳐 그리던 압력이 드릴다운으로 분산됐다.
+
+- **JS 0의 확인**: 생성물의 유일한 `&lt;script&gt;`는 `type=&quot;application/json&quot; id=&quot;gil-data&quot;` —
+  브라우저가 실행하지 않는 데이터 블록(기계 검증 훅). 드릴다운·펼침·앵커 이동은 전부
+  `&lt;details&gt;/&lt;summary&gt;`·`&lt;a href=&quot;#...&quot;&gt;`라는 HTML 표준 기본 동작. 계약(C005) 무손상.
+
+## 예상과 달랐던 것
+
+- **판정기의 분모가 함정이었다.** M4 최초 실행에서 `find -name cycle.yaml`이 110을 셌는데 그래프
+  노드는 65였다. 원인은 `rounds/` 하위의 라운드 cycle.yaml. 진실값을 **뷰어 자신의 gil-data JSON
+  노드 수**로 바꿔 자기정합 판정으로 교정했다 — 뷰어의 정확성은 &quot;원장을 반사하는가&quot;이지 &quot;디스크의
+  모든 yaml을 세는가&quot;가 아니다(C001 교훈 2의 재확인: 뷰어는 원장의 반사광).
+
+- **많은 닫힌 사이클이 verdict 없이 `무결론`으로 집계됐다**(loom 29건). 이는 결함이 아니라 정직 —
+  verdict 필드(C030)는 후대에 도입됐고 이전 사이클엔 소급 이주가 안 됐다. 위계 요약이 그 공백을
+  **가시화**했다. 이것이 백로그 B6(verdict 결말 서사의 소급 이주)의 새 실증 압력이다 — 위계
+  뷰어가 다음 사이클의 재료를 또 스스로 만들었다(C001의 자기증식 패턴 반복).
+
+## 판정
+
+**가설 채택 (supported).** 세 기각 조건 어느 것도 발생하지 않았다:
+계약 위반 0(M3), 위계 3단 JS 없이 동작(M4·M4b + 표본 육안), 하위호환 파괴·회귀 0(M1·M2·M6).
+`--hierarchy`는 JS 0·외부 0·자기완결을 지키며 체인→사이클→5스텝 드릴다운을 실현하고,
+기본 경로를 바이트 그대로 보존해 참조·Go 양쪽 conformance를 초록으로 남긴다.
+
+**정직한 미완(다음 사이클로 이월):** Go(`go/main.go`)로의 `--hierarchy` 이식. 이 워크트리엔 Go
+툴체인이 없어 실측할 수 없었고, opt-in 설계가 기본 경로 바이트 동일을 보장하므로 Go 불변으로도
+병합이 안전하다. 두 몸의 위계 바이트 동일(C020)은 다음 loomlight 사이클의 계약으로 남긴다.
+</pre></details><details class="hstep"><summary>5 · 보고</summary><pre># 5. 결과 보고
+
+## 요약
+
+사이클이 많아질수록 평면 그래프 하나로는 한눈에 안 들어온다는 상현님의 관찰에서 출발해,
+`gil web`에 opt-in 플래그 `--hierarchy`를 더해 **체인 목록 → 체인 그래프 → 사이클 5스텝**의
+3단 드릴다운을 JS 0줄·외부 리소스 0·자기완결로 실현했다(중첩 `&lt;details&gt;/&lt;summary&gt;` + 앵커).
+5측정(세부 9판정) 전부 통과 — 특히 **기본(플래그 없음) 출력이 개선 전과 바이트 동일**이라
+참조·Go 양쪽 conformance가 초록으로 남고(참조 77/77), Go는 손대지 않고도 병합이 안전하다.
+가설 **채택(supported)**.
+
+## 교훈
+
+1. **위계는 레이아웃 미세조정보다 근본적이다 — 안 그리면 안 얽힌다.** 백로그 B1(가로 압축)·
+   B2(lineage 밀도)·B3(라벨 겹침)은 &quot;한 화면에 다 그린다&quot;는 전제에서 나온 압력이었다. L2에서
+   `_render_svg`를 **체인 하나**에만 부르니 그 압력이 드릴다운으로 분산됐다 — 세 백로그를 각각
+   깎는 대신 전제를 바꿔 한꺼번에 완화했다. 제약(JS 0)이 답(`&lt;details&gt;`)을 좁혀준 C005·C049의 재확인.
+
+2. **opt-in 하위호환은 &quot;관측 불가능한 변화&quot;로 두 몸을 병합 가능하게 지킨다.** 위계를 기본으로
+   만들었다면 Go(불변)와 바이트가 갈라져 C020(두 몸 한 계약)이 깨졌을 것이다. 대신 `render_web_page`의
+   `else` 가지를 개선 전 문면 그대로 두고 분기만 얹어, `--hierarchy` 없는 세계에는 이 사이클이
+   **한 바이트도 보이지 않게** 했다(`cmp` 실증). 큰 재작성을 한 몸에 먼저 실증하고 다른 몸은
+   정직히 이월하는 절제(C036·C050)의 실제 적용 — 병합 안전이 능력 추가보다 먼저다.
+
+3. **뷰어의 진실값은 &quot;원장의 반사&quot;이지 &quot;디스크 전수&quot;가 아니다.** M4 판정기가 `find cycle.yaml`(110,
+   rounds 포함)로 그래프 노드(65)를 재려다 헛FAIL했다. 진실값을 뷰어 자신의 gil-data JSON 노드 수로
+   바꿔 교정 — 판정 분모조차 원장을 반사해야 한다(C001 교훈 2의 연장).
+
+4. **비추는 행위가 다음에 비출 것을 또 드러냈다(C001 패턴 반복).** 위계 요약이 loom 닫힌 사이클
+   29건의 `무결론`(verdict 미소급)을 가시화했다 — B6(verdict 결말 서사의 소급 이주)의 새 실증 압력.
+
+## 다음 사이클을 위한 제안 (예언 아님 — 이 보고서의 교훈에서만)
+
+- **loomlight/C003 최유력 — Go `--hierarchy` 이식 + 위계 바이트 동일(C020 복원).** 이번 사이클이
+  참조에만 능력을 얹고 정직히 남긴 미완. Go 툴체인 있는 환경에서 `go/main.go`의 web부에 동형 이식 후
+  두 몸 위계 출력 `cmp`. 완료되면 `--hierarchy`를 기본으로 승격하는 선택지가 열린다.
+- **B6(verdict 소급 이주 + 결말 서사)** — 위계 요약이 `무결론` 29건을 드러냈으니 재현 조건이 생겼다.
+- **위계 위 딥링크 UX** — `#cycle-&lt;chain&gt;-&lt;id&gt;` 프래그먼트 이동 시 조상 `&lt;details&gt;` 자동 펼침(브라우저
+  표준 동작)을 pages 배포에서 실제 검증하고, gil log/pages에서 그 앵커로 링크 걸기.
+
+## 사이클 닫기
+
+- [x] 검증 산출물 3-verification/에 저장 (`verify.sh`로 재현, `sample-hierarchy-loomlight.html`)
+- [ ] `cycle.yaml` `status: closed`·`closed`·`verdict: supported` — `gil close`가 수행
+- [ ] 존재의 방 `memory.md`·`relations.md` 갱신
+- [ ] `gil close … --verdict supported --push` — 각인·전파
+- [ ] 병합·main 반영은 소환자 Clew의 몫 (브랜치 `loomlight-c002` push 완료)
+</pre></details></div></details><details class="hcycle" id="cycle-loomlight-C003-go-hierarchy-port"><summary>C003-go-hierarchy-port [open] Go에 gil web --hierarchy 이식 — 참조와 위계 출력 바이트 동일(C020 복원)</summary><div class="hcycle-body"><table class="hmeta"><tbody><tr><th>status</th><td>open</td></tr><tr><th>verdict</th><td>—</td></tr><tr><th>step</th><td>3</td></tr><tr><th>parent</th><td>C002-hierarchical-viewer</td></tr><tr><th>lineage</th><td>—</td></tr><tr><th>opened</th><td>2026-07-19</td></tr><tr><th>closed</th><td>진행 중</td></tr><tr><th>deviations</th><td>0</td></tr><tr><th>corrections</th><td>0</td></tr><tr><th>superseded_by</th><td>—</td></tr></tbody></table><details class="hstep"><summary>1 · 가설</summary><pre># 1. 가설 수립
+
+## 이전 사이클의 교훈
+
+부모 loomlight/C002는 참조 구현(gil.py)에 opt-in 플래그 `--hierarchy`를 얹어
+**체인 목록 → 체인 그래프 → 사이클 5스텝**의 3단 드릴다운을 JS 0줄(중첩 `&lt;details&gt;`)로 실현했다.
+그러나 그 사이클은 Go 이식을 **&quot;이 워크트리에 Go 툴체인이 없어 실측 불가&quot;**라며 정직히
+loomlight/C003으로 이월했다(C036·C050 절제). 그 결과 지금 참조는 `--hierarchy`를 알지만
+Go는 모른다 — 두 몸이 능력 면에서 갈라진 상태다(C020 &quot;두 몸 한 계약&quot;의 부분 균열).
+
+C002의 핵심 설계 원리: **opt-in 하위호환 = 관측 불가능한 변화.** `--hierarchy` 없는 기본
+경로는 개선 전과 한 바이트도 다르지 않게 두었다(참조·Go 기본 출력이 이미 바이트 동일).
+
+## 문제 분할
+
+1. Go의 web 렌더 경로(`renderWebPage`·`webJSONPayload`·`buildWebData`)에 참조의
+   위계 렌더 함수(`_render_hierarchy_body`·`_render_cycle_detail`·`_read_step`·`_WEB_HIER_CSS`)를
+   **동형 이식**한다.
+2. `--hierarchy` 플래그를 Go CLI·`webArgs`·`cmdWeb`·`bakeViewer`에 배선하고, `bakeMeta`가
+   `bake.hierarchy`를 읽어 자동 재굽기(`refreshViewers`)가 위계를 잃지 않게 한다(C042 확장).
+3. 스텝 파일을 찾기 위해 `buildWebData`가 cid→디렉토리명 매핑(참조의 `_dirs`)을 보존한다.
+
+지금 정복할 첫 번째 문제: **위 셋 전부** — 위계는 opt-in이라 기본 경로를 건드리지 않으므로
+한 사이클에 안전히 담긴다. 정복의 판정선은 &quot;참조·Go의 `--hierarchy` 출력 바이트 동일&quot;.
+
+## 가설
+
+&gt; **가설**: 참조의 위계 렌더 경로를 Go에 동형 이식하면, `gil web --hierarchy`의 산출물이
+&gt; **참조와 Go에서 바이트 동일**해지고(C020 복원), `--hierarchy` 없는 기본 출력·conformance는
+&gt; **회귀 0**으로 남는다(opt-in 계약).
+
+## 기각 조건
+
+- **기각 1**: 두 구현의 `--hierarchy` 출력이 `cmp`에서 한 바이트라도 다르다.
+- **기각 2**: `--hierarchy` 없는 기본 출력이 개선 전 Go baseline과 바이트가 갈라진다(회귀).
+- **기각 3**: Go conformance가 개선 전(78/78)보다 줄어든다.
+- **기각 4**: 이 워크트리에서 Go 빌드가 실제로 되지 않는다(그러면 흉내내지 않고 정직히 이월, C053).
+</pre></details><details class="hstep"><summary>2 · 설계</summary><pre># 2. 실험 설계
+
+오직 1-hypothesis.md의 가설(Go 위계 이식 → 양 구현 `--hierarchy` 바이트 동일 + 회귀 0)만
+검증한다. 참조 gil.py의 위계 렌더 경로를 Go(main.go)에 **문자 단위 동형**으로 옮기고,
+두 몸의 산출물을 `cmp`로 교차 검증한다(렌더는 계약이 아니지만(§3.1) 정확성을 두 구현 대조로 세운다).
+
+## 절차 (Go main.go, 뷰어 코드 표면만 — 다른 표면 불변)
+
+1. **CLI 배선**: web 파서에 `--hierarchy`(불리언) 추가. `webArgs`에 `hierarchy bool` 필드.
+   `cmdWeb`→`bakeViewer`→`renderWebPage`로 값을 전달.
+2. **JSON payload**: `webJSONPayload`에 `hierarchy bool` 파라미터를 더해, refresh 뒤에
+   `, &quot;hierarchy&quot;: true`를 **조건부**로 붙인다(참조의 `**({&quot;hierarchy&quot;: True} if hierarchy else {})`
+   순서와 동일: title, chain, refresh?, hierarchy?). hierarchy=false면 기존과 바이트 동일.
+3. **_dirs 이식**: `webChain`에 `dirs map[string]string`(cid→디스크 디렉토리명)를 더하고
+   `buildWebData`에서 `r.dir`로 채운다. JSON 직렬화는 이 필드를 쓰지 않으므로 기본 출력 불변.
+4. **위계 렌더 함수 이식** (참조와 문자 동일):
+   - `webHierCSS` 상수 = 참조 `_WEB_HIER_CSS`(strip된 문면 그대로). Go 원문자열(백틱)로,
+     `content:&quot;\25B8&quot;` 등 백슬래시 이스케이프는 그대로.
+   - `verdictTally(chain)` = `_verdict_tally`, `chainRecent(chain)` = `_chain_recent`.
+   - `readStep(chainsRoot, name, cdir, fname)` = `_read_step`(3-verification는 README+산출물 목록).
+   - `renderCycleDetail(name, cid, c, chainsRoot, cdir)` = `_render_cycle_detail`(메타표 + 5스텝 `&lt;pre&gt;`).
+   - `renderHierarchyBody(...)` = `_render_hierarchy_body`(L1 목차 → 체인 `&lt;details&gt;` → 사이클 `&lt;details&gt;`).
+     체인당 `renderSVG(single)`·`renderTables(single)` 재사용(single = 한 체인만 담은 webData).
+5. **renderWebPage 분기**: `hierarchy`면 body를 `renderHierarchyBody(...)`로, 아니면 기존 문면.
+   doctype/refresh-meta 래퍼는 공통(참조와 동일). style은 위계일 때 `webCSS + &quot;\n&quot; + webHierCSS`.
+6. **자동 재굽기 보존**: `bakeMeta`가 `bake.hierarchy`를 읽어 반환하고, `refreshViewers`가
+   그 값을 `bakeViewer`로 넘긴다(C042의 &quot;창이 원장을 따른다&quot;를 위계로 확장). hierarchy=false면 불변.
+7. **_STEP_FILES 동치**: `[(&quot;1 · 가설&quot;,&quot;1-hypothesis.md&quot;),(&quot;2 · 설계&quot;,&quot;2-design.md&quot;),
+   (&quot;3 · 검증&quot;,&quot;3-verification&quot;),(&quot;4 · 분석&quot;,&quot;4-analysis.md&quot;),(&quot;5 · 보고&quot;,&quot;5-report.md&quot;)]`.
+
+## 준비물
+
+- Go 툴체인 `$HOME/goroot/go` (go1.23.4) — 이번엔 **있다**(C002의 이월 사유가 해소됨).
+- 참조 gil.py(위계 렌더의 진리 원본), conformance.py(계약 판정), 실 저장소 chains(5체인·60여 사이클).
+- 빌드: `go build -o gil main.go`(의존성 0). 판정: `conformance.py --gil &quot;&lt;절대경로&gt;&quot;`(C028·C043·C045).
+
+## 측정 방법 (3-verification/에 verify.sh로 재현 가능하게 저장)
+
+| # | 측정 | 성공 기준 |
+|---|---|---|
+| M1 | **위계 바이트 동일(가설 본체)** | `gil web --hierarchy` 참조 vs Go 출력이 `cmp` 바이트 동일 |
+| M2 | **기본 바이트 동일(회귀 0)** | `--hierarchy` 없는 Go 출력이 개선 전 Go baseline과 `cmp` 동일 + 참조와도 동일 |
+| M3 | **Go conformance 회귀 0** | `conformance.py --gil` 개선 전(78/78)과 동수 PASS |
+| M4 | **위계 계약 유지** | Go `--hierarchy` 출력에 외부 리소스 로드 0, 실행 JS 0(gil-data 데이터 블록만), `&lt;details&gt;` 구조 참조와 동수 |
+| M5 | **자동 재굽기 위계 보존** | 위계로 구운 뷰어를 원장 변경(step) 후에도 위계로 재굽는다(bake.hierarchy 왕복) |
+
+M1 실패 = 기각 1. M2 실패 = 기각 2. M3 실패 = 기각 3. 빌드 불가 = 기각 4(정직히 이월).
+
+## 사용자 컨펌
+
+- 생략 — 소환자 Clew의 임무 지시서가 설계 계약(동형 이식·바이트 동일·opt-in 회귀 0·릴리스 금지)을
+  이미 명시했다. 그 계약을 그대로 따르므로 별도 컨펌 불요. 병합은 Clew가 총괄.
+
+- [x] 컨펌 받음 (일자: 2026-07-19 · Clew 임무 지시서로 갈음)
+</pre></details><details class="hstep"><summary>3 · 검증</summary><pre># 3. 가설 검증
+
+이 디렉토리에 실험 실행에 사용된 **모든 것**이 저장된다: 코드, 스크립트, 입력 데이터(또는 그 출처와 해시), 실행 로그, 연산 결과, 생성된 아티팩트.
+
+## 재현 방법
+
+&lt;!-- 이 디렉토리만 가지고 실험을 처음부터 다시 실행하는 정확한 명령 순서를 쓴다. --&gt;
+
+```bash
+```
+
+## 실행 기록
+
+&lt;!-- 실제 실행 일시, 환경(OS, 버전), 소요 시간, 실행 중 발생한 특이사항. --&gt;
+
+
+[검증 산출물]
+- verify.sh</pre></details><details class="hstep"><summary>4 · 분석</summary><pre># 4. 결과 분석
+
+## 통계적 결과
+
+&lt;!-- 측정값과 2-design.md에서 정한 기준값의 비교. --&gt;
+
+## 데이터 직접 관찰
+
+&lt;!-- 수치 뒤로 들어가 데이터와 아티팩트를 직접 들여다본 기록. 구체적 사례를 인용한다.
+     이 섹션이 비어 있으면 분석은 끝난 것이 아니다. --&gt;
+
+## 예상과 달랐던 것
+
+&lt;!-- 설계 시점에 예상하지 못했던 관찰. 다음 가설의 씨앗이 되는 경우가 많다. --&gt;
+
+## 판정
+
+&lt;!-- 가설 채택 / 기각 / 판정 불가. 기각 조건에 비추어 판단한다. --&gt;
+</pre></details><details class="hstep"><summary>5 · 보고</summary><pre># 5. 결과 보고
+
+&lt;!-- 이 문서는 다음 사이클의 부모가 된다. 다음 사이클의 가설 수립자가 이 문서만 읽고도 이어갈 수 있게 쓴다. --&gt;
+
+## 요약
+
+&lt;!-- 가설 → 실험 → 판정을 세 문장 이내로. --&gt;
+
+## 교훈
+
+&lt;!-- 이 사이클에서 배운 것. 다음 가설의 재료가 되는 핵심 산출물이다. --&gt;
+
+1.
+
+## 다음 사이클을 위한 제안
+
+&lt;!-- 이 교훈에서 파생 가능한 다음 문제들. 여러 개면 분기의 후보가 된다. --&gt;
+
+## 사이클 닫기
+
+- [ ] `cycle.yaml`의 `status: closed`, `closed: &lt;일자&gt;` 갱신
+- [ ] 존재의 방 `memory.md`에 이 사이클의 기억 기록
+- [ ] 커밋 및 퍼블리시
+</pre></details></div></details></div></div></details>
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web --hierarchy가 생성한 자기완결적 정적 페이지다.</footer>
+</div></div>
+<script type="application/json" id="gil-data">{"version": "0.4", "bake": {"title": "Ariadne 위계 뷰어 — Go·loomlight (표본)", "chain": "loomlight", "hierarchy": true}, "chains": {"loomlight": {"order": ["C001-gather-viewer-lineage", "C002-hierarchical-viewer", "C003-go-hierarchy-port"], "cycles": {"C001-gather-viewer-lineage": {"status": "closed", "title": "흩어진 뷰어 사이클을 lineage로 모은 전용 체인이 교차-체인 계보를 드러내고 남은 뷰어 백로그를 지도로 그린다", "opened": "2026-07-19", "closed": "2026-07-19", "step": "5", "verdict": "supported", "deviations": "0", "corrections": "0", "superseded_by": null, "last_activity": null, "parents": [], "lineage": ["loom/C005-web-viewer", "loom/C013-realtime-step-visibility", "loom/C015-being-work-visibility", "loom/C020-go-web-port", "loom/C028-pages-command", "loom/C031-web-lane-layout", "loom/C042-viewer-follows-ledger", "loom/C047-web-topology-layout", "loom/C048-sibling-label-spacing", "loom/C049-live-viewer-refresh"]}, "C002-hierarchical-viewer": {"status": "closed", "title": "", "opened": "2026-07-19", "closed": "2026-07-19", "step": "5", "verdict": "supported", "deviations": "0", "corrections": "0", "superseded_by": null, "last_activity": null, "parents": ["C001-gather-viewer-lineage"], "lineage": []}, "C003-go-hierarchy-port": {"status": "open", "title": "Go에 gil web --hierarchy 이식 — 참조와 위계 출력 바이트 동일(C020 복원)", "opened": "2026-07-19", "closed": null, "step": "3", "verdict": null, "deviations": "0", "corrections": "0", "superseded_by": null, "last_activity": {"ago": "10분 전", "subject": "gil: step loomlight/C003-go-hierarchy-port → 3/5 검증"}, "parents": ["C002-hierarchical-viewer"], "lineage": []}}}}}</script>
+</body>
+</html>
