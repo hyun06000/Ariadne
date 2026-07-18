@@ -2475,6 +2475,63 @@ def cmd_show(args):
     return 0
 
 
+def cmd_threads(args):
+    """열린 실 훑기 (loom/C070, #4 LLM 위키): 그래프 전역에서 loose end를 반환한다 —
+    (1) 미소비 예약(= 진행 중 병렬 사이클, main에 커밋된 reservations.tsv), (2) status=open 사이클.
+    show가 단일 노드의 이웃을 준다면 threads는 그 그래프 전역판이다. handoff(사람용 서사)와 달리
+    기계 계약면(--json)을 가지며 예약(병렬 진행)을 인식한다. 지어내지 않는다: 이미 사이클로
+    존재하는(소비된) 예약은 제외하고, 실재하는 것만 보고한다 (§3.2 P2, C040)."""
+    chains_root = args.root
+    chains = _scan_chains(chains_root, args.chain)
+    reserved, open_cycles = [], []
+    for chain in sorted(chains):
+        records = chains[chain]
+        have_ids = {r.get("id") or r.get("_dir") for r in records}
+        # 열린 사이클 — status=open (전역, 전 체인)
+        for r in records:
+            if r.get("status") == "open" and r.get("id"):
+                open_cycles.append({
+                    "chain": chain, "id": r["id"],
+                    "author": r.get("author") or "?",
+                    "step": r.get("step"), "opened": r.get("opened"),
+                })
+        # 미소비 예약 — 그 트리에 아직 사이클로 존재하지 않는 예약만 (이중계상 방지, C040)
+        chain_dir = os.path.join(chains_root, chain)
+        for res in _load_reservations(chain_dir):
+            prefix = f"C{res['num']:03d}-"
+            if any(str(cid).startswith(prefix) for cid in have_ids):
+                continue  # 이미 open됨 = 소비된 예약, 진행 중이 아니다
+            reserved.append({
+                "chain": chain, "num": res["num"], "ref": f"C{res['num']:03d}",
+                "for": res["for"], "slug": res["slug"], "date": res["date"],
+            })
+    open_cycles.sort(key=lambda o: (o["chain"], o["id"]))
+    reserved.sort(key=lambda r: (r["chain"], r["num"]))
+
+    if args.json:
+        payload = {
+            "reserved": reserved, "open": open_cycles,
+            "reserved_count": len(reserved), "open_count": len(open_cycles),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    # 사람용 렌더 (계약 아님 — §3.1, C021)
+    print("=== gil threads — 열린 실 (loose ends) ===")
+    print(f"⟳ 진행 중 병렬 사이클 (예약, 아직 안 거둬짐): {len(reserved)}")
+    for r in reserved:
+        print(f"    {r['chain']}/{r['ref']}  → {r['for']}  ({r['slug']})")
+    if not reserved:
+        print("    (없음 — 병렬로 물린 사이클 없음)")
+    print(f"◐ 열린 사이클 (진행 중, 이 체크아웃): {len(open_cycles)}")
+    for o in open_cycles:
+        step = f"  {o['step']}/5" if (isinstance(o["step"], str) and o["step"].isdigit()) else ""
+        print(f"    {o['chain']}/{o['id']}  · {o['author']}{step}")
+    if not open_cycles:
+        print("    (없음 — 이 체크아웃엔 열린 사이클 없음)")
+    return 0
+
+
 def cmd_verify(args):
     chains_root = args.chains_root
     repo = _repo_root(chains_root)
@@ -3306,6 +3363,12 @@ def main(argv=None):
     p_show.add_argument("--json", action="store_true", help="기계 계약면 (지식그래프 JSON)")
     p_show.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_show.set_defaults(func=cmd_show)
+
+    p_threads = sub.add_parser("threads", help="열린 실 훑기: 진행 중 병렬 사이클(예약)+열린 사이클을 전역 조회 (loom/C070, #4)")
+    p_threads.add_argument("--chain", help="특정 체인만")
+    p_threads.add_argument("--json", action="store_true", help="기계 계약면 (loose-end JSON)")
+    p_threads.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_threads.set_defaults(func=cmd_threads)
 
     p_pages = sub.add_parser("pages", help="GitHub Pages 배포 워크플로를 생성한다")
     p_pages.add_argument("--force", action="store_true", help="기존 워크플로를 덮어쓴다")

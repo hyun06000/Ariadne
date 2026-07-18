@@ -1,0 +1,6 @@
+=== gil threads — 열린 실 (loose ends) ===
+⟳ 진행 중 병렬 사이클 (예약, 아직 안 거둬짐): 2
+    loom/C071  → weft  (parallel-usage-proof)
+    loom/C072  → selvage  (release-drift-gate)
+◐ 열린 사이클 (진행 중, 이 체크아웃): 1
+    loom/C070-threads  · clew  2/5

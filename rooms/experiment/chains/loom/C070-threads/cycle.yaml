@@ -1,0 +1,14 @@
+id: C070-threads
+chain: loom
+parent: C059-node-neighborhood-query
+lineage: []
+step: 5
+author: clew
+status: closed
+opened: 2026-07-19
+closed: 2026-07-19
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null
