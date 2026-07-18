@@ -1,0 +1,14 @@
+id: C064-chain-map-lineage-overview
+chain: loom
+parent: C063-web-hierarchy-default
+lineage: [loomlight/C002-hierarchical-viewer]
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "위계 뷰어 상단에 체인 지도(노드-엣지) — lineage 한눈에·클릭 드릴다운"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
