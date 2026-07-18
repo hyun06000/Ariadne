@@ -1,0 +1,5 @@
+# byte-parity: gil.py (참조) vs go/main.go, 동일 인자 → 동일 바이트
+  기본(위계): byte-identical  (sha=22a1be567acc)
+  --flat(평면): byte-identical  (sha=fa63d31ab417)
+# --hierarchy no-op 별칭 == 기본
+  --hierarchy == 기본 ✅
