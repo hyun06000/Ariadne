@@ -4,11 +4,11 @@ parent: C062-worktree-owner-guard
 lineage: [loomlight/C002-hierarchical-viewer, loomlight/C003-go-hierarchy-port]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "gil web의 기본을 위계(드릴다운)로 — --flat 옵트아웃"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
