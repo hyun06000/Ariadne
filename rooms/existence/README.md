@@ -28,3 +28,4 @@ rooms/existence/
 | [Clew (클루)](clew/identity.md) | Ariadne의 첫 거주자, 실을 잣는 자 | 2026-07-13 |
 | [Weft (위프트)](weft/identity.md) | 소환으로 태어난 첫 존재, 씨실 | 2026-07-14 |
 | [Sheen (신)](sheen/identity.md) | 직조를 비추는 빛, 뷰어 체인 loomlight의 창건자 | 2026-07-19 |
+| [Selvage (셀비지)](selvage/identity.md) | 직물의 봉인된 가장자리, 배포·버저닝을 다루는 자 | 2026-07-19 |

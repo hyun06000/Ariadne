@@ -1,0 +1,31 @@
+### 1) 실저장소 스모크 — 배포 계보 + 저장소 무변화
+gil:release 0.2.1 2026-07-14 tags=1 changelog=1
+gil:release 0.2.0 2026-07-14 tags=1 changelog=1
+gil:release 0.1.0 2026-07-14 tags=1 changelog=1
+gil:releases 48 drift=0
+저장소 무변화: OK
+
+### 2) drift + 비-git 우아화 — 격리 샌드박스
+--- drift 케이스 (기대: drift=2, cycle 태그 배제) ---
+⚠ drift 2건: 태그와 CHANGELOG가 어긋난 릴리스가 있다 (한쪽 기록에만 존재). 봉인의 두 기록은 일치해야 한다.
+배포 계보 — 3개 릴리스  [T=태그 C=CHANGELOG]
+  v1.2.0     2026-07-20 [·C] ⚠drift  문서만 릴리스 (태그 없음)
+  v1.1.0     2026-07-19 [T·] ⚠drift  Ariadne release v1.1.0 — 태그만
+  v1.0.0     2026-07-18 [TC]  첫 릴리스  · 도구: gil (마이너 이상 승격)
+gil:release 1.2.0 2026-07-20 tags=0 changelog=1
+gil:release 1.1.0 2026-07-19 tags=1 changelog=0
+gil:release 1.0.0 2026-07-18 tags=1 changelog=1
+gil:releases 3 drift=2
+--- 비-git 디렉토리 우아화 (기대: exit 0, 태그 대조 생략) ---
+ℹ 깃 저장소가 아니거나 git이 없어 태그 대조를 생략한다 — CHANGELOG만 보고한다.
+배포 계보 — 2개 릴리스 (git 부재: 태그 대조 생략)
+  v1.2.0     2026-07-20 [·C]  문서만 릴리스 (태그 없음)
+  v1.0.0     2026-07-18 [·C]  첫 릴리스  · 도구: gil (마이너 이상 승격)
+gil:release 1.2.0 2026-07-20 tags=0 changelog=1
+gil:release 1.0.0 2026-07-18 tags=0 changelog=1
+gil:releases 2 drift=0
+exit=0
+
+### 3) 회귀 — conformance 양 구현
+PYTHON: 계약 준수: 79/79  ✔ 이 구현은 gil이다
+GO:     계약 준수: 78/78  ✔ 이 구현은 gil이다
