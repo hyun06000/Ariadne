@@ -1,0 +1,23 @@
+# C057 검증 로그 (재현 가능)
+생성: 2026-07-18T16:30:47Z  gil gil 2.14.0
+Go: gil 2.14.0
+
+## 1. fsck 역방향 경고 (기각조건 3) — 실저장소, C053 이탈카운트 경고 + rc0 유지
+경고 [결말없음] 34건 — verdict 미기록 (기존 사슬 유예): gateway/C001-agent-self-onboard, genesis/C001-existence-in-repo, genesis/C002-subagent-bootstrap, genesis/C003-birth-of-a-being, loom/C001-lineage-is-reconstructable …
+경고 [이탈] loom/C038-version-surface-contract: 사전등록 이탈 1건 (deviations.yaml)
+경고 [이탈카운트] loom/C053-windows-entry: deviations.yaml 1건인데 cycle.yaml deviations: 0 — 불일치 (봉인 전 조정, C057)
+경고 [정정] loom/C029-time-machine: 출처 정정 1건 (corrections.yaml) — 색인은 수리됐고 거짓은 기록에 남았다
+OK — 체인 4개, 사이클 62개, 위반 0건 (스키마 v0.5), 경고 37건
+fsck exit=0  (0=위반없음, C053 미격상 확인)
+
+## 2. 참조 conformance (기각조건 4: 76→77 회귀 0)
+PASS DEVIATIONS-COUNT: close는 deviations.yaml 레코드 수 ≠ deviations 카운트면 봉인 거부, 맞추면 봉인 (C053 슬립 차단)
+계약 준수: 77/77  ✔ 이 구현은 gil이다
+
+## 3. Go conformance (두 몸 한 계약: 77/77)
+PASS DEVIATIONS-COUNT: close는 deviations.yaml 레코드 수 ≠ deviations 카운트면 봉인 거부, 맞추면 봉인 (C053 슬립 차단)
+계약 준수: 77/77  ✔ 이 구현은 gil이다
+
+## 4. 변이 격추 (관문 제거 → DEVIATIONS-COUNT FAIL, 76/77)
+FAIL DEVIATIONS-COUNT: close는 deviations.yaml 레코드 수 ≠ deviations 카운트면 봉인 거부, 맞추면 봉인 (C053 슬립 차단)  [rejected=False accepted=True bad_rc=0 ok_rc=0]
+계약 준수: 76/77  ✘ 계약 위반
