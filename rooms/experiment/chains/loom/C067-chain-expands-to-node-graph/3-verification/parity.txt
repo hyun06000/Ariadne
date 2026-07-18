@@ -1,0 +1,4 @@
+# byte-parity: 가로 사이클 그래프 + :target 문서 (정수 좌표뿐, Python↔Go 비트 동일)
+  기본: byte-identical (sha=0c9d9583916b)
+  --flat: byte-identical (sha=69065895705e)
+  구조: cyclegraph(가로그래프): 5, gnode(클릭노드): 75, cycdoc(:target 문서): 75

@@ -1,0 +1,116 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root{--page:#141417;--surface:#1c1c20;--ink:#f2f1ec;--ink2:#c9c8c2;--muted:#8a8984;
+        --ring:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;--hair:#2c2c2a;--accent:#e0a44f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;padding:28px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 22px}
+  .panel{background:var(--surface);border:1px solid var(--ring);border-radius:12px;padding:18px 20px;margin-bottom:22px}
+  .panel h2{font-size:15px;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px}
+  .tag.before{background:#3a2a2a;color:#e88}
+  .tag.after{background:#22392e;color:#5bd6a0}
+  .cap{color:var(--ink2);font-size:12.5px;margin:8px 2px 0;line-height:1.5}
+  .cap b{color:var(--ink)}
+  svg{display:block;max-width:100%}
+  .card-lbl{fill:var(--muted);font-size:11px}
+</style></head><body>
+<h1>gil web 위계 뷰어 — 체인 확장 방식 전/후</h1>
+<p class="sub">loom/C067 · 체인 원(0)을 누르면 무엇이 펼쳐지는가</p>
+
+<!-- ===================== BEFORE ===================== -->
+<div class="panel">
+  <h2><span class="tag before">전</span> 현재 v2.22 — 체인 원 클릭 → 카드 안 <b>세로 HTML 노드 목록</b>(아코디언)</h2>
+  <svg viewBox="0 0 920 430" width="920" height="430">
+    <!-- L0 chain map -->
+    <text x="20" y="24" class="card-lbl">① 체인 지도 (원=체인)</text>
+    <g>
+      <line x1="118" y1="70" x2="300" y2="70" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <line x1="560" y1="66" x2="384" y2="62" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <circle cx="110" cy="70" r="18" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/>
+      <text x="110" y="75" text-anchor="middle" fill="var(--node)" font-weight="700" font-size="14">3</text>
+      <text x="110" y="104" text-anchor="middle" fill="var(--ink)" font-size="12" font-weight="650">genesis</text>
+      <circle cx="340" cy="70" r="34" fill="var(--surface)" stroke="var(--node)" stroke-width="3"/>
+      <text x="340" y="77" text-anchor="middle" fill="var(--node)" font-weight="700" font-size="19">65</text>
+      <text x="340" y="120" text-anchor="middle" fill="var(--ink)" font-size="12" font-weight="650">loom  ← 클릭</text>
+      <circle cx="570" cy="70" r="18" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/>
+      <text x="570" y="75" text-anchor="middle" fill="var(--node)" font-weight="700" font-size="14">3</text>
+      <text x="570" y="104" text-anchor="middle" fill="var(--ink)" font-size="12" font-weight="650">loomlight</text>
+    </g>
+    <!-- arrow down -->
+    <text x="360" y="150" fill="var(--muted)" font-size="20">↓ 클릭하면</text>
+    <!-- HTML accordion list -->
+    <rect x="20" y="170" width="880" height="240" rx="8" fill="none" stroke="var(--hair)"/>
+    <text x="40" y="196" fill="var(--ink)" font-weight="650" font-size="14">▾ loom</text>
+    <line x1="60" y1="212" x2="60" y2="392" stroke="var(--hair)" stroke-width="2"/>
+    <g font-size="13">
+      <circle cx="60" cy="228" r="5" fill="var(--node)"/><text x="78" y="232" fill="var(--ink)" font-weight="650">C001-lineage-is-reconstructable</text><text x="360" y="232" fill="var(--muted)" font-size="11">closed · ⇠ genesis/C001</text>
+      <circle cx="60" cy="258" r="5" fill="var(--node)"/><text x="78" y="262" fill="var(--ink)" font-weight="650">C002-schema-v0-2</text><text x="360" y="262" fill="var(--muted)" font-size="11">closed</text>
+      <circle cx="60" cy="288" r="5" fill="var(--node)"/><text x="78" y="292" fill="var(--ink)" font-weight="650">C003-fsck-rules</text><text x="360" y="292" fill="var(--muted)" font-size="11">closed</text>
+      <circle cx="60" cy="318" r="5" fill="var(--node)"/><text x="78" y="322" fill="var(--ink)" font-weight="650">C004-…</text>
+      <text x="78" y="360" fill="var(--muted)" font-size="12" font-style="italic">세로로 쌓인 텍스트 목록 (노드-엣지 그래프가 아님)</text>
+    </g>
+  </svg>
+  <p class="cap">체인 원을 누르면 카드 안에서 사이클이 <b>세로 목록(●줄줄이)</b>으로 나온다. 원하시는 <b>노드-엣지 그래프</b>가 아니다.</p>
+</div>
+
+<!-- ===================== AFTER ===================== -->
+<div class="panel">
+  <h2><span class="tag after">후</span> 제안 — 체인 원 클릭 → 그 자리에서 <b>사이클 노드-엣지 그래프</b>가 뻗어나옴 (0—o—o—o—o)</h2>
+  <svg viewBox="0 0 920 430" width="920" height="430">
+    <text x="20" y="24" class="card-lbl">① 체인 지도 (원=체인) — loom 선택됨</text>
+    <g>
+      <line x1="118" y1="70" x2="300" y2="70" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <line x1="560" y1="66" x2="384" y2="62" stroke="var(--lineage)" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <circle cx="110" cy="70" r="18" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/>
+      <text x="110" y="75" text-anchor="middle" fill="var(--node)" font-weight="700" font-size="14">3</text>
+      <text x="110" y="104" text-anchor="middle" fill="var(--ink)" font-size="12" font-weight="650">genesis</text>
+      <circle cx="340" cy="70" r="34" fill="#20344a" stroke="var(--accent)" stroke-width="3.5"/>
+      <text x="340" y="77" text-anchor="middle" fill="#fff" font-weight="700" font-size="19">65</text>
+      <text x="340" y="120" text-anchor="middle" fill="var(--accent)" font-size="12" font-weight="650">loom  ● 펼쳐짐</text>
+      <circle cx="570" cy="70" r="18" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/>
+      <text x="570" y="75" text-anchor="middle" fill="var(--node)" font-weight="700" font-size="14">3</text>
+      <text x="570" y="104" text-anchor="middle" fill="var(--ink)" font-size="12" font-weight="650">loomlight</text>
+    </g>
+    <!-- expanded cycle node-edge graph emanating from loom -->
+    <text x="20" y="182" class="card-lbl">② loom의 사이클들이 노드-엣지로 그 자리에서 펼쳐진다</text>
+    <!-- connector from loom circle down to the graph -->
+    <path d="M340,104 C340,150 70,150 70,205" fill="none" stroke="var(--edge)" stroke-width="1.6"/>
+    <!-- main chain of cycle nodes -->
+    <g font-size="10.5">
+      <!-- edges -->
+      <line x1="70" y1="215" x2="150" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <line x1="150" y1="215" x2="230" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <line x1="230" y1="215" x2="310" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <line x1="310" y1="215" x2="390" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <line x1="390" y1="215" x2="470" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <line x1="470" y1="215" x2="550" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <line x1="550" y1="215" x2="630" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <line x1="630" y1="215" x2="710" y2="215" stroke="var(--edge)" stroke-width="1.6"/>
+      <!-- a branch (sibling) -->
+      <line x1="230" y1="215" x2="310" y2="270" stroke="var(--edge)" stroke-width="1.6"/>
+      <!-- lineage dashed out to another chain -->
+      <path d="M150,205 C150,120 560,120 560,88" fill="none" stroke="var(--lineage)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <!-- the loom chain super-node (start) -->
+      <circle cx="70" cy="215" r="11" fill="#20344a" stroke="var(--accent)" stroke-width="2.5"/>
+      <text x="70" y="219" text-anchor="middle" fill="#fff" font-weight="700" font-size="10">loom</text>
+      <!-- cycle nodes -->
+      <circle cx="150" cy="215" r="8" fill="var(--node)"/><text x="150" y="240" text-anchor="middle" fill="var(--muted)">C001</text>
+      <circle cx="230" cy="215" r="8" fill="var(--node)"/><text x="230" y="240" text-anchor="middle" fill="var(--muted)">C002</text>
+      <circle cx="310" cy="215" r="8" fill="var(--node)"/><text x="310" y="200" text-anchor="middle" fill="var(--muted)">C003</text>
+      <circle cx="310" cy="270" r="8" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/><text x="330" y="274" fill="var(--muted)">C003b (형제 갈래)</text>
+      <circle cx="390" cy="215" r="8" fill="var(--node)"/>
+      <circle cx="470" cy="215" r="8" fill="var(--node)"/>
+      <circle cx="550" cy="215" r="8" fill="var(--node)"/>
+      <circle cx="630" cy="215" r="8" fill="var(--node)"/>
+      <circle cx="710" cy="215" r="8" fill="var(--node)"/>
+      <text x="740" y="219" fill="var(--muted)" font-size="13">… (가로 스크롤)</text>
+      <text x="150" y="150" fill="var(--lineage)" font-size="11" font-weight="650">⇠ 교차-체인 lineage</text>
+    </g>
+    <text x="70" y="330" fill="var(--ink2)" font-size="12">· 노드(사이클)를 누르면 그 5스텝 문서가 열린다 (전과 동일)</text>
+    <text x="70" y="352" fill="var(--ink2)" font-size="12">· parent = 실선 엣지, lineage = 초록 점선 (예전 SVG 그래프 그대로)</text>
+  </svg>
+  <p class="cap"><b>체인 원(0)에서 사이클들이 노드-엣지 그래프(0—o—o—o—o)로 그 자리에서 펼쳐진다.</b> C065 전에 카드에 있던 SVG 사이클 그래프를, 이제 지도의 체인 원을 누르면 그 원에서 그래픽으로 펼쳐지게 하는 것. 세로 텍스트 목록이 아니라 진짜 그래프.</p>
+</div>
+</body></html>

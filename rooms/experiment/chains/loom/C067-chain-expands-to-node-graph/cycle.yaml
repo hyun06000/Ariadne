@@ -2,7 +2,7 @@ id: C067-chain-expands-to-node-graph
 chain: loom
 parent: C066-chains-inside-map-card
 lineage: [loomlight/C002-hierarchical-viewer]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-19
