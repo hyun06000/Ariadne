@@ -1362,6 +1362,14 @@ padding:3px 0;list-style:none}
 padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
 color:var(--ink-2);margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .gil details.hstep pre.empty{color:var(--muted);font-style:italic}
+/* 미니맵 (loomlight/C004): 넓은 체인 가로 그래프 위 전체 개요. max-width:100%로 카드 폭에 맞춰
+   축소돼 전체 형상이 한 화면에 든다(C068의 자연크기 통찰을 미니맵엔 반대로=폭맞춤 적용). */
+.gil .minimap{margin:2px 0 8px;padding:7px 10px;background:var(--surface);border:1px solid var(--ring);border-radius:8px}
+.gil .minimap-cap{color:var(--muted);font-size:11.5px;margin-bottom:5px}
+.gil .minimap svg{display:block;max-width:100%;height:auto}
+.gil a.mnode{cursor:pointer}
+.gil a.mnode circle{transition:stroke-width .1s}
+.gil a.mnode:hover circle{stroke:var(--node);stroke-width:2.5}
 """.strip()
 
 
@@ -1423,6 +1431,9 @@ def _read_step(chains_root, name, cdir, fname):
 
 
 _H_COLW, _H_ROWH, _H_X0, _H_Y0, _H_R = 116, 60, 50, 46, 9
+# 미니맵 (loomlight/C004): 본 그래프와 같은 (깊이,레인)을 작은 정수 좌표로 압축. 삼각함수·나눗셈
+# 없이 정수만 → 참조·Go 바이트 동일(C064). 깊이 < _MINI_MIN_DEPTH 인 좁은 체인은 미니맵 미출력.
+_MINI_COLW, _MINI_ROWH, _MINI_R, _MINI_X0, _MINI_Y0, _MINI_MIN_DEPTH = 9, 9, 3, 6, 8, 12
 
 
 def _render_cycle_graph_h(name, chain):
@@ -1479,6 +1490,52 @@ def _render_cycle_graph_h(name, chain):
                  f'font-weight="600" fill="var(--ink-2)">{num}</text>{lin_txt}</a>')
     p.append("</svg>")
     return "".join(p)
+
+
+def _render_cycle_minimap(name, chain):
+    """넓은 체인(깊이 ≥ _MINI_MIN_DEPTH) 가로 그래프 위에 얹는 미니맵 (loomlight/C004).
+    본 그래프(`_render_cycle_graph_h`)와 같은 (깊이,레인)을 작은 정수 좌표로 압축한다. 각 노드는
+    본 그래프 노드와 같은 #cycdoc-* 로 점프하는 <a> — 클릭하면 그 사이클 문서가 :target으로 열린다.
+    CSS `.minimap svg{max-width:100%}`로 카드 폭에 맞춰 축소돼 전체 형상이 한 화면에 든다(축소는
+    표시뿐, 좌표는 정수 → 참조·Go 바이트 동일). 좁은 체인은 "" 반환(출력 개선 전과 바이트 동일)."""
+    order = chain["order"]
+    if not order:
+        return ""
+    cyc = chain["cycles"]
+    pos = _layout_columns(order, {cid: {"parents": c["parents"]} for cid, c in cyc.items()},
+                          chain["children"])
+    max_depth = max((r for r, _ in pos.values()), default=0)
+    if max_depth < _MINI_MIN_DEPTH:
+        return ""
+    max_lane = max((c for _, c in pos.values()), default=0)
+    node_xy = {cid: (_MINI_X0 + row * _MINI_COLW, _MINI_Y0 + col * _MINI_ROWH)
+               for cid, (row, col) in pos.items()}
+    width = _MINI_X0 + max_depth * _MINI_COLW + _MINI_X0
+    height = _MINI_Y0 + max_lane * _MINI_ROWH + _MINI_Y0
+    p = [f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" '
+         f'aria-label="{html.escape(name)} 미니맵">']
+    # parent 엣지 = 직선(정수 좌표, 삼각함수·나눗셈 없음)
+    for cid in order:
+        x2, y2 = node_xy[cid]
+        for par in cyc[cid]["parents"]:
+            if par in node_xy:
+                x1, y1 = node_xy[par]
+                p.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
+                         f'stroke="var(--edge)" stroke-width="1"/>')
+    # 노드 = 작은 원, 클릭 → 본 그래프와 같은 #cycdoc-* (색 규칙도 본 그래프와 동일)
+    for cid in order:
+        x, y = node_xy[cid]
+        meta = cyc[cid]
+        closed = meta["status"] == "closed"
+        fill = "var(--rejected)" if meta.get("verdict") == "rejected" else "var(--node)"
+        shape = (f'<circle cx="{x}" cy="{y}" r="{_MINI_R}" fill="{fill}"/>' if closed else
+                 f'<circle cx="{x}" cy="{y}" r="{_MINI_R}" fill="var(--surface)" '
+                 f'stroke="var(--node)" stroke-width="1.5"/>')
+        p.append(f'<a href="#cycdoc-{html.escape(name + "-" + cid)}" class="mnode">'
+                 f'<title>{html.escape(cid)}</title>{shape}</a>')
+    p.append("</svg>")
+    return (f'<div class="minimap"><div class="minimap-cap">미니맵 — 전체 개요 · '
+            f'노드 클릭 → 그 사이클 문서</div>{"".join(p)}</div>')
 
 
 def _render_cycle_detail(name, cid, meta, chains_root, cdir):
@@ -1670,6 +1727,7 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
             f'<summary><span class="hname">{html.escape(name)}</span>'
             f'<span class="hstat">{html.escape(stats)}</span></summary>'
             f'<div class="hbody"><span id="chainbody-{html.escape(name)}" class="hanchor"></span>'
+            f'{_render_cycle_minimap(name, chain)}'
             f'<div class="cyclegraph">{_render_cycle_graph_h(name, chain)}</div>'
             f'<div class="cycdocs">{"".join(cyc)}</div></div></details>')
     return f"""<div class="gil"><style>{style}</style><div class="wrap">
@@ -2475,6 +2533,63 @@ def cmd_show(args):
     return 0
 
 
+def cmd_threads(args):
+    """열린 실 훑기 (loom/C070, #4 LLM 위키): 그래프 전역에서 loose end를 반환한다 —
+    (1) 미소비 예약(= 진행 중 병렬 사이클, main에 커밋된 reservations.tsv), (2) status=open 사이클.
+    show가 단일 노드의 이웃을 준다면 threads는 그 그래프 전역판이다. handoff(사람용 서사)와 달리
+    기계 계약면(--json)을 가지며 예약(병렬 진행)을 인식한다. 지어내지 않는다: 이미 사이클로
+    존재하는(소비된) 예약은 제외하고, 실재하는 것만 보고한다 (§3.2 P2, C040)."""
+    chains_root = args.root
+    chains = _scan_chains(chains_root, args.chain)
+    reserved, open_cycles = [], []
+    for chain in sorted(chains):
+        records = chains[chain]
+        have_ids = {r.get("id") or r.get("_dir") for r in records}
+        # 열린 사이클 — status=open (전역, 전 체인)
+        for r in records:
+            if r.get("status") == "open" and r.get("id"):
+                open_cycles.append({
+                    "chain": chain, "id": r["id"],
+                    "author": r.get("author") or "?",
+                    "step": r.get("step"), "opened": r.get("opened"),
+                })
+        # 미소비 예약 — 그 트리에 아직 사이클로 존재하지 않는 예약만 (이중계상 방지, C040)
+        chain_dir = os.path.join(chains_root, chain)
+        for res in _load_reservations(chain_dir):
+            prefix = f"C{res['num']:03d}-"
+            if any(str(cid).startswith(prefix) for cid in have_ids):
+                continue  # 이미 open됨 = 소비된 예약, 진행 중이 아니다
+            reserved.append({
+                "chain": chain, "num": res["num"], "ref": f"C{res['num']:03d}",
+                "for": res["for"], "slug": res["slug"], "date": res["date"],
+            })
+    open_cycles.sort(key=lambda o: (o["chain"], o["id"]))
+    reserved.sort(key=lambda r: (r["chain"], r["num"]))
+
+    if args.json:
+        payload = {
+            "reserved": reserved, "open": open_cycles,
+            "reserved_count": len(reserved), "open_count": len(open_cycles),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    # 사람용 렌더 (계약 아님 — §3.1, C021)
+    print("=== gil threads — 열린 실 (loose ends) ===")
+    print(f"⟳ 진행 중 병렬 사이클 (예약, 아직 안 거둬짐): {len(reserved)}")
+    for r in reserved:
+        print(f"    {r['chain']}/{r['ref']}  → {r['for']}  ({r['slug']})")
+    if not reserved:
+        print("    (없음 — 병렬로 물린 사이클 없음)")
+    print(f"◐ 열린 사이클 (진행 중, 이 체크아웃): {len(open_cycles)}")
+    for o in open_cycles:
+        step = f"  {o['step']}/5" if (isinstance(o["step"], str) and o["step"].isdigit()) else ""
+        print(f"    {o['chain']}/{o['id']}  · {o['author']}{step}")
+    if not open_cycles:
+        print("    (없음 — 이 체크아웃엔 열린 사이클 없음)")
+    return 0
+
+
 def cmd_verify(args):
     chains_root = args.chains_root
     repo = _repo_root(chains_root)
@@ -2872,6 +2987,18 @@ def cmd_release(args):
     tag = f"v{args.version}"
     if _tag_exists(repo, tag):
         raise ChainError(f"태그 '{tag}'가 이미 존재한다")
+    # ---- drift 게이트 (loom/C072): 봉인 전, 기존 배포 계보의 두 기록 일치를 요구한다 ----
+    # cmd_release는 태그 v<semver>와 CHANGELOG를 한 커밋에 각인하므로 정상 경로의 drift는 0이다.
+    # 한쪽 기록에만 있는 릴리스(drift)는 정상 경로 밖에서 배포 기록을 손댔다는 신호 — 어긋난 계보 위에
+    # 새 봉인을 얹으면 어긋남이 봉인된다. 하드 위반: 무변화로 거부·처방한다(인접 verify 게이트와 같은 등급).
+    # drift 정의는 cmd_releases(loom/C061)와 같은 헬퍼를 재사용해 조회와 게이트가 같은 진실을 본다.
+    changelog = os.path.normpath(os.path.join(pkg, "..", "CHANGELOG.md"))
+    drifted = _release_drift(repo, changelog)
+    if drifted:
+        raise ChainError(
+            f"배포 계보 drift {len(drifted)}건 — 태그와 CHANGELOG가 어긋난 릴리스가 있다"
+            f"({', '.join('v' + v for v in drifted)}). 어긋난 계보 위엔 새 릴리스를 봉인할 수 없다: "
+            f"'gil releases'로 확인하고 두 기록을 일치시킨 뒤 다시 릴리스할 것")
     if not os.path.isdir(pkg):
         raise ChainError(f"패키지 디렉토리가 없다: {pkg}")
     _fsck_or_report(chains_root)  # 깨진 저장소 위에는 릴리스하지 않는다
@@ -2920,7 +3047,7 @@ def cmd_release(args):
             f"RELEASE.md에 {args.version} 서술이 없다 — 도구는 절차를, 존재는 진실을: 먼저 릴리스를 문서화할 것")
 
     template_src = os.path.normpath(os.path.join(chains_root, "..", "_template"))
-    changelog = os.path.normpath(os.path.join(pkg, "..", "CHANGELOG.md"))
+    # changelog 경로는 drift 게이트에서 이미 계산됐다(사전 검증 상단) — 재사용.
     if not os.path.isfile(changelog):
         raise ChainError(f"CHANGELOG가 없다: {changelog}")
     log_text = open(changelog, encoding="utf-8").read()
@@ -3016,6 +3143,20 @@ def _git_release_tags(repo):
         out[name[1:]] = {"date": parts[1] if len(parts) > 1 else "",
                          "subject": parts[2] if len(parts) > 2 else ""}
     return out
+
+
+def _release_drift(repo, changelog_path):
+    """배포 계보의 drift = 태그 v<semver>와 CHANGELOG 중 정확히 한쪽에만 있는 릴리스.
+    cmd_releases(loom/C061)와 같은 두 헬퍼를 재사용해 조회와 게이트가 같은 drift를 본다.
+    태그가 하나도 없으면(None=비저장소/git부재 또는 {}=태그 없음) 대조 기준이 없어 drift 없음으로 본다
+    — 첫 릴리스(태그 0)를 게이트가 막지 않게, 그리고 CHANGELOG-only 원장을 손댐으로 오판하지 않게.
+    반환: 최신 우선 정렬된 drift 버전 리스트(빈 리스트면 게이트 통과)."""
+    tags = _git_release_tags(repo)
+    if not tags:                                 # None 또는 {} — 대조할 깃의 진실이 없다
+        return []
+    cl = _parse_changelog_releases(changelog_path)
+    drifted = [v for v in (set(tags) | set(cl)) if (v in tags) != (v in cl)]
+    return sorted(drifted, key=lambda v: tuple(int(x) for x in v.split(".")), reverse=True)
 
 
 def cmd_releases(args):
@@ -3280,6 +3421,12 @@ def main(argv=None):
     p_show.add_argument("--json", action="store_true", help="기계 계약면 (지식그래프 JSON)")
     p_show.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_show.set_defaults(func=cmd_show)
+
+    p_threads = sub.add_parser("threads", help="열린 실 훑기: 진행 중 병렬 사이클(예약)+열린 사이클을 전역 조회 (loom/C070, #4)")
+    p_threads.add_argument("--chain", help="특정 체인만")
+    p_threads.add_argument("--json", action="store_true", help="기계 계약면 (loose-end JSON)")
+    p_threads.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_threads.set_defaults(func=cmd_threads)
 
     p_pages = sub.add_parser("pages", help="GitHub Pages 배포 워크플로를 생성한다")
     p_pages.add_argument("--force", action="store_true", help="기존 워크플로를 덮어쓴다")

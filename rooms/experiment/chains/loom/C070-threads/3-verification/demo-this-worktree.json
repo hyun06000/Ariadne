@@ -1,0 +1,31 @@
+{
+  "open": [
+    {
+      "author": "clew",
+      "chain": "loom",
+      "id": "C070-threads",
+      "opened": "2026-07-19",
+      "step": "2"
+    }
+  ],
+  "open_count": 1,
+  "reserved": [
+    {
+      "chain": "loom",
+      "date": "2026-07-19",
+      "for": "weft",
+      "num": 71,
+      "ref": "C071",
+      "slug": "parallel-usage-proof"
+    },
+    {
+      "chain": "loom",
+      "date": "2026-07-19",
+      "for": "selvage",
+      "num": 72,
+      "ref": "C072",
+      "slug": "release-drift-gate"
+    }
+  ],
+  "reserved_count": 2
+}

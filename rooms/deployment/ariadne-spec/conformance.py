@@ -33,7 +33,8 @@ CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release"
                      "round",  # loom/C045 (이슈 #9·#10) — 라운드. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
                      "worktree",  # loom/C058 (#1) — 병렬 사이클 모드 spawn
                      "releases",  # loom/C061 (#3) — 배포 계보 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
-                     "show"]  # loom/C059 (#4 LLM 위키) — 지식그래프 노드 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "show",  # loom/C059 (#4 LLM 위키) — 지식그래프 노드 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "threads"]  # loom/C070 (#4 LLM 위키) — 열린 실 훑기(병렬 진행+열린 사이클). Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
 
 
 def check(cid, desc, cond, detail=""):
@@ -632,6 +633,46 @@ def main():
                   and drift_seen and after == before,
                   f"rc={r.returncode} 훅={len(hooks)} drift={drift_seen} 무변화={after == before}")
 
+        # ---- release drift 게이트: 봉인 전 배포 계보의 두 기록 일치를 요구 (loom/C072, #3 배포 강화) ----
+        # cmd_release는 태그 v<semver>와 CHANGELOG를 한 커밋에 각인 → 정상 경로 drift=0. 한쪽에만 있는
+        # 릴리스(drift)는 정상 경로 밖의 손댐 신호. 게이트 계약: drift 저장소는 무변화로 거부(하드 등급),
+        # 일치 저장소는 게이트 통과(위양성 0). release는 Go에서 referenceOnly → help release로 참조 구현만 판정.
+        if impl.run(g, "help", "release").returncode == 0:
+            def _mk_release_repo(name, changelog_body):
+                d = make_sandbox(os.path.join(work, name))          # rooms/experiment/{_template,chains}
+                os.makedirs(os.path.join(d, "rooms/deployment/ariadne-spec"))
+                with open(os.path.join(d, "rooms/deployment/CHANGELOG.md"), "w", encoding="utf-8") as f:
+                    f.write(changelog_body)
+                with open(os.path.join(d, "rooms/deployment/ariadne-spec/f.txt"), "w", encoding="utf-8") as f:
+                    f.write("x\n")
+                dg = lambda *c: subprocess.run(["git", "-C", d, *c], capture_output=True, text=True)
+                dg("init", "-q", "-b", "main"); dg("config", "user.name", "fx"); dg("config", "user.email", "fx@t")
+                dg("add", "-A"); dg("commit", "-q", "-m", "init")
+                dg("tag", "-a", "v1.0.0", "-m", "Ariadne release v1.0.0")   # 깃의 진실: v1.0.0 태그
+                return d, dg
+
+            def _run_release(d, ver):
+                return impl.run(d, "release", ver, "--notes", "n",
+                                "--package", os.path.join(d, "rooms/deployment/ariadne-spec"),
+                                "--root", os.path.join(d, "rooms/experiment/chains"))
+
+            # (1) drift: 태그 v1.0.0 존재 · CHANGELOG엔 1.0.0 엔트리 없음 → release는 무변화로 거부해야
+            dd, ddg = _mk_release_repo("reldrift", "# Changelog\n\n## [Unreleased]\n")
+            before = snapshot(dd); head0 = ddg("rev-parse", "HEAD").stdout; tags0 = ddg("tag", "-l").stdout
+            rd = _run_release(dd, "1.1.0")
+            after = snapshot(dd); head1 = ddg("rev-parse", "HEAD").stdout; tags1 = ddg("tag", "-l").stdout
+            drift_msg = "drift" in (rd.stderr + rd.stdout)
+            no_change = after == before and head0 == head1 and tags0 == tags1   # 작업트리·커밋·태그 불변
+            # (2) 일치: CHANGELOG에 1.0.0 엔트리 → drift 0 → 게이트 통과(하류에서 비-drift 사유로 멈춤)
+            dc, _ = _mk_release_repo("relclean",
+                "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] — 2026-07-18\n\n- 첫 릴리스\n- 도구 변경: gil (마이너 이상 승격)\n")
+            rc = _run_release(dc, "1.1.0")
+            gate_passed = "drift" not in (rc.stderr + rc.stdout)   # 위양성 0: 일치 저장소를 drift로 막지 않는다
+            check("RELEASE-DRIFT-GATE",
+                  "release가 배포 계보 drift를 하드 거부 (drift→exit≠0 ∧ 무변화(트리·커밋·태그) ∧ 처방 ∧ 일치는 통과)",
+                  rd.returncode != 0 and drift_msg and no_change and gate_passed,
+                  f"drift_rc={rd.returncode} 처방={drift_msg} 무변화={no_change} 일치통과={gate_passed}")
+
         # ---- open --git: 열 때부터 보이게 (SPEC §2.1-3) — 자체 구축 샌드박스 (판정 항목 독립) ----
         og = make_sandbox(os.path.join(work, "gitopen"))
 
@@ -1147,6 +1188,72 @@ def main():
         r, dG = showj("alpha/C999-ghost")
         check("SHOW-MISSING", "부재 노드 → exit≠0 ∧ 지어낸 JSON 없음",
               r.returncode != 0 and dG is None, f"rc={r.returncode}")
+
+    # ---- threads: 열린 실 훑기 — 진행 중 병렬(예약)+열린 사이클 전역 조회 (loom/C070, #4 LLM 위키) ----
+    # 병렬 워크트리 사이클은 브랜치에 살아 main 뷰어에 안 잡힌다. 그러나 reserve가 reservations.tsv를
+    # main에 커밋하므로 "진행 중 병렬"은 이미 데이터다. threads는 그 미소비 예약 + status=open 사이클을
+    # 기계 계약면(--json)으로 반환한다. 지어내지 않는다: 소비된(사이클로 존재하는) 예약은 제외.
+    # 구현이 threads를 구현했을 때만 판정(부분 구현 합법). 미구현이면 HELP-COMPLETE가 정직성을 본다.
+    if impl.run(work, "help", "threads").returncode == 0:
+        def write_res(root, chain_dir, lines):
+            p = os.path.join(root, "rooms/experiment/chains", chain_dir, "reservations.tsv")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("# gil 예약 원장\n")
+                for ln in lines:
+                    f.write(ln + "\n")
+
+        def threadsj(root_sb, cr):
+            r = impl.run(root_sb, "threads", "--json", "--root", cr)
+            try:
+                return r, json.loads(r.stdout)
+            except Exception:
+                return r, None
+
+        # 픽스처 gamma: C001-open(열림)·C002-done(닫힘), 예약 5(미소비)·1(=C001 소비됨)
+        th = make_sandbox(os.path.join(work, "threads"))
+        thr = os.path.join(th, "rooms/experiment/chains")
+        write_cycle(th, "gamma", "C001-open", status="open", author="alice", step="3")
+        write_cycle(th, "gamma", "C002-done", status="closed")
+        write_res(th, "gamma", ["5 bob newthing 2026-01-01", "1 alice already 2026-01-01"])
+        r, d = threadsj(th, thr)
+        shape_ok = (r.returncode == 0 and d is not None and isinstance(d.get("reserved"), list)
+                    and isinstance(d.get("open"), list)
+                    and d.get("reserved_count") == len(d["reserved"])
+                    and d.get("open_count") == len(d["open"]))
+        check("THREADS-JSON-SHAPE", "threads --json이 reserved·open·*_count 키를 가진 유효 JSON (exit0)",
+              shape_ok, f"rc={r.returncode} keys={sorted(d) if d else None}")
+        res_nums = {x["num"]: x for x in (d["reserved"] if d else [])}
+        check("THREADS-RESERVED", "미소비 예약이 reserved에 정확히 나온다 (num5·for=bob·slug)",
+              5 in res_nums and res_nums[5]["for"] == "bob" and res_nums[5]["slug"] == "newthing",
+              f"reserved={d and d['reserved']}")
+        check("THREADS-CONSUMED-EXCLUDED", "소비된 예약(num1=C001-open 존재)은 reserved에서 제외 (지어냄 방지, C040)",
+              d is not None and 1 not in res_nums, f"reserved_nums={sorted(res_nums)}")
+        open_ids = {(x["chain"], x["id"]) for x in (d["open"] if d else [])}
+        check("THREADS-OPEN", "status=open 사이클은 open에, closed는 제외 (gamma/C001-open ∈, C002-done ∉)",
+              ("gamma", "C001-open") in open_ids and ("gamma", "C002-done") not in open_ids,
+              f"open={sorted(open_ids)}")
+        # threads의 open 집합 == 픽스처를 직접 스캔한 open 집합 (두 표면이 다른 그래프를 말하면 안 됨, C042 threads판)
+        scanned = set()
+        for ch in os.listdir(thr):
+            chp = os.path.join(thr, ch)
+            if not os.path.isdir(chp):
+                continue
+            for cyc in os.listdir(chp):
+                yp = os.path.join(chp, cyc, "cycle.yaml")
+                if os.path.isfile(yp):
+                    txt = open(yp, encoding="utf-8").read()
+                    if re.search(r"^status:\s*open\s*$", txt, re.M):
+                        scanned.add((ch, cyc))
+        check("THREADS-OPEN-MATCHES-SCAN", "threads의 open 집합 == 직접 스캔한 open 집합 (불일치 기각, C042)",
+              open_ids == scanned, f"threads={sorted(open_ids)} scan={sorted(scanned)}")
+        # 빈 상태: 닫힌 사이클만·예약 없음 → reserved==[]·open==[], exit0 (부재 정직)
+        te = make_sandbox(os.path.join(work, "threads_empty"))
+        ter = os.path.join(te, "rooms/experiment/chains")
+        write_cycle(te, "delta", "C001-only", status="closed")
+        r, de = threadsj(te, ter)
+        check("THREADS-EMPTY", "예약·열린 사이클 0 → reserved==[]·open==[], exit0 (빈 상태 정직)",
+              r.returncode == 0 and de is not None and de["reserved"] == [] and de["open"] == [],
+              f"rc={r.returncode} d={de}")
 
     # ---- worktree owner guard: 주 체크아웃 소유 강제 (loom/C062, #1 — 상현님 발의) ----
     # 존재가 자기 워크트리 밖 공유 main으로 cd해 커밋하는 C050 사고를 도구가 커밋 이전에 거부한다.
