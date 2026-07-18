@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.18.0] — 2026-07-19
+
+- 주 체크아웃 소유 guard (loom/C062) — open·correct가 author≠gil.owner면 커밋 이전 거부. C050 사고 봉인.
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.17.0] — 2026-07-19
 
 - gil show(#4 지식그래프 노드 조회) + worktree land(#1 병렬 닫는 반쪽) + releases(#3 배포 계보) + Go 위계 이식(loomlight/C003)
