@@ -1,0 +1,8 @@
+=== gil show 계약면 판정 ===
+  [PASS] SHOW-NODE  rc=0 id=C001-a
+  [PASS] SHOW-FORWARD  forward.lineage=[{'exists': True, 'ref': 'alpha/C001-a'}]
+  [PASS] SHOW-BACKLINKS-PARENT  backlinks.parents=['alpha/C003-c']
+  [PASS] SHOW-BACKLINKS-LINEAGE  backlinks.lineage=['beta/C001-x']
+  [PASS] SHOW-EDGES-MATCH-GRAPH  web={'C002-b'} show={'C002-b'}
+  [PASS] SHOW-MISSING  rc=1 stdout_empty=True
+--- 6/6 ---
