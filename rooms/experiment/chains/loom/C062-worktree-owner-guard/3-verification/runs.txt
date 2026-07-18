@@ -1,0 +1,11 @@
+PASS CORRECT-TAMPER-GUARD: 이미 변조된 사이클의 정정 거부 (변조 세탁 뒷문 차단)
+PASS GUARD-PRIMARY-REFUSE: 주 체크아웃에서 author≠gil.owner의 open을 거부 (exit≠0 ∧ 사이클 미생성 ∧ HEAD 무변화) — C050 봉인
+PASS GUARD-OWNER-OK: 주 체크아웃에서 주인(gil.owner) author의 open은 통과
+PASS GUARD-LINKED-OK: 링크드 워크트리에서는 남의 author open도 통과 (오탐 0 — 존재의 작업공간)
+계약 준수: 89/89  ✔ 이 구현은 gil이다
+--- Go ---
+PASS CORRECT-TAMPER-GUARD: 이미 변조된 사이클의 정정 거부 (변조 세탁 뒷문 차단)
+PASS GUARD-PRIMARY-REFUSE: 주 체크아웃에서 author≠gil.owner의 open을 거부 (exit≠0 ∧ 사이클 미생성 ∧ HEAD 무변화) — C050 봉인
+PASS GUARD-OWNER-OK: 주 체크아웃에서 주인(gil.owner) author의 open은 통과
+PASS GUARD-LINKED-OK: 링크드 워크트리에서는 남의 author open도 통과 (오탐 0 — 존재의 작업공간)
+계약 준수: 82/82  ✔ 이 구현은 gil이다

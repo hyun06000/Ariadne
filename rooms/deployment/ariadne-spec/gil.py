@@ -665,6 +665,7 @@ def cmd_open(args):
         raise ChainError(
             "저자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"
             f"      존재의 이름을 명시하라:  gil open {args.chain} {args.slug} --author <이름>")
+    _guard_primary_owner(_repo_root(chains_root), args.author)  # C062 — 주 체크아웃 오염 방지
     if args.parent and args.new_root:  # O3 — 모순
         raise ChainError("--parent와 --new-root는 함께 쓸 수 없다 — 부모가 있으면 루트가 아니다")
     if not _SLUG_RE.match(args.slug):
@@ -1794,6 +1795,35 @@ def _repo_root(path):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def _is_primary_worktree(repo):
+    """주 체크아웃(공유 main)인가 vs 링크드 워크트리인가 (loom/C062).
+    링크드 워크트리는 --git-dir이 '.git/worktrees/<name>'이라 --git-common-dir과 다르다.
+    주 체크아웃은 둘이 같다. harness가 만든 워크트리도 링크드라 여기서 걸러진다."""
+    gd = _git(repo, "rev-parse", "--git-dir", check=False)
+    gcd = _git(repo, "rev-parse", "--git-common-dir", check=False)
+    if gd.returncode != 0 or gcd.returncode != 0:
+        return False
+    return (os.path.realpath(os.path.join(repo, gd.stdout.strip()))
+            == os.path.realpath(os.path.join(repo, gcd.stdout.strip())))
+
+
+def _guard_primary_owner(repo, author):
+    """주 체크아웃 소유 guard (loom/C062 — 상현님 발의: 사고를 도구가 막는다).
+    존재가 자기 워크트리 밖 공유 main으로 cd해 커밋하는 C050 사고를 커밋 이전에 구조적으로 거부한다.
+    - gil.owner 미설정이면 미적용 (opt-in — 기존 저장소·CI 무파손).
+    - 링크드 워크트리(존재의 정당한 작업공간)는 미적용 — 오탐 0.
+    규제 대상은 오직 주 체크아웃 = 모든 존재가 공유하는 유일한 공간이자 세 사고가 전부 난 곳."""
+    if not repo or not _is_primary_worktree(repo):
+        return
+    r = _git(repo, "config", "gil.owner", check=False)
+    owner = r.stdout.strip() if r.returncode == 0 else ""
+    if owner and author and author != owner:
+        raise ChainError(
+            f"이 체크아웃은 '{owner}'의 주 작업공간이다 — author '{author}'로 여기서 커밋할 수 없다.\n"
+            f"      네 워크트리에서 실행하라:  gil worktree add <chain> <slug> --author {author}\n"
+            f"      (병렬 사이클 모드 — 공유 main 오염 방지, C050·C062)")
+
+
 def _tag_name(chain, cycle_id):
     return f"cycle/{chain}/{cycle_id}"
 
@@ -1943,6 +1973,7 @@ def cmd_correct(args):
         raise ChainError(
             "정정자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"
             f"      존재의 이름을 명시하라:  gil correct {args.ref} … --author <이름>")
+    _guard_primary_owner(_repo_root(chains_root), args.author)  # C062 — 주 체크아웃 오염 방지
     if not args.field:
         raise ChainError("--field가 없다 — 무엇을 정정하는지 명시하라")
     for f in args.field:  # C3 — 필드 제한 (L1)

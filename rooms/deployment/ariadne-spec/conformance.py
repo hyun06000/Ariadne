@@ -1133,6 +1133,39 @@ def main():
         check("SHOW-MISSING", "부재 노드 → exit≠0 ∧ 지어낸 JSON 없음",
               r.returncode != 0 and dG is None, f"rc={r.returncode}")
 
+    # ---- worktree owner guard: 주 체크아웃 소유 강제 (loom/C062, #1 — 상현님 발의) ----
+    # 존재가 자기 워크트리 밖 공유 main으로 cd해 커밋하는 C050 사고를 도구가 커밋 이전에 거부한다.
+    # 주 체크아웃만 규제(gil.owner≠author → 거부), 링크드 워크트리는 오탐 0으로 통과. 쌍 검증(C038).
+    gd = os.path.join(work, "guard")
+
+    def gdg(*cli):
+        return subprocess.run(["git", "-C", gd, *cli], capture_output=True, text=True)
+
+    make_sandbox(gd)
+    gdr = os.path.join(gd, "rooms/experiment/chains")
+    gdg("init", "-q", "-b", "main"); gdg("config", "user.name", "o"); gdg("config", "user.email", "o@t")
+    gdg("config", "gil.owner", "owner-x")
+    gdg("add", "-A"); gdg("commit", "-q", "-m", "init")
+    head0 = gdg("rev-parse", "HEAD").stdout.strip()
+    r = impl.run(gd, "open", "demo", "intrude", "--author", "intruder", "--new-chain", "--git", "--root", gdr)
+    dir_made = os.path.isdir(os.path.join(gdr, "demo"))
+    head1 = gdg("rev-parse", "HEAD").stdout.strip()
+    check("GUARD-PRIMARY-REFUSE",
+          "주 체크아웃에서 author≠gil.owner의 open을 거부 (exit≠0 ∧ 사이클 미생성 ∧ HEAD 무변화) — C050 봉인",
+          r.returncode != 0 and not dir_made and head1 == head0,
+          f"rc={r.returncode} dir={dir_made} head={head1 == head0}")
+    r = impl.run(gd, "open", "demo", "mine", "--author", "owner-x", "--new-chain", "--git", "--root", gdr)
+    check("GUARD-OWNER-OK", "주 체크아웃에서 주인(gil.owner) author의 open은 통과",
+          r.returncode == 0 and os.path.isdir(os.path.join(gdr, "demo")), f"rc={r.returncode}")
+    # 링크드 워크트리(존재의 정당한 공간)에서는 남의 author도 통과 — 오탐 0
+    gwt = os.path.join(work, "guard-wt")
+    gdg("worktree", "add", "-q", "-b", "feat", gwt)
+    gwtr = os.path.join(gwt, "rooms/experiment/chains")
+    r = impl.run(gwt, "open", "demo2", "inwt", "--author", "someone", "--new-chain", "--git", "--root", gwtr)
+    check("GUARD-LINKED-OK", "링크드 워크트리에서는 남의 author open도 통과 (오탐 0 — 존재의 작업공간)",
+          r.returncode == 0 and os.path.isdir(os.path.join(gwtr, "demo2")), f"rc={r.returncode}")
+    gdg("worktree", "remove", "--force", gwt)
+
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
     print(f"\n계약 준수: {passed}/{total}" + ("  ✔ 이 구현은 gil이다" if passed == total else "  ✘ 계약 위반"))

@@ -893,6 +893,9 @@ func cmdOpen(a openArgs) error {
 		return cerr("저자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"+
 			"      존재의 이름을 명시하라:  gil open %s %s --author <이름>", a.chain, a.slug)
 	}
+	if err := guardPrimaryOwner(repoRoot(a.root), a.author); err != nil { // C062 — 주 체크아웃 오염 방지
+		return err
+	}
 	if len(a.parents) > 0 && a.newRoot { // O3 — 모순
 		return cerr("--parent와 --new-root는 함께 쓸 수 없다 — 부모가 있으면 루트가 아니다")
 	}
@@ -1670,6 +1673,9 @@ func cmdCorrect(a correctArgs) error {
 	if a.author == "" { // C2 — 도구는 정정의 출처도 지어내지 않는다 (§3.2 P1의 재귀)
 		return cerr("정정자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"+
 			"      존재의 이름을 명시하라:  gil correct %s … --author <이름>", a.ref)
+	}
+	if err := guardPrimaryOwner(repoRoot(a.root), a.author); err != nil { // C062 — 주 체크아웃 오염 방지
+		return err
 	}
 	if len(a.fields) == 0 {
 		return cerr("--field가 없다 — 무엇을 정정하는지 명시하라")
@@ -2473,6 +2479,48 @@ func repoRoot(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(out)
+}
+
+// isPrimaryWorktree: 주 체크아웃(공유 main)인가 vs 링크드 워크트리인가 (loom/C062).
+// 링크드 워크트리는 --git-dir이 '.git/worktrees/<name>'이라 --git-common-dir과 다르다.
+// harness가 만든 워크트리도 링크드라 여기서 걸러진다.
+func isPrimaryWorktree(repo string) bool {
+	gd, _, c1 := gitRun(repo, "rev-parse", "--git-dir")
+	gcd, _, c2 := gitRun(repo, "rev-parse", "--git-common-dir")
+	if c1 != 0 || c2 != 0 {
+		return false
+	}
+	rp := func(p string) string {
+		p = strings.TrimSpace(p)
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(repo, p)
+		}
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	return rp(gd) == rp(gcd)
+}
+
+// guardPrimaryOwner: 주 체크아웃 소유 guard (loom/C062 — 상현님 발의: 사고를 도구가 막는다).
+// 존재가 자기 워크트리 밖 공유 main으로 cd해 커밋하는 C050 사고를 커밋 이전에 거부한다.
+// gil.owner 미설정이면 미적용(opt-in). 링크드 워크트리는 미적용 — 오탐 0.
+func guardPrimaryOwner(repo, author string) error {
+	if repo == "" || !isPrimaryWorktree(repo) {
+		return nil
+	}
+	out, _, code := gitRun(repo, "config", "gil.owner")
+	owner := ""
+	if code == 0 {
+		owner = strings.TrimSpace(out)
+	}
+	if owner != "" && author != "" && author != owner {
+		return cerr("이 체크아웃은 '%s'의 주 작업공간이다 — author '%s'로 여기서 커밋할 수 없다.\n"+
+			"      네 워크트리에서 실행하라:  gil worktree add <chain> <slug> --author %s\n"+
+			"      (병렬 사이클 모드 — 공유 main 오염 방지, C050·C062)", owner, author, author)
+	}
+	return nil
 }
 
 func tagName(chain, cycleID string) string { return "cycle/" + chain + "/" + cycleID }
