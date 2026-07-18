@@ -1,0 +1,1 @@
+<div class="parbanner" role="status"><span class="picon">⟳</span> 병렬 진행 중 (예약, 아직 안 거둬짐): <b>1</b><span class="pchip">demo/C005 → weft</span></div>

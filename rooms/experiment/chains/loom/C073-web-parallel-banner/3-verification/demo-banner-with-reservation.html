@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ariadne — 사이클 체인</title>
+</head>
+<body>
+<div class="gil"><style>.gil .parbanner{background:color-mix(in srgb,var(--lineage) 14%,var(--surface));
+border:1px solid var(--lineage);border-radius:8px;padding:10px 14px;margin:0 0 20px;
+font-size:14px;color:var(--ink);display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.gil .parbanner .picon{color:var(--lineage);font-weight:700}
+.gil .parbanner .pchip{background:var(--surface);border:1px solid var(--ring);border-radius:999px;
+padding:2px 10px;font-size:13px;color:var(--ink-2)}
+.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
+--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
+--supersede:#c07c15;--ring:rgba(11,11,11,.1);
+font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
+margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
+@media (prefers-color-scheme:dark){.gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;
+--ink-2:#c3c2b7;--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;
+--lineage:#199e70;--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}}
+:root[data-theme="dark"] .gil{--page:#0d0d0d;--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;
+--muted:#898781;--hairline:#2c2c2a;--edge:#6b6a64;--node:#3987e5;--lineage:#199e70;
+--rejected:#e66767;--supersede:#d9a44f;--ring:rgba(255,255,255,.1)}
+:root[data-theme="light"] .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
+--muted:#898781;--hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;
+--rejected:#d03b3b;--supersede:#c07c15;--ring:rgba(11,11,11,.1)}
+.gil .superseded{opacity:.5}
+.gil .sup{color:var(--supersede);white-space:nowrap}
+.gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
+.gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
+.gil .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);align-items:center}
+.gil .legend span{display:inline-flex;align-items:center;gap:6px}
+.gil .card{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:20px;overflow-x:auto}
+.gil svg{display:block}
+.gil svg text{font-family:inherit}
+.gil .card h2{font-size:14px;font-weight:650;margin:0 0 12px;color:var(--ink)}
+.gil table{border-collapse:collapse;width:100%;font-size:12.5px}
+.gil th{text-align:left;color:var(--muted);font-weight:600;letter-spacing:.02em;
+border-bottom:1px solid var(--hairline);padding:6px 10px 6px 0}
+.gil td{border-bottom:1px solid var(--hairline);padding:7px 10px 7px 0;vertical-align:top;color:var(--ink-2)}
+.gil td.id{color:var(--ink);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.gil .pill{display:inline-block;border:1.5px solid var(--node);border-radius:99px;
+padding:1px 8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
+.gil .pill.closed{background:var(--node);color:#fff;border-color:var(--node)}
+.gil footer{color:var(--muted);font-size:11.5px}
+.gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
+.gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
+.gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.gil .htoc li{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px}
+.gil .htoc a{color:var(--node);text-decoration:none;font-weight:600}
+.gil .htoc a:hover{text-decoration:underline}
+.gil .toc-stat{color:var(--muted);font-size:12px}
+.gil .hhint{color:var(--muted);font-size:12px;margin:6px 0 0}
+.gil .card.hmap{overflow-x:auto;padding:8px 12px}
+/* L0 체인 지도(카드 직계 svg)만 폭에 맞춘다. 가로 사이클 그래프(.cyclegraph 안 svg)는 자연 크기로 두고
+   스크롤한다 — max-width:100%가 넓은 그래프를 축소해 작게 만들던 문제 수정 (loom/C068). */
+.gil .card.hmap>svg{display:block;margin:0 auto;max-width:100%}
+.gil a.chainnode{cursor:pointer}
+.gil a.chainnode circle{transition:fill .12s,stroke-width .12s}
+.gil a.chainnode:hover circle{fill:var(--page);stroke-width:3.5}
+.gil a.chainnode:focus{outline:none}
+.gil a.chainnode:focus circle{stroke-width:3.5}
+.gil .hanchor{display:block;height:0;overflow:hidden;scroll-margin-top:10px}
+/* 체인 아코디언을 지도 카드 안에 녹인다 (loom/C066): 서브카드 테두리 없이 구분선만 — 지도에서
+   체인을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 등장한다. */
+.gil .mapchains{margin-top:12px;border-top:1px solid var(--ring)}
+.gil details.hchain{border-bottom:1px solid var(--ring)}
+.gil details.hchain>summary{cursor:pointer;padding:11px 4px;font-size:14px;font-weight:650;
+list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.gil details.hchain>summary::-webkit-details-marker{display:none}
+.gil details.hchain>summary::before{content:"\25B8";color:var(--muted);font-weight:400}
+.gil details.hchain[open]>summary::before{content:"\25BE"}
+.gil details.hchain[open]>summary{background:var(--page);border-radius:6px}
+.gil .hname{color:var(--ink)}
+.gil .hstat{color:var(--muted);font-size:12.5px;font-weight:400}
+.gil .hbody{padding:2px 4px 16px 14px;display:flex;flex-direction:column;gap:0}
+.gil .hbody .card{margin:0}
+/* 가로 사이클 노드-엣지 그래프 (loom/C067): 체인 원을 누르면 그 자리에서 0—o—o—o 로 펼쳐진다.
+   노드를 누르면 :target으로 그 사이클 문서가 그래프 아래에 뜬다(평소 숨김). */
+.gil .cyclegraph{overflow-x:auto;padding:4px 0 2px}
+.gil a.gnode{cursor:pointer}
+.gil a.gnode circle{transition:stroke-width .1s}
+.gil a.gnode:hover circle{stroke:var(--node);stroke-width:4}
+.gil .cycdoc{display:none}
+.gil .cycdoc:target{display:block;border-top:1px solid var(--ring);margin-top:6px;padding-top:12px}
+.gil .cycdoc-head{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px;
+font-size:13px;font-variant-numeric:tabular-nums}
+.gil .ccid{color:var(--ink);font-weight:650}
+.gil .cyst{color:var(--muted);font-size:11.5px}
+.gil .cytitle{color:var(--ink-2);font-size:12px}
+.gil .cyclin{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+.gil a.linchip{color:var(--lineage);text-decoration:none;font-size:11px;font-weight:600;white-space:nowrap}
+.gil a.linchip:hover{text-decoration:underline}
+.gil a.linchip.sup{color:var(--supersede)}
+.gil .hcycles h3{font-size:13px;font-weight:650;margin:4px 0 8px;color:var(--ink-2)}
+.gil details.hcycle{border:1px solid var(--hairline);border-radius:6px;margin-bottom:6px}
+.gil details.hcycle>summary{cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink);
+list-style:none;font-variant-numeric:tabular-nums}
+.gil details.hcycle>summary::-webkit-details-marker{display:none}
+.gil details.hcycle>summary::before{content:"\25B8  ";color:var(--muted)}
+.gil details.hcycle[open]>summary::before{content:"\25BE  "}
+.gil .hcycle-body{padding:0 12px 12px}
+.gil table.hmeta{width:auto;margin:4px 0 12px;font-size:12px}
+.gil table.hmeta th{color:var(--muted);font-weight:600;padding:3px 14px 3px 0;text-align:left;
+border:none;white-space:nowrap;vertical-align:top}
+.gil table.hmeta td{color:var(--ink-2);padding:3px 0;border:none}
+.gil details.hstep{margin:4px 0}
+.gil details.hstep>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--node);
+padding:3px 0;list-style:none}
+.gil details.hstep>summary::-webkit-details-marker{display:none}
+.gil details.hstep>summary::before{content:"+  "}
+.gil details.hstep[open]>summary::before{content:"\2212  "}
+.gil details.hstep pre{background:var(--page);border:1px solid var(--hairline);border-radius:6px;
+padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+color:var(--ink-2);margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.gil details.hstep pre.empty{color:var(--muted);font-style:italic}
+/* 미니맵 (loomlight/C004): 넓은 체인 가로 그래프 위 전체 개요. max-width:100%로 카드 폭에 맞춰
+   축소돼 전체 형상이 한 화면에 든다(C068의 자연크기 통찰을 미니맵엔 반대로=폭맞춤 적용). */
+.gil .minimap{margin:2px 0 8px;padding:7px 10px;background:var(--surface);border:1px solid var(--ring);border-radius:8px}
+.gil .minimap-cap{color:var(--muted);font-size:11.5px;margin-bottom:5px}
+.gil .minimap svg{display:block;max-width:100%;height:auto}
+.gil a.mnode{cursor:pointer}
+.gil a.mnode circle{transition:stroke-width .1s}
+.gil a.mnode:hover circle{stroke:var(--node);stroke-width:2.5}</style><div class="wrap">
+<header><h1>Ariadne — 사이클 체인</h1>
+<p>체인 1개 · 사이클 1개 · 체인 간 lineage 0건 · 생성 2026-07-19</p>
+<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 5스텝 문서가 그 자리에 열린다 (JS 없이 &lt;details&gt;로).</p></header>
+<div class="parbanner" role="status"><span class="picon">⟳</span> 병렬 진행 중 (예약, 아직 안 거둬짐): <b>1</b><span class="pchip">demo/C005 → weft</span></div>
+<div class="card hmap"><svg viewBox="0 0 121 87" width="121" height="87" role="img" aria-label="체인 지도 — 체인 간 lineage 그래프"><defs><marker id="chainarrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--lineage)"/></marker></defs><a href="#chainbody-demo" class="chainnode" aria-label="demo — 사이클 1개 · 무결론 1 · 최근 2026-01-02"><title>demo — 사이클 1개 · 무결론 1 · 최근 2026-01-02</title><circle cx="61" cy="25" r="17" fill="var(--surface)" stroke="var(--node)" stroke-width="2.5"/><text x="61" y="29" text-anchor="middle" font-size="14" font-weight="700" fill="var(--node)">1</text><text x="61" y="58" text-anchor="middle" font-size="13" font-weight="650" fill="var(--ink)">demo</text><text x="61" y="73" text-anchor="middle" font-size="10.5" fill="var(--muted)">사이클 1</text></a></svg>
+<div class="mapchains"><details class="hchain" name="hchain" id="chain-demo"><summary><span class="hname">demo</span><span class="hstat">사이클 1개 · 무결론 1 · 최근 2026-01-02</span></summary><div class="hbody"><span id="chainbody-demo" class="hanchor"></span><div class="cyclegraph"><svg viewBox="0 0 140 92" width="140" height="92" role="img" aria-label="demo 사이클 그래프"><a href="#cycdoc-demo-C001-a" class="gnode"><title>C001-a [closed] t</title><circle cx="50" cy="46" r="9" fill="var(--node)"/><text x="50" y="69" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--ink-2)">C001</text></a></svg></div><div class="cycdocs"><div class="cycdoc" id="cycdoc-demo-C001-a"><div class="cycdoc-head"><span class="ccid">C001-a</span><span class="cyst">closed</span><span class="cytitle">t</span></div><table class="hmeta"><tbody><tr><th>status</th><td>closed</td></tr><tr><th>verdict</th><td>—</td></tr><tr><th>step</th><td>—</td></tr><tr><th>parent</th><td>(root)</td></tr><tr><th>lineage</th><td>—</td></tr><tr><th>opened</th><td>2026-01-01</td></tr><tr><th>closed</th><td>2026-01-02</td></tr><tr><th>deviations</th><td>—</td></tr><tr><th>corrections</th><td>—</td></tr><tr><th>superseded_by</th><td>—</td></tr></tbody></table><details class="hstep"><summary>1 · 가설</summary><pre class="empty">(없음)</pre></details><details class="hstep"><summary>2 · 설계</summary><pre class="empty">(없음)</pre></details><details class="hstep"><summary>3 · 검증</summary><pre class="empty">(없음)</pre></details><details class="hstep"><summary>4 · 분석</summary><pre class="empty">(없음)</pre></details><details class="hstep"><summary>5 · 보고</summary><pre class="empty">(없음)</pre></details></div></div></div></details></div></div>
+<nav class="htoc"><h2>체인 목록</h2><ul><li><a href="#chain-demo">demo</a><span class="toc-stat">사이클 1개 · 무결론 1</span></li></ul></nav>
+<footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
+</div></div>
+<script type="application/json" id="gil-data">{"version": "0.4", "bake": {"title": "Ariadne — 사이클 체인", "chain": null, "hierarchy": true}, "chains": {"demo": {"order": ["C001-a"], "cycles": {"C001-a": {"status": "closed", "title": "t", "opened": "2026-01-01", "closed": "2026-01-02", "step": null, "verdict": null, "deviations": null, "corrections": null, "superseded_by": null, "last_activity": null, "parents": [], "lineage": []}}, "reservations": [{"num": 5, "for": "weft", "slug": "newthing", "date": "2026-07-19"}]}}}</script>
+</body>
+</html>

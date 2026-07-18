@@ -1,0 +1,10 @@
+=== 참조 conformance ===
+계약 준수: 98/98  ✔ 이 구현은 gil이다
+=== Go conformance ===
+계약 준수: 84/84  ✔ 이 구현은 gil이다
+=== parity: 무예약(main) ===
+byte-identical
+=== parity: 예약 위계 ===
+byte-identical
+=== parity: 예약 평면 ===
+byte-identical
