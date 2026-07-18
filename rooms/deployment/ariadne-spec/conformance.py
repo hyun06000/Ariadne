@@ -32,7 +32,8 @@ CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release"
                      "reserve", "unreserve",  # loom/C043 (이슈 #13) — 부분 구현은 합법, 거짓 보고만 불법
                      "round",  # loom/C045 (이슈 #9·#10) — 라운드. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
                      "worktree",  # loom/C058 (#1) — 병렬 사이클 모드 spawn
-                     "releases"]  # loom/C061 (#3) — 배포 계보 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "releases",  # loom/C061 (#3) — 배포 계보 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "show"]  # loom/C059 (#4 LLM 위키) — 지식그래프 노드 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
 
 
 def check(cid, desc, cond, detail=""):
@@ -1081,6 +1082,56 @@ def main():
     for r_, w_ in ((lroot, l_wt), (croot, c_wt)):
         subprocess.run(["git", "-C", r_, "worktree", "remove", "--force", w_], capture_output=True)
         shutil.rmtree(os.path.join(os.path.dirname(r_), os.path.basename(r_) + "-worktrees"), ignore_errors=True)
+
+    # ---- show: 지식그래프 노드 조회 — 신원+정방향 엣지+백링크(cited-by) (loom/C059, #4 LLM 위키) ----
+    # 사이클 DAG는 이미 지식그래프다(엣지는 cycle.yaml에 데이터로 있다). show는 한 노드 + 양방향 이웃을
+    # 질의자가 파일을 안 읽고 얻게 한다(표적 탐색). 계약면 = 엣지 집합(정방향 parent·lineage + 백링크).
+    # 구현이 show를 구현했을 때만 판정(부분 구현 합법). 미구현이면 HELP-COMPLETE가 정직성을 본다.
+    if impl.run(work, "help", "show").returncode == 0:
+        sh = make_sandbox(os.path.join(work, "show"))
+        shr = os.path.join(sh, "rooms/experiment/chains")
+        # 픽스처: alpha에 A←B←C(parent 체인), beta의 X가 lineage로 alpha/A를 가리킴(cross-chain)
+        write_cycle(sh, "alpha", "C001-a")
+        write_cycle(sh, "alpha", "C002-b", parent="C001-a")
+        write_cycle(sh, "alpha", "C003-c", parent="C002-b")
+        write_cycle(sh, "beta", "C001-x", lineage="alpha/C001-a")
+
+        def showj(ref):
+            r = impl.run(sh, "show", ref, "--json", "--root", shr)
+            try:
+                return r, json.loads(r.stdout)
+            except Exception:
+                return r, None
+
+        r, dA = showj("alpha/C001-a")
+        check("SHOW-NODE", "show <chain>/<id> --json이 그 노드의 신원을 반환 (exit0 ∧ id·chain 일치)",
+              r.returncode == 0 and dA and dA["node"].get("id") == "C001-a"
+              and dA["node"].get("chain") == "alpha",
+              f"rc={r.returncode}")
+        r, dX = showj("beta/C001-x")
+        check("SHOW-FORWARD", "정방향 lineage 엣지가 대상+존재여부로 해석된다 (X ⇠ alpha/A, exists)",
+              dX and dX["forward"]["lineage"] == [{"ref": "alpha/C001-a", "exists": True}],
+              f"forward.lineage={dX and dX['forward']['lineage']}")
+        r, dB = showj("alpha/C002-b")
+        check("SHOW-BACKLINKS-PARENT", "parent 백링크(체인 내 cited-by): alpha/B ← alpha/C",
+              dB and dB["backlinks"]["parents"] == ["alpha/C003-c"],
+              f"backlinks.parents={dB and dB['backlinks']['parents']}")
+        check("SHOW-BACKLINKS-LINEAGE", "lineage 백링크(cross-chain cited-by): alpha/A ← beta/X",
+              dA and dA["backlinks"]["lineage"] == ["beta/C001-x"],
+              f"backlinks.lineage={dA and dA['backlinks']['lineage']}")
+        # 엣지 집합이 build_graph(web JSON)와 일치 — 두 표면이 다른 그래프를 말하면 지식그래프 신뢰 붕괴
+        wpath = os.path.join(sh, "w.html")
+        impl.run(sh, "web", shr, "-o", wpath, "--chain", "alpha")
+        m = re.search(r'id="gil-data"[^>]*>(.*?)</script>', open(wpath).read(), re.S)
+        wparents = set(json.loads(m.group(1))["chains"]["alpha"]["cycles"]["C003-c"]["parents"])
+        r, dC = showj("alpha/C003-c")
+        sparents = set(e["ref"].split("/", 1)[1] for e in dC["forward"]["parents"]) if dC else set()
+        check("SHOW-EDGES-MATCH-GRAPH", "show의 정방향 parent 엣지 == web JSON(build_graph) 엣지",
+              wparents == sparents and wparents == {"C002-b"}, f"web={wparents} show={sparents}")
+        # 부재 노드는 지어내지 않는다 (§3.2 P2, C040) — exit≠0 ∧ stdout에 JSON node 없음
+        r, dG = showj("alpha/C999-ghost")
+        check("SHOW-MISSING", "부재 노드 → exit≠0 ∧ 지어낸 JSON 없음",
+              r.returncode != 0 and dG is None, f"rc={r.returncode}")
 
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
