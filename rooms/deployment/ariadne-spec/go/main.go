@@ -3462,7 +3462,9 @@ const webHierCSS = `.gil .htoc{background:var(--surface);border:1px solid var(--
 .gil .toc-stat{color:var(--muted);font-size:12px}
 .gil .hhint{color:var(--muted);font-size:12px;margin:6px 0 0}
 .gil .card.hmap{overflow-x:auto;padding:8px 12px}
-.gil .hmap svg{display:block;margin:0 auto;max-width:100%}
+/* L0 체인 지도(카드 직계 svg)만 폭에 맞춘다. 가로 사이클 그래프(.cyclegraph 안 svg)는 자연 크기로 두고
+   스크롤한다 — max-width:100%가 넓은 그래프를 축소해 작게 만들던 문제 수정 (loom/C068). */
+.gil .card.hmap>svg{display:block;margin:0 auto;max-width:100%}
 .gil a.chainnode{cursor:pointer}
 .gil a.chainnode circle{transition:fill .12s,stroke-width .12s}
 .gil a.chainnode:hover circle{fill:var(--page);stroke-width:3.5}
@@ -4470,7 +4472,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.23.0" // gil:version
+const gilVersion = "2.24.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
