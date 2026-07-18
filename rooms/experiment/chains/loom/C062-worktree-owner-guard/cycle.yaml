@@ -1,0 +1,14 @@
+id: C062-worktree-owner-guard
+chain: loom
+parent: C060-worktree-land
+lineage: [loomlight/C002-hierarchical-viewer]
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "gil이 저자↔체크아웃 소유를 강제해 '워크트리 밖 공유 main으로 cd한 뒤 커밋'(C050)을 구조적으로 거부한다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
