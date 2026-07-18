@@ -2,7 +2,7 @@ id: C063-web-hierarchy-default
 chain: loom
 parent: C062-worktree-owner-guard
 lineage: [loomlight/C002-hierarchical-viewer, loomlight/C003-go-hierarchy-port]
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-19
