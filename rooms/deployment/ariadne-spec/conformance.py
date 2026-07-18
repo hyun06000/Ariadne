@@ -31,7 +31,8 @@ CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release"
                      "handoff", "supersede", "goto", "pages", "web", "help", "correct",
                      "reserve", "unreserve",  # loom/C043 (이슈 #13) — 부분 구현은 합법, 거짓 보고만 불법
                      "round",  # loom/C045 (이슈 #9·#10) — 라운드. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
-                     "worktree"]  # loom/C058 (#1) — 병렬 사이클 모드 spawn
+                     "worktree",  # loom/C058 (#1) — 병렬 사이클 모드 spawn
+                     "releases"]  # loom/C061 (#3) — 배포 계보 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
 
 
 def check(cid, desc, cond, detail=""):
@@ -577,6 +578,43 @@ def main():
             f.write("(몰래 수정)\n")
         r = impl.run(g, "verify")
         check("VERIFY-TAMPER", "닫힌 사이클 변조 탐지 (exit ≠ 0)", r.returncode != 0)
+
+        # ---- releases: 배포 계보 조회 — 태그↔CHANGELOG 대조 (loom/C061, #3 배포 버저닝) ----
+        # 배포는 두 몸으로 기록된다(태그 v<semver> + CHANGELOG). 조회 프리미티브는 그 둘을 대조해
+        # 한 기록에만 있는 릴리스(drift)를 드러내야 한다 — git tag -l이 못 하는 일. 읽기 전용이어야 한다.
+        # 구현이 releases를 구현했을 때만 판정한다(부분 구현 합법). 미구현이면 HELP-COMPLETE가 이미 정직성을 본다.
+        if impl.run(g, "help", "releases").returncode == 0:
+            rl = make_sandbox(os.path.join(work, "releases"))
+
+            def rlg(*cli):
+                return subprocess.run(["git", "-C", rl, *cli], capture_output=True, text=True)
+
+            os.makedirs(os.path.join(rl, "rooms/deployment/ariadne-spec"))
+            with open(os.path.join(rl, "rooms/deployment/CHANGELOG.md"), "w", encoding="utf-8") as f:
+                f.write("# Changelog\n\n## [Unreleased]\n\n"
+                        "## [1.2.0] — 2026-07-20\n\n- 문서만 릴리스 (태그 없음)\n- 도구 변경: 없음 (문서 릴리스)\n\n"
+                        "## [1.0.0] — 2026-07-18\n\n- 첫 릴리스\n- 도구 변경: gil (마이너 이상 승격)\n")
+            with open(os.path.join(rl, "rooms/deployment/ariadne-spec/f.txt"), "w", encoding="utf-8") as f:
+                f.write("x\n")
+            rlg("init", "-q", "-b", "main"); rlg("config", "user.name", "fx"); rlg("config", "user.email", "fx@t")
+            rlg("add", "-A"); rlg("commit", "-q", "-m", "init")
+            rlg("tag", "-a", "v1.0.0", "-m", "Ariadne release v1.0.0 — 첫 릴리스")   # TC (양쪽)
+            rlg("tag", "-a", "v1.1.0", "-m", "Ariadne release v1.1.0 — 태그만")       # T only → drift
+            rlg("tag", "-a", "cycle/x/C001-y", "-m", "cycle tag")                      # 릴리스 아님 → 무시돼야
+            before = snapshot(rl)
+            r = impl.run(rl, "releases")
+            after = snapshot(rl)
+            hooks = [l for l in r.stdout.splitlines() if l.startswith("gil:release ")]
+            summary = [l for l in r.stdout.splitlines() if l.startswith("gil:releases ")]
+            # 대조의 증거: 세 릴리스(1.2.0=C, 1.1.0=T, 1.0.0=TC)를 모두 봤고, drift 2건을 셈, cycle 태그는 배제, 무변화.
+            saw_all = all(f"gil:release {v} " in "\n".join(hooks) for v in ("1.2.0", "1.1.0", "1.0.0"))
+            no_cycle = not any(" C001-y " in h or "cycle/" in h for h in hooks)
+            drift_seen = bool(summary) and "drift=2" in summary[0]
+            check("RELEASE-LIST",
+                  "releases가 태그↔CHANGELOG를 대조 (3릴리스 훅 ∧ drift=2 ∧ cycle태그 배제 ∧ exit0 ∧ 저장소 무변화)",
+                  r.returncode == 0 and len(hooks) == 3 and saw_all and no_cycle
+                  and drift_seen and after == before,
+                  f"rc={r.returncode} 훅={len(hooks)} drift={drift_seen} 무변화={after == before}")
 
         # ---- open --git: 열 때부터 보이게 (SPEC §2.1-3) — 자체 구축 샌드박스 (판정 항목 독립) ----
         og = make_sandbox(os.path.join(work, "gitopen"))

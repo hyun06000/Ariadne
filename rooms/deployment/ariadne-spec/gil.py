@@ -2650,6 +2650,104 @@ def cmd_release(args):
     return 0
 
 
+# ---------- releases (배포 계보 조회 — loom/C061 #3 배포 버저닝) ----------
+# 배포는 이미 두 몸으로 기록된다: 깃 태그 v<semver>(cmd_release가 각인 — 깃의 진실)와
+# CHANGELOG의 '## [X.Y.Z] — 날짜' 엔트리(사람의 원장). 없던 것은 그 둘을 대조해 조회하는 표면이다.
+# gil log(사이클 계보)의 배포판 — 읽기 전용, 저장소 무변화(§7.2 안전한 탐침 정신).
+# git tag -l을 넘어서는 값은 대조에 있다: 한 기록에만 있는 릴리스(drift)를 드러낸다.
+# 출처를 지어내지 않는다(§3.2) — 태그와 CHANGELOG가 증언하는 것만 보고한다.
+
+_CHANGELOG_HEADER_RE = re.compile(r"^## \[(\d+\.\d+\.\d+)\]\s+—\s+(\S+)")
+
+
+def _parse_changelog_releases(changelog_path):
+    """CHANGELOG의 '## [X.Y.Z] — 날짜' 엔트리를 {version: {date, note, tools}} 로.
+    '## [Unreleased]'는 SemVer 헤더가 아니므로 자동 제외된다."""
+    out = {}
+    if not os.path.isfile(changelog_path):
+        return out
+    lines = open(changelog_path, encoding="utf-8").read().splitlines()
+    for i, line in enumerate(lines):
+        m = _CHANGELOG_HEADER_RE.match(line)
+        if not m:
+            continue
+        version, date = m.group(1), m.group(2)
+        note, tools = "", ""
+        for body in lines[i + 1:]:               # 다음 헤더 전까지의 불릿을 노트/도구변경으로
+            if body.startswith("## "):
+                break
+            s = body.strip()
+            if s.startswith("- 도구 변경:") or s.startswith("- 도구 동기화:"):
+                tools = s.split(":", 1)[1].strip()
+            elif s.startswith("- ") and not note:
+                note = s[2:].strip()
+        out[version] = {"date": date, "note": note, "tools": tools}
+    return out
+
+
+def _git_release_tags(repo):
+    """릴리스 태그 v<semver>를 {version: {date, subject}} 로. git 부재/비저장소면 None.
+    cycle/… 태그는 v* 글롭 + SemVer 필터로 자동 배제된다."""
+    if not repo:
+        return None
+    r = _git(repo, "for-each-ref", "--format=%(refname:short)\t%(creatordate:short)\t%(subject)",
+             "refs/tags/v*", check=False)
+    if r.returncode != 0:
+        return {}
+    out = {}
+    for line in r.stdout.splitlines():
+        parts = line.split("\t")
+        name = parts[0] if parts else ""
+        if not (name.startswith("v") and _SEMVER_RE.match(name[1:])):
+            continue
+        out[name[1:]] = {"date": parts[1] if len(parts) > 1 else "",
+                         "subject": parts[2] if len(parts) > 2 else ""}
+    return out
+
+
+def cmd_releases(args):
+    changelog = os.path.normpath(os.path.join(args.package, "..", "CHANGELOG.md"))
+    cl = _parse_changelog_releases(changelog)
+    # 저장소는 릴리스가 사는 곳(패키지)을 기준으로 유추한다 — 사이클 루트(--root)는 없을 수 있으나
+    # 패키지는 CHANGELOG를 담으므로 존재한다. 그마저 없으면 cwd로 강등한다.
+    anchor = args.package if os.path.isdir(args.package) else "."
+    tags = _git_release_tags(_repo_root(anchor))
+    git_absent = tags is None
+    if git_absent:                               # git 부재 또는 비저장소 — 태그를 알 수 없으니 CHANGELOG만 (읽기 전용, 크래시 없이)
+        print("ℹ 깃 저장소가 아니거나 git이 없어 태그 대조를 생략한다 — CHANGELOG만 보고한다.", file=sys.stderr)
+        tags = {}
+
+    ordered = sorted(set(cl) | set(tags),
+                     key=lambda v: tuple(int(x) for x in v.split(".")), reverse=True)
+
+    hooks, drift = [], 0
+    print(f"배포 계보 — {len(ordered)}개 릴리스"
+          + (" (git 부재: 태그 대조 생략)" if git_absent else "  [T=태그 C=CHANGELOG]"))
+    for v in ordered:
+        in_tag, in_cl = v in tags, v in cl
+        date = cl[v]["date"] if in_cl else tags[v]["date"]
+        note = cl[v]["note"] if in_cl else (tags[v]["subject"] if in_tag else "")
+        tools = cl[v]["tools"] if in_cl else ""
+        marks = ("T" if in_tag else "·") + ("C" if in_cl else "·")
+        drifted = not git_absent and not (in_tag and in_cl)
+        if drifted:
+            drift += 1
+        line = f"  v{v:<9} {date or '?':<10} [{marks}]{' ⚠drift' if drifted else ''}"
+        if note:
+            line += f"  {note}"
+        if tools and not tools.startswith("없음"):
+            line += f"  · 도구: {tools}"
+        print(line)
+        hooks.append(f"gil:release {v} {date or '-'} tags={int(in_tag)} changelog={int(in_cl)}")
+    for h in hooks:                              # 사람 렌더 뒤에 기계 훅 블록 (§7.2 정신)
+        print(h)
+    print(f"gil:releases {len(ordered)} drift={drift}")
+    if drift:
+        print(f"⚠ drift {drift}건: 태그와 CHANGELOG가 어긋난 릴리스가 있다 "
+              f"(한쪽 기록에만 존재). 봉인의 두 기록은 일치해야 한다.", file=sys.stderr)
+    return 0
+
+
 # ---------- CLI ----------
 
 def _scan_chains(root, only=None):
@@ -2822,6 +2920,10 @@ def main(argv=None):
     p_rel.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로")
     p_rel.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_rel.set_defaults(func=cmd_release)
+
+    p_rels = sub.add_parser("releases", help="배포 계보 조회: 깃 태그(v*)와 CHANGELOG를 대조해 릴리스 이력을 보고 (읽기 전용)")
+    p_rels.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로 (CHANGELOG는 <package>/../CHANGELOG.md, 저장소도 여기서 유추)")
+    p_rels.set_defaults(func=cmd_releases)
 
     p_ver = sub.add_parser("version", help="이 도구의 버전")
     p_ver.set_defaults(func=lambda a: (print(f"gil {_GIL_VERSION}"), 0)[1])
