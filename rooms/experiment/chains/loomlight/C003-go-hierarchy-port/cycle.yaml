@@ -2,7 +2,7 @@ id: C003-go-hierarchy-port
 chain: loomlight
 parent: C002-hierarchical-viewer
 lineage: []
-step: 4
+step: 5
 author: sheen
 status: open
 opened: 2026-07-19
