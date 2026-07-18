@@ -4,11 +4,11 @@ parent: C065-chain-node-stream
 lineage: [loomlight/C002-hierarchical-viewer]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "체인 아코디언을 지도 카드 안으로 — 지도에서 체인 누르면 카드 안에서 노드 주르륵"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
