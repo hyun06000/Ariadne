@@ -1,0 +1,4 @@
+# byte-parity: 체인 아코디언이 지도 카드 안으로 이동 (순수 마크업, Python↔Go 비트 동일)
+  기본: byte-identical (sha=60ad10b2405a)
+  --flat: byte-identical (sha=e6a080daafa5)
+  구조: card.hmap 안 mapchains: 1, hchain 아코디언: 5
