@@ -2,7 +2,7 @@ id: C070-threads
 chain: loom
 parent: C059-node-neighborhood-query
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-19
