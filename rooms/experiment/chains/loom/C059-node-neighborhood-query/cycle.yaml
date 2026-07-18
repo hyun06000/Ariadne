@@ -4,11 +4,11 @@ parent: C058-parallel-worktree-spawn
 lineage: [loomlight/C001-gather-viewer-lineage]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "gil show — 지식그래프 노드 한 개의 완전한 국소 이웃(정방향 링크+백링크+신원)을 전체 스캔 없이 조회하는 원자 프리미티브"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
