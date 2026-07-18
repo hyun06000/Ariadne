@@ -1,0 +1,14 @@
+id: C004-wide-graph-nav
+chain: loomlight
+parent: C003-go-hierarchy-port
+lineage: []
+step: 1
+author: sheen
+status: open
+opened: 2026-07-19
+closed: null
+title: ""
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
