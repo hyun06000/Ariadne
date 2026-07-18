@@ -926,6 +926,33 @@ def main():
           r.returncode == 0 and yaml_made and committed and no_crash,
           f"rc={r.returncode} yaml={yaml_made} committed={committed} crash={not no_crash} err={r.stderr.strip()[:80]}")
 
+    # ---- DEVIATIONS-COUNT: close는 deviations.yaml 레코드 수 ≠ 카운트면 봉인을 거부한다 (loom/C057) ----
+    # C053 슬립(deviations.yaml은 썼는데 cycle.yaml의 deviations 카운트를 손으로 못 고쳐 내부 불일치가
+    # 봉인됨) 차단. deviations.yaml은 사람이 읽는 자유 서술 문서라 스키마(R13)가 아니라 '몇 건인가'만
+    # 계약한다 — 최상위 '- ' 레코드 수 = deviations 필드. 계약: 불일치면 rc≠0 ∧ 무봉인(거부),
+    # 카운트를 맞추면 rc0 ∧ 봉인. T(문다)·F(안 문다) 두 얼굴을 함께 요구(C038 쌍 검증).
+    dvroot = make_sandbox(os.path.join(work, "devcount"))
+    write_cycle(dvroot, "demo", "C001-dev")
+    dvdir = os.path.join(dvroot, "rooms/experiment/chains/demo/C001-dev")
+    dvy = os.path.join(dvdir, "cycle.yaml")
+    with open(dvy, "a", encoding="utf-8") as f:
+        f.write("deviations: 0\n")   # gil open 스캐폴드와 동일 (카운트는 0인데…)
+    with open(os.path.join(dvdir, "5-report.md"), "w", encoding="utf-8") as f:
+        f.write("# 5. 결과 보고\n\n## 요약\n\n계약 검증용 실보고서.\n")
+    with open(os.path.join(dvdir, "deviations.yaml"), "w", encoding="utf-8") as f:
+        f.write("- id: D1\n  what: 테스트 이탈\n  why: |\n    블록 스칼라 내용 줄 (콜론 없음)\n")  # …레코드는 1건
+    before = open(dvy, encoding="utf-8").read()
+    r_bad = impl.run(dvroot, "close", "demo", "C001-dev", "--date", "2026-01-07")
+    rejected = r_bad.returncode != 0 and "status: closed" not in open(dvy, encoding="utf-8").read()
+    with open(dvy, "w", encoding="utf-8") as f:   # 카운트를 레코드 수(1)로 맞춘다
+        f.write(re.sub(r"(?m)^deviations:.*$", "deviations: 1", before))
+    r_ok = impl.run(dvroot, "close", "demo", "C001-dev", "--date", "2026-01-07")
+    accepted = r_ok.returncode == 0 and "status: closed" in open(dvy, encoding="utf-8").read()
+    check("DEVIATIONS-COUNT",
+          "close는 deviations.yaml 레코드 수 ≠ deviations 카운트면 봉인 거부, 맞추면 봉인 (C053 슬립 차단)",
+          rejected and accepted,
+          f"rejected={rejected} accepted={accepted} bad_rc={r_bad.returncode} ok_rc={r_ok.returncode}")
+
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
     print(f"\n계약 준수: {passed}/{total}" + ("  ✔ 이 구현은 gil이다" if passed == total else "  ✘ 계약 위반"))

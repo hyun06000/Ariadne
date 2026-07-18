@@ -347,6 +347,19 @@ def _parse_corrections(path):
     return records
 
 
+def _count_deviations(path):
+    """deviations.yaml의 최상위 레코드(‘- ’로 시작하는 시퀀스 항목) 수를 센다 (loom/C057).
+    deviations.yaml은 corrections.yaml과 달리 사람이 읽는 자유 서술 문서다(블록 스칼라 `|` 허용) —
+    그래서 R13처럼 스키마를 강제하지 않고 '몇 건인가'만 계약한다. 계약면은 스키마가 아니라
+    레코드 수다 (R10 유예-경고 등급과 정합). 블록 스칼라 내용은 ≥3칸 들여쓰기라 오계수 불가.
+    읽기 실패 시 None."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return sum(1 for line in f if line.startswith("- "))
+    except OSError:
+        return None
+
+
 def fsck_collect(chains, chains_root=None):
     """chains: {체인명: records}. (위반 리스트, 경고 리스트)를 반환한다 (경고는 표시일 뿐 exit 0)."""
     violations = []
@@ -403,11 +416,20 @@ def fsck_collect(chains, chains_root=None):
             if dev is not None:
                 if not (isinstance(dev, str) and dev.isdigit()):
                     violations.append(("R10", loc, f"deviations '{dev}'는 정수여야 한다 (상세는 deviations.yaml)"))
-                elif int(dev) > 0:
+                else:
+                    n_field = int(dev)
                     devfile = os.path.join(chains_root, ch, r["_dir"], "deviations.yaml") if chains_root else None
-                    if devfile and not os.path.isfile(devfile):
-                        violations.append(("R10", loc, f"deviations {dev}인데 deviations.yaml이 없다"))
-                    warnings.append(("이탈", loc, f"사전등록 이탈 {dev}건 (deviations.yaml)"))
+                    exists = bool(devfile) and os.path.isfile(devfile)
+                    if n_field > 0:
+                        if devfile and not exists:
+                            violations.append(("R10", loc, f"deviations {dev}인데 deviations.yaml이 없다"))
+                        warnings.append(("이탈", loc, f"사전등록 이탈 {dev}건 (deviations.yaml)"))
+                    # 역방향 (loom/C057): 파일이 있는데 레코드 수 ≠ 카운트 — C053 슬립을 가시화.
+                    # 위반이 아니라 경고 — R10은 v0.3 유예-경고라 이미 봉인된 사슬(C053)이 fsck rc를 바꾸지 않는다.
+                    if exists:
+                        n_rec = _count_deviations(devfile)
+                        if n_rec is not None and n_rec != n_field:
+                            warnings.append(("이탈카운트", loc, f"deviations.yaml {n_rec}건인데 cycle.yaml deviations: {dev} — 불일치 (봉인 전 조정, C057)"))
             if status == "closed" and verdict is None:
                 warnings.append(("결말없음", loc, "닫혔으나 verdict 없음 — 결말을 기록할 것 (경고, 기존 사슬 유예)"))
             # R13 (v0.5): 출처 정정 기록 — L1(필드 제한)과 L3(영구 기록)을 fsck가 집행한다.
@@ -1826,6 +1848,23 @@ def cmd_close(args):
     data = parse_cycle_yaml(yaml_path)
     if data.get("status") == "closed":
         raise ChainError(f"{args.chain}/{args.cycle_id}: 이미 닫힌 사이클이다 — 닫힌 사이클은 수정하지 않는다")
+
+    # deviations 카운트 관문 (loom/C057): deviations.yaml이 있으면 레코드 수 = deviations 필드여야 봉인한다.
+    # C053 슬립(파일은 썼는데 cycle.yaml 카운트를 손으로 못 고침) 차단. auto-count가 아니라 거부 —
+    # 카운트는 저자의 의도이므로 도구가 임의로 덮어쓰지 않고 의식적 조정을 강제한다 (저장소 무변화).
+    devfile = os.path.join(cycle_dir, "deviations.yaml")
+    if os.path.isfile(devfile):
+        n_rec = _count_deviations(devfile)
+        dev_field = data.get("deviations")
+        try:
+            n_field = int(dev_field) if dev_field is not None else 0
+        except (TypeError, ValueError):
+            n_field = None  # 비정수 필드는 이후 fsck의 R10이 잡는다
+        if n_rec is not None and n_field is not None and n_rec != n_field:
+            raise ChainError(
+                f"{args.chain}/{args.cycle_id}: deviations.yaml에 {n_rec}건인데 "
+                f"cycle.yaml deviations: {n_field} — 봉인 전에 카운트를 조정하라 "
+                f"(손으로 세는 것을 잊지 말라, C053)")
 
     # 기본 커밋 (v1.7, C033): 깃 저장소면 자동 커밋+각인. --no-commit으로만 끈다.
     # (--git은 하위호환. 사전 검증은 저장소를 건드리기 전에 전부 확인한다.)

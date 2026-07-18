@@ -303,11 +303,24 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 			if dv, ok := r.fields["deviations"]; ok && dv != "" {
 				if !isDigits(dv) {
 					add("R10", loc, "deviations '"+dv+"'는 정수여야 한다 (상세는 deviations.yaml)")
-				} else if n, _ := strconv.Atoi(dv); n > 0 {
-					if _, e := os.Stat(filepath.Join(root, ch, r.dir, "deviations.yaml")); e != nil {
-						add("R10", loc, "deviations "+dv+"인데 deviations.yaml이 없다")
+				} else {
+					nField, _ := strconv.Atoi(dv)
+					devfile := filepath.Join(root, ch, r.dir, "deviations.yaml")
+					_, e := os.Stat(devfile)
+					exists := e == nil
+					if nField > 0 {
+						if !exists {
+							add("R10", loc, "deviations "+dv+"인데 deviations.yaml이 없다")
+						}
+						warnings = append(warnings, "이탈\x00"+loc+"\x00사전등록 이탈 "+dv+"건 (deviations.yaml)")
 					}
-					warnings = append(warnings, "이탈\x00"+loc+"\x00사전등록 이탈 "+dv+"건 (deviations.yaml)")
+					// 역방향 (loom/C057): 파일이 있는데 레코드 수 ≠ 카운트 — C053 슬립을 가시화.
+					// 위반이 아니라 경고 — R10은 v0.3 유예-경고라 이미 봉인된 사슬이 fsck rc를 바꾸지 않는다.
+					if exists {
+						if nRec := countDeviations(devfile); nRec >= 0 && nRec != nField {
+							warnings = append(warnings, fmt.Sprintf("이탈카운트\x00%s\x00deviations.yaml %d건인데 cycle.yaml deviations: %s — 불일치 (봉인 전 조정, C057)", loc, nRec, dv))
+						}
+					}
 				}
 			}
 			if v := r.fields["verdict"]; status == "closed" && v == "" {
@@ -1238,6 +1251,22 @@ func cmdClose(a closeArgs) error {
 		return cerr("%s/%s: 이미 닫힌 사이클이다 — 닫힌 사이클은 수정하지 않는다", a.chain, a.cycleID)
 	}
 
+	// deviations 카운트 관문 (loom/C057): deviations.yaml이 있으면 레코드 수 = deviations 필드여야 봉인한다.
+	// C053 슬립(파일은 썼는데 cycle.yaml 카운트를 손으로 못 고침) 차단. auto-count가 아니라 거부 —
+	// 카운트는 저자의 의도이므로 도구가 임의로 덮어쓰지 않고 의식적 조정을 강제한다 (저장소 무변화).
+	devfile := filepath.Join(cycleDir, "deviations.yaml")
+	if _, e := os.Stat(devfile); e == nil {
+		nRec := countDeviations(devfile)
+		nField, ferr := 0, error(nil)
+		if dv, ok := fields["deviations"]; ok && dv != "" {
+			nField, ferr = strconv.Atoi(dv)
+		}
+		// 비정수 필드(ferr≠nil)는 이후 fsck의 R10이 잡는다.
+		if nRec >= 0 && ferr == nil && nRec != nField {
+			return cerr("%s/%s: deviations.yaml에 %d건인데 cycle.yaml deviations: %d — 봉인 전에 카운트를 조정하라 (손으로 세는 것을 잊지 말라, C053)", a.chain, a.cycleID, nRec, nField)
+		}
+	}
+
 	// 기본 커밋 (v1.7, C033): 깃 저장소면 자동 커밋+각인. --no-commit으로만 끈다.
 	var repo, tag string
 	if !a.noCommit {
@@ -1403,6 +1432,24 @@ func parseCorrections(path string) []map[string]string {
 		cur[key] = strings.TrimSpace(body[i+1:])
 	}
 	return records
+}
+
+// countDeviations — deviations.yaml의 최상위 레코드('- '로 시작하는 시퀀스 항목) 수 (loom/C057).
+// deviations.yaml은 corrections.yaml과 달리 사람이 읽는 자유 서술 문서다(블록 스칼라 허용) —
+// 그래서 R13처럼 스키마를 강제하지 않고 '몇 건인가'만 계약한다. 계약면은 스키마가 아니라 레코드 수다
+// (R10 유예-경고 등급과 정합). 블록 스칼라 내용은 ≥3칸 들여쓰기라 오계수 불가. 읽기 실패 시 -1.
+func countDeviations(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return -1
+	}
+	n := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "- ") {
+			n++
+		}
+	}
+	return n
 }
 
 // renderYamlValue — 평탄 표기 (§3.1)
