@@ -4,11 +4,11 @@ parent: C067-chain-expands-to-node-graph
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "가로 사이클 그래프가 축소되지 않고 자연 크기로 가로 스크롤되게 (max-width 수정)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
