@@ -2067,6 +2067,101 @@ def cmd_goto(args):
     return 0
 
 
+# ---------- show: 지식그래프 노드 조회 (loom/C059 — #4 LLM 위키) ----------
+# 사이클 DAG는 이미 지식그래프다(parent·lineage 엣지는 각 cycle.yaml에 데이터로 산다). 없던 것은
+# ① 노드 단위 조회 표면과 ② 엣지 반전 = 백링크. show는 새 파서를 만들지 않고 이 둘만 더한다.
+# web(사람용 렌더, 전체 그래프)의 machine-facing 짝: 한 노드 + 양방향 이웃을, 질의자가 파일을
+# 하나도 안 읽고 얻는다(표적 탐색). 읽기 전용 — 커밋·상태 변경 0 (§7.2 안전한 탐침 정신).
+
+def _node_exists(chains_root, ref):
+    """전역 ref <chain>/<id>가 실재하는 사이클을 가리키는가."""
+    if "/" not in ref:
+        return False
+    c, i = ref.split("/", 1)
+    return os.path.isfile(os.path.join(chains_root, c, i, "cycle.yaml"))
+
+
+def _collect_backlinks(chains_root, target_chain, target_cid):
+    """이 노드를 인용하는 사이클들(cited-by). 두 종류:
+    - parent 백링크: 같은 체인에서 이 노드를 parent로 나열한 사이클 (체인 내).
+    - lineage 백링크: 아무 체인에서든 이 노드를 lineage(전역 ref)로 나열한 사이클 (cross-chain).
+    엣지 집합의 반전 — build_graph가 그리는 정방향의 역방향이다."""
+    target_ref = f"{target_chain}/{target_cid}"
+    parent_bl, lineage_bl = [], []
+    for name in sorted(e for e in os.listdir(chains_root)
+                       if os.path.isdir(os.path.join(chains_root, e))):
+        for rec in load_chain_records(os.path.join(chains_root, name)):
+            cid = rec.get("id") or rec["_dir"]
+            ref = f"{name}/{cid}"
+            if name == target_chain and target_cid in rec["parents"]:
+                parent_bl.append(ref)
+            if target_ref in rec["lineage_list"]:
+                lineage_bl.append(ref)
+    return sorted(set(parent_bl)), sorted(set(lineage_bl))
+
+
+def cmd_show(args):
+    """지식그래프 노드 조회: 신원 + 정방향 엣지(parent·lineage) + 백링크(cited-by)."""
+    chains_root = args.root
+    if "/" not in args.ref:
+        raise ChainError(f"ref는 <chain>/<id> 형식이어야 한다: {args.ref}")
+    chain, cid = args.ref.split("/", 1)
+    yaml_path = os.path.join(chains_root, chain, cid, "cycle.yaml")
+    if not os.path.isfile(yaml_path):
+        raise ChainError(f"사이클이 없다: {args.ref}")  # 지어내지 않는다 (§3.2 P2, C040)
+    node = parse_cycle_yaml(yaml_path)
+    parents = _as_list(node.get("parent"))
+    lineage = _as_list(node.get("lineage"))
+    # 정방향 엣지 — parent는 체인 내 로컬 id(전역 ref로 표기), lineage는 이미 전역 ref
+    fwd_parents = [{"ref": f"{chain}/{p}", "exists": _node_exists(chains_root, f"{chain}/{p}")}
+                   for p in parents]
+    fwd_lineage = [{"ref": ln, "exists": _node_exists(chains_root, ln)} for ln in lineage]
+    # 백링크 — 엣지 반전 (cited-by)
+    bl_parents, bl_lineage = _collect_backlinks(chains_root, chain, cid)
+    report_path = os.path.join(chains_root, chain, cid, "5-report.md")
+    report = report_path if os.path.isfile(report_path) else None
+
+    if args.json:
+        payload = {
+            "ref": f"{chain}/{cid}",
+            "node": node,
+            "forward": {"parents": fwd_parents, "lineage": fwd_lineage},
+            "backlinks": {"parents": bl_parents, "lineage": bl_lineage},
+            "report": report,
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    # 사람용 렌더 (계약 아님 — §3.1, C021)
+    print(f"● {chain}/{cid}  [{node.get('status') or '?'}]"
+          + (f"  결말: {node.get('verdict')}" if node.get("verdict") else ""))
+    if node.get("title"):
+        print(f"  {node.get('title')}")
+    line = f"  저자: {node.get('author') or '?'}"
+    if node.get("opened"):
+        line += f"   열림: {node.get('opened')}"
+    if node.get("closed"):
+        line += f"   닫힘: {node.get('closed')}"
+    print(line)
+    print("  ── 정방향 (이 노드가 인용하는) ──")
+    for e in fwd_parents:
+        print(f"    parent  → {e['ref']}" + ("" if e["exists"] else "  (끊어진 참조)"))
+    for e in fwd_lineage:
+        print(f"    lineage ⇠ {e['ref']}" + ("" if e["exists"] else "  (끊어진 참조)"))
+    if not fwd_parents and not fwd_lineage:
+        print("    (없음 — 루트)")
+    print("  ── 백링크 (이 노드를 인용하는) ──")
+    for r in bl_parents:
+        print(f"    ← parent  {r}")
+    for r in bl_lineage:
+        print(f"    ← lineage {r}")
+    if not bl_parents and not bl_lineage:
+        print("    (없음 — 아직 인용되지 않음)")
+    if report:
+        print(f"  보고서: {report}")
+    return 0
+
+
 def cmd_verify(args):
     chains_root = args.chains_root
     repo = _repo_root(chains_root)
@@ -2762,6 +2857,12 @@ def main(argv=None):
     p_goto.add_argument("--checkout", action="store_true", help="그 시점 작업 트리로 실제 역행 (미커밋 있으면 거부)")
     p_goto.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_goto.set_defaults(func=cmd_goto)
+
+    p_show = sub.add_parser("show", help="지식그래프 노드 조회: 신원+정방향 엣지+백링크 (loom/C059, #4 LLM 위키)")
+    p_show.add_argument("ref", help="<chain>/<id> (예: loom/C029-time-machine)")
+    p_show.add_argument("--json", action="store_true", help="기계 계약면 (지식그래프 JSON)")
+    p_show.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_show.set_defaults(func=cmd_show)
 
     p_pages = sub.add_parser("pages", help="GitHub Pages 배포 워크플로를 생성한다")
     p_pages.add_argument("--force", action="store_true", help="기존 워크플로를 덮어쓴다")
