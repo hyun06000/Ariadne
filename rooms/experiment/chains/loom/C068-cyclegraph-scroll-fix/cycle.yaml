@@ -1,0 +1,14 @@
+id: C068-cyclegraph-scroll-fix
+chain: loom
+parent: C067-chain-expands-to-node-graph
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "가로 사이클 그래프가 축소되지 않고 자연 크기로 가로 스크롤되게 (max-width 수정)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
