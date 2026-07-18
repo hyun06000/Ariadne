@@ -2,7 +2,7 @@ id: C057-deviations-count-reconcile
 chain: loom
 parent: C056-windows-gate-runtime-verify
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-19
