@@ -2733,7 +2733,13 @@ const (
 )
 
 // webCSS: 참조 구현 _WEB_CSS와 문자 단위 동일 (검증된 기본 팔레트).
-const webCSS = `.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
+const webCSS = `.gil .parbanner{background:color-mix(in srgb,var(--lineage) 14%,var(--surface));
+border:1px solid var(--lineage);border-radius:8px;padding:10px 14px;margin:0 0 20px;
+font-size:14px;color:var(--ink);display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.gil .parbanner .picon{color:var(--lineage);font-weight:700}
+.gil .parbanner .pchip{background:var(--surface);border:1px solid var(--ring);border-radius:999px;
+padding:2px 10px;font-size:13px;color:var(--ink-2)}
+.gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
 --hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
 --supersede:#c07c15;--ring:rgba(11,11,11,.1);
 font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
@@ -4109,6 +4115,31 @@ func renderChainMap(d *webData) string {
 }
 
 // renderHierarchyBody: 참조 구현 _render_hierarchy_body — L0 체인 지도 → L1 목차 → 체인 <details>(그래프+표) → 사이클 <details>(5스텝).
+// renderParallelBanner: 참조 구현 _render_parallel_banner (loom/C073) — 진행 중 병렬 사이클(미소비 예약)을
+// 페이지 상단 배너로. gil threads가 CLI로 답하는 것을 뷰어가 배너로 답한다. 예약 0이면 "" → 바이트 동일.
+func renderParallelBanner(d *webData) string {
+	type bannerItem struct {
+		name string
+		r    reservation
+	}
+	var items []bannerItem
+	for _, name := range d.names {
+		for _, rv := range d.chains[name].reservations {
+			items = append(items, bannerItem{name, rv})
+		}
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	var chips strings.Builder
+	for _, it := range items {
+		chips.WriteString(fmt.Sprintf(`<span class="pchip">%s/C%03d → %s</span>`,
+			htmlEscape(it.name), it.r.num, htmlEscape(it.r.who)))
+	}
+	return fmt.Sprintf(`<div class="parbanner" role="status"><span class="picon">⟳</span> 병렬 진행 중 (예약, 아직 안 거둬짐): <b>%d</b>%s</div>`,
+		len(items), chips.String())
+}
+
 func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLineage int, chainsRoot, gilDataJSON string) string {
 	style := webCSS + "\n" + webHierCSS
 	var toc, chainsHTML strings.Builder
@@ -4144,6 +4175,7 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <header><h1>%s</h1>
 <p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p>
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 5스텝 문서가 그 자리에 열린다 (JS 없이 &lt;details&gt;로).</p></header>
+%s
 <div class="card hmap">%s
 <div class="mapchains">%s</div></div>
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
@@ -4151,7 +4183,7 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON)
+		renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON)
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).
@@ -4174,6 +4206,7 @@ func renderWebPage(d *webData, pageTitle, generated, only string, refresh int, h
 		body = fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
 <p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p></header>
+%s
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
 <span><svg width="16" height="16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="var(--node)" stroke-width="2"/></svg>열린 사이클</span>
 <span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--edge)" stroke-width="1.6"/></svg>parent (체인 내 계보)</span>
@@ -4185,7 +4218,7 @@ func renderWebPage(d *webData, pageTitle, generated, only string, refresh int, h
 </div></div>
 <script type="application/json" id="gil-data">%s</script>`,
 			webCSS, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-			renderSVG(d), renderTables(d), gilData)
+			renderParallelBanner(d), renderSVG(d), renderTables(d), gilData)
 	}
 	// v0.5 (loom/C049): meta refresh — JS 아닌 HTML 표준으로 N초마다 리로드 (자기완결 계약 유지)
 	refreshMeta := ""

@@ -1033,6 +1033,12 @@ def _layout_columns(order, cycles, children):
 _WEB_DEFAULT_TITLE = "Ariadne — 사이클 체인"   # 뷰어의 기본 제목 (단일 소스)
 
 _WEB_CSS = """
+.gil .parbanner{background:color-mix(in srgb,var(--lineage) 14%,var(--surface));
+border:1px solid var(--lineage);border-radius:8px;padding:10px 14px;margin:0 0 20px;
+font-size:14px;color:var(--ink);display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.gil .parbanner .picon{color:var(--lineage);font-weight:700}
+.gil .parbanner .pchip{background:var(--surface);border:1px solid var(--ring);border-radius:999px;
+padding:2px 10px;font-size:13px;color:var(--ink-2)}
 .gil{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;
 --hairline:#e1e0d9;--edge:#a5a49c;--node:#2a78d6;--lineage:#1baf7a;--rejected:#d03b3b;
 --supersede:#c07c15;--ring:rgba(11,11,11,.1);
@@ -1706,6 +1712,25 @@ def _render_chain_map(data):
     return "".join(p)
 
 
+def _render_parallel_banner(data):
+    """진행 중 병렬 사이클(미소비 예약)을 페이지 상단 배너로 드러낸다 (loom/C073, #4·상현님 요청).
+    워크트리 브랜치에 사는 병렬 사이클은 그래프에 아직 안 뜨지만 예약은 main에 커밋돼 있다 —
+    `gil threads`가 CLI로 답하는 "뭐가 병렬로 도나"를 뷰어가 배너로 답한다. 데이터는 gil-data의
+    reservations(계약면)에서 오고, 이 함수는 렌더일 뿐이다(C021). 예약 0이면 빈 문자열 → 바이트 동일."""
+    items = []
+    for name in sorted(data):
+        for r in (data[name].get("reservations") or []):
+            items.append((name, r))
+    if not items:
+        return ""
+    chips = "".join(
+        f'<span class="pchip">{html.escape(name)}/C{r["num"]:03d} → {html.escape(r["for"])}</span>'
+        for name, r in items)
+    return (f'<div class="parbanner" role="status">'
+            f'<span class="picon">⟳</span> 병렬 진행 중 (예약, 아직 안 거둬짐): '
+            f'<b>{len(items)}</b>{chips}</div>')
+
+
 def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json):
     """위계 뷰어 몸체. L0 체인 지도 → L1 목차 → 체인별 <details>(그래프+표) → 사이클별 <details>(5스텝)."""
     style = _WEB_CSS + "\n" + _WEB_HIER_CSS
@@ -1734,6 +1759,7 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
 <header><h1>{html.escape(page_title)}</h1>
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p>
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 5스텝 문서가 그 자리에 열린다 (JS 없이 &lt;details&gt;로).</p></header>
+{_render_parallel_banner(data)}
 <div class="card hmap">{_render_chain_map(data)}
 <div class="mapchains">{"".join(chains_html)}</div></div>
 <nav class="htoc"><h2>체인 목록</h2><ul>{"".join(toc)}</ul></nav>
@@ -1772,6 +1798,7 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
         body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p></header>
+{_render_parallel_banner(data)}
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
 <span><svg width="16" height="16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="var(--node)" stroke-width="2"/></svg>열린 사이클</span>
 <span><svg width="26" height="16"><path d="M2,8 H24" stroke="var(--edge)" stroke-width="1.6"/></svg>parent (체인 내 계보)</span>

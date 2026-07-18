@@ -550,6 +550,23 @@ def main():
           default_hier and not flat_hier and rf.returncode == 0 and extf == [],
           f"default_hier={default_hier} flat_hier={flat_hier} rc={rf.returncode} extf={extf}")
 
+    # WEB-PARALLEL-BANNER (loom/C073, #4·상현님 요청): 워크트리 병렬 사이클은 그래프에 안 뜨지만
+    # 예약은 main에 커밋돼 있다 — 뷰어가 그 예약을 상단 배너로 드러낸다. gil threads의 뷰어판.
+    # 계약면은 gil-data의 reservations(이미 있음)이고, 배너는 그 렌더다 — "병렬이 드러난다"는 의도를 잠근다.
+    # 예약 0이면 배너 부재(위 page엔 role="status" 없음), 예약이 있으면 배너 출현.
+    banner_absent = 'role="status"' not in page  # 예약 없던 lroot 렌더(WEB-JSON의 page)엔 배너 없음
+    with open(os.path.join(lroot, "rooms/experiment/chains/demo/reservations.tsv"), "w", encoding="utf-8") as f:
+        f.write("# hdr\n9 tester futurething 2026-01-01\n")
+    outb = os.path.join(work, "chains-banner.html")
+    rb = impl.run(lroot, "web", "-o", outb, "--title", "t")
+    pageb = open(outb, encoding="utf-8").read() if os.path.isfile(outb) else ""
+    banner_present = rb.returncode == 0 and 'role="status"' in pageb and "demo/C009" in pageb and "tester" in pageb
+    os.remove(os.path.join(lroot, "rooms/experiment/chains/demo/reservations.tsv"))  # 이후 검사 오염 방지
+    check("WEB-PARALLEL-BANNER",
+          '예약 0이면 배너 부재 · 예약 있으면 상단 배너로 진행 중 병렬 사이클(예약)을 드러냄 (threads의 뷰어판)',
+          banner_absent and banner_present,
+          f"absent={banner_absent} present={banner_present}")
+
     # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
     # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
     outr = os.path.join(work, "chains-refresh.html")
