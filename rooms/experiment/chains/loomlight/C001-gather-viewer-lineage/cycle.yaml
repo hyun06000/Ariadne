@@ -1,0 +1,14 @@
+id: C001-gather-viewer-lineage
+chain: loomlight
+parent: null
+lineage: [loom/C005-web-viewer, loom/C013-realtime-step-visibility, loom/C015-being-work-visibility, loom/C020-go-web-port, loom/C028-pages-command, loom/C031-web-lane-layout, loom/C042-viewer-follows-ledger, loom/C047-web-topology-layout, loom/C048-sibling-label-spacing, loom/C049-live-viewer-refresh]
+step: 1
+author: sheen
+status: open
+opened: 2026-07-19
+closed: null
+title: "흩어진 뷰어 사이클을 lineage로 모은 전용 체인이 교차-체인 계보를 드러내고 남은 뷰어 백로그를 지도로 그린다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
