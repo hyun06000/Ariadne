@@ -2,7 +2,7 @@ id: C068-cyclegraph-scroll-fix
 chain: loom
 parent: C067-chain-expands-to-node-graph
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-19

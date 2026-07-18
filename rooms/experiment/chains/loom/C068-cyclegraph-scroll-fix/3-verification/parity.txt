@@ -1,0 +1,5 @@
+# byte-parity: CSS 한 줄 수정(.hmap svg → .card.hmap>svg). L0 지도만 폭맞춤, 사이클 그래프는 자연크기+스크롤
+  기본: byte-identical (sha=b274fc29e0a0)
+  --flat: byte-identical (sha=aeb2879fcb0e)
+  참조 계약 준수: 90/90  ✔ 이 구현은 gil이다 | Go 계약 준수: 83/83  ✔ 이 구현은 gil이다
+  수정: .card.hmap>svg 선택자(직계 자식) — 그래프 svg는 max-width 없이 .cyclegraph{overflow-x:auto}로 스크롤
