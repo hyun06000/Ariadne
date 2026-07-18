@@ -1,0 +1,14 @@
+id: C057-deviations-count-reconcile
+chain: loom
+parent: C056-windows-gate-runtime-verify
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "close가 deviations.yaml ↔ 카운트 불일치를 봉인 전에 막고, fsck가 역방향을 본다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
