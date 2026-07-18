@@ -2,13 +2,13 @@ id: C058-parallel-worktree-spawn
 chain: loom
 parent: C057-deviations-count-reconcile
 lineage: []
-step: 3
+step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "gil이 격리 워크트리+예약 사이클을 한 명령으로 열고 머지백까지 관리한다 (병렬 사이클 모드 첫 조각)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
