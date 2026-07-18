@@ -2,7 +2,7 @@ id: C071-parallel-usage-proof
 chain: loom
 parent: C069-parallel-onboarding-guidance
 lineage: []
-step: 1
+step: 2
 author: weft
 status: open
 opened: 2026-07-19
