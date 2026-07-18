@@ -2,7 +2,7 @@ id: C060-worktree-land
 chain: loom
 parent: C058-parallel-worktree-spawn
 lineage: []
-step: 1
+step: 2
 author: weft
 status: open
 opened: 2026-07-19
