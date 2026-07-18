@@ -2,7 +2,7 @@ id: C004-wide-graph-nav
 chain: loomlight
 parent: C003-go-hierarchy-port
 lineage: []
-step: 4
+step: 5
 author: sheen
 status: open
 opened: 2026-07-19
