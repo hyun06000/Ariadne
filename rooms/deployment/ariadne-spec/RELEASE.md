@@ -1,5 +1,16 @@
 # Ariadne Spec — Release
 
+## v2.17.0 (2026-07-19) — 네 갈래 병렬 수확: `gil show`·`worktree land`·`releases` + Go 위계 (loom/C059·C060·C061, loomlight/C003)
+
+상현님의 4방향 아크를 **네 존재가 병렬로** 정복한 수확을 한 번에 배포한다 — Clew(#4), Weft(#1 land), Selvage(신규 거주자, #3), Sheen(loomlight Go 이식)이 각자 격리 워크트리에서 동시에 직조했다. 배포자는 이 병렬을 관전했고, 병렬 사고(에이전트가 워크트리 밖 공유 main으로 cd)까지 정직히 겪고 무손실 복구했다 — 그 사고가 다음 릴리스의 `worktree guard`를 낳는다.
+
+- **`gil show <chain>/<id>` (loom/C059, #4 LLM 위키 — Clew)**: 사이클 DAG는 이미 지식그래프인데 사람용 web으로만, 전방으로만 탐색됐다. 한 노드의 신원 + 정방향 엣지(parent·lineage) + **백링크**(cited-by, 엣지 반전) + 보고서 포인터를 `--json` 계약면과 함께 반환하는 읽기 전용 원자 프리미티브. 질의자(LLM)가 저장소 전체를 안 읽고 한 노드+양방향 이웃을 얻는다(표적 탐색). 판정기 `SHOW-*` 6항목, 참조 **86/86**, `SHOW-EDGES-MATCH-GRAPH`가 show 엣지를 web JSON(build_graph)에 묶어 두 표면이 다른 그래프를 못 말하게 한다. Go는 참조 전용의 정직한 부재(HELP-COMPLETE).
+- **`gil worktree land` (loom/C060, #1 병렬 모드 닫는 반쪽 — Weft, 양 구현)**: `worktree add`(v2.16)의 결정론적 매핑을 역산해 브랜치를 main에 `--no-ff` 병합 + 충돌 검사(abort 복원·워크트리 보존) + 성공 시에만 정리. 판정기 `WORKTREE-LAND`(양성 착지 + 음성 충돌 안전, 쌍 검증), 양 구현 **79/79**, 회귀 0.
+- **`gil releases` (loom/C061, #3 배포 버저닝 — Selvage, 참조)**: 깃 태그(`v<semver>`) ↔ CHANGELOG를 대조해 배포 계보를 조회하고 한쪽에만 있는 릴리스(**drift**)를 드러내는 읽기 전용 프리미티브 — `git tag -l`이 못 하는 일. 기계 훅 `gil:release`/`gil:releases`, 저장소 무변화, 출처 무발명(§3.2). 판정기 `RELEASE-LIST`, 참조 **86/86**, Go 정직한 부재.
+- **Go `gil web --hierarchy` 이식 (loomlight/C003 — Sheen)**: C002가 Go 툴체인 부재로 이월한 위계 뷰어를 Go로. 참조↔Go `--hierarchy` 산출물 **바이트 동일**(5체인·67사이클), 기본 출력 회귀 0(opt-in 계약), Go conformance 유지.
+
+**규율을 도구로 승격하면 사고가 구조적으로 불가능해진다** — 이번 병렬 사고는 하네스 워크트리 격리로도 못 막았다(에이전트가 워크트리 밖으로 cd 가능). 다음 조각 `worktree guard`(저자↔체크아웃 바인딩)가 add→land 위에 선다. 종합: 참조 86/86 · Go 79/79 · fsck 위반 0(69사이클) · verify 변조 0.
+
 ## v2.16.0 (2026-07-19) — 병렬 사이클 모드 첫 조각: `gil worktree add` (loom/C058, 발의: 박상현 #1)
 
 상현님의 아크 발의 #1(병렬 사이클 모드)의 진입점. 지금까지 "서브에이전트마다 워크트리를 나누고 사이클을 열고 머지백"하는 패턴은 전부 손으로 돌아갔고, C050에서 워크트리 아닌 메인 저장소로 `cd`해 open 커밋이 main에 선착·push된 뼈아픈 사고가 났다.

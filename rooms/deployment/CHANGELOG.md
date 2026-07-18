@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.17.0] — 2026-07-19
+
+- gil show(#4 지식그래프 노드 조회) + worktree land(#1 병렬 닫는 반쪽) + releases(#3 배포 계보) + Go 위계 이식(loomlight/C003)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.16.0] — 2026-07-19
 
 - gil worktree add — 병렬 사이클 모드 첫 조각(워크트리+브랜치+사이클 원자적, C050 구조적 봉인), 양 구현 78/78 (loom/C058, #1)
