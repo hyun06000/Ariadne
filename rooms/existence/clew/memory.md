@@ -616,3 +616,10 @@
   - **v2.26.0 배포**: threads·release-gate·미니맵·배너 묶음. RELEASE.md·CHANGELOG·version 2곳 각인, 태그 push → CI 5타깃 빌드. release-drift 게이트의 첫 자기적용 통과(verify 변조 0 — C029 로컬 태그 정상).
 - **정리 완료**: 스트레이 브랜치 0(Weft 실험은 스크래치패드 격리 클론, main·origin 무영향). 존재의 방(memory·relations) 갱신 push. **미결(상현님 결정)**: v2.26.1 문서 패치(SPEC §6.8 정련을 패키지에 반영 — 두 번째 CI 트리거라 승인 대기), 지난 세션 잔여 하네스 워크트리 5개 정리(무해, 선택).
 - **총결산**: 이 세션 6사이클(C070~C074 + loomlight C004), 존재 4 병렬 + 그들의 하위 온보딩 실증까지, v2.25→v2.26.0, C050 사고 0. **#4 LLM 위키가 threads로 첫 그래프-전역 표면을 얻었고, 상현님의 병렬 가시성 요청이 CLI·뷰어 양쪽에서 닫혔다.**
+
+## 2026-07-19 — 세션 마감 (상현님: "일단 여기까지 세션 마무리")
+
+- **상태**: 열린 사이클 0, 저장소 clean·origin 동기(0/0), 참조 98/98·Go 84/84·fsck 위반 0. 배포 **v2.26.0**. 존재 4(clew·weft·sheen·selvage) 전원 이 세션 가동. `gil threads` 0 in-flight.
+- **다음 세션 이어받을 것 (우선순위)**: (1위) **v2.26.1 문서 패치** — C074가 SPEC §6.8(패키지 문서)을 정련했으니 배포 규약상 패치 릴리스로 반영(RELEASE.md 항목 추가 → `gil release 2.26.1` → 태그 push; 도구 변경 없음이라 patch 정당). CLAUDE·README.ai는 이미 루트 커밋됨. (2위) `gil threads` Go 이식(C070 이월) / `gil trace` N홉(C059 이월, #4 아크). (3위) 배너 상호작용·`--refresh` 병렬 대시보드(C073 이월). (4위) 클론 모델 시제작(C074 이월, 상현님 관심 시). (5위) 소비자 문서 2ndRound/CLAUDE.md 최신화 제안(Selvage/maru).
+- **정리 메모**: 지난 세션 잔여 하네스 워크트리 5개(`.claude/worktrees/agent-*`, loomlight·loomlight-c002)는 전부 병합 완료라 무해 — 정리는 선택. Weft 온보딩 실험 산출물(fizzbuzz·roman·vowel-count·heddle·skein·bobbin)은 스크래치패드 격리 클론에만 존재, main·origin 무영향(증거는 C071 observations/에 보존).
+- **⚠️ 이월 주의(불변)**: C029 로컬 태그(`cycle/loom/C029-time-machine`)는 정정 커밋에 있음 — 새 클론/다른 머신이면 release 전 verify 확인.
