@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>loomlight/C004 — 넓은 그래프 미니맵 전/후</title>
+<style>
+  :root{--bg:#0d0f12;--card:#15181d;--panel:#1b1f26;--ink:#e8e6e1;--muted:#8a8f98;
+    --hairline:#2c2f36;--node:#3987e5;--edge:#5c6270;--lineage:#199e70;--rejected:#e66767;
+    --amber:#d9a44f;--red:#c0554f;--green:#3f8f5f;--surface:#15181d}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:40px 48px}
+  h1{font-size:30px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:15px;margin-bottom:34px}
+  .block{background:var(--card);border:1px solid var(--hairline);border-radius:14px;
+    padding:26px 30px;margin-bottom:30px}
+  .tag{display:inline-block;font-size:13px;font-weight:700;padding:3px 11px;border-radius:6px;
+    vertical-align:middle;margin-right:12px}
+  .tag.b{background:#3a2222;color:#e08c8c}
+  .tag.a{background:#22331f;color:#8fd08f}
+  h2{font-size:20px;margin:0 0 20px;font-weight:700;display:flex;align-items:center}
+  .lbl{color:var(--muted);font-size:13px;margin:0 0 10px}
+  .frame{position:relative;background:var(--panel);border:1px solid var(--hairline);
+    border-radius:10px;padding:16px 0 16px 16px;overflow:hidden}
+  .frame .clip{color:var(--muted);font-size:12px;position:absolute;right:12px;top:10px}
+  .cap{color:var(--muted);font-size:12px;margin:2px 0 8px}
+  .mini{background:#12151a;border:1px solid var(--hairline);border-radius:8px;
+    padding:8px 10px;margin:0 16px 14px 0}
+  .note{color:var(--ink);font-size:14px;margin-top:16px;line-height:1.55}
+  .note b{color:#8fd08f}
+  svg{display:block}
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+</style></head>
+<body>
+<h1>gil web 위계 뷰어 — 넓은 그래프 미니맵 전/후</h1>
+<div class="sub">loomlight/C004 · loom 체인(~70노드)에서 전체를 한눈에 보고 임의 사이클로 점프</div>
+
+<!-- ============ BEFORE ============ -->
+<div class="block">
+  <h2><span class="tag b">전</span>현재 v2.24 — 미니맵 없음, 본 그래프만 (자연 크기 ~8120px, 가로 스크롤)</h2>
+  <div class="lbl">▼ loom (체인 아코디언 펼침)</div>
+  <div class="frame">
+    <span class="clip">← 자연 크기, 화면 밖으로 잘림 →</span>
+    <div class="cap">.cyclegraph (overflow-x:auto)</div>
+    <svg width="1120" height="86" viewBox="0 0 1120 86">
+      <!-- 본 그래프: 큰 노드가 화면 밖으로 -->
+      <line x1="24" y1="34" x2="1120" y2="34" stroke="var(--edge)" stroke-width="1.6"/>
+      <!-- 앞쪽 몇 노드만 보임 -->
+      <g font-size="10.5" font-weight="600" fill="var(--ink)" text-anchor="middle">
+        <circle cx="24" cy="34" r="9" fill="var(--node)"/><text x="24" y="60">C001</text>
+        <circle cx="120" cy="34" r="9" fill="var(--node)"/><text x="120" y="60">C002</text>
+        <circle cx="216" cy="34" r="9" fill="var(--node)"/><text x="216" y="60">C003</text>
+        <circle cx="312" cy="34" r="9" fill="var(--node)"/><text x="312" y="60">C004</text>
+        <circle cx="408" cy="34" r="9" fill="var(--node)"/><text x="408" y="60">C005</text>
+        <circle cx="504" cy="34" r="9" fill="var(--node)"/><text x="504" y="60">C006</text>
+        <circle cx="600" cy="34" r="9" fill="var(--node)"/><text x="600" y="60">C007</text>
+        <circle cx="696" cy="34" r="9" fill="var(--node)"/><text x="696" y="60">C008</text>
+        <circle cx="792" cy="34" r="9" fill="var(--node)"/><text x="792" y="60">C009</text>
+        <circle cx="888" cy="34" r="9" fill="var(--node)"/><text x="888" y="60">C010</text>
+        <circle cx="984" cy="34" r="9" fill="var(--node)"/><text x="984" y="60">C011</text>
+        <circle cx="1080" cy="34" r="9" fill="var(--node)"/><text x="1080" y="60">C012</text>
+      </g>
+    </svg>
+  </div>
+  <div class="note">전체 형상이 한 화면에 안 보인다. C050을 보려면 <b style="color:#e08c8c">손으로 한참 가로 스크롤</b>해 노드를 눈으로 찾아야 한다.</div>
+</div>
+
+<!-- ============ AFTER ============ -->
+<div class="block">
+  <h2><span class="tag a">후</span>제안 — 그래프 위에 미니맵 (폭 맞춤 · 전체 70노드 한 화면 · 클릭 → 그 문서)</h2>
+  <div class="lbl">▼ loom (체인 아코디언 펼침)</div>
+  <div class="frame">
+    <span class="clip">← 본 그래프는 전과 동일(불변) →</span>
+    <!-- 미니맵: 폭 맞춤, 전체 압축 -->
+    <div class="mini">
+      <div class="cap">미니맵 — 전체 개요 · 노드 클릭 → 그 사이클 문서</div>
+      <svg width="1000" height="40" viewBox="0 0 640 40" style="width:100%;height:auto">
+        <!-- 주 레인 (직선 엣지 + 작은 노드 70개 압축) -->
+        <line x1="6" y1="14" x2="627" y2="14" stroke="var(--edge)" stroke-width="1"/>
+        <!-- 형제 갈래 하나 (아래 레인) -->
+        <line x1="42" y1="14" x2="51" y2="27" stroke="var(--edge)" stroke-width="1"/>
+        <g id="nodes"></g>
+        <circle cx="51" cy="27" r="3" fill="var(--surface)" stroke="var(--node)" stroke-width="1.5"/>
+      </svg>
+    </div>
+    <div class="cap">.cyclegraph (overflow-x:auto — 자연 크기, 불변)</div>
+    <svg width="1120" height="86" viewBox="0 0 1120 86">
+      <line x1="24" y1="34" x2="1120" y2="34" stroke="var(--edge)" stroke-width="1.6"/>
+      <g font-size="10.5" font-weight="600" fill="var(--ink)" text-anchor="middle">
+        <circle cx="24" cy="34" r="9" fill="var(--node)"/><text x="24" y="60">C001</text>
+        <circle cx="120" cy="34" r="9" fill="var(--node)"/><text x="120" y="60">C002</text>
+        <circle cx="216" cy="34" r="9" fill="var(--node)"/><text x="216" y="60">C003</text>
+        <circle cx="312" cy="34" r="9" fill="var(--node)"/><text x="312" y="60">C004</text>
+        <circle cx="408" cy="34" r="9" fill="var(--node)"/><text x="408" y="60">C005</text>
+        <circle cx="504" cy="34" r="9" fill="var(--node)"/><text x="504" y="60">C006</text>
+        <circle cx="600" cy="34" r="9" fill="var(--node)"/><text x="600" y="60">C007</text>
+        <circle cx="696" cy="34" r="9" fill="var(--node)"/><text x="696" y="60">C008</text>
+        <circle cx="792" cy="34" r="9" fill="var(--node)"/><text x="792" y="60">C009</text>
+        <circle cx="888" cy="34" r="9" fill="var(--node)"/><text x="888" y="60">C010</text>
+        <circle cx="984" cy="34" r="9" fill="var(--node)"/><text x="984" y="60">C011</text>
+        <circle cx="1080" cy="34" r="9" fill="var(--node)"/><text x="1080" y="60">C012</text>
+      </g>
+    </svg>
+  </div>
+  <div class="note">미니맵이 <b>전체 70노드를 한 화면에</b> 압축해 보여준다(폭 맞춤). 미니맵 노드를 누르면
+    본 그래프와 <b>같은 #cycdoc-*</b>로 점프 → 그 사이클 문서가 :target으로 열린다. 좁은 체인(genesis·loomlight)엔
+    미니맵을 안 그려 <b>출력 바이트 동일</b>. 본 그래프·JS 0줄·좌표 정수(양 구현 바이트 동일)는 불변.</div>
+</div>
+
+<script>
+  // 목업 전용 — 미니맵 노드 70개를 스크립트로 찍는다(실물은 서버 렌더 SVG, JS 0줄).
+  var g = document.getElementById('nodes'), s = 'http://www.w3.org/2000/svg';
+  for (var i=0;i<70;i++){
+    var c = document.createElementNS(s,'circle');
+    c.setAttribute('cx', 6 + i*9); c.setAttribute('cy', 14); c.setAttribute('r', 3);
+    c.setAttribute('fill', i===49 ? 'var(--amber)' : 'var(--node)'); // C050 강조 예시
+    g.appendChild(c);
+  }
+</script>
+</body></html>
