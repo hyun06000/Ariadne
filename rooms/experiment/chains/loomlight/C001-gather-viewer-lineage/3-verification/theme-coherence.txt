@@ -1,0 +1,12 @@
+10개 lineage 사이클의 title (뷰어 주제 일관성 확인):
+
+- C005-web-viewer: "같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다"
+- C013-realtime-step-visibility: "스텝 필드와 스텝별 커밋·push가 있으면 열린 사이클의 진행이 뷰어에 준실시간으로 보인다"
+- C015-being-work-visibility: "존재들의 작업(브랜치·최근 활동)이 뷰어에 보이면 병렬 노동의 관전이 가능해진다"
+- C020-go-web-port: "Go 구현에 web(자기완결 HTML + gil-data JSON + 스텝 배지)을 이식하면 두 구현이 26/26으로 나란히 선다"
+- C028-pages-command: "gil pages가 이식 가능한 Pages 워크플로를 생성하면 딸깍 사용자도 명령 하나로 자기 체인을 github.io에 배포한다"
+- C031-web-lane-layout: "형제 갈래를 세로 레인으로 분리하면(git log --graph처럼) 분기가 사람 눈에 분기로 보이고 rejected 갈래는 색으로 구별된다"
+- C042-viewer-follows-ledger: "원장이 자동 갱신되면 사람의 창(뷰어)도 자동 갱신된다 — 낡은 화면은 침묵보다 나쁘다"
+- C047-web-topology-layout: "분기 형제를 같은 깊이에 — 토폴로지 레이아웃(시간 순서 무시로 세로 압축)"
+- C048-sibling-label-spacing: "같은 위계 형제 노드의 라벨 겹침 해소 — 열 간격을 라벨 폭으로"
+- C049-live-viewer-refresh: "새로고침 없이 실시간 관찰 — gil web --refresh(meta)·--watch(감시 재생성)"

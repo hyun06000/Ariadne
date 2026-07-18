@@ -1,0 +1,9 @@
+=== chain: loomlight — 사이클 1개 ===
+
+●  C001-gather-viewer-lineage [open] 흩어진 뷰어 사이클을 lineage로 모은 전용 체인이 교차-체인 계보를 드러내고 남은 뷰어 백로그를 지도로 그린다  ⇠ lineage: loom/C005-web-viewer, loom/C013-realtime-step-visibility, loom/C015-being-work-visibility, loom/C020-go-web-port, loom/C028-pages-command, loom/C031-web-lane-layout, loom/C042-viewer-follows-ledger, loom/C047-web-topology-layout, loom/C048-sibling-label-spacing, loom/C049-live-viewer-refresh
+
+root: C001-gather-viewer-lineage
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-gather-viewer-lineage  ←  (root)
+

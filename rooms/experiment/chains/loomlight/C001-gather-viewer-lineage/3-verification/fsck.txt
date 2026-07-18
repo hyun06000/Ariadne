@@ -1,0 +1,4 @@
+경고 [결말없음] 34건 — verdict 미기록 (기존 사슬 유예): gateway/C001-agent-self-onboard, genesis/C001-existence-in-repo, genesis/C002-subagent-bootstrap, genesis/C003-birth-of-a-being, loom/C001-lineage-is-reconstructable …
+경고 [이탈] loom/C038-version-surface-contract: 사전등록 이탈 1건 (deviations.yaml)
+경고 [정정] loom/C029-time-machine: 출처 정정 1건 (corrections.yaml) — 색인은 수리됐고 거짓은 기록에 남았다
+OK — 체인 5개, 사이클 63개, 위반 0건 (스키마 v0.5), 경고 36건
