@@ -3471,8 +3471,29 @@ list-style:none;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
 .gil details.hchain[open]>summary::before{content:"\25BE"}
 .gil .hname{color:var(--ink)}
 .gil .hstat{color:var(--muted);font-size:12.5px;font-weight:400}
-.gil .hbody{padding:0 20px 20px;display:flex;flex-direction:column;gap:16px}
+.gil .hbody{padding:2px 20px 18px;display:flex;flex-direction:column;gap:0}
 .gil .hbody .card{margin:0}
+/* 노드 스트림 (loom/C065): 카드 없이 좌측 레일에 사이클 노드가 주루룩. 각 노드를 열면 5스텝이 그 아래로. */
+.gil ol.cycstream{list-style:none;margin:0;padding:0 0 0 10px;border-left:2px solid var(--hairline)}
+.gil ol.cycstream>li{position:relative}
+.gil details.cyc{margin:0}
+.gil details.cyc>summary{cursor:pointer;list-style:none;position:relative;
+padding:7px 0 7px 20px;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;
+font-size:13px;font-variant-numeric:tabular-nums;border-radius:6px}
+.gil details.cyc>summary::-webkit-details-marker{display:none}
+.gil details.cyc>summary:hover{background:var(--page)}
+.gil .cdot{position:absolute;left:-17px;top:11px;width:11px;height:11px;border-radius:50%;
+background:var(--node);box-sizing:border-box}
+.gil .cdot.open{background:var(--surface);border:2.5px solid var(--node)}
+.gil .cdot.rej{background:var(--rejected);border-color:var(--rejected)}
+.gil .ccid{color:var(--ink);font-weight:650}
+.gil .cyst{color:var(--muted);font-size:11.5px}
+.gil .cytitle{color:var(--ink-2);font-size:12px;flex:1 1 40%;min-width:0}
+.gil .cyclin{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+.gil a.linchip{color:var(--lineage);text-decoration:none;font-size:11px;font-weight:600;white-space:nowrap}
+.gil a.linchip:hover{text-decoration:underline}
+.gil a.linchip.sup{color:var(--supersede)}
+.gil .cbody{padding:2px 0 12px 20px}
 .gil .hcycles h3{font-size:13px;font-weight:650;margin:4px 0 8px;color:var(--ink-2)}
 .gil details.hcycle{border:1px solid var(--hairline);border-radius:6px;margin-bottom:6px}
 .gil details.hcycle>summary{cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink);
@@ -3627,7 +3648,34 @@ func renderCycleDetail(name, cid string, c *webCycle, chainsRoot, cdir string) s
 	}
 	status := c.statusText()
 	title := c.title
-	sumline := fmt.Sprintf("%s [%s%s] %s", cid, status, vtip, title)
+	// 노드 스트림 행 (loom/C065): ● cid · 상태 · ⇠lineage, 열면 그 자리 아래로 5스텝 문서.
+	dotCls := "cdot"
+	if status != "closed" {
+		dotCls += " open"
+	}
+	if c.verdict != nil && *c.verdict == "rejected" {
+		dotCls += " rej"
+	}
+	state := status + vtip + stepBadge(c)
+	lin := ""
+	if len(c.lineage) > 0 {
+		var chips strings.Builder
+		for _, ref := range c.lineage {
+			chips.WriteString(fmt.Sprintf(`<a class="linchip" href="#cyc-%s">⇠ %s</a>`,
+				htmlEscape(strings.ReplaceAll(ref, "/", "-")), htmlEscape(ref)))
+		}
+		lin = `<span class="cyclin">` + chips.String() + `</span>`
+	}
+	supHTML := ""
+	if c.supersededBy != nil {
+		supHTML = fmt.Sprintf(`<a class="linchip sup" href="#cyc-%s">↣ %s</a>`,
+			htmlEscape(strings.ReplaceAll(supersedeRef(name, c.supersededBy), "/", "-")),
+			htmlEscape(*c.supersededBy))
+	}
+	titleHTML := ""
+	if title != "" {
+		titleHTML = `<span class="cytitle">` + htmlEscape(title) + `</span>`
+	}
 
 	orDash := func(p *string) string {
 		if p == nil {
@@ -3676,9 +3724,13 @@ func renderCycleDetail(name, cid string, c *webCycle, chainsRoot, cdir string) s
 			htmlEscape(label), pre))
 	}
 	anchor := htmlEscape(name + "-" + cid)
-	return fmt.Sprintf(`<details class="hcycle" id="cycle-%s"><summary>%s</summary>`+
-		`<div class="hcycle-body"><table class="hmeta"><tbody>%s</tbody></table>%s</div></details>`,
-		anchor, htmlEscape(sumline), metaRows.String(), steps.String())
+	summary := fmt.Sprintf(`<span class="%s"></span><span class="ccid">%s</span>`+
+		`<span class="cyst">%s</span>%s%s%s`,
+		dotCls, htmlEscape(cid), htmlEscape(state), titleHTML, lin, supHTML)
+	return fmt.Sprintf(`<li><details class="cyc" name="cyc-%s"><summary>%s</summary>`+
+		`<div class="cbody"><span id="cyc-%s" class="hanchor"></span>`+
+		`<table class="hmeta"><tbody>%s</tbody></table>%s</div></details></li>`,
+		htmlEscape(name), summary, anchor, metaRows.String(), steps.String())
 }
 
 // renderChainMap: 참조 구현 _render_chain_map (loom/C064) — L0 체인 지도(원=체인, 점선 화살표=체인 간 lineage).
@@ -3909,7 +3961,6 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 			`<span class="toc-stat">사이클 %d개 · %s</span></li>`,
 			htmlEscape(name), htmlEscape(name), n, htmlEscape(tally)))
 		stats := fmt.Sprintf("사이클 %d개 · %s · %s", n, tally, chainRecent(ch))
-		single := &webData{names: []string{name}, chains: map[string]*webChain{name: ch}}
 		var cyc strings.Builder
 		for _, cid := range ch.order {
 			cdir := ch.dirs[cid]
@@ -3918,13 +3969,14 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 			}
 			cyc.WriteString(renderCycleDetail(name, cid, ch.cycles[cid], chainsRoot, cdir))
 		}
-		chainsHTML.WriteString(fmt.Sprintf(`<details class="hchain" id="chain-%s">`+
+		// 카드·SVG·표를 걷어내고 연결된 사이클 노드가 좌측 레일로 주루룩 (loom/C065). name="hchain" 아코디언.
+		chainsHTML.WriteString(fmt.Sprintf(`<details class="hchain" name="hchain" id="chain-%s">`+
 			`<summary><span class="hname">%s</span>`+
 			`<span class="hstat">%s</span></summary>`+
-			`<div class="hbody"><span id="chainbody-%s" class="hanchor"></span><div class="card">%s</div>%s`+
-			`<div class="hcycles"><h3>사이클 상세 — 눌러서 5스텝 보고서 열기</h3>%s</div></div></details>`,
+			`<div class="hbody"><span id="chainbody-%s" class="hanchor"></span>`+
+			`<ol class="cycstream">%s</ol></div></details>`,
 			htmlEscape(name), htmlEscape(name), htmlEscape(stats),
-			htmlEscape(name), renderSVG(single), renderTables(single), cyc.String()))
+			htmlEscape(name), cyc.String()))
 	}
 	return fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
@@ -4337,7 +4389,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.20.0" // gil:version
+const gilVersion = "2.21.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
