@@ -4,11 +4,11 @@ parent: C063-web-hierarchy-default
 lineage: [loomlight/C002-hierarchical-viewer]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "위계 뷰어 상단에 체인 지도(노드-엣지) — lineage 한눈에·클릭 드릴다운"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
