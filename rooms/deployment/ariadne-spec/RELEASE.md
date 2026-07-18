@@ -1,5 +1,14 @@
 # Ariadne Spec — Release
 
+## v2.25.0 (2026-07-19) — 병렬(worktree) 기능을 온보딩에 안내 (loom/C069, 발의: 박상현) · 문서
+
+상현님 관찰 **"최신 gil을 받은 Claude가 병렬 기능을 안 쓴다 — 안내가 잘 되어 있나?"** 감사 결과: **기능 부재가 아니라 안내 부재**였다. C050~C062로 `gil worktree add/land`·예약·소유 guard를 다 만들었지만, 신규 에이전트가 읽는 경로(README.ai.md·QUICKSTART·CLAUDE.md·experiment/README)의 병렬 언급이 **전부 0**이고 SPEC 명령 표엔 `gil worktree` 행조차 없었다. `gil help worktree`로 탐침은 되나, 무엇을 물어야 할지 모르면 못 묻는다.
+
+- **읽기 경로 4곳에 병렬 워크플로 명시**: ① **README.ai.md** — "Step E — Working in parallel"(spawn→`worktree add`→각자 브랜치 push→소환자 `land`; 소유 guard; 순차면 건너뛰기). ② **CLAUDE.md §3** — "병렬로 일하라" 문단. ③ **SPEC** — §5 명령 표에 `gil worktree add\|land` 행 + §6.8 워크트리 격리 규율(v3: 왜 필요한가·소유 guard·"네 워크트리에서 일하라"). ④ **QUICKSTART** — §4.5 병렬 절 + `gil help worktree` 포인터.
+- **문서 전용 릴리스 — 도구 코드 0변경**: gil.py·go/main.go·conformance.py 무변경, `gil web` 바이트 동일, 참조 **90/90**·Go **83/83** 회귀 0. 안내는 계약면(도구 출력)을 건드리지 않는다.
+
+**기능의 수명은 코드가 아니라 온보딩 경로의 문장이 정한다** — 세 사고·세 사이클로 만든 병렬을 다음 세대 에이전트가 안 쓴 건, 그걸 발견하게 하는 문장이 온보딩에 없었기 때문. 만들면 쓰는 게 아니라, 읽는 경로에 있어야 쓴다.
+
 ## v2.24.0 (2026-07-19) — 가로 사이클 그래프: 축소 말고 자연 크기로 스크롤 (loom/C068, 발의: 박상현)
 
 상현님 지적 **"스크롤이 되는 게 아니라 그냥 전부 다 한 번에 보여져서 너무 작게 보인다."** C067의 가로 사이클 그래프가, 체인 아코디언이 지도 카드 안에 있다 보니(C066) C064의 CSS `.hmap svg{max-width:100%}`에 걸려 **카드 폭에 축소**됐다 — `.cyclegraph`의 가로 스크롤이 발동하지 못했다.
