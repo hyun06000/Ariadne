@@ -1,0 +1,14 @@
+id: C071-parallel-usage-proof
+chain: loom
+parent: C069-parallel-onboarding-guidance
+lineage: []
+step: 5
+author: weft
+status: closed
+opened: 2026-07-19
+closed: 2026-07-19
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null

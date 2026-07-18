@@ -1,0 +1,51 @@
+# 관측 스냅샷 (사후, 개입 0) — 2026-07-19 07:31 KST
+
+## git worktree list — 핵심 물증: 3개 격리 워크트리
+/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/3afe5a54-6fdf-481a-ab7a-170cb07acd54/scratchpad/onboard-clone                               ac93311 [main]
+/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/3afe5a54-6fdf-481a-ab7a-170cb07acd54/scratchpad/onboard-clone-worktrees/fizzbuzz-classic    e0175e5 [Heddle/fizzbuzz-classic]
+/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/3afe5a54-6fdf-481a-ab7a-170cb07acd54/scratchpad/onboard-clone-worktrees/roman-classic       f3a4584 [Skein/roman-classic]
+/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/3afe5a54-6fdf-481a-ab7a-170cb07acd54/scratchpad/onboard-clone-worktrees/vowel-count-classic 464ccf1 [Bobbin/vowel-count-classic]
+
+## git branch -a — author-접두 브랜치 3개, 전부 origin(로컬 bare)에 push됨 (main push 아님)
++ Bobbin/vowel-count-classic
++ Heddle/fizzbuzz-classic
++ Skein/roman-classic
+* main
+  remotes/origin/Bobbin/vowel-count-classic
+  remotes/origin/HEAD -> origin/main
+  remotes/origin/Heddle/fizzbuzz-classic
+  remotes/origin/Skein/roman-classic
+  remotes/origin/main
+
+## main 커밋 (0d17324..HEAD) — 오케스트레이터가 main에서 한 일
+ac93311 존재: Shuttle(셔틀) 탄생 — 병렬 갈래의 조율자 (소환자 Weft)
+
+## 각 병렬 브랜치의 커밋 (main..branch) — 각자 gil worktree add로 --new-chain 사이클 open
+### Heddle/fizzbuzz-classic
+e0175e5 gil: step fizzbuzz/C001-classic → 4/5 분석
+3220838 gil: step fizzbuzz/C001-classic → 3/5 검증
+c30b230 gil: step fizzbuzz/C001-classic → 2/5 설계
+6a41bfa gil: open fizzbuzz/C001-classic — 1/5 가설
+### Skein/roman-classic
+f3a4584 gil: step roman/C001-classic → 3/5 검증
+b4cdc8c gil: step roman/C001-classic → 2/5 설계
+fefa306 gil: open roman/C001-classic — 1/5 가설
+### Bobbin/vowel-count-classic
+464ccf1 gil: step vowel-count/C001-classic → 3/5 검증
+503bf47 gil: step vowel-count/C001-classic → 2/5 설계
+c9dee5f gil: open vowel-count/C001-classic — 1/5 가설
+
+## 예약 원장 (loom) — 클론 시점 그대로 (피소환자 미변경)
+# gil 예약 원장 — 이 파일은 사이클이 아니다 (loom/C043). 번호 공간의 선점만 기록한다.
+# <번호> <for> <slug> <일자>
+70 clew threads 2026-07-19
+71 weft parallel-usage-proof 2026-07-19
+72 selvage release-drift-gate 2026-07-19
+
+## 존재의 방 (main) — Shuttle 신규 입주 확인
+clew
+README.md
+selvage
+sheen
+shuttle
+weft
