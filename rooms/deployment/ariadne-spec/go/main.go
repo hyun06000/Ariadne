@@ -2722,6 +2722,14 @@ const (
 	hX0   = 50
 	hY0   = 46
 	hR    = 9
+	// 미니맵 (loomlight/C004): _MINI_COLW·_MINI_ROWH·_MINI_R·_MINI_X0·_MINI_Y0·_MINI_MIN_DEPTH.
+	// 정수 좌표만 써 참조와 바이트 동일(C064). 깊이 < miniMinDepth 좁은 체인은 미니맵 미출력.
+	miniColW     = 9
+	miniRowH     = 9
+	miniR        = 3
+	miniX0       = 6
+	miniY0       = 8
+	miniMinDepth = 12
 )
 
 // webCSS: 참조 구현 _WEB_CSS와 문자 단위 동일 (검증된 기본 팔레트).
@@ -3523,7 +3531,15 @@ padding:3px 0;list-style:none}
 .gil details.hstep pre{background:var(--page);border:1px solid var(--hairline);border-radius:6px;
 padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
 color:var(--ink-2);margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.gil details.hstep pre.empty{color:var(--muted);font-style:italic}`
+.gil details.hstep pre.empty{color:var(--muted);font-style:italic}
+/* 미니맵 (loomlight/C004): 넓은 체인 가로 그래프 위 전체 개요. max-width:100%로 카드 폭에 맞춰
+   축소돼 전체 형상이 한 화면에 든다(C068의 자연크기 통찰을 미니맵엔 반대로=폭맞춤 적용). */
+.gil .minimap{margin:2px 0 8px;padding:7px 10px;background:var(--surface);border:1px solid var(--ring);border-radius:8px}
+.gil .minimap-cap{color:var(--muted);font-size:11.5px;margin-bottom:5px}
+.gil .minimap svg{display:block;max-width:100%;height:auto}
+.gil a.mnode{cursor:pointer}
+.gil a.mnode circle{transition:stroke-width .1s}
+.gil a.mnode:hover circle{stroke:var(--node);stroke-width:2.5}`
 
 // stepFiles: 참조 구현 _STEP_FILES — 라벨과 스텝 파일(3-verification은 디렉토리).
 var stepFiles = [][2]string{
@@ -3814,6 +3830,68 @@ func renderCycleGraphH(name string, ch *webChain) string {
 	return p.String()
 }
 
+// renderCycleMinimap: 참조 구현 _render_cycle_minimap (loomlight/C004) — 넓은 체인(깊이 ≥ miniMinDepth)
+// 가로 그래프 위 미니맵. 본 그래프와 같은 (깊이,레인)을 작은 정수 좌표로 압축. 각 노드는 본 그래프와
+// 같은 #cycdoc-* 로 점프하는 <a>. CSS max-width:100%로 폭 맞춤(축소는 표시뿐, 좌표 정수 → 바이트 동일).
+// 좁은 체인은 "" 반환(출력 개선 전과 바이트 동일).
+func renderCycleMinimap(name string, ch *webChain) string {
+	order := ch.order
+	if len(order) == 0 {
+		return ""
+	}
+	pos := layoutColumns(order, ch.children)
+	maxDepth, maxLane := 0, 0
+	for _, rc := range pos {
+		if rc[0] > maxDepth {
+			maxDepth = rc[0]
+		}
+		if rc[1] > maxLane {
+			maxLane = rc[1]
+		}
+	}
+	if maxDepth < miniMinDepth {
+		return ""
+	}
+	nodeXY := map[string][2]int{}
+	for cid, rc := range pos {
+		nodeXY[cid] = [2]int{miniX0 + rc[0]*miniColW, miniY0 + rc[1]*miniRowH}
+	}
+	width := miniX0 + maxDepth*miniColW + miniX0
+	height := miniY0 + maxLane*miniRowH + miniY0
+	var p strings.Builder
+	p.WriteString(fmt.Sprintf(`<svg viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s 미니맵">`,
+		width, height, width, height, htmlEscape(name)))
+	for _, cid := range order {
+		xy2 := nodeXY[cid]
+		for _, par := range ch.cycles[cid].parents {
+			if xy1, ok := nodeXY[par]; ok {
+				p.WriteString(fmt.Sprintf(`<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="var(--edge)" stroke-width="1"/>`,
+					xy1[0], xy1[1], xy2[0], xy2[1]))
+			}
+		}
+	}
+	for _, cid := range order {
+		xy := nodeXY[cid]
+		x, y := xy[0], xy[1]
+		meta := ch.cycles[cid]
+		closed := meta.status != nil && *meta.status == "closed"
+		fill := "var(--node)"
+		if meta.verdict != nil && *meta.verdict == "rejected" {
+			fill = "var(--rejected)"
+		}
+		var shape string
+		if closed {
+			shape = fmt.Sprintf(`<circle cx="%d" cy="%d" r="%d" fill="%s"/>`, x, y, miniR, fill)
+		} else {
+			shape = fmt.Sprintf(`<circle cx="%d" cy="%d" r="%d" fill="var(--surface)" stroke="var(--node)" stroke-width="1.5"/>`, x, y, miniR)
+		}
+		p.WriteString(fmt.Sprintf(`<a href="#cycdoc-%s" class="mnode"><title>%s</title>%s</a>`,
+			htmlEscape(name+"-"+cid), htmlEscape(cid), shape))
+	}
+	p.WriteString("</svg>")
+	return `<div class="minimap"><div class="minimap-cap">미니맵 — 전체 개요 · 노드 클릭 → 그 사이클 문서</div>` + p.String() + `</div>`
+}
+
 // renderChainMap: 참조 구현 _render_chain_map (loom/C064) — L0 체인 지도(원=체인, 점선 화살표=체인 간 lineage).
 // 삼각함수 없이 sqrt·사칙연산만 써 참조와 바이트 동일(sin/cos/atan2는 IEEE correctly-rounded 미보장, Go와 갈릴 위험).
 func renderChainMap(d *webData) string {
@@ -4056,10 +4134,11 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 			`<summary><span class="hname">%s</span>`+
 			`<span class="hstat">%s</span></summary>`+
 			`<div class="hbody"><span id="chainbody-%s" class="hanchor"></span>`+
+			`%s`+
 			`<div class="cyclegraph">%s</div>`+
 			`<div class="cycdocs">%s</div></div></details>`,
 			htmlEscape(name), htmlEscape(name), htmlEscape(stats),
-			htmlEscape(name), renderCycleGraphH(name, ch), cyc.String()))
+			htmlEscape(name), renderCycleMinimap(name, ch), renderCycleGraphH(name, ch), cyc.String()))
 	}
 	return fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>

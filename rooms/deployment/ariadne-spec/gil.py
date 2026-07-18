@@ -1362,6 +1362,14 @@ padding:3px 0;list-style:none}
 padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
 color:var(--ink-2);margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .gil details.hstep pre.empty{color:var(--muted);font-style:italic}
+/* 미니맵 (loomlight/C004): 넓은 체인 가로 그래프 위 전체 개요. max-width:100%로 카드 폭에 맞춰
+   축소돼 전체 형상이 한 화면에 든다(C068의 자연크기 통찰을 미니맵엔 반대로=폭맞춤 적용). */
+.gil .minimap{margin:2px 0 8px;padding:7px 10px;background:var(--surface);border:1px solid var(--ring);border-radius:8px}
+.gil .minimap-cap{color:var(--muted);font-size:11.5px;margin-bottom:5px}
+.gil .minimap svg{display:block;max-width:100%;height:auto}
+.gil a.mnode{cursor:pointer}
+.gil a.mnode circle{transition:stroke-width .1s}
+.gil a.mnode:hover circle{stroke:var(--node);stroke-width:2.5}
 """.strip()
 
 
@@ -1423,6 +1431,9 @@ def _read_step(chains_root, name, cdir, fname):
 
 
 _H_COLW, _H_ROWH, _H_X0, _H_Y0, _H_R = 116, 60, 50, 46, 9
+# 미니맵 (loomlight/C004): 본 그래프와 같은 (깊이,레인)을 작은 정수 좌표로 압축. 삼각함수·나눗셈
+# 없이 정수만 → 참조·Go 바이트 동일(C064). 깊이 < _MINI_MIN_DEPTH 인 좁은 체인은 미니맵 미출력.
+_MINI_COLW, _MINI_ROWH, _MINI_R, _MINI_X0, _MINI_Y0, _MINI_MIN_DEPTH = 9, 9, 3, 6, 8, 12
 
 
 def _render_cycle_graph_h(name, chain):
@@ -1479,6 +1490,52 @@ def _render_cycle_graph_h(name, chain):
                  f'font-weight="600" fill="var(--ink-2)">{num}</text>{lin_txt}</a>')
     p.append("</svg>")
     return "".join(p)
+
+
+def _render_cycle_minimap(name, chain):
+    """넓은 체인(깊이 ≥ _MINI_MIN_DEPTH) 가로 그래프 위에 얹는 미니맵 (loomlight/C004).
+    본 그래프(`_render_cycle_graph_h`)와 같은 (깊이,레인)을 작은 정수 좌표로 압축한다. 각 노드는
+    본 그래프 노드와 같은 #cycdoc-* 로 점프하는 <a> — 클릭하면 그 사이클 문서가 :target으로 열린다.
+    CSS `.minimap svg{max-width:100%}`로 카드 폭에 맞춰 축소돼 전체 형상이 한 화면에 든다(축소는
+    표시뿐, 좌표는 정수 → 참조·Go 바이트 동일). 좁은 체인은 "" 반환(출력 개선 전과 바이트 동일)."""
+    order = chain["order"]
+    if not order:
+        return ""
+    cyc = chain["cycles"]
+    pos = _layout_columns(order, {cid: {"parents": c["parents"]} for cid, c in cyc.items()},
+                          chain["children"])
+    max_depth = max((r for r, _ in pos.values()), default=0)
+    if max_depth < _MINI_MIN_DEPTH:
+        return ""
+    max_lane = max((c for _, c in pos.values()), default=0)
+    node_xy = {cid: (_MINI_X0 + row * _MINI_COLW, _MINI_Y0 + col * _MINI_ROWH)
+               for cid, (row, col) in pos.items()}
+    width = _MINI_X0 + max_depth * _MINI_COLW + _MINI_X0
+    height = _MINI_Y0 + max_lane * _MINI_ROWH + _MINI_Y0
+    p = [f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" '
+         f'aria-label="{html.escape(name)} 미니맵">']
+    # parent 엣지 = 직선(정수 좌표, 삼각함수·나눗셈 없음)
+    for cid in order:
+        x2, y2 = node_xy[cid]
+        for par in cyc[cid]["parents"]:
+            if par in node_xy:
+                x1, y1 = node_xy[par]
+                p.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
+                         f'stroke="var(--edge)" stroke-width="1"/>')
+    # 노드 = 작은 원, 클릭 → 본 그래프와 같은 #cycdoc-* (색 규칙도 본 그래프와 동일)
+    for cid in order:
+        x, y = node_xy[cid]
+        meta = cyc[cid]
+        closed = meta["status"] == "closed"
+        fill = "var(--rejected)" if meta.get("verdict") == "rejected" else "var(--node)"
+        shape = (f'<circle cx="{x}" cy="{y}" r="{_MINI_R}" fill="{fill}"/>' if closed else
+                 f'<circle cx="{x}" cy="{y}" r="{_MINI_R}" fill="var(--surface)" '
+                 f'stroke="var(--node)" stroke-width="1.5"/>')
+        p.append(f'<a href="#cycdoc-{html.escape(name + "-" + cid)}" class="mnode">'
+                 f'<title>{html.escape(cid)}</title>{shape}</a>')
+    p.append("</svg>")
+    return (f'<div class="minimap"><div class="minimap-cap">미니맵 — 전체 개요 · '
+            f'노드 클릭 → 그 사이클 문서</div>{"".join(p)}</div>')
 
 
 def _render_cycle_detail(name, cid, meta, chains_root, cdir):
@@ -1670,6 +1727,7 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
             f'<summary><span class="hname">{html.escape(name)}</span>'
             f'<span class="hstat">{html.escape(stats)}</span></summary>'
             f'<div class="hbody"><span id="chainbody-{html.escape(name)}" class="hanchor"></span>'
+            f'{_render_cycle_minimap(name, chain)}'
             f'<div class="cyclegraph">{_render_cycle_graph_h(name, chain)}</div>'
             f'<div class="cycdocs">{"".join(cyc)}</div></div></details>')
     return f"""<div class="gil"><style>{style}</style><div class="wrap">
