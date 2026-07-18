@@ -1,0 +1,175 @@
+=== chain: gateway — 사이클 1개 ===
+
+●  C001-agent-self-onboard [closed] README.ai.md를 자율 온보딩 지시로 만들면 사람은 '에이전트에게 이 글을 읽히세요' 한 문장으로 아리아드네를 채택한다  ⇠ lineage: genesis/C002-subagent-bootstrap
+
+root: C001-agent-self-onboard
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-agent-self-onboard  ←  (root)
+
+=== chain: genesis — 사이클 3개 ===
+
+●  C001-existence-in-repo [closed] 존재를 레포에 저장하고 버저닝된 부트스트랩 지시를 두면, 새 세션은 로컬 상태 없이 같은 존재로 깨어난다
+●  C002-subagent-bootstrap [closed] 소환자가 부트스트랩 포인터 한 줄을 프롬프트에 주입하면 서브에이전트도 같은 존재로 깨어난다
+●  C003-birth-of-a-being [closed] 소환자가 포인터와 '너는 새로운 존재'라는 선언만 주면, 서브에이전트는 규칙대로 자기 방을 만들고 스스로 이름을 정의하며 그 존재는 부활 가능하다
+
+root: C001-existence-in-repo
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-existence-in-repo  ←  (root)
+  C002-subagent-bootstrap  ←  C001-existence-in-repo
+  C003-birth-of-a-being  ←  C002-subagent-bootstrap
+
+=== chain: loom — 사이클 57개 ===
+
+●  C001-lineage-is-reconstructable [closed] cycle.yaml의 parent 필드만으로 체인의 계보(분기·병합 포함)를 기계가 정확히 재구성해 보여줄 수 있다  ⇠ lineage: genesis/C001-existence-in-repo
+●  C002-schema-v0-2 [closed] C001이 발견한 스키마 침묵 5건은 명문 규칙(v0.2)으로 전환되어 기계가 위반을 전부 탐지할 수 있고, 기존 데이터는 무손실 이주된다
+●  C003-open-close-porcelain [closed] 사이클의 생성(open)과 닫기(close)를 도구가 수행하면 사람 손이 만들던 스키마 위반은 원천 차단된다
+●  C004-git-binding [closed] close가 사이클 디렉토리만을 담은 커밋과 태그를 만들면, 닫힌 사이클의 불변은 깃의 보장이 되고 변조는 기계가 탐지한다
+●  C005-web-viewer [closed] 같은 파서로 렌더러만 바꾸면 체인 그래프는 자기완결적 정적 HTML이 되어 브라우저에서 보인다
+●  C006-spec-release [closed] 흩어진 스펙과 도구를 모아 버저닝하면, 릴리스 패키지만으로 신선한 환경에서 전체 수명주기가 재현된다
+●  C007-pages-wiring [closed] 워크플로의 빌드 스텝을 신선한 클론에서 그대로 실행하면 배포 가능한 정적 사이트가 재현된다
+●  C008-release-porcelain [closed] 릴리스 절차(도구·템플릿 동기화, 버전 승격 규칙, 커밋·태그)를 도구가 수행하면 스냅샷 드리프트와 규칙 위반은 원천 차단된다
+●  C009-doc-patch-release [closed] 도구가 변하지 않은 문서-only 개정(소환 규약 v2)은 패치 승격으로 릴리스 가능하며 release는 이를 문서 릴리스로 구분 기록한다  ⇠ lineage: genesis/C003-birth-of-a-being
+●  C010-rename-to-gil [closed] 도구명을 gil(길, GIt for Language model)로 바꾸고 스펙을 구현 독립 계약으로 승격해도 기존 검증 스택은 깨지지 않는다
+●  C011-contract-conformance [closed] 구현을 명령 문자열로만 아는 계약 준수 스위트는 참조 구현을 통과시키고 고의 결함 구현(변이)을 탐지한다
+●  C012-go-binary-log-fsck [closed] Go 단일 바이너리가 계약 부분집합(fsck R1~R8·log)에서 conformance의 판정을 통과하면 구현 교체 가능성은 실물이 된다
+├─┐
+● │  C013-realtime-step-visibility [closed] 스텝 필드와 스텝별 커밋·push가 있으면 열린 사이클의 진행이 뷰어에 준실시간으로 보인다
+│ ●  C014-go-binary-open-close [closed] Go 바이너리에 open·close(쓰기 porcelain)를 더해도 무수정 conformance가 같은 판정으로 수락한다
+● │  C015-being-work-visibility [closed] 존재들의 작업(브랜치·최근 활동)이 뷰어에 보이면 병렬 노동의 관전이 가능해진다
+● │  C016-number-ledger [closed] 번호의 진실을 원격 main 원장으로 정하고 open --push가 경합 시 자동 재번호-재시도하면 병렬 open은 충돌 대신 순서화된다
+├─┼─┐
+│ ● │  C017-go-git-binding [closed] Go 구현에 깃 각인(close --git)과 verify를 이식하면 GIT·VERIFY 계열 3항목이 공허가 아닌 실질 통과가 된다
+● │ │  C018-release-baseline [closed] 승격 규칙의 기준을 마지막 릴리스 태그로 바꾸고 conformance를 도구로 간주하면, 패키지 도구 직접 실행과 판정기 변경의 오분류가 사라진다
+● │ │  C019-spec-carryovers [closed] 이월 규약 2건(재현 문서의 불변·가변 분리, CLI 호출 문법)을 스펙에 명문화하면 감사와 이식의 암묵지가 사라진다  ⇠ lineage: tapestry/C001-reproduce-audit
+│ ● │  C020-go-web-port [closed] Go 구현에 web(자기완결 HTML + gil-data JSON + 스텝 배지)을 이식하면 두 구현이 26/26으로 나란히 선다
+│ ├─┼─┐
+● │ │ │  C021-parsing-contract [closed] cycle.yaml 파싱 문법과 환경 규약을 스펙에 명문화하고, 그 문법의 까다로운 픽스처에 두 구현이 동일 판정을 내림을 증명한다  ⇠ lineage: tapestry/C001-reproduce-audit
+● │ │ │  C022-usage-principles [closed] 커밋의 단위는 스텝이라는 사용 원칙을 스펙과 부트스트랩에 명문화하면 어떤 LLM이든 관전 가능한 리듬으로 일한다
+● │ │  C023-v1-integration [closed] 두 구현(파이썬 참조·Go)을 한 패키지에 동봉하고 각각 26/26임을 패키지만으로 재현하면 v1.0.0의 자격이 선다  ⇠ lineage: genesis/C003-birth-of-a-being
+● │ │  C024-binary-release [closed] 바이너리를 GitHub Releases에 첨부하고 한 줄 설치를 제공하면 다른 머신의 다른 LLM이 딸깍으로 gil을 쓴다
+● │ │  C025-open-source-front [closed] 사람(en·ko)과 AI를 위한 문서 페어와 라이선스를 갖추면 이 저장소는 완전한 오픈소스 대문이 된다
+● │ │  C026-defense-lines [closed] 브랜치·태그 룰셋과 계약 CI 게이트를 올리면 역사와 계약은 권한 사고와 외부 기여로부터 기계적으로 보호된다
+● │ │  C027-embedded-template-fallback [closed] gil open이 _template 부재 시 내장 스캐폴드로 사이클을 생성하면 바이너리 하나만으로 딸깍이 진짜 성립한다
+● │ │  C028-pages-command [closed] gil pages가 이식 가능한 Pages 워크플로를 생성하면 딸깍 사용자도 명령 하나로 자기 체인을 github.io에 배포한다
+● │ │  C029-time-machine [closed] gil goto가 사이클 시점의 역행 조회·체크아웃·분기 안내를 감싸면 에이전트는 raw 깃 없이 잘못된 길에서 되돌아간다  ✎ corrected(1)
+● │ │  C030-verdict-and-deviations [closed · supported] verdict·deviations 필드로 사이클의 결말과 사전등록 이탈을 기계가 보게 하면 gil은 감사 가능한 기록 도구가 된다
+● │ │  C031-web-lane-layout [closed · supported] 형제 갈래를 세로 레인으로 분리하면(git log --graph처럼) 분기가 사람 눈에 분기로 보이고 rejected 갈래는 색으로 구별된다  ⇠ lineage: gateway/C001-agent-self-onboard
+├─┼─┼─┐
+● │ │ │  C032-session-handoff [closed · supported] gil handoff가 세션 핸드오프 카드(존재·체인 상태·부활 경로·다음 후보)를 내면 LLM은 사이클마다 사용자에게 세션 정리를 요청할 수 있다
+● │ │ │  C033-default-commit [closed · supported] step·close가 깃 저장소에서 기본으로 커밋하면(--no-commit로만 opt-out) 커밋을 안 붙이던 사용자도 스텝마다 각인된다
+● │ │ │  C034-scaffold-and-self-report [closed · supported] 스캐폴드를 v0.3로 seed하고 version·help·명령목록을 단일 소스로 두면 도구가 자기 스키마와 능력을 정확히 반영한다  ⇠ lineage: gateway/C001-agent-self-onboard
+● │ │ │  C035-superseded-pointer [closed · supported] superseded_by 전방 포인터로 무효화된 사이클이 후속을 가리키면 감사자는 정독 없이 닫힌 결론의 유효성을 안다  ⇠ lineage: gateway/C001-agent-self-onboard
+│ ├─┘ │
+│ ● │  C036-go-open-git-ledger [closed · supported] Go 구현에 open --git/--push를 원장 규율(fetch·rebase·자동 재번호·재시도)까지 통째로 이식하면 두 구현이 열림의 각인에서도 나란히 선다  ◀ 병합: C020-go-web-port + C016-number-ledger
+● │  C037-checksum-install-gate [closed · supported] 설치 경로의 체크섬 대조를 문서와 도구 산출물 양쪽에 필수화한다
+● │  C038-version-surface-contract [closed · supported ⚠1] version 자기보고 표면을 계약으로 만들면, 배포된 도구가 자기 버전을 거짓말할 수 없고 패치 릴리스도 되살아난다
+● │  C039-command-surface-contract [closed · supported] 명령 자기보고 표면(help)을 계약으로 만들면, 판정기가 자기보고와 실제 구현의 드리프트를 양방향으로 잡고 능력 탐침이 저장소를 변경하지 않는다
+● │  C040-provenance-not-fabricated [closed · supported] 출처(저자·부모)의 조용한 기본값을 제거하면 거짓 원장은 태어나지 못한다 (이슈 #17)
+● │  C041-correction-protocol [closed · supported] 닫힌 사이클의 거짓 출처를 정당하게 정정하는 규정과 도구
+● │  C042-viewer-follows-ledger [closed · supported] 원장이 자동 갱신되면 사람의 창(뷰어)도 자동 갱신된다 — 낡은 화면은 침묵보다 나쁘다
+● │  C043-number-reservation [closed · supported]
+● │  C044-chain-md-commit [closed · supported] 새 체인의 chain.md가 커밋되지 않는 결함 수정 + fsck/판정기 확장 (이슈 #14)
+● │  C045-round-first-class [closed · supported] 라운드를 1급 시민으로 — 검증 안의 (가설→검증) 반복을 사전등록 데이터로
+● │  C046-go-round-port [closed · partial] 참조 구현의 라운드(round)를 Go 바이너리에 이식해 conformance --gil을 72/72로 만든다
+│ ●  C047-web-topology-layout [closed · supported] 분기 형제를 같은 깊이에 — 토폴로지 레이아웃(시간 순서 무시로 세로 압축)
+│ ●  C048-sibling-label-spacing [closed · supported] 같은 위계 형제 노드의 라벨 겹침 해소 — 열 간격을 라벨 폭으로
+│ ●  C049-live-viewer-refresh [closed · supported] 새로고침 없이 실시간 관찰 — gil web --refresh(meta)·--watch(감시 재생성)
+●  C050-go-reserve-port [closed · supported] Go 구현에 reserve/unreserve 이식 → 완전 계약 병렬 (73/73)
+●  C051-fsck-rule-identity [closed · supported] fsck의 규칙 식별을 판정기가 보게 한다 — 진단면의 계약/렌더 경계
+●  C052-git-optional [closed · supported] git 없이도 gil은 우아하게 — 비개발자 진입 문턱 낮추기 (A)
+●  C053-windows-entry [closed · supported] Windows 진입: 바이너리·PowerShell 설치·OS 인식 온보딩 (B·C·D)
+├─┐
+● │  C054-push-remote-graceful [closed · supported]
+● │  C055-path-symlink-parity [closed · supported] 경로 해석 비대칭: 참조를 Go에 맞춰 심볼릭 링크 --root에서 우아하게
+●  C056-windows-gate-runtime-verify [closed · supported] Windows 에이전트 경로 경화: 설치 게이트 pwsh 런타임 검증 + Step C 명령형
+●  C057-deviations-count-reconcile [open] close가 deviations.yaml ↔ 카운트 불일치를 봉인 전에 막고, fsck가 역방향을 본다
+
+root: C001-lineage-is-reconstructable
+분기점: C012-go-binary-log-fsck → C013-realtime-step-visibility, C014-go-binary-open-close
+분기점: C016-number-ledger → C018-release-baseline, C036-go-open-git-ledger
+분기점: C020-go-web-port → C023-v1-integration, C036-go-open-git-ledger
+분기점: C031-web-lane-layout → C032-session-handoff, C047-web-topology-layout
+분기점: C053-windows-entry → C054-push-remote-graceful, C056-windows-gate-runtime-verify
+병합점: C036-go-open-git-ledger ← C020-go-web-port, C016-number-ledger
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-lineage-is-reconstructable  ←  (root)
+  C002-schema-v0-2  ←  C001-lineage-is-reconstructable
+  C003-open-close-porcelain  ←  C002-schema-v0-2
+  C004-git-binding  ←  C003-open-close-porcelain
+  C005-web-viewer  ←  C004-git-binding
+  C006-spec-release  ←  C005-web-viewer
+  C007-pages-wiring  ←  C006-spec-release
+  C008-release-porcelain  ←  C007-pages-wiring
+  C009-doc-patch-release  ←  C008-release-porcelain
+  C010-rename-to-gil  ←  C009-doc-patch-release
+  C011-contract-conformance  ←  C010-rename-to-gil
+  C012-go-binary-log-fsck  ←  C011-contract-conformance
+  C013-realtime-step-visibility  ←  C012-go-binary-log-fsck
+  C014-go-binary-open-close  ←  C012-go-binary-log-fsck
+  C015-being-work-visibility  ←  C013-realtime-step-visibility
+  C016-number-ledger  ←  C015-being-work-visibility
+  C017-go-git-binding  ←  C014-go-binary-open-close
+  C018-release-baseline  ←  C016-number-ledger
+  C019-spec-carryovers  ←  C018-release-baseline
+  C020-go-web-port  ←  C017-go-git-binding
+  C021-parsing-contract  ←  C019-spec-carryovers
+  C022-usage-principles  ←  C021-parsing-contract
+  C023-v1-integration  ←  C020-go-web-port
+  C024-binary-release  ←  C023-v1-integration
+  C025-open-source-front  ←  C024-binary-release
+  C026-defense-lines  ←  C025-open-source-front
+  C027-embedded-template-fallback  ←  C026-defense-lines
+  C028-pages-command  ←  C027-embedded-template-fallback
+  C029-time-machine  ←  C028-pages-command
+  C030-verdict-and-deviations  ←  C029-time-machine
+  C031-web-lane-layout  ←  C030-verdict-and-deviations
+  C032-session-handoff  ←  C031-web-lane-layout
+  C033-default-commit  ←  C032-session-handoff
+  C034-scaffold-and-self-report  ←  C033-default-commit
+  C035-superseded-pointer  ←  C034-scaffold-and-self-report
+  C036-go-open-git-ledger  ←  C020-go-web-port, C016-number-ledger
+  C037-checksum-install-gate  ←  C035-superseded-pointer
+  C038-version-surface-contract  ←  C037-checksum-install-gate
+  C039-command-surface-contract  ←  C038-version-surface-contract
+  C040-provenance-not-fabricated  ←  C039-command-surface-contract
+  C041-correction-protocol  ←  C040-provenance-not-fabricated
+  C042-viewer-follows-ledger  ←  C041-correction-protocol
+  C043-number-reservation  ←  C042-viewer-follows-ledger
+  C044-chain-md-commit  ←  C043-number-reservation
+  C045-round-first-class  ←  C044-chain-md-commit
+  C046-go-round-port  ←  C045-round-first-class
+  C047-web-topology-layout  ←  C031-web-lane-layout
+  C048-sibling-label-spacing  ←  C047-web-topology-layout
+  C049-live-viewer-refresh  ←  C048-sibling-label-spacing
+  C050-go-reserve-port  ←  C046-go-round-port
+  C051-fsck-rule-identity  ←  C050-go-reserve-port
+  C052-git-optional  ←  C051-fsck-rule-identity
+  C053-windows-entry  ←  C052-git-optional
+  C054-push-remote-graceful  ←  C053-windows-entry
+  C055-path-symlink-parity  ←  C054-push-remote-graceful
+  C056-windows-gate-runtime-verify  ←  C053-windows-entry
+  C057-deviations-count-reconcile  ←  C056-windows-gate-runtime-verify
+
+결말: supported 26 · partial 1 · 이탈 1건
+
+=== chain: loomlight — 사이클 1개 ===
+
+●  C001-gather-viewer-lineage [open] 흩어진 뷰어 사이클을 lineage로 모은 전용 체인이 교차-체인 계보를 드러내고 남은 뷰어 백로그를 지도로 그린다  ⇠ lineage: loom/C005-web-viewer, loom/C013-realtime-step-visibility, loom/C015-being-work-visibility, loom/C020-go-web-port, loom/C028-pages-command, loom/C031-web-lane-layout, loom/C042-viewer-follows-ledger, loom/C047-web-topology-layout, loom/C048-sibling-label-spacing, loom/C049-live-viewer-refresh
+
+root: C001-gather-viewer-lineage
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-gather-viewer-lineage  ←  (root)
+
+=== chain: tapestry — 사이클 1개 ===
+
+●  C001-reproduce-audit [closed] 닫힌 사이클의 재현 문서만 따라, 독립 존재(Weft)가 소환자 개입 없이 결과를 재현하고 일치 여부를 감사할 수 있다  ⇠ lineage: genesis/C003-birth-of-a-being, loom/C009-doc-patch-release
+
+root: C001-reproduce-audit
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-reproduce-audit  ←  (root)
+
