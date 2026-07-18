@@ -987,6 +987,63 @@ def main():
     subprocess.run(["git", "-C", wsroot, "worktree", "remove", "--force", wt_path], capture_output=True)
     shutil.rmtree(os.path.join(os.path.dirname(wsroot), os.path.basename(wsroot) + "-worktrees"), ignore_errors=True)
 
+    # ---- WORKTREE-LAND: gil worktree land가 브랜치를 main에 --no-ff 병합 + 충돌 안전 + 워크트리 정리 (loom/C060, #1) ----
+    # 병렬 사이클 모드의 닫는 반쪽. add의 결정론적 매핑을 역산해 브랜치를 main에 --no-ff로 봉합하고,
+    # 성공 시에만 워크트리+브랜치를 정리한다. 충돌은 삼키지 않는다 — abort로 되돌리고 워크트리를 보존한다.
+    # 계약(양성): rc0 ∧ main에 병합 반영 ∧ --no-ff 병합 커밋(부모 2개) ∧ 워크트리 제거 ∧ 브랜치 삭제 ∧ 무크래시.
+    # 음성(쌍 검증, C038): main에 충돌을 심으면 land가 거부(rc≠0) + 워크트리·브랜치 보존 + MERGE_HEAD 무잔재.
+    def _mk_repo(path):
+        os.makedirs(path, exist_ok=True)
+        for cfg in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+            subprocess.run(["git", "-C", path, *cfg], check=True)
+        subprocess.run(["git", "-C", path, "commit", "-q", "--allow-empty", "-m", "init"], check=True)
+    # 양성: add로 브랜치 생성 → land로 착지
+    lroot = os.path.realpath(make_sandbox(os.path.join(work, "wtland")))
+    _mk_repo(lroot)
+    lcr = os.path.join(lroot, "rooms/experiment/chains")
+    l_wt = os.path.join(os.path.dirname(lroot), os.path.basename(lroot) + "-worktrees", "demo-para")
+    impl.run(lroot, "worktree", "add", "demo", "para", "--author", "tester", "--new-chain", "--root", lcr)
+    rl = impl.run(lroot, "worktree", "land", "demo", "para", "--author", "tester", "--root", lcr)
+    landed = os.path.isfile(os.path.join(lcr, "demo/C001-para/cycle.yaml"))  # main 작업트리에 병합 반영
+    head_parents = subprocess.run(["git", "-C", lroot, "rev-list", "--parents", "-n1", "HEAD"],
+                                  capture_output=True, text=True).stdout.split()
+    merge_commit = len(head_parents) == 3  # --no-ff → 병합 커밋(자신 + 부모 2)
+    hmsg = subprocess.run(["git", "-C", lroot, "log", "-1", "--pretty=%s"], capture_output=True, text=True).stdout
+    land_msg = "gil: land" in hmsg
+    wt_gone = not os.path.isdir(l_wt)
+    lbr = subprocess.run(["git", "-C", lroot, "branch", "--list", "tester/demo-para"], capture_output=True, text=True).stdout
+    branch_gone = "tester/demo-para" not in lbr
+    l_no_crash = "Traceback" not in rl.stderr and "panic:" not in rl.stderr
+    # 음성: 충돌을 심고 land → 거부 + 보존
+    croot = os.path.realpath(make_sandbox(os.path.join(work, "wtlandc")))
+    _mk_repo(croot)
+    ccr = os.path.join(croot, "rooms/experiment/chains")
+    c_wt = os.path.join(os.path.dirname(croot), os.path.basename(croot) + "-worktrees", "demo-para")
+    impl.run(croot, "worktree", "add", "demo", "para", "--author", "tester", "--new-chain", "--root", ccr)
+    # main에 같은 경로로 충돌 내용을 커밋 (브랜치의 cycle.yaml과 충돌)
+    conflict_path = os.path.join(ccr, "demo/C001-para/cycle.yaml")
+    os.makedirs(os.path.dirname(conflict_path), exist_ok=True)
+    with open(conflict_path, "w", encoding="utf-8") as f:
+        f.write("id: C001-para\nchain: demo\nstatus: CONFLICT-ON-MAIN\n")
+    subprocess.run(["git", "-C", croot, "add", "-A"], check=True)
+    subprocess.run(["git", "-C", croot, "commit", "-q", "-m", "conflicting change on main"], check=True)
+    rc = impl.run(croot, "worktree", "land", "demo", "para", "--author", "tester", "--root", ccr)
+    conflict_rejected = rc.returncode != 0
+    wt_kept = os.path.isdir(c_wt)
+    cbr = subprocess.run(["git", "-C", croot, "branch", "--list", "tester/demo-para"], capture_output=True, text=True).stdout
+    branch_kept = "tester/demo-para" in cbr
+    no_merging = not os.path.isfile(os.path.join(croot, ".git", "MERGE_HEAD"))  # abort 확인
+    c_no_crash = "Traceback" not in rc.stderr and "panic:" not in rc.stderr
+    check("WORKTREE-LAND",
+          "worktree land가 rc0 + main에 --no-ff 병합(부모2) + 워크트리·브랜치 정리 + 무크래시; 충돌은 거부+보존+abort (C060 봉합)",
+          rl.returncode == 0 and landed and merge_commit and land_msg and wt_gone and branch_gone and l_no_crash
+          and conflict_rejected and wt_kept and branch_kept and no_merging and c_no_crash,
+          f"rc={rl.returncode} landed={landed} merge={merge_commit} msg={land_msg} wtgone={wt_gone} brgone={branch_gone} "
+          f"crash={not l_no_crash} | neg_rc={rc.returncode} wtkept={wt_kept} brkept={branch_kept} nomerging={no_merging}")
+    for r_, w_ in ((lroot, l_wt), (croot, c_wt)):
+        subprocess.run(["git", "-C", r_, "worktree", "remove", "--force", w_], capture_output=True)
+        shutil.rmtree(os.path.join(os.path.dirname(r_), os.path.basename(r_) + "-worktrees"), ignore_errors=True)
+
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
     print(f"\n계약 준수: {passed}/{total}" + ("  ✔ 이 구현은 gil이다" if passed == total else "  ✘ 계약 위반"))

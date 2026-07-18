@@ -819,9 +819,11 @@ def _branch_exists(repo, branch):
 
 
 def cmd_worktree(args):
-    """병렬 사이클 모드 (loom/C058, 발의: 박상현 #1). git worktree 명사에 올라탄다."""
+    """병렬 사이클 모드 (loom/C058·C060, 발의: 박상현 #1). git worktree 명사에 올라탄다."""
     if args.wt_action == "add":
         return _worktree_add(args)
+    if args.wt_action == "land":
+        return _worktree_land(args)
     raise ChainError(f"알 수 없는 worktree 하위명령: {args.wt_action}")
 
 
@@ -878,7 +880,57 @@ def _worktree_add(args):
     print(f"워크트리: {wt_path}")
     print(f"브랜치:   {branch}")
     print(f"→ 존재는 여기서 일한다:  cd {wt_path}  (메인 저장소로 돌아오지 말 것 — C050)")
-    print(f"→ 돌아오면 소환자가 병합한다 (다음: gil worktree land, C059 예정)")
+    print(f"→ 돌아오면 소환자가 병합한다:  gil worktree land {args.chain} {args.slug} --author {args.author}")
+    return 0
+
+
+def _worktree_land(args):
+    """병렬 사이클의 머지백 — add의 결정론적 매핑을 역산해 브랜치를 main에 --no-ff로 봉합한다 (loom/C060).
+
+    add가 '여는 반쪽'(워크트리+브랜치+사이클)이면 land는 '닫는 반쪽'이다. open/close 로직을
+    복제하지 않고 순수 git 오케스트레이션만 한다 — git merge --no-ff + worktree remove + branch -d.
+    충돌은 삼키지 않는다: 병합이 실패하면 merge --abort로 무흔적 복귀 + 워크트리·브랜치 보존
+    (사람이 해소). 정리는 병합 성공 시에만 — 병합 안 된 브랜치는 -d(안전 삭제)가 지키고 거부한다."""
+    chains_root = args.root
+    if not _git_available():
+        raise ChainError("worktree land: git이 필요하다 (병렬 사이클 모드는 워크트리 격리를 쓴다)")
+    repo = _repo_root(chains_root)
+    if not repo:
+        raise ChainError(f"worktree land: 깃 저장소가 아니다 — {chains_root}")
+    if not args.author:
+        raise ChainError("worktree land: 저자를 알 수 없다 — --author <이름> (§3.2 P1)")
+    if not _SLUG_RE.match(args.slug):
+        raise ChainError(f"슬러그 '{args.slug}' 형식 위반 — R1: 소문자·숫자·하이픈만")
+
+    # 역산 — add와 동일 공식. 열 때 쓴 좌표가 곧 닫을 때 쓰는 좌표다.
+    branch = f"{args.author}/{args.chain}-{args.slug}"
+    wt_path = os.path.join(os.path.dirname(repo),
+                           f"{os.path.basename(repo)}-worktrees", f"{args.chain}-{args.slug}")
+    if not _branch_exists(repo, branch):
+        raise ChainError(f"worktree land: 브랜치가 없다 — {branch} (되돌릴 것이 없다)")
+
+    # --no-ff 병합: 병렬 작업의 봉합을 항상 한 병합 커밋으로 각인한다.
+    msg = f"gil: land {args.chain}/{args.slug} ({branch})"
+    r = _git(repo, "merge", "--no-ff", "--no-edit", "-m", msg, branch, check=False)
+    if r.returncode != 0:
+        # 충돌 등: 무흔적 복귀 + 워크트리·브랜치 보존 (충돌을 삼키지 않는다).
+        _git(repo, "merge", "--abort", check=False)
+        raise ChainError(
+            f"worktree land: 병합 충돌 — 되돌림, 워크트리·브랜치 보존\n"
+            f"  워크트리에서 해소 후 다시 land하라: {wt_path}\n{(r.stderr or r.stdout).strip()}")
+
+    merge_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    # 정리 (병합 성공 시에만). -d는 병합 안 된 브랜치를 거부하는 안전 삭제 — '정말 병합됐나'의 마지막 단언.
+    if os.path.exists(wt_path):
+        _git(repo, "worktree", "remove", "--force", wt_path, check=False)
+    rd = _git(repo, "branch", "-d", branch, check=False)
+    branch_pruned = rd.returncode == 0
+
+    print(f"착지: {branch} → {repo} (병합 {merge_sha[:8]}, --no-ff)")
+    print(f"정리: 워크트리 제거" + ("  + 브랜치 삭제" if branch_pruned else "  (브랜치 삭제 실패 — 수동 확인)"))
+    if args.push:
+        _push(repo)
     return 0
 
 
@@ -2643,16 +2695,18 @@ def main(argv=None):
     p_open.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_open.set_defaults(func=cmd_open)
 
-    p_wt = sub.add_parser("worktree", help="병렬 사이클 모드 — 워크트리+브랜치+사이클을 원자적으로 (v2.15, #1)")
-    p_wt.add_argument("wt_action", choices=["add"], help="add: 격리 워크트리에서 새 사이클을 연다")
+    p_wt = sub.add_parser("worktree", help="병렬 사이클 모드 — add(열기)·land(머지백) (v2.15·v2.17, #1)")
+    p_wt.add_argument("wt_action", choices=["add", "land"],
+                      help="add: 격리 워크트리에서 새 사이클을 연다 / land: 브랜치를 main에 --no-ff 병합 후 워크트리 정리")
     p_wt.add_argument("chain")
     p_wt.add_argument("slug", help="id의 슬러그 부분 (소문자 케밥)")
-    p_wt.add_argument("--author", help="이 워크트리에서 일할 존재 — 필수 (§3.2 P1)")
-    p_wt.add_argument("--parent", action="append", default=[], help="부모 사이클의 로컬 id (병합이면 여러 번)")
-    p_wt.add_argument("--lineage", action="append", default=[], help="교훈의 연원 <chain>/<id> (여러 번)")
-    p_wt.add_argument("--new-chain", action="store_true", help="체인이 없으면 생성")
-    p_wt.add_argument("--new-root", action="store_true", help="비어있지 않은 체인에 새 루트")
-    p_wt.add_argument("--date", default=today, help="opened 일자 (기본: 오늘)")
+    p_wt.add_argument("--author", help="이 워크트리에서 일할/일한 존재 — 필수 (§3.2 P1)")
+    p_wt.add_argument("--parent", action="append", default=[], help="부모 사이클의 로컬 id (병합이면 여러 번; add 전용)")
+    p_wt.add_argument("--lineage", action="append", default=[], help="교훈의 연원 <chain>/<id> (여러 번; add 전용)")
+    p_wt.add_argument("--new-chain", action="store_true", help="체인이 없으면 생성 (add 전용)")
+    p_wt.add_argument("--new-root", action="store_true", help="비어있지 않은 체인에 새 루트 (add 전용)")
+    p_wt.add_argument("--push", action="store_true", help="land: 병합 성공 후 main push")
+    p_wt.add_argument("--date", default=today, help="opened 일자 (기본: 오늘; add 전용)")
     p_wt.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_wt.set_defaults(func=cmd_worktree)
 

@@ -1235,7 +1235,7 @@ func cmdUnreserve(a unreserveArgs) error {
 type worktreeArgs struct {
 	action, chain, slug, author, date, root string
 	parents, lineage                        []string
-	newChain, newRoot                       bool
+	newChain, newRoot, push                 bool
 }
 
 func branchExists(repo, branch string) bool {
@@ -1243,12 +1243,15 @@ func branchExists(repo, branch string) bool {
 	return code == 0
 }
 
-// cmdWorktree — 병렬 사이클 모드 (loom/C058, 발의: 박상현 #1). git worktree 명사에 올라탄다.
+// cmdWorktree — 병렬 사이클 모드 (loom/C058·C060, 발의: 박상현 #1). git worktree 명사에 올라탄다.
 func cmdWorktree(a worktreeArgs) error {
-	if a.action != "add" {
-		return cerr("알 수 없는 worktree 하위명령: %s", a.action)
+	switch a.action {
+	case "add":
+		return worktreeAdd(a)
+	case "land":
+		return worktreeLand(a)
 	}
-	return worktreeAdd(a)
+	return cerr("알 수 없는 worktree 하위명령: %s", a.action)
 }
 
 // worktreeAdd — 워크트리 생성 + 새 브랜치 + 사이클 열기를 원자적으로 묶는다 (loom/C058).
@@ -1318,7 +1321,65 @@ func worktreeAdd(a worktreeArgs) error {
 	fmt.Printf("워크트리: %s\n", wtPath)
 	fmt.Printf("브랜치:   %s\n", branch)
 	fmt.Printf("→ 존재는 여기서 일한다:  cd %s  (메인 저장소로 돌아오지 말 것 — C050)\n", wtPath)
-	fmt.Printf("→ 돌아오면 소환자가 병합한다 (다음: gil worktree land, C059 예정)\n")
+	fmt.Printf("→ 돌아오면 소환자가 병합한다:  gil worktree land %s %s --author %s\n", a.chain, a.slug, a.author)
+	return nil
+}
+
+// worktreeLand — 병렬 사이클의 머지백 — add의 결정론적 매핑을 역산해 브랜치를 main에 --no-ff로 봉합한다 (loom/C060).
+// add가 '여는 반쪽'이면 land는 '닫는 반쪽'이다. open/close 로직을 복제하지 않고 순수 git 오케스트레이션만
+// 한다 — git merge --no-ff + worktree remove + branch -d. 충돌은 삼키지 않는다: 병합 실패 시 merge --abort로
+// 무흔적 복귀 + 워크트리·브랜치 보존. 정리는 병합 성공 시에만 — 병합 안 된 브랜치는 -d(안전 삭제)가 거부한다.
+func worktreeLand(a worktreeArgs) error {
+	if !gitAvailable() {
+		return cerr("worktree land: git이 필요하다 (병렬 사이클 모드는 워크트리 격리를 쓴다)")
+	}
+	repo := repoRoot(a.root)
+	if repo == "" {
+		return cerr("worktree land: 깃 저장소가 아니다 — %s", a.root)
+	}
+	if a.author == "" {
+		return cerr("worktree land: 저자를 알 수 없다 — --author <이름> (§3.2 P1)")
+	}
+	if !slugRe.MatchString(a.slug) {
+		return cerr("슬러그 '%s' 형식 위반 — R1: 소문자·숫자·하이픈만", a.slug)
+	}
+	// 역산 — add와 동일 공식. 열 때 쓴 좌표가 곧 닫을 때 쓰는 좌표다.
+	branch := a.author + "/" + a.chain + "-" + a.slug
+	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-worktrees", a.chain+"-"+a.slug)
+	if !branchExists(repo, branch) {
+		return cerr("worktree land: 브랜치가 없다 — %s (되돌릴 것이 없다)", branch)
+	}
+	// --no-ff 병합: 병렬 작업의 봉합을 항상 한 병합 커밋으로 각인한다.
+	msg := fmt.Sprintf("gil: land %s/%s (%s)", a.chain, a.slug, branch)
+	if out, _, code := gitRun(repo, "merge", "--no-ff", "--no-edit", "-m", msg, branch); code != 0 {
+		// 충돌 등: 무흔적 복귀 + 워크트리·브랜치 보존 (충돌을 삼키지 않는다).
+		gitRun(repo, "merge", "--abort")
+		return cerr("worktree land: 병합 충돌 — 되돌림, 워크트리·브랜치 보존\n"+
+			"  워크트리에서 해소 후 다시 land하라: %s\n%s", wtPath, strings.TrimSpace(out))
+	}
+	mergeSHA, _, _ := gitRun(repo, "rev-parse", "HEAD")
+	mergeSHA = strings.TrimSpace(mergeSHA)
+	// 정리 (병합 성공 시에만). -d는 병합 안 된 브랜치를 거부하는 안전 삭제 — '정말 병합됐나'의 마지막 단언.
+	if _, err := os.Stat(wtPath); err == nil {
+		gitRun(repo, "worktree", "remove", "--force", wtPath)
+	}
+	_, _, dcode := gitRun(repo, "branch", "-d", branch)
+	branchPruned := dcode == 0
+	sha := mergeSHA
+	if len(sha) > 8 {
+		sha = sha[:8]
+	}
+	fmt.Printf("착지: %s → %s (병합 %s, --no-ff)\n", branch, repo, sha)
+	if branchPruned {
+		fmt.Printf("정리: 워크트리 제거  + 브랜치 삭제\n")
+	} else {
+		fmt.Printf("정리: 워크트리 제거  (브랜치 삭제 실패 — 수동 확인)\n")
+	}
+	if a.push {
+		if _, err := gitPush(repo); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -3716,7 +3777,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"log", "gil log [chains-root] [--chain <이름>]", "체인 계보를 ASCII 그래프로"},
 	{"fsck", "gil fsck [chains-root] [--chain <이름>]", "R1~R14 위반 전수 수집·보고"},
 	{"open", "gil open <chain> <slug> --author <이름> [--parent …]… [--new-root] [--title …] [--lineage …] [--new-chain] [--git] [--push]", "사이클 생성 (번호 자동 증가). --author 필수, 비어있지 않은 체인은 --parent 또는 --new-root 필수 (§3.2)"},
-	{"worktree", "gil worktree add <chain> <slug> --author <이름> [--parent …]… [--lineage …] [--new-chain] [--new-root] [--root …]", "병렬 사이클 모드: 격리 워크트리+브랜치에서 새 사이클을 원자적으로 연다 (v2.15, #1)"},
+	{"worktree", "gil worktree add|land <chain> <slug> --author <이름> [--push] [--root …]", "병렬 사이클 모드: add=격리 워크트리+사이클 열기, land=브랜치를 main에 --no-ff 병합 후 정리 (v2.15·v2.17, #1)"},
 	{"reserve", "gil reserve <chain> <slug> --for <이름> [--date …] [--git] [--push] [--root …]", "병렬 존재에게 사이클 번호를 예약 (원장 선점, v2.3). --for 필수 (§3.2 P1)"},
 	{"unreserve", "gil unreserve <chain> <번호> [--git] [--push] [--root …]", "예약 취소 — 만료의 수동 해법 (v2.3). 없는 번호는 거부"},
 	{"close", "gil close <chain> <id> [--verdict …] [--no-commit] [--push]", "보고서 검증 후 사이클 닫기 (커밋+태그)"},
@@ -3843,14 +3904,15 @@ func main() {
 	case "worktree":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
 			"author": true, "parent": true, "lineage": true, "date": true, "root": true,
-			"new-chain": false, "new-root": false,
+			"new-chain": false, "new-root": false, "push": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
-		if len(pos) != 3 || pos[0] != "add" {
+		if len(pos) != 3 || (pos[0] != "add" && pos[0] != "land") {
 			fmt.Fprintln(os.Stderr, "사용: gil worktree add <chain> <slug> --author <이름> [--parent id]… [--lineage chain/id]… [--new-chain] [--new-root] [--root r]")
+			fmt.Fprintln(os.Stderr, "      gil worktree land <chain> <slug> --author <이름> [--push] [--root r]")
 			os.Exit(2)
 		}
 		if err := cmdWorktree(worktreeArgs{
@@ -3862,6 +3924,7 @@ func main() {
 			lineage:  flags["lineage"],
 			newChain: len(flags["new-chain"]) > 0,
 			newRoot:  len(flags["new-root"]) > 0,
+			push:     len(flags["push"]) > 0,
 		}); err != nil {
 			fail(err)
 		}
