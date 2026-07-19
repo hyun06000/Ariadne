@@ -4,11 +4,11 @@ parent: C077-go-web-app-port
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "주 체크아웃 소유 guard(C062)가 예약을 안 봐, 예약된 존재가 main에서 자기 사이클을 못 연다 — 예약 대상 author의 open은 guard가 허용하면 병렬 온보딩 마찰이 사라진다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
