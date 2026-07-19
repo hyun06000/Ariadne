@@ -1,0 +1,23 @@
+# 검증 산출물 — C082 pages 출력 대칭
+
+## 참조 conformance (수정 후)
+gil 2.32.0
+PASS PAGES-DRYRUN: pages --dry-run이 경로만 보고하고 파일을 만들지 않는다 (대조: pages는 만든다)
+PASS PAGES-OUTPUT-PATH: pages -o <path>가 지정 경로에 워크플로를 쓰고 기본 경로는 안 만든다 (web과 대칭)
+PASS PAGES-OUTPUT-STDOUT: pages -o -가 워크플로 전문을 stdout에 내고 파일을 만들지 않는다 (파이프 안전)
+계약 준수: 109/109  ✔ 이 구현은 gil이다
+
+## 참조 conformance (수정 전 — 신설 항목 FAIL이어야 판정 유효)
+FAIL PAGES-OUTPUT-PATH: pages -o <path>가 지정 경로에 워크플로를 쓰고 기본 경로는 안 만든다 (web과 대칭)  [exit=2 custom있음=False 기본있음=False]
+FAIL PAGES-OUTPUT-STDOUT: pages -o -가 워크플로 전문을 stdout에 내고 파일을 만들지 않는다 (파이프 안전)  [exit=2 stdout==본문=False 파일생김=False]
+계약 준수: 107/109  ✘ 계약 위반
+
+## Go conformance (수정 후)
+gil 2.32.0
+PASS PAGES-DRYRUN: pages --dry-run이 경로만 보고하고 파일을 만들지 않는다 (대조: pages는 만든다)
+PASS PAGES-OUTPUT-PATH: pages -o <path>가 지정 경로에 워크플로를 쓰고 기본 경로는 안 만든다 (web과 대칭)
+PASS PAGES-OUTPUT-STDOUT: pages -o -가 워크플로 전문을 stdout에 내고 파일을 만들지 않는다 (파이프 안전)
+계약 준수: 95/95  ✔ 이 구현은 gil이다
+
+## parity: 참조 vs Go (pages -o -)
+PARITY OK — 0 바이트 차이

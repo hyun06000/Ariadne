@@ -4514,25 +4514,42 @@ jobs:
         uses: actions/deploy-pages@v4
 `
 
-func cmdPages(root string, force, dryRun bool) error {
+func cmdPages(root, output string, force, dryRun bool) error {
 	repoRoot := filepath.Clean(filepath.Join(root, "..", "..", ".."))
 	wfDir := filepath.Join(repoRoot, ".github", "workflows")
-	wfPath := filepath.Join(wfDir, "gil-pages.yml")
+	defaultWf := filepath.Join(wfDir, "gil-pages.yml")
+	// -o/--output: web과 대칭 (loom/C082, 이슈 #21). ""=기본 경로, "-"=stdout, else=지정 경로.
+	toStdout := output == "-"
+	isDefault := output == ""
+	wfPath := defaultWf
+	if !isDefault && !toStdout {
+		abs, _ := filepath.Abs(output)
+		wfPath = abs
+	}
 	if dryRun {
 		// §7.2-6: 능력 탐침은 저장소를 변경하지 않는다. 무엇이 생길지만 말한다.
-		rel, _ := filepath.Rel(repoRoot, wfPath)
-		suffix := ""
-		if _, err := os.Stat(wfPath); err == nil {
-			suffix = " (이미 존재 — 덮으려면 --force)"
+		if toStdout {
+			fmt.Println("생성될 경로: (stdout)")
+		} else {
+			rel, _ := filepath.Rel(repoRoot, wfPath)
+			suffix := ""
+			if _, err := os.Stat(wfPath); err == nil {
+				suffix = " (이미 존재 — 덮으려면 --force)"
+			}
+			fmt.Printf("생성될 경로: %s%s\n", rel, suffix)
 		}
-		fmt.Printf("생성될 경로: %s%s\n", rel, suffix)
 		fmt.Println("dry-run: 아무것도 만들지 않았다")
+		return nil
+	}
+	if toStdout {
+		// 파이프 안전: 워크플로 전문만, 안내 문구 없음. 저장소 무변화 (diff <(gil pages -o -) ...).
+		os.Stdout.WriteString(pagesWorkflow)
 		return nil
 	}
 	if _, err := os.Stat(wfPath); err == nil && !force {
 		return cerr("이미 존재한다: %s (덮으려면 --force)", wfPath)
 	}
-	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(wfPath), 0o755); err != nil {
 		return cerr("%v", err)
 	}
 	if err := os.WriteFile(wfPath, []byte(pagesWorkflow), 0o644); err != nil {
@@ -4540,7 +4557,9 @@ func cmdPages(root string, force, dryRun bool) error {
 	}
 	rel, _ := filepath.Rel(repoRoot, wfPath)
 	fmt.Printf("생성: %s\n", rel)
-	fmt.Println("다음: git push 후 저장소 Settings → Pages → Source = 'GitHub Actions'")
+	if isDefault {
+		fmt.Println("다음: git push 후 저장소 Settings → Pages → Source = 'GitHub Actions'")
+	}
 	return nil
 }
 
@@ -4830,7 +4849,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"round", "gil round <chain> <id> --open --title <t> | --close --verdict <v> | --list [--git] [--push]", "사이클 안 (가설→검증) 라운드 사전등록·마감 (v2.5, 이슈 #9·#10)"},
 	{"verify", "gil verify [chains-root] [--chain <이름>]", "닫힌 사이클의 태그↔작업 트리 대조"},
 	{"web", "gil web [chains-root] -o <출력> [--title …] [--chain …]", "자기완결적 정적 HTML 뷰어"},
-	{"pages", "gil pages [--force] [--dry-run]", "GitHub Pages 배포 워크플로 생성"},
+	{"pages", "gil pages [-o <path>|-] [--force] [--dry-run]", "GitHub Pages 배포 워크플로 생성"},
 	{"goto", "gil goto <chain>/<id> [--checkout]", "타임머신: 사이클 시점 역행 조회·체크아웃"},
 	{"handoff", "gil handoff [chains-root]", "세션의 매듭: 현황·부활 경로·다음 실"},
 	{"supersede", "gil supersede <old-ref> <new-ref>", "전방 무효화: 닫힌 사이클에 superseded_by 각인"},
@@ -5237,12 +5256,22 @@ func main() {
 			fail(err)
 		}
 	case "pages":
-		_, flags, err := parseCLI(os.Args[2:], map[string]bool{"root": true, "force": false, "dry-run": false})
+		// argparse의 -o/--output 별칭에 대응 (web과 동일 정규화, loom/C082).
+		raw := os.Args[2:]
+		norm := make([]string, 0, len(raw))
+		for _, a := range raw {
+			if a == "-o" {
+				norm = append(norm, "--output")
+			} else {
+				norm = append(norm, a)
+			}
+		}
+		_, flags, err := parseCLI(norm, map[string]bool{"root": true, "output": true, "force": false, "dry-run": false})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
 			os.Exit(2)
 		}
-		if err := cmdPages(flagVal(flags, "root", defaultRoot), len(flags["force"]) > 0, len(flags["dry-run"]) > 0); err != nil {
+		if err := cmdPages(flagVal(flags, "root", defaultRoot), flagVal(flags, "output", ""), len(flags["force"]) > 0, len(flags["dry-run"]) > 0); err != nil {
 			fail(err)
 		}
 	default:

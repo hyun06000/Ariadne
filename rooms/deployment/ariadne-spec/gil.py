@@ -2000,20 +2000,36 @@ def cmd_pages(args):
     chains_root = args.root
     repo_root = os.path.normpath(os.path.join(chains_root, "..", "..", ".."))
     wf_dir = os.path.join(repo_root, ".github", "workflows")
-    wf_path = os.path.join(wf_dir, "gil-pages.yml")
+    default_wf = os.path.join(wf_dir, "gil-pages.yml")
+    # -o/--output: web과 대칭 (loom/C082, 이슈 #21). None=기본 경로, "-"=stdout, else=지정 경로.
+    output = getattr(args, "output", None)
+    to_stdout = output == "-"
+    wf_path = default_wf if output is None else (None if to_stdout else os.path.abspath(output))
+    is_default = output is None
+
     if getattr(args, "dry_run", False):
         # §7.2-6: 능력 탐침은 저장소를 변경하지 않는다. 무엇이 생길지만 말한다.
-        rel = os.path.relpath(wf_path, repo_root)
-        print(f"생성될 경로: {rel}" + (" (이미 존재 — 덮으려면 --force)" if os.path.exists(wf_path) else ""))
+        if to_stdout:
+            print("생성될 경로: (stdout)")
+        else:
+            rel = os.path.relpath(wf_path, repo_root)
+            print(f"생성될 경로: {rel}" + (" (이미 존재 — 덮으려면 --force)" if os.path.exists(wf_path) else ""))
         print("dry-run: 아무것도 만들지 않았다")
         return 0
+
+    if to_stdout:
+        # 파이프 안전: 워크플로 전문만, 안내 문구 없음. 저장소 무변화 (diff <(gil pages -o -) ...).
+        sys.stdout.write(_PAGES_WORKFLOW)
+        return 0
+
     if os.path.exists(wf_path) and not args.force:
         raise ChainError(f"이미 존재한다: {wf_path} (덮으려면 --force)")
-    os.makedirs(wf_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(wf_path) or ".", exist_ok=True)
     with open(wf_path, "w", encoding="utf-8") as f:
         f.write(_PAGES_WORKFLOW)
     print(f"생성: {os.path.relpath(wf_path, repo_root)}")
-    print("다음: git push 후 저장소 Settings → Pages → Source = 'GitHub Actions'")
+    if is_default:
+        print("다음: git push 후 저장소 Settings → Pages → Source = 'GitHub Actions'")
     return 0
 
 
@@ -3650,6 +3666,8 @@ def main(argv=None):
     p_threads.set_defaults(func=cmd_threads)
 
     p_pages = sub.add_parser("pages", help="GitHub Pages 배포 워크플로를 생성한다")
+    p_pages.add_argument("-o", "--output", default=None,
+                         help="출력 경로 (web과 대칭). 생략하면 .github/workflows/gil-pages.yml, '-'면 stdout (덮기 전 diff/미리보기)")
     p_pages.add_argument("--force", action="store_true", help="기존 워크플로를 덮어쓴다")
     p_pages.add_argument("--dry-run", dest="dry_run", action="store_true",
                          help="생성될 경로만 보고하고 아무것도 만들지 않는다 (§7.2-6 부작용 없는 탐침)")

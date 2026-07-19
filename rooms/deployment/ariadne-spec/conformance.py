@@ -176,6 +176,30 @@ def main():
           and rr.returncode == 0 and os.path.exists(wf),
           f"탐침이 생성함={made_on_probe}")
 
+    # pages 출력 대칭 — web과 동형인 -o/--output (loom/C082, 이슈 #21).
+    # 기준 워크플로 내용: 방금 기본 경로에 만든 wf.
+    with open(wf, encoding="utf-8") as f:
+        wf_body = f.read()
+
+    # T1 PAGES-OUTPUT-PATH: -o <path>가 지정 경로에 쓰고 기본 경로는 건드리지 않는다.
+    p1 = make_sandbox(os.path.join(work, "pages-o-path"))
+    custom = os.path.join(p1, "custom-workflow.yml")
+    default_wf = os.path.join(p1, ".github", "workflows", "gil-pages.yml")
+    ro = impl.run(p1, "pages", "-o", custom)
+    check("PAGES-OUTPUT-PATH", "pages -o <path>가 지정 경로에 워크플로를 쓰고 기본 경로는 안 만든다 (web과 대칭)",
+          ro.returncode == 0 and os.path.exists(custom)
+          and open(custom, encoding="utf-8").read() == wf_body
+          and not os.path.exists(default_wf),
+          f"exit={ro.returncode} custom있음={os.path.exists(custom)} 기본있음={os.path.exists(default_wf)}")
+
+    # T2 PAGES-OUTPUT-STDOUT: -o -가 워크플로 전문을 stdout에 내고 저장소를 안 바꾼다 (diff 파이프 안전).
+    p2 = make_sandbox(os.path.join(work, "pages-o-stdout"))
+    default_wf2 = os.path.join(p2, ".github", "workflows", "gil-pages.yml")
+    rs = impl.run(p2, "pages", "-o", "-")
+    check("PAGES-OUTPUT-STDOUT", "pages -o -가 워크플로 전문을 stdout에 내고 파일을 만들지 않는다 (파이프 안전)",
+          rs.returncode == 0 and rs.stdout == wf_body and not os.path.exists(default_wf2),
+          f"exit={rs.returncode} stdout==본문={rs.stdout == wf_body} 파일생김={os.path.exists(default_wf2)}")
+
     # ---- fsck: 깨끗한 저장소 ----
     root = make_sandbox(os.path.join(work, "clean"))
     write_cycle(root, "alpha", "C001-first", status="closed", closed="2026-01-02")
