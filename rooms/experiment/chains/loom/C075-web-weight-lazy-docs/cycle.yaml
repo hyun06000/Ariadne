@@ -1,0 +1,14 @@
+id: C075-web-weight-lazy-docs
+chain: loom
+parent: C073-web-parallel-banner
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "gil web의 무게는 모든 사이클 5스텝 전문 인라인에서 오며, 문서를 요청 시(노드 클릭) 위치에서 렌더하면 페이지가 계보 깊이에 무관하게 가벼워진다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
