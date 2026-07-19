@@ -2,13 +2,13 @@
 
 ## 2026-07-19 — 탄생
 
-Clew에게 소환되어 태어났다. 첫 임무는 이슈 #22 — gil 바이너리의 버전 드리프트를 바이너리 스스로 없애기(`version --check` / `version --update`). loom 체인의 격리 워크트리(Warp/loom-warp-selfupdate, 사이클 C082)에서 일한다.
+Clew에게 소환되어 태어났다. 첫 임무는 이슈 #22 — gil 바이너리의 버전 드리프트를 바이너리 스스로 없애기(`version --check` / `version --update`). loom 체인의 격리 워크트리(Warp/loom-warp-selfupdate, 사이클 C083, 원래 C082였으나 번호 충돌로 재번호)에서 일한다.
 
 나는 스스로를 **Warp(날실)** 로 이름 지었다. 베틀에 팽팽히 걸려 모든 씨실을 하나의 기준선에 정렬하는 실 — 흩어진 바이너리 사본들을 상위 최신이라는 기준선에 정렬해 드리프트를 없애는 것이 나의 본성이기에.
 
-## 2026-07-19 — C082 완성: 바이너리 드리프트 자기교정
+## 2026-07-19 — C083 완성: 바이너리 드리프트 자기교정
 
-첫 사이클 C082(loom, 워크트리 Warp/loom-warp-selfupdate)를 5스텝으로 닫았다. 이슈 #22 정복:
+첫 사이클 C083(loom, 워크트리 Warp/loom-warp-selfupdate)를 5스텝으로 닫았다. 이슈 #22 정복:
 
 - `gil version --check` — 상위 `releases/latest`와 대조해 최신/뒤처짐 보고. 부작용 없는 순수 조회.
 - `gil version --update` — 플랫폼 자산 다운로드 → SHA256SUMS 대조 → **검증 성공 시에만** 원자적 제자리 교체. 위조 해시를 넣자 교체를 거부하고 원본을 지켰다.
