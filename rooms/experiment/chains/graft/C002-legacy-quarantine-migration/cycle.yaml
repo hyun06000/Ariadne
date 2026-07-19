@@ -2,13 +2,13 @@ id: C002-legacy-quarantine-migration
 chain: graft
 parent: C001-map-of-difficulties
 lineage: []
-step: 4
+step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "레거시를 legacy/로 격리하고 gil로 재시작하는 재현 가능한 이주 절차"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
