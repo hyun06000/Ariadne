@@ -7,7 +7,7 @@ author: clew
 status: open
 opened: 2026-07-19
 closed: null
-title: ""
+title: "pages 출력 대칭 — web과 동형인 -o/--output(및 -o - stdout)을 이식해 덮기 전 diff/미리보기를 가능케 한다 (이슈 #21)"
 verdict: null
 deviations: 0
 corrections: 0
