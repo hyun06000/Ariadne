@@ -1,0 +1,14 @@
+id: C080-step-commit-scope
+chain: loom
+parent: C079-last-reservation-consume-gitadd
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "gil step N이 사이클 디렉토리 전체(git add -A -- cycle_dir)를 커밋해 미리 만든 뒷 스텝 파일까지 삼킨다 — 스텝 경계로 스코프하면 커밋이 스텝 단위를 반영한다 (이슈 #20)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
