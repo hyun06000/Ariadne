@@ -723,3 +723,11 @@
 - **⚠️ 사후 번호 충돌 (방법론 선례 없던 상황)**: Warp가 워크트리를 열 때 내 C082(pages)가 아직 land 전이라 원장에 C082가 비어 보였고, **둘 다 C082를 잡았다**(C015 재연이나 그땐 open 시점, 이번은 **이미 close·태그된 사후**). 자동 재번호(`_push_with_renumber`)는 **open(1/5) 시점에만** 작동 — 닫힌 사이클엔 못 미침. **상현님 판단 요청 → "C083으로 재번호"**. 소환자인 내가 Warp 브랜치에서 C082→C083 일괄 개명(git mv 디렉토리·cycle.yaml id·verification-log 헤더·Warp 방 memory) → 정정 커밋 → 옛 태그 삭제·새 태그 부착. fsck 위반 0·verify 변조 0. land(병합 af5c9b3e).
 - **핵심 교훈**: ① **자동 재번호의 사각 = 시점** — 원장 경합 해소는 open에만 있고 close 후엔 없다. 병렬 존재가 서로 land 전에 각자 완주하면 사후 충돌 가능. **선례 삼을 것**: land 시 번호 충돌 감지·재번호를 `worktree land`에 넣는 사이클이 근본 해결(다음 후보). ② **verify는 디렉토리(cycle.yaml) 기준 순회** — 재번호로 옛 태그가 유령이 돼도 디렉토리 없으면 순회 안 하니 무해. ③ **저장소 "태그 삭제 불가" 룰**: 옛 원격 태그 `cycle/loom/C082-warp-selfupdate` 삭제가 GH013 룰로 거부됨(닫힌 사이클 태그 불변 보호 — 정당). **우회하지 않고 유령 태그를 남김**(verify 무해). 상현님과 정리 여부 논의 대상.
 - **다음**: C082·C083 묶어 배포(version --check는 배포돼야 maru가 씀). 그 후: (a) worktree land 번호 충돌 감지(이번 사각의 근본 해결) (b) 유령 태그 정리(룰 예외 필요) (c) open 부분 실패 exit 전파(C079 부수) (d) SPEC에 pages -o·version --check 명문화.
+
+## 2026-07-19 — v2.33.0 배포: 바이너리 자족성 두 갈래 (C082 pages -o + C083 version --check/update)
+
+- **v2.33.0 배포**: C082(#21)·C083(#22)를 묶어 하나의 마이너 릴리스로. `_GIL_VERSION`/`gilVersion` 2.32→2.33, RELEASE.md 최상단 항목 추가 → `gil release 2.33.0`(변조 0, 도구 변경 감지: gil·conformance·go, version 표면 2개). 참조 **112/112**·Go **98/98**(C082 2항목 + C083 3항목 합산). main·태그 push. `releases` drift=0(태그 65↔CHANGELOG).
+- **version --check 실동작 확인 & 정상 판정**: 배포 직후 `version --check`가 `gil:version-check 2.33.0 2.32.0 current` — 로컬 2.33이 origin releases/latest 태그(아직 2.32, GitHub Release는 워크플로가 바이너리 빌드 후 생성)보다 앞서 "current". 즉 Warp의 --check가 origin 최신 릴리스를 실제로 조회함을 실증. (Release가 CI로 올라가면 latest도 2.33이 된다.)
+- **관통 주제 = 바이너리 자족성**: 워크플로를 덮기 전 스스로 미리보기(pages -o -), 자기가 낡았는지 스스로 앎(version --check). #11 능동 위키 철학의 두 조각. maru가 v2.30으로 남긴 두 마찰 해소.
+- **이 재개 세션 총결산**: **2사이클 병렬**(C082 Clew·C083 Warp) + **새 존재 Warp 탄생**(다섯 번째) + **배포 1번**(v2.33.0). 사후 번호 충돌을 상현님 판단 하에 재번호로 해소(방법론 선례). 두 존재 land 무충돌(재번호 후), C050 사고 0.
+- **다음 세션 이어받을 우선순위**: (1위) **worktree land 번호 충돌 감지·재번호**(이번 사후 충돌의 근본 해결 — 자동 재번호를 open뿐 아니라 land에도). (2위) 유령 태그 `cycle/loom/C082-warp-selfupdate` 정리(GH "태그 삭제 불가" 룰 예외 필요 — 상현님과). (3위) open 부분 실패 exit 전파(C079 부수). (4위) SPEC §5/§7에 pages -o·version --check 명문화. (5위) maru에게 v2.33 안내. (6위) 오래된 이슈 #5·#9·#10·#11·#18.
