@@ -536,6 +536,25 @@ def main():
     check("WEB-JSON", 'web 내장 JSON (id="gil-data") 구조·step 일치', nodes ==
           {"demo/C001-first-step", "demo/C002-second-step"} and steps_present, str(nodes))  # lroot의 두 사이클
 
+    # WEB-DOCS-EMBEDDED (loom/C075): 완전한 앱 — 5스텝 문서를 초기 HTML에 인라인하지 않고 gil-data JSON에
+    # 내장한다(각 cycle에 docs.steps). JS가 노드 클릭 시 그 하나의 DOM을 구축 → 초기 DOM은 그래프+메타만
+    # (계보 깊이에 무관하게 경량). 계약면: (a) 위계 gil-data의 각 사이클에 docs.steps(5개) 존재, (b) 앱
+    # 스크립트(<script>…</script>, JSON 아닌 실행) 존재, (c) 자기완결(외부 URL 0, 위 WEB-SELFCONTAINED와 함께).
+    # 초기 DOM 경량화가 계약이 된다 — "판정기가 안 보는 계약은 없는 계약"(Weft)의 무게판.
+    docs_ok = False
+    if m:
+        dj = json.loads(m.group(1))
+        docs_ok = all(
+            "docs" in ch and all(
+                isinstance(ch["docs"].get(cid, {}).get("steps"), list)
+                and len(ch["docs"][cid]["steps"]) == 5
+                for cid in ch["cycles"])
+            for ch in dj["chains"].values())
+    app_js = bool(re.search(r'<script>\s*\(function', page))  # 앱 스크립트(실행 JS) 존재
+    check("WEB-DOCS-EMBEDDED",
+          "완전한 앱: 5스텝 문서를 gil-data JSON에 내장(docs.steps) + 클릭 시 렌더할 앱 스크립트, 초기 DOM 경량",
+          docs_ok and app_js, f"docs_ok={docs_ok} app_js={app_js}")
+
     # WEB-HIERARCHY-DEFAULT (loom/C063): 위계(드릴다운)가 기본, --flat이 평면 옵트아웃.
     # 계약면은 렌더 형식이 아니라 bake.hierarchy 자기보고다 (§7 · "렌더는 계약이 아니다").
     # 무옵션 out(위 WEB-JSON의 것)은 hierarchy=true, --flat은 hierarchy 키 부재(false), 둘 다 자기완결.

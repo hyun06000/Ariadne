@@ -1302,6 +1302,65 @@ _STEP_FILES = [("1 · 가설", "1-hypothesis.md"), ("2 · 설계", "2-design.md"
                ("3 · 검증", "3-verification"),  # 디렉토리 — README + 산출물 목록
                ("4 · 분석", "4-analysis.md"), ("5 · 보고", "5-report.md")]
 
+# [loom/C075] 완전한 앱 — 문서를 초기 DOM에 굽지 않고 gil-data JSON에 내장, 노드 클릭 시 JS가
+# 그 하나의 DOM을 구축한다(fetch 없음 → 자기완결 유지). 초기 DOM은 그래프+메타만이라 계보 깊이에
+# 무관하게 가볍다. 참조 구현(파이썬)이 생성하는 JS 문자열 — Go는 같은 문자열을 내야 parity(이번 이월).
+_WEB_APP_JS = r"""
+(function(){
+  var data=null;
+  try{ data=JSON.parse(document.getElementById("gil-data").textContent); }catch(e){ return; }
+  var STEP_LABELS=["1 · 가설","2 · 설계","3 · 검증","4 · 분석","5 · 보고"];
+  var done={};  // anchor -> true, 이미 그린 문서는 다시 안 그린다
+  function esc(s){ var d=document.createElement("div"); d.textContent=(s==null?"":s); return d.innerHTML; }
+  function metaRows(m){
+    var f=[["status",m.status||"?"],["verdict",m.verdict||"—"],["step",m.step||"—"],
+      ["parent",(m.parents&&m.parents.length?m.parents.join(", "):"(root)")],
+      ["lineage",(m.lineage&&m.lineage.length?m.lineage.join(", "):"—")],
+      ["opened",m.opened||"—"],["closed",m.closed||"진행 중"],
+      ["deviations",(m.deviations!=null?m.deviations:"—")],
+      ["corrections",(m.corrections!=null?m.corrections:"—")],
+      ["superseded_by",m.superseded_by||"—"]];
+    if(m.rounds) f.push(["rounds",m.rounds]);
+    var h=""; for(var i=0;i<f.length;i++){ h+="<tr><th>"+esc(f[i][0])+"</th><td>"+esc(String(f[i][1]))+"</td></tr>"; }
+    return h;
+  }
+  // 한 사이클의 body(메타표+5스텝)를 구축한다. gil-data의 cycle 메타·docs를 출처로.
+  function build(el){
+    var chain=el.getAttribute("data-chain"), cid=el.getAttribute("data-cid");
+    var ch=data.chains[chain]; if(!ch) return;
+    var meta=ch.cycles?ch.cycles[cid]:null; if(!meta) return;
+    var docs=(ch.docs&&ch.docs[cid])?ch.docs[cid]:null;
+    var steps=(docs&&docs.steps)?docs.steps:[];
+    var body=el.querySelector(".cycbody"); if(!body) return;
+    var h='<table class="hmeta"><tbody>'+metaRows(meta)+'</tbody></table>';
+    for(var i=0;i<STEP_LABELS.length;i++){
+      var content=(steps[i]&&steps[i].content!=null)?steps[i].content:null;
+      var pre=(content==null)?'<pre class="empty">(없음)</pre>':'<pre>'+esc(content)+'</pre>';
+      h+='<details class="hstep"><summary>'+esc(STEP_LABELS[i])+'</summary>'+pre+'</details>';
+    }
+    body.innerHTML=h;
+  }
+  // 해시(#cycdoc-*)가 가리키는 사이클을 그린다. 조상 <details>도 열어 스크롤이 닿게 한다.
+  function activate(){
+    var hash=location.hash||""; if(hash.indexOf("#cycdoc-")!==0) return;
+    var id=hash.slice(1);
+    var el=document.getElementById(id); if(!el) return;
+    var p=el.parentNode;  // 조상 details 열기
+    while(p){ if(p.tagName&&p.tagName.toLowerCase()==="details"){ p.open=true; } p=p.parentNode; }
+    if(!done[id]){ build(el); done[id]=true; }
+    el.scrollIntoView({block:"nearest"});
+  }
+  // lineage/노드 링크 클릭도 처리(해시가 같아 hashchange가 안 뜨는 경우 대비)
+  document.addEventListener("click",function(ev){
+    var a=ev.target; while(a&&a.tagName&&a.tagName.toLowerCase()!=="a") a=a.parentNode;
+    if(a&&a.getAttribute&&(a.getAttribute("href")||"").indexOf("#cycdoc-")===0){ setTimeout(activate,0); }
+  });
+  window.addEventListener("hashchange",activate);
+  if(document.readyState!=="loading") activate();
+  else document.addEventListener("DOMContentLoaded",activate);
+})();
+"""
+
 _WEB_HIER_CSS = """
 .gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
 .gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
@@ -1550,9 +1609,21 @@ def _render_cycle_minimap(name, chain):
             f'노드 클릭 → 그 사이클 문서</div>{"".join(p)}</div>')
 
 
+def _collect_cycle_docs(chains_root, name, cid, meta, cdir):
+    """한 사이클의 5스텝 문서 텍스트를 수집해 gil-data JSON에 내장할 dict로 반환한다 (loom/C075).
+    무게 문제: 전문을 초기 HTML에 인라인하면 계보 깊이에 비례해 DOM(표·pre·details 수천)이
+    항상 렌더 트리에 올라가 CPU가 치솟는다. 문서를 JSON에 담아 두고 JS가 노드 클릭 시에만
+    그 하나의 DOM을 구축한다 — fetch 없이(자기완결) 초기 DOM은 그래프+메타만."""
+    steps = [{"label": label, "content": _read_step(chains_root, name, cdir, fname)}
+             for label, fname in _STEP_FILES]
+    return {"steps": steps}
+
+
 def _render_cycle_detail(name, cid, meta, chains_root, cdir):
     """가로 사이클 그래프(loom/C067)의 노드를 누르면 :target으로 드러나는 그 사이클의 5스텝 문서.
-    평소엔 숨어 있고(display:none), #cycdoc-*가 타겟이면 그래프 아래에 나타난다."""
+    평소엔 숨어 있고(display:none), #cycdoc-*가 타겟이면 그래프 아래에 나타난다.
+    [loom/C075] 완전한 앱화 이후 초기 HTML에는 쓰이지 않는다 — 문서는 gil-data JSON에 내장되고
+    JS가 클릭 시 DOM을 구축한다. 이 함수는 참조·회귀 비교용으로 보존."""
     status = meta.get("status") or "?"
     vtip = f" · {meta['verdict']}" if meta.get("verdict") else ""
     state = f"{status}{vtip}{_step_badge(meta)}"
@@ -1594,6 +1665,31 @@ def _render_cycle_detail(name, cid, meta, chains_root, cdir):
     return (f'<div class="cycdoc" id="cycdoc-{anchor}">{head}'
             f'<table class="hmeta"><tbody>{meta_rows}</tbody></table>'
             f'{"".join(steps)}</div>')
+
+
+def _render_cycle_mount(name, cid, meta):
+    """[loom/C075] 경량 마운트 — 초기 HTML에 head(제목·상태·lineage 칩)만 두고, 무거운
+    메타표+5스텝 문서는 비워 둔다. 노드를 누르면 JS가 gil-data의 docs로 `.cycbody`를 채운다.
+    head를 남기는 이유: 클릭 전에도 무슨 사이클인지 보이고, JS 미실행 환경에서도 최소 정보 보존."""
+    status = meta.get("status") or "?"
+    vtip = f" · {meta['verdict']}" if meta.get("verdict") else ""
+    state = f"{status}{vtip}{_step_badge(meta)}"
+    title = meta.get("title") or ""
+    title_html = f'<span class="cytitle">{html.escape(title)}</span>' if title else ""
+    lin = ""
+    if meta.get("lineage"):
+        chips = "".join(
+            f'<a class="linchip" href="#cycdoc-{html.escape(ref.replace("/", "-"))}">⇠ {html.escape(ref)}</a>'
+            for ref in meta["lineage"])
+        lin = f'<span class="cyclin">{chips}</span>'
+    sup = meta.get("superseded_by")
+    sup_html = (f'<a class="linchip sup" href="#cycdoc-{html.escape(_supersede_ref(name, sup).replace("/", "-"))}">'
+                f'↣ {html.escape(sup)}</a>') if sup else ""
+    anchor = html.escape(f"{name}-{cid}")
+    head = (f'<div class="cycdoc-head"><span class="ccid">{html.escape(cid)}</span>'
+            f'<span class="cyst">{html.escape(state)}</span>{title_html}{lin}{sup_html}</div>')
+    return (f'<div class="cycdoc" id="cycdoc-{anchor}" data-chain="{html.escape(name)}" '
+            f'data-cid="{html.escape(cid)}">{head}<div class="cycbody"></div></div>')
 
 
 def _render_chain_map(data):
@@ -1748,7 +1844,9 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
                    f'<span class="toc-stat">사이클 {n}개 · {html.escape(_verdict_tally(chain))}</span></li>')
         stats = f"사이클 {n}개 · {_verdict_tally(chain)} · {_chain_recent(chain)}"
         dirs = chain.get("_dirs", {})
-        cyc = [_render_cycle_detail(name, cid, chain["cycles"][cid], chains_root, dirs.get(cid, cid))
+        # [loom/C075] 문서 전문 인라인(_render_cycle_detail) 대신 경량 마운트만. 문서는 gil-data에
+        # 내장되고 JS가 클릭 시 채운다 — 초기 DOM이 계보 깊이에 무관하게 가벼워진다.
+        cyc = [_render_cycle_mount(name, cid, chain["cycles"][cid])
                for cid in chain["order"]]
         # 체인을 누르면(지도 원·요약) 그 자리에서 가로 사이클 노드-엣지 그래프가 펼쳐진다 (loom/C067):
         # SVG 그래프(0—o—o—o) + 그 아래 숨은 문서들. 노드를 누르면 :target으로 그 사이클 문서가 뜬다.
@@ -1764,17 +1862,36 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
     return f"""<div class="gil"><style>{style}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p>
-<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 5스텝 문서가 그 자리에 열린다 (JS 없이 &lt;details&gt;로).</p></header>
+<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
 {_render_parallel_banner(data)}
 <div class="card hmap">{_render_chain_map(data)}
 <div class="mapchains">{"".join(chains_html)}</div></div>
 <nav class="htoc"><h2>체인 목록</h2><ul>{"".join(toc)}</ul></nav>
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
-<script type="application/json" id="gil-data">{gil_data_json}</script>"""
+<script type="application/json" id="gil-data">{gil_data_json}</script>
+<script>{_WEB_APP_JS}</script>"""
+
+
+def _json_for_script(payload):
+    """JSON을 <script> 안에 안전하게 넣는다 (loom/C075). 문서 텍스트가 `</script>`를 포함하면
+    (사이클 문서가 gil web 코드를 인용한 경우 실제로 있다) 브라우저가 스크립트를 조기 종료해
+    JSON 파싱이 깨진다. `</`를 `<\\/`로 치환 — JSON 값으로는 동일(역슬래시-슬래시=슬래시)하고
+    HTML 파서는 `</script>`로 안 본다. 문서를 초기 DOM에서 뺀 뒤 표면화된 결함의 봉인."""
+    return json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
 
 
 def render_web_page(data, page_title, generated, only=None, refresh=None, hierarchy=False, chains_root=None):
+    # [loom/C075] 완전한 앱: 위계 모드에선 5스텝 문서를 초기 HTML에 굽지 않고 gil-data JSON에 내장한다.
+    # JS가 노드 클릭 시 그 하나의 DOM을 구축 → 초기 DOM은 그래프+메타만(계보 깊이에 무관하게 경량).
+    # flat(--flat) 경로는 문서를 애초에 렌더하지 않으므로 무영향(바이트 동일).
+    cyc_docs = {}
+    if hierarchy:
+        for name, chain in data.items():
+            dirs = chain.get("_dirs", {})
+            for cid in chain["order"]:
+                cyc_docs.setdefault(name, {})[cid] = _collect_cycle_docs(
+                    chains_root, name, cid, chain["cycles"][cid], dirs.get(cid, cid))
     json_payload = {
         # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
         # 추론(체인이 하나뿐이니 필터겠지)은 거짓일 수 있다 — 그래서 추측하지 않고 기록한다 (C040).
@@ -1791,6 +1908,8 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
                 "cycles": chain["cycles"],
                 # 예약이 있을 때만 키를 넣는다 — 무예약 저장소는 이전 산출물과 바이트 동일 (파서 계약 보존).
                 **({"reservations": chain["reservations"]} if chain.get("reservations") else {}),
+                # [loom/C075] 위계 모드에서만 5스텝 문서를 내장한다. flat은 이 키가 없어 바이트 동일.
+                **({"docs": cyc_docs[name]} if hierarchy and name in cyc_docs else {}),
             } for name, chain in data.items()
         },
     }
@@ -1799,7 +1918,7 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
     if hierarchy:
         # 위계(드릴다운) 몸체 — 기본 경로를 건드리지 않도록 완전히 분기한다 (아래 else는 개선 전과 바이트 동일).
         body = _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage,
-                                      chains_root, json.dumps(json_payload, ensure_ascii=False))
+                                      chains_root, _json_for_script(json_payload))
     else:
         body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>
@@ -1814,7 +1933,7 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
 {_render_tables(data)}
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web --flat이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
-<script type="application/json" id="gil-data">{json.dumps(json_payload, ensure_ascii=False)}</script>"""
+<script type="application/json" id="gil-data">{_json_for_script(json_payload)}</script>"""
     # v0.5 (loom/C049): meta refresh — JS 아닌 HTML 표준으로 N초마다 같은 URL 리로드 (자기완결 계약 유지)
     refresh_meta = (f"<meta http-equiv=\"refresh\" content=\"{refresh}\">\n" if refresh else "")
     return ("<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n"
