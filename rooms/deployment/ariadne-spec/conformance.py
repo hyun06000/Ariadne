@@ -354,6 +354,28 @@ def main():
               r.returncode == 0 and os.path.isdir(os.path.join(cdir, "C002-final-slug"))
               and resv_lines(rroot) == [], f"rc={r.returncode} 예약={resv_lines(rroot)}")
 
+        # OPEN-LAST-RESERVATION-GIT (loom/C079): 마지막 예약을 소비하는 open --git이 정상 각인된다.
+        # 소비로 reservations.tsv가 비어 삭제되는데, 삭제된 (미tracked) 경로를 git add에 넘기면
+        # pathspec 거부로 커밋이 통째 실패했다 — 사이클이 원장엔 열렸으나 깃엔 미각인. 삭제·미tracked
+        # 경로를 git add에서 제외하면 정상 각인. 계약면: 사이클 디렉토리 ∧ 커밋에 그 사이클 포함 ∧ 원장 비움.
+        rgt = resv_sandbox("resv-lastgit")
+        def rgtg(*cli):
+            return subprocess.run(["git", "-C", rgt, *cli], capture_output=True, text=True)
+        rgtg("init", "-q", "-b", "main"); rgtg("config", "user.name", "t"); rgtg("config", "user.email", "t@t")
+        rgtg("add", "-A"); rgtg("commit", "-q", "-m", "seed")
+        rgr = os.path.join(rgt, "rooms/experiment/chains")
+        impl.run(rgt, "reserve", "demo", "solo", "--for", "weft", "--date", "2026-01-03", "--root", rgr)
+        rlast = impl.run(rgt, "open", "demo", "solo", "--author", "weft",
+                         "--parent", "C001-seed", "--date", "2026-01-04", "--git", "--root", rgr)
+        cdir = os.path.join(rgr, "demo")
+        committed = "C002-solo" in rgtg("log", "--oneline").stdout
+        ghost = rgtg("ls-files").stdout
+        check("OPEN-LAST-RESERVATION-GIT",
+              "마지막 예약을 소비하는 open --git이 정상 각인 (디렉토리 ∧ 커밋 포함 ∧ 원장 비움·유령 없음) · C079",
+              rlast.returncode == 0 and os.path.isdir(os.path.join(cdir, "C002-solo"))
+              and committed and resv_lines(rgt) == [] and "reservations.tsv" not in ghost,
+              f"rc={rlast.returncode} committed={committed} 예약={resv_lines(rgt)}")
+
         # RESERVE-NON-INVASIVE (조건 3): 예약이 있어도 fsck 위반 0, log는 예약을 그래프 노드로 넣지 않는다.
         rroot = resv_sandbox("resv-noninvasive")
         impl.run(rroot, "reserve", "demo", "pending", "--for", "weft", "--date", "2026-01-03")

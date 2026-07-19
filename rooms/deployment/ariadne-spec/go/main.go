@@ -1085,8 +1085,16 @@ func cmdOpen(a openArgs) error {
 				}
 			}
 			if consumed != nil { // reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
-				if resRel, cerr3 := relToRepo(repo, reservationsPath(chainDir)); cerr3 == nil {
-					paths = append(paths, resRel)
+				resPath := reservationsPath(chainDir)
+				if resRel, cerr3 := relToRepo(repo, resPath); cerr3 == nil {
+					// 마지막 예약을 소비하면 saveReservations가 파일을 지운다 (loom/C079). 삭제된 경로는
+					// tracked일 때만 git add에 넘긴다 — tracked인 적 없이(예약 커밋 전) 삭제되면
+					// `git add -- <부재경로>`가 pathspec 거부로 커밋을 통째 실패시킨다.
+					_, resExistErr := os.Stat(resPath)
+					_, _, lsCode := gitRun(repo, "ls-files", "--error-unmatch", resRel)
+					if resExistErr == nil || lsCode == 0 {
+						paths = append(paths, resRel)
+					}
 				}
 			}
 			if _, err := gitChecked(repo, append([]string{"add", "-A", "--"}, paths...)...); err != nil {

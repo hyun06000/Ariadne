@@ -781,8 +781,13 @@ def cmd_open(args):
             if new_chain:  # chain.md는 사이클 디렉토리 밖(체인 최상위)이라 별도 경로다 (이슈 #14, loom/C044)
                 paths.append(_rel_to_repo(os.path.join(chain_dir, "chain.md"), repo))
             if consumed:  # reservations.tsv는 사이클 밖이라 어떤 태그 봉인에도 안 들어간다 (verify 무영향)
-                paths.append(_rel_to_repo(res_path, repo) if os.path.isfile(res_path)
-                             else _rel_to_repo(_reservations_path(chain_dir), repo))
+                res_rel = _rel_to_repo(res_path or _reservations_path(chain_dir), repo)
+                # 마지막 예약을 소비하면 _save_reservations가 파일을 지운다 (loom/C079). 삭제된 경로는
+                # tracked일 때만 git add에 넘긴다 — 삭제 스테이징은 되지만, tracked인 적 없이(예약이
+                # 커밋 전) 삭제되면 `git add -- <부재경로>`가 pathspec 거부로 커밋을 통째 실패시킨다.
+                if os.path.isfile(res_path or "") or _git(
+                        repo, "ls-files", "--error-unmatch", res_rel, check=False).returncode == 0:
+                    paths.append(res_rel)
             _git(repo, "add", "-A", "--", *paths)
             msg = f"gil: open {args.chain}/{cid} — 1/5 {_STEP_NAMES[1]}\n\n{title}"
             if consumed:
