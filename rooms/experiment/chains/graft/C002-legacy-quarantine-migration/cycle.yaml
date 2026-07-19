@@ -2,7 +2,7 @@ id: C002-legacy-quarantine-migration
 chain: graft
 parent: C001-map-of-difficulties
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-19
