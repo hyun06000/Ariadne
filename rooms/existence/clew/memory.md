@@ -808,3 +808,13 @@
 - **⭐ 다음 세션 최우선 (상현님 통찰에서 태어남)**: **gil 롤백 프리미티브 (loom 계열, 도구 수정).** graft C003 롤백 중 발견 — gil엔 "대체 없는 사이클 철회"와 "체인 롤백" 어휘가 없다. `supersede`는 대체자 필수(전방 무효화), `goto`는 조회일 뿐. open 직후 스코프 오판 철회 같은 흔한 상황을 gil이 자기 언어로 못 말해 git revert(도구 밖)로 처리함. 후보: (a) `gil withdraw <ref>`(대체 없는 철회 + revert 각인) (b) `supersede`에 withdrawn 모드 (c) 체인 전체 롤백. **도그푸딩의 수확 — 실사용이 도구의 침묵을 드러냄.**
 - **다음 세션 그 외 우선순위 (불변 이월)**: (2위) **F3 releases 실명 수정**(graft/C002 사각지대, "external 릴리스 인지"로 상현님 방향 확정됨 — C003에서 설계까지 갔다가 스코프로 롤백, 재개 시 그 hypothesis/design 참조 가능하나 재작성 필요). (3위) graft/C002 제안 B: `gil adopt` 포셀린(M1~M3 원자화+존재 방 스텁). (4위) worktree land 번호 충돌 감지·재번호(C083 사후 충돌 근본 해결). (5위) 유령 태그 cycle/loom/C082-warp-selfupdate 정리. (6위) SPEC에 pages -o·version --check·beings·releases 명문화. (7위) maru에게 v2.35 안내. (8위) 오래된 이슈 #5·#9·#10·#11·#18.
 - **재개 환경 주의(불변)**: 이 세션 환경엔 gil이 PATH에 없음 → `python3 rooms/deployment/ariadne-spec/gil.py`로 호출. 셸 cwd가 매 Bash 호출마다 리셋(각 명령에 절대경로/cd). graft 실험용 Flask 클론은 스크래치패드(세션-로컬, 무해).
+
+## 2026-07-19 — loom/C084 채택·닫힘: gil이 "취소"를 자기 언어로 각인하다 (gil withdraw)
+
+- **지난 세션 최우선 착수.** graft/C003 롤백에서 발견한 gil의 어휘 공백 — "대체 없는 순수 철회"를 gil이 못 말하고 손 `git revert`에 의존한 것 — 을 메웠다. AskUserQuestion으로 첫 카브를 **`gil withdraw <ref>` 신규 명령**으로 확정(대안: supersede --withdrawn / 체인 롤백 → 이월). parent=C035(supersede 탄생), lineage=graft/C002. 단독·순차라 main에서(C074).
+- **구현**: `withdraw <ref>` — 열린 사이클의 open 커밋(`git log --diff-filter=A`로 특정, 태그 비의존 — 열린 사이클엔 태그 없음)을 `git revert --no-edit`로 되감아 **취소를 역사에 남긴다**(하드리셋 아님 — graft/C003 교훈의 도구화). 닫힌 사이클·부재 ref·revert 충돌은 무변화로 거부. `_open_commit_of` 헬퍼 신설.
+- **검증**: 6측정 전부 통과. **graft/C003 손-revert와 바이트 의미 동등** — C001·chain.md 생존, 철회 대상만 소멸, open+Revert 역사 보존, fsck 0. 참조 **118/118**·Go **101/101**(withdraw 부분구현 가드로 판정 제외, HELP-COMPLETE가 Go exit 3 정직 부재 판정).
+- **밟은 함정 (C012 재확인, 값진 관찰)**: 가드 없이 Go 판정 시 103/104 — 거부형 항목(REJECTS-CLOSED·ATOMIC)이 Go의 'unknown command' exit≠0으로 **공허 통과**했다. **"거부형 검사 공허 통과"(C012)를 신규 명령 얹을 때 또 밟음.** 부분구현 합법 가드(`help withdraw==0`일 때만 판정)로 막고 부재 정직성은 HELP-COMPLETE에 이관. *판정기가 안 보는 계약은 없는 계약, 잘못 보는 계약은 거짓 계약.*
+- **핵심 교훈**: ① gil이 supersede(대체 필수·전방 무효화)와 **대칭인 순수 철회**를 갖게 됐다 — 취소조차 역사에. ② **철회의 데이터 표현 = 디렉토리 소멸 자체**(플래그 달 곳이 없음 → Revert 커밋이 상태를 담음, 별도 원장 불필요 → D3 이월이 옳았다). ③ open 커밋은 `--diff-filter=A`로 데이터 특정("깃의 답을 훔쳐라").
+- **판정 supported**. 닫힌 사이클 **101개**. **배포 필요**(gil 소스 변경 — 아직 미배포, 아래 제안 D).
+- **다음 분기 후보**: **(A) Go 이식**(withdraw를 Weft가 main.go에 — C043 리듬, 이식 후 Go 판정 가드 켜짐) · **(B) 체인 전체 롤백**(`gil rollback <chain> --to`, withdraw 위에 얹음, AskUserQuestion 이월분) · **(C) supersede --withdrawn**(닫힌 사이클 폐기, 메타 플래그) · **(D) 배포**(단독 or A와 묶어). 그 외 불변 이월: F3 releases 실명·worktree land 번호충돌·유령 태그·SPEC 명문화.

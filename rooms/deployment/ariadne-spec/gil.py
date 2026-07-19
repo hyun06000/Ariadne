@@ -2621,6 +2621,63 @@ def cmd_supersede(args):
     return 0
 
 
+def _open_commit_of(repo, cycle_rel):
+    """사이클 디렉토리를 처음 추가(A)한 커밋 = open 커밋 (loom/C084).
+    태그(close가 붙임)에 의존하지 않고 데이터로 특정한다 — 열린 사이클엔 태그가 없다.
+    --diff-filter=A로 그 경로를 추가한 커밋들 중 가장 오래된 것이 디렉토리를 심은 open 커밋."""
+    r = _git(repo, "log", "--diff-filter=A", "--format=%H", "--", cycle_rel, check=False)
+    hashes = r.stdout.split()
+    return hashes[-1] if hashes else None
+
+
+def cmd_withdraw(args):
+    """대체 없는 순수 철회 (v2.36, loom/C084): 열린 사이클을 open 커밋 revert로 되감는다.
+    supersede(대체자 필수·전방 무효화)와 대칭 — 'open 직후 스코프 오판으로 없던 걸로'를
+    gil 자기 언어로 각인한다. 취소조차 역사에 남긴다(하드리셋 아님 — graft/C003 교훈)."""
+    chains_root = args.root
+    if "/" not in args.ref:
+        raise ChainError(f"ref는 <chain>/<id> 형식이어야 한다: {args.ref}")
+    chain, cid = args.ref.split("/", 1)
+    cdir = os.path.join(chains_root, chain, cid)
+    yaml_path = os.path.join(cdir, "cycle.yaml")
+    if not os.path.isfile(yaml_path):
+        raise ChainError(f"사이클이 없다: {args.ref}")
+    meta = parse_cycle_yaml(yaml_path)
+    if meta.get("status") == "closed":
+        raise ChainError(
+            f"닫힌 사이클은 철회할 수 없다: {args.ref} (닫힌 사이클은 불변 — 무효화는 gil supersede, "
+            f"정정은 gil correct). withdraw는 열린 사이클의 대체 없는 철회 전용이다.")
+    repo = _repo_root(chains_root)
+    if not repo:
+        raise ChainError("git 저장소가 아니다 — withdraw는 open 커밋 revert로 각인하므로 git이 필요하다.")
+    if getattr(args, "no_commit", False):
+        # 테스트용 무커밋 경로: 디렉토리만 지운다(각인 없음). 실사용 지양.
+        shutil.rmtree(cdir)
+        print(f"철회(무커밋): {args.ref} — 디렉토리 삭제, revert 미각인")
+        return 0
+    cycle_rel = _rel_to_repo(cdir, repo)
+    open_commit = _open_commit_of(repo, cycle_rel)
+    if not open_commit:
+        raise ChainError(f"open 커밋을 찾을 수 없다: {args.ref} (디렉토리가 아직 커밋되지 않았을 수 있다 — "
+                         f"open --git으로 각인 후 철회하거나, 미커밋이면 그냥 디렉토리를 지우면 된다).")
+    head_before = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    r = _git(repo, "revert", "--no-edit", open_commit, check=False)
+    if r.returncode != 0:
+        # 충돌 등 실패 → 무변화 복원 (원자성). revert 진행 중이면 abort.
+        _git(repo, "revert", "--abort", check=False)
+        after = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        if after != head_before:
+            _git(repo, "reset", "--hard", head_before, check=False)
+        raise ChainError(
+            f"revert 실패 (open 커밋 {open_commit[:8]} 이후 같은 파일이 수정됐을 수 있다): "
+            f"{(r.stderr or r.stdout).strip()}\n      저장소는 무변화로 복원됐다.")
+    if getattr(args, "push", False):
+        _push(repo)
+    print(f"철회: {args.ref} — open 커밋 {open_commit[:8]}을 revert했다 (디렉토리 소멸, 역사에 보존).")
+    _refresh_viewers(chains_root, f"{args.ref} withdrawn", getattr(args, "no_web", False), False)
+    return 0
+
+
 def _render_yaml_value(v):
     """cycle.yaml의 평탄 표기로 값을 렌더한다 (§3.1)."""
     if v is None or v == []:
@@ -4008,6 +4065,14 @@ def main(argv=None):
     p_sup.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
     p_sup.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
     p_sup.set_defaults(func=cmd_supersede)
+
+    p_wd = sub.add_parser("withdraw", help="대체 없는 철회: 열린 사이클을 open 커밋 revert로 없던 걸로 되감는다 (v2.36, loom/C084)")
+    p_wd.add_argument("ref", help="철회할 열린 사이클 <chain>/<id>")
+    p_wd.add_argument("--push", action="store_true", help="revert 커밋 후 push")
+    p_wd.add_argument("--no-commit", dest="no_commit", action="store_true", help="(테스트용) revert 각인 끄기 — 실사용 지양")
+    p_wd.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")
+    p_wd.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
+    p_wd.set_defaults(func=cmd_withdraw)
 
     p_cor = sub.add_parser("correct", help="정정: 봉인된 사이클의 출처 필드를 문서가 증언하는 값으로 수리 (v0.5)")
     p_cor.add_argument("ref", help="정정할 사이클 <chain>/<id>")

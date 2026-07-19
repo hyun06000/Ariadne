@@ -34,7 +34,8 @@ CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release"
                      "worktree",  # loom/C058 (#1) — 병렬 사이클 모드 spawn
                      "releases",  # loom/C061 (#3) — 배포 계보 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
                      "show",  # loom/C059 (#4 LLM 위키) — 지식그래프 노드 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
-                     "threads"]  # loom/C070 (#4 LLM 위키) — 열린 실 훑기(병렬 진행+열린 사이클). Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "threads",  # loom/C070 (#4 LLM 위키) — 열린 실 훑기(병렬 진행+열린 사이클). Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "withdraw"]  # loom/C084 — 대체 없는 순수 철회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
 
 
 def check(cid, desc, cond, detail=""):
@@ -1177,6 +1178,61 @@ def main():
         check("SUPERSEDE-TAG-MOVE", "supersede([migrate]) 후 verify OK — 태그 이동 규약 (§4)",
               r.returncode == 0 and r_v.returncode == 0,
               (r.stderr or r_v.stderr or "").strip()[-140:])
+
+        # ---- withdraw: 대체 없는 순수 철회 (loom/C084) ----
+        # supersede가 대체자를 요구하는 전방 무효화라면, withdraw는 대체 없이 열린 사이클을
+        # open 커밋 revert로 되감는다 — 'open 직후 스코프 오판으로 없던 걸로'(graft/C003).
+        # 취소조차 역사에 남긴다(하드리셋 아님). git 없이는 각인할 수 없으므로 skip_git 가드 안.
+        # 구현이 withdraw를 구현했을 때만 판정한다(부분 구현 합법 — C043). 미구현이면 HELP-COMPLETE가
+        # exit 3으로 정직성을 본다: 이 가드가 없으면 거부형 항목(REJECTS-CLOSED·ATOMIC)이 명령 부재의
+        # 'unknown command' exit≠0으로 공허 통과한다("판정기가 안 보는 계약은 없는 계약이다" — C012).
+        if not args.skip_git and impl.run(make_sandbox(os.path.join(work, "wd-probe")),
+                                          "help", "withdraw").returncode == 0:
+            def wd_repo(name):
+                d = make_sandbox(os.path.join(work, name))
+                def gg(*a):
+                    return subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
+                gg("init", "-q"); gg("config", "user.name", "fx"); gg("config", "user.email", "fx@t")
+                gg("commit", "-q", "--allow-empty", "-m", "root")
+                return d, gg
+
+            # WITHDRAW-RETRACTS: 열린 사이클 withdraw → 디렉토리 소멸 + Revert 커밋 + exit 0
+            d, gg = wd_repo("wd-retract")
+            impl.run(d, "open", "demo", "second-step", "--new-chain", "--title", "t",
+                     "--author", "fx", "--date", "2026-01-01", "--git")
+            cdir = os.path.join(d, "rooms/experiment/chains/demo/C001-second-step")
+            r = impl.run(d, "withdraw", "demo/C001-second-step")
+            log = gg("log", "--format=%s").stdout
+            check("WITHDRAW-RETRACTS", "열린 사이클 withdraw → 디렉토리 소멸 + Revert 커밋 각인 (대체 없는 철회)",
+                  r.returncode == 0 and not os.path.isdir(cdir)
+                  and re.search(r"^Revert ", log, flags=re.M) is not None,
+                  (r.stderr or "").strip()[-140:] or log[:120])
+
+            # WITHDRAW-REJECTS-CLOSED: 닫힌(태그된) 사이클 withdraw → exit≠0 + HEAD 불변
+            d, gg = wd_repo("wd-closed")
+            impl.run(d, "open", "demo", "to-seal", "--new-chain", "--title", "t",
+                     "--author", "fx", "--date", "2026-01-01", "--git")
+            for n in ("1", "2", "3", "4", "5"):
+                impl.run(d, "step", "demo", "C001-to-seal", n)
+            with open(os.path.join(d, "rooms/experiment/chains/demo/C001-to-seal/5-report.md"),
+                      "w", encoding="utf-8") as f:
+                f.write("# 보고\nsupported.\n")
+            impl.run(d, "close", "demo", "C001-to-seal", "--verdict", "supported", "--git")
+            head_before = gg("rev-parse", "HEAD").stdout.strip()
+            r = impl.run(d, "withdraw", "demo/C001-to-seal")
+            head_after = gg("rev-parse", "HEAD").stdout.strip()
+            check("WITHDRAW-REJECTS-CLOSED", "닫힌 사이클 withdraw 거부 + HEAD 불변 (불변 보호 — supersede/correct의 몫)",
+                  r.returncode != 0 and head_before == head_after, f"rc={r.returncode}")
+
+            # WITHDRAW-ATOMIC: 존재하지 않는 ref withdraw → exit≠0 + HEAD 불변 (무변화)
+            d, gg = wd_repo("wd-atomic")
+            impl.run(d, "open", "demo", "alive", "--new-chain", "--title", "t",
+                     "--author", "fx", "--date", "2026-01-01", "--git")
+            head_before = gg("rev-parse", "HEAD").stdout.strip()
+            r = impl.run(d, "withdraw", "demo/C999-ghost")
+            head_after = gg("rev-parse", "HEAD").stdout.strip()
+            check("WITHDRAW-ATOMIC", "존재하지 않는 ref withdraw 거부 + HEAD 불변 (원자성)",
+                  r.returncode != 0 and head_before == head_after, f"rc={r.returncode}")
 
         # ---- 뷰어 자동 갱신 (SPEC §5.2 — loom/C042, maru의 이슈 #16) ----
         # 원장이 자동으로 갱신되면 사람의 창도 자동으로 갱신되어야 한다.
