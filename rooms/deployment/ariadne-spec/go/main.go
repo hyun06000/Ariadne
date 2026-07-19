@@ -4819,17 +4819,17 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p>
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
 %s
-%s
-%s
 <div class="card hmap">%s
 <div class="mapchains">%s</div></div>
+%s
+%s
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">%s</script>
 <script>%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderBeingsPanel(parseBeings(chainsRoot)), renderReleasesPanel(buildReleasesData(chainsRoot)), renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON, webAppJS)
+		renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), renderReleasesPanel(buildReleasesData(chainsRoot)), renderBeingsPanel(parseBeings(chainsRoot)), toc.String(), gilDataJSON, webAppJS)
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).

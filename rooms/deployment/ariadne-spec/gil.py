@@ -2086,11 +2086,11 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
 <header><h1>{html.escape(page_title)}</h1>
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p>
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
-{_render_beings_panel(beings or [])}
-{_render_releases_panel(releases)}
 {_render_parallel_banner(data)}
 <div class="card hmap">{_render_chain_map(data)}
 <div class="mapchains">{"".join(chains_html)}</div></div>
+{_render_releases_panel(releases)}
+{_render_beings_panel(beings or [])}
 <nav class="htoc"><h2>체인 목록</h2><ul>{"".join(toc)}</ul></nav>
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
