@@ -1,5 +1,14 @@
 # Ariadne Spec — Release
 
+## v2.30.0 (2026-07-19) — 마지막 예약을 소비하는 open --git이 각인된다 (loom/C079)
+
+C078의 검증 중 발견해 이월한 선재 버그: **마지막 예약을 소비하는 `open --git`이 실패**했다. 예약 소비로 reservations.tsv가 비어 삭제되는데, 그 삭제된 경로를 `git add -A -- <paths>`에 넘겨 `fatal: pathspec did not match`로 커밋이 통째 실패했다 — 사이클 디렉토리는 생겼으나 깃엔 미각인(원장·깃 불일치). 병렬 온보딩에서 예약이 하나 남았을 때 그 존재의 open이 깨지는 경로다(C078이 예약된 open을 열어준 뒤 더 잘 드러난다).
+
+- **수정 (양 구현)**: `git add -A -- <path>`는 tracked 파일 삭제는 스테이징하나 **tracked인 적 없는 부재 경로는 거부**한다(실측). reservations.tsv 경로를 add/commit paths에 넣는 조건을 "consumed면 무조건"에서 **"consumed이고 (파일 존재 OR tracked)"**으로 좁혔다. 삭제·미tracked면 제외 → 정상 각인. 커밋된(tracked) 예약 소비 시엔 삭제가 여전히 스테이징돼 유령 예약이 안 남는다.
+- 참조 **103/103**·Go **89/89**(OPEN-LAST-RESERVATION-GIT 신설 — git 저장소에서 --git으로 검사, 회귀 0). 참조·Go 동시 수정으로 parity.
+
+**판정기의 사각은 플래그 조합에 숨는다** — OPEN-PROMOTES-OWNER가 예약 소비를 검사했으나 `--git` 없이라 이 버그를 못 봤다. 버그는 `--git` 경로에만 있었다. "무엇을 검사하나"뿐 아니라 "어떤 플래그로 검사하나"도 계약면이다.
+
 ## v2.29.0 (2026-07-19) — guard 예약 예외: 예약된 존재가 main에서 자기 사이클을 연다 (loom/C078)
 
 C062 소유 guard가 **예약을 안 봐**, 예약된 존재(`gil reserve … --for <author>`)가 주 체크아웃(main)에서 자기 사이클을 열지 못했다 — guard는 `author≠gil.owner`면 무조건 거부하고 예약 원장을 읽지 않았다(C077에서 Weft가 이 갭을 발견, Clew가 guard를 수동 해제해야 했다).
