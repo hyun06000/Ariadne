@@ -21,7 +21,9 @@ The section above was for **you**. The human who handed you this URL was told *o
 3. **What it's good for** — any problem worth solving carefully and revisiting later: a data analysis, a tricky bug hunt, a research question, a refactor. You'll always be able to see *why* each step was taken and replay it.
 4. **What's about to happen** — you'll download one small program (`gil`, ~4 MB, from this project's GitHub releases, checksum-verified), set up a folder for the work, and open the first cycle. Git is optional — it works without it (you just won't get the live graph and rewind).
 
-**Then ask once: *"Want me to go ahead?"*** This is the **only** place you pause for a yes. After they agree, work autonomously through Steps A–C — do **not** turn every step into a question (the whole point is that the human needn't know any commands).
+**Then ask once: *"Want me to go ahead?"*** This is the **only place you pause to ask the human's permission** — it covers everything that follows: downloading the binary, setting up the folder, and opening the first cycle. After they agree, work autonomously through Steps A–C — do **not** turn every step into a question (the whole point is that the human needn't know any commands).
+
+(One technical exception, not a second permission gate: if your *runtime's* permission mode is configured to block running a web-fetched binary, it may force a separate confirmation at Step A — that's your sandbox asking, not you re-asking the human's consent. Approve it once and continue; don't treat it as a reason to re-litigate "shall I go ahead?")
 
 A template you can adapt (say it in the human's language):
 
@@ -46,7 +48,7 @@ grep " gil-${os}-${arch}\$" SHA256SUMS | sha -c - && mv "gil-${os}-${arch}" gil 
 
 **The checksum step is mandatory — do not skip it, and do not "simplify" it away.** If the hash mismatches, the `&&` chain breaks and `gil` never becomes executable, so nothing unverified can run. A mismatch immediately after a release means the CDN is still catching up: **wait ~60 seconds and retry the block.** Do not work around it by removing the check. (This is the same rule gil enforces on cycles — compare the declared hash against the real thing.)
 
-If your permission mode blocks running a binary fetched from the web, this is the **one** place to ask the human: *"May I run the gil binary I just downloaded from github.com/hyun06000/Ariadne?"* — approve once and continue autonomously.
+If your permission mode blocks running a binary fetched from the web, your runtime may force **one technical confirmation** here (distinct from the Step 0 consent — see the note there): *"May I run the gil binary I just downloaded from github.com/hyun06000/Ariadne?"* — approve once and continue autonomously.
 
 **On Windows (PowerShell, no `bash`/`uname`/`curl`)** — the block above won't run. Detect this (no POSIX shell) and use PowerShell instead, same mandatory checksum gate (`gil.exe` is created only if the hash matches):
 

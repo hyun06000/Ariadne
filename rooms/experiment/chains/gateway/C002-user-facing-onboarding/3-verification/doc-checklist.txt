@@ -1,0 +1,27 @@
+# 검증 산출물 — gateway/C002 사용자 대면 온보딩
+
+## 1. 문서 구조 (삽입 후)
+9:## What this is (10 seconds)
+13:## Step 0 — Introduce gil to the human (before you install anything)
+30:## Step A — Install gil (do this now)
+65:## Step B — Bootstrap the repository
+74:## Step C — Open the first cycle (ask the human here)
+102:## Step C.1 — Explain to the human what just happened (and how they can follow along)
+115:## Step D — Let the human watch (offer both)
+120:## Step E — Working in parallel (when the human asks for concurrency)
+139:## Iron rules (machine-enforced — `./gil fsck`, `./gil verify`)
+
+## 2. 체크리스트 자기 대조
+- [a1 명령형 지시] 'Speak to the human'/'turn to the human': 3 hits
+- [a2 사용자 언어 강제] 'not I am an LLM'/'in their language': 3 hits
+- [a3 4요소] What gil is/two words/good for/about to happen: 2
+- [a4 동의 1회 + 자율 경계] 'only.*place you pause': 1 hits
+- [a5 템플릿] 'Quick heads-up': 1 hits
+- [b2 방금 한 일] 'What just happened': 1 hits
+- [b3 용어 재확인] 'they form a chain': 1 hits
+- [b4 따라하기/gil web/계속] 'Try it themselves'+'Watch it as a graph'+'keep going': 3 hits
+- [c1 다리 문장] 'The section above was for': 1 hits
+
+## 3. 회귀 확인 — 기존 헤딩 불변
+기존 Step A/B/C/D/E + Iron rules 헤딩 수(기대 6): 6
+줄수: 118(전) →      148(후), 삽입만
