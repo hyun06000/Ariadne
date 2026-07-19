@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.30.0] — 2026-07-19
+
+- 마지막 예약을 소비하는 open --git 각인 — 삭제된 untracked reservations.tsv 경로를 git add에서 제외(파일 존재 OR tracked일 때만), pathspec 거부로 커밋 실패하던 선재 버그 수정. 참조 103·Go 89 (OPEN-LAST-RESERVATION-GIT 신설). (loom/C079)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.29.0] — 2026-07-19
 
 - guard 예약 예외 — 예약된 존재가 주 체크아웃(main)에서 자기 사이클을 열 수 있게. C062 guard가 예약 원장을 조회해 예약 대상 author의 open은 허용(C050 방지 유지: author 일치 요구, correct 미적용). 참조 102·Go 88 (GUARD-RESERVED-OK/AUTHOR 신설). (loom/C078)
