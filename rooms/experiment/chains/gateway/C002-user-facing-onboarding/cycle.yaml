@@ -2,7 +2,7 @@ id: C002-user-facing-onboarding
 chain: gateway
 parent: C001-agent-self-onboard
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-19
