@@ -2113,17 +2113,27 @@ func cmdStep(a stepArgs) error {
 	committed := false
 	if !a.noCommit {
 		if repo := repoRoot(a.root); repo != "" {
-			rel, rerr := relToRepo(repo, cycleDir)
-			if rerr != nil {
-				os.WriteFile(yamlPath, original, 0o644)
-				return cerr("%v", rerr)
+			// 스텝 경계 스코프 (loom/C080, 이슈 #20): 사이클 디렉토리 전체가 아니라 cycle.yaml(전이
+			// 기록) + 스텝 ≤N 파일만 커밋한다. 뒷 스텝(>N) 파일을 미리 만들어 둬도 이 커밋엔 안 담겨,
+			// 커밋이 스텝 단위를 반영한다. 존재하는 것만 넣어 정상 흐름(스텝마다 작성 후 전이)은 불변.
+			wanted := []string{yamlPath}
+			for _, sf := range stepFiles[:n] {
+				wanted = append(wanted, filepath.Join(cycleDir, sf[1]))
 			}
-			if _, err := gitChecked(repo, "add", "-A", "--", rel); err != nil {
+			var rels []string
+			for _, p := range wanted {
+				if _, err := os.Stat(p); err == nil {
+					if r, rerr := relToRepo(repo, p); rerr == nil {
+						rels = append(rels, r)
+					}
+				}
+			}
+			if _, err := gitChecked(repo, append([]string{"add", "-A", "--"}, rels...)...); err != nil {
 				return err
 			}
-			if _, err := gitChecked(repo, "commit",
+			if _, err := gitChecked(repo, append([]string{"commit",
 				"-m", fmt.Sprintf("gil: step %s/%s → %d/5 %s", a.chain, a.cycleID, n, stepNames[n]),
-				"--", rel); err != nil {
+				"--"}, rels...)...); err != nil {
 				return err
 			}
 			committed = true

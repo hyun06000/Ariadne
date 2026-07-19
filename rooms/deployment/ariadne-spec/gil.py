@@ -2928,9 +2928,15 @@ def cmd_step(args):
     if not getattr(args, "no_commit", False):
         repo = _repo_root(chains_root)
         if repo:
-            rel = _rel_to_repo(cycle_dir, repo)
-            _git(repo, "add", "-A", "--", rel)
-            _git(repo, "commit", "-m", f"gil: step {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}", "--", rel)
+            # 스텝 경계 스코프 (loom/C080, 이슈 #20): 사이클 디렉토리 전체가 아니라 cycle.yaml(전이 기록)
+            # + 스텝 ≤N의 파일만 커밋한다. 뒷 스텝(>N) 파일을 미리 만들어 둬도 이 커밋엔 안 담겨,
+            # 커밋이 스텝 단위를 반영한다. 존재하는 것만 넣어 정상 흐름(스텝마다 작성 후 전이)은 불변.
+            wanted = [os.path.join(cycle_dir, "cycle.yaml")]
+            for _label, fname in _STEP_FILES[:n]:
+                wanted.append(os.path.join(cycle_dir, fname))
+            rels = [_rel_to_repo(p, repo) for p in wanted if os.path.exists(p)]
+            _git(repo, "add", "-A", "--", *rels)
+            _git(repo, "commit", "-m", f"gil: step {args.chain}/{args.cycle_id} → {n}/5 {_STEP_NAMES[n]}", "--", *rels)
             committed = True
             if args.push:
                 _push(repo)

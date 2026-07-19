@@ -525,6 +525,29 @@ def main():
           and open(sy, encoding="utf-8").read() == before)
     r = impl.run(sroot, "step", "demo", "C009-done", "3")
     check("STEP-REJECT-CLOSED", "닫힌 사이클 step 변경 거부", r.returncode != 0)
+
+    # STEP-SCOPE (loom/C080, 이슈 #20): step N 커밋은 사이클 디렉토리 전체가 아니라 cycle.yaml + 스텝
+    # ≤N 파일만 담는다. 뒷 스텝(>N) 산출물을 미리 만들어 둬도 이 커밋엔 안 담겨 커밋이 스텝 단위를
+    # 반영한다. git 저장소에서 4·5 파일을 미리 만들고 step 2 → 커밋에 4·5 없음 ∧ 2-design·cycle.yaml 있음.
+    ssg = make_sandbox(os.path.join(work, "step-scope"))
+    def ssgg(*cli):
+        return subprocess.run(["git", "-C", ssg, *cli], capture_output=True, text=True)
+    ssgg("init", "-q", "-b", "main"); ssgg("config", "user.name", "t"); ssgg("config", "user.email", "t@t")
+    ssgr = os.path.join(ssg, "rooms/experiment/chains")
+    impl.run(ssg, "open", "demo", "cyc", "--author", "t", "--new-chain", "--git", "--root", ssgr)
+    scd = os.path.join(ssgr, "demo", "C001-cyc")
+    for fn, body in [("2-design.md", "설계"), ("4-analysis.md", "분석-미리"), ("5-report.md", "보고-미리")]:
+        with open(os.path.join(scd, fn), "w", encoding="utf-8") as f:
+            f.write(body)
+    impl.run(ssg, "step", "demo", "C001-cyc", "2", "--git", "--root", ssgr)
+    committed_files = ssgg("show", "--name-only", "--format=", "HEAD").stdout
+    has_late = "4-analysis.md" in committed_files or "5-report.md" in committed_files
+    has_design = "2-design.md" in committed_files
+    has_yaml = "cycle.yaml" in committed_files
+    check("STEP-SCOPE",
+          "step N 커밋은 cycle.yaml + 스텝 ≤N 파일만 담는다 (미리 만든 스텝 >N 파일 제외) · C080/이슈#20",
+          not has_late and has_design and has_yaml,
+          f"late={has_late} design={has_design} yaml={has_yaml}")
     rroot = make_sandbox(os.path.join(work, "bad-r9"))
     write_cycle(rroot, "demo", "C001-x", step="7")
     r = impl.run(rroot, "fsck")
