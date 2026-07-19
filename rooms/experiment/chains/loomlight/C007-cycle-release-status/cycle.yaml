@@ -2,7 +2,7 @@ id: C007-cycle-release-status
 chain: loomlight
 parent: C006-releases-in-viewer
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-19
