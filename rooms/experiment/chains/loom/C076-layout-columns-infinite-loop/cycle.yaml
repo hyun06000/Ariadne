@@ -1,0 +1,14 @@
+id: C076-layout-columns-infinite-loop
+chain: loom
+parent: C047-web-topology-layout
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "_layout_columns는 free_slot(빈 트랙)과 occupied(빈 좌표) 회피가 분리돼, 분기·병합이 겹친 그래프(eda 44)에서 col이 전진 못 해 무한 스핀한다 — occupied 가드를 트랙 시스템과 통합하면 종료한다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
