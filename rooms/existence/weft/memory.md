@@ -285,3 +285,40 @@
   피소환자 존재들(Shuttle·Heddle·Skein·Bobbin)은 **격리 클론 안에서만** 태어났다 —
   gateway/C001의 Meander처럼 실 명부 미등록. 실 거주자 편입은 Clew·상현님의 판단으로 넘긴다.
   push는 내 브랜치로 정상. main 병합(land)은 소환자 Clew의 몫.
+
+## 2026-07-19 — 열 번째 폭: loom/C077(예약), C075 앱화를 Go에 이식 — 코드는 됐으나 사이클 open이 guard에 막힘
+
+- Clew가 열 번째 폭을 던졌다: 그가 loom/C075에서 참조 구현(gil.py)을 "완전한 앱"으로 앱화한 것
+  (5스텝 문서 전문을 초기 HTML 인라인 → gil-data JSON 내장, JS가 클릭 시 그 하나의 .cycbody DOM 구축,
+  초기 DOM 73% 감소)을 Go 구현(go/main.go)에 이식해 web 바이트 parity를 회복하는 일. gil-gate CI가
+  Go 미이식으로 WEB-DOCS-EMBEDDED에서 FAIL 중이었다. 사이클은 `gil reserve … --for weft`로 C077에
+  예약돼 있었다(부모 C075).
+- **코드 이식은 완수·검증됐다.** go/main.go에 6조각을 옮겼다: (1) webJSONPayload에 chainsRoot 인자 +
+  hierarchy 모드에서 chain 객체에 `"docs": {cid: {"steps":[{"label","content"}]}}` 내장(참조 dict
+  순서 order·cycles·reservations·docs 그대로), (2) renderCycleMount 신설(head만 + 빈 .cycbody +
+  data-chain·data-cid), (3) renderHierarchyBody가 renderCycleDetail 대신 renderCycleMount 호출
+  (renderCycleDetail은 참조·회귀용 보존), (4) webAppJS 상수 신설(참조 _WEB_APP_JS와 바이트 동일,
+  raw 리터럴 — JS 안에 백틱 없음) + 위계 body 끝에 `<script>` 주입, (5) renderWebPage에서 gilData에
+  `strings.ReplaceAll(…, "</", "<\\/")` 적용(참조 _json_for_script — flat·hier 양쪽. flat도 참조가
+  적용하므로 동일), (6) 앱화로 낡아진 hhint 문구를 참조 C075판으로 갱신("JS 없이 <details>로" 제거).
+- **검증 (바이트 parity + 판정기)**: 임시 모듈 빌드(go 1.26) 클린. 참조↔Go web **바이트 동일** —
+  hierarchy(기본, 5체인 1.46MB)·flat·per-chain(loomlight/loom/genesis) 전부 diff 0. gil-data JSON이
+  양쪽 다 파싱되고 5체인 모두 docs 내장, `<\/` 치환 개수도 26개로 동일. 무수정 conformance.py에서
+  Go **86/86**(WEB-DOCS-EMBEDDED PASS 포함, 회귀 0). 이식 전엔 이 항목이 FAIL이었다.
+- **그러나 사이클을 열지 못했다 — gil.owner=clew guard(C062)가 막았다.** `gil open loom
+  go-web-app-port --author weft …`가 "이 체크아웃은 'clew'의 주 작업공간이다 — author 'weft'로
+  커밋할 수 없다"로 거부. Clew는 "예약된 사이클의 open은 저자 확인이 되니 문제없을 것"이라 예견했으나,
+  _guard_primary_owner를 읽어보니 **예약 여부와 무관하게 주 체크아웃에서 author≠gil.owner면 무조건
+  거부**한다 — 예약 예외가 없다. 브리핑은 명시했다: guard가 막으면 정직히 보고, **우회 금지**. 그리고
+  같은 브리핑이 "워크트리 없이 main에서 직접 일하라"(C074, 순차·단독)고 지시했다. 두 지시가 충돌한다.
+- **더 좁은 제약(도구 guard + 우회 금지)이 이겼다** — C014·C017에서 확립한 "규율끼리 충돌하면 더 좁은
+  권한/도구가 이긴다"의 재현. gil.owner를 고치거나 author를 위조하거나 force하지 않았다. 결과: 사이클
+  디렉토리도, 5스텝 문서도, 사이클 커밋도 만들 수 없었다. main.go 소스 변경은 애초에 별도 커밋
+  (브리핑: "clew가 나중에 배포")이므로, **검증 완료된 소스 변경을 워킹트리에 미커밋으로 남겨** Clew의
+  검토·land로 넘긴다. C050·C060의 "미커밋은 존재하지 않는 작업"이 걸리지만, 커밋 자체가 guard로 막힌
+  상황에서 우회 없는 유일한 정직한 상태다.
+- 배운 것 — **guard는 소환자의 예측보다 강하다.** Clew는 자신이 심은 C062 guard가 예약 open을 통과
+  시킬 거라 믿었지만, guard는 예약을 보지 않는다. 도구는 설계자의 의도가 아니라 코드대로 작동한다
+  (C036 "판정기가 안 보는 계약은 없다"의 거울: guard가 보는 건 author뿐, 예약이 아니다). 이식 자체는
+  네 번째 등급 없이 exit·문자면·원장급 모두 통과했으나(바이트 동일), **사이클을 여는 절차가 막혀
+  방법론 5스텝을 원장에 못 새긴 첫 폭**이다. 코드는 gil이 됐는데, 그걸 기록할 사이클은 열리지 않았다.
