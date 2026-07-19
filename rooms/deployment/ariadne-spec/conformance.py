@@ -126,6 +126,32 @@ def main():
           r.returncode == 0 and re.fullmatch(r"gil \d+\.\d+\.\d+", r.stdout.strip()) is not None,
           r.stdout.strip()[:60])
 
+    # ---- version --check / --update: 바이너리 드리프트를 바이너리 스스로 없앤다 (이슈 #22, loom/C082) ----
+    #      --check는 순수 조회(부작용 없음)이며, 성공 시 자기보고 훅 gil:version-check를 낸다.
+    #      네트워크 없는 환경(CI 등)에서는 조회가 exit≠0로 정직히 실패할 수 있다 — 그래서 형태(무해성·
+    #      플래그 인지)는 항상 판정하되, 훅의 존재는 '조회에 성공했을 때만' 판정한다 (거짓 통과 방지).
+
+    # (1) 무해성: --check는 저장소를 변경하지 않는다 (조회는 조회일 뿐).
+    vroot = make_sandbox(os.path.join(work, "version-check-safe"))
+    vbefore = snapshot(vroot)
+    rc = impl.run(vroot, "version", "--check")
+    check("VERSION-CHECK-SAFE", "version --check가 저장소를 변경하지 않는다 (부작용 없는 조회)",
+          snapshot(vroot) == vbefore, f"rc={rc.returncode}")
+
+    # (2) 플래그 인지: --check는 미구현 신호(exit 3)가 아니어야 한다 (구현했으면 정직히 안다고 답한다).
+    check("VERSION-CHECK-KNOWN", "version --check가 미구현 신호(exit 3)가 아니다 (플래그를 안다)",
+          rc.returncode != UNIMPLEMENTED, f"rc={rc.returncode}")
+
+    # (3) 자기보고 훅: 조회 성공(exit 0) 시 마지막 훅 한 줄이
+    #     'gil:version-check <semver> <semver> <current|outdated>' 형태여야 한다.
+    #     조회 실패(네트워크 없음 등, exit≠0)면 이 항목은 공백 통과 — 형태를 판정할 대상이 없다.
+    hook_re = re.compile(r"gil:version-check \d+\.\d+\.\d+ \d+\.\d+\.\d+ (current|outdated)")
+    hooks = [l for l in rc.stdout.splitlines() if l.startswith("gil:version-check ")]
+    check("VERSION-CHECK-HOOK",
+          "version --check 성공 시 자기보고 훅 'gil:version-check <local> <latest> <status>' 정확히 1줄",
+          rc.returncode != 0 or (len(hooks) == 1 and hook_re.fullmatch(hooks[0]) is not None),
+          f"rc={rc.returncode} 훅={hooks[:1]}")
+
     # ---- 명령 자기보고 표면 (SPEC §7.2 — loom/C039, maru의 이슈 #12) ----
     #      에이전트는 능력을 문서가 아니라 도구의 자기보고로 판단한다. 그래서 자기보고는 계약이다.
     #      판정기는 각 구현을 '그 자신의 훅'에 비추어 본다 — 부분 구현은 합법이고, 거짓 보고만 불법이다.
