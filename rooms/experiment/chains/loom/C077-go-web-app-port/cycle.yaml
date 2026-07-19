@@ -1,0 +1,14 @@
+id: C077-go-web-app-port
+chain: loom
+parent: C075-web-weight-lazy-docs
+lineage: []
+step: 1
+author: weft
+status: open
+opened: 2026-07-19
+closed: null
+title: "C075의 완전한 앱화(문서 gil-data JSON 내장 + 클릭 시 JS DOM 구축 + _json_for_script 봉인)를 Go에 이식해 참조와 web 바이트 동일(parity)을 회복한다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
