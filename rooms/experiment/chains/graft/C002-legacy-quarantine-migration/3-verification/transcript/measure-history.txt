@@ -1,0 +1,12 @@
+########## 측정1. 히스토리 보존 ##########
+-- commit count now (was 676) --
+     677
+-- git log --follow legacy/src/flask/app.py (last 6; 이주 이전 이력 보이나?) --
+56d37d5 chore: quarantine legacy tree into legacy/
+fbb6f0b all teardown callbacks are called despite errors
+7b00886 fix typing
+c17f379 request context tracks session access
+c77a520 deprecate should_ignore_error
+3709c4a update ruff hook and noqa
+-- top-level now --
+legacy

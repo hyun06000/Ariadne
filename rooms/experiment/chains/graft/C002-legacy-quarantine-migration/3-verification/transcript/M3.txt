@@ -1,0 +1,6 @@
+########## M3. 존재의 방 필요성 ##########
+-- M2에서 --author maintainer가 존재의 방 없이 통과했나? (rooms/existence 존재?) --
+ls: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/bd109ce2-e26f-4f07-8f52-9c2706878a89/scratchpad/graft-C002/flask/rooms/existence: No such file or directory
+(존재의 방 없이 채택이 진행됨 = F5 재현. 절차상 최소 스텁은 '권장'이나 gil이 강제하진 않음)
+-- 확정: 격리 후 legacy/ 안에 CHANGES.rst 있나 (F3 원인 확인) --
+/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/bd109ce2-e26f-4f07-8f52-9c2706878a89/scratchpad/graft-C002/flask/legacy/CHANGES.rst

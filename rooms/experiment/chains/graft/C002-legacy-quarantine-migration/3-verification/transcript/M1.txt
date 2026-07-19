@@ -1,0 +1,25 @@
+########## M1. 작업트리 격리 (git mv) ##########
+-- staged status after git mv --
+R  .devcontainer/devcontainer.json -> legacy/.devcontainer/devcontainer.json
+R  .devcontainer/on-create-command.sh -> legacy/.devcontainer/on-create-command.sh
+R  .editorconfig -> legacy/.editorconfig
+R  .github/ISSUE_TEMPLATE/bug-report.md -> legacy/.github/ISSUE_TEMPLATE/bug-report.md
+R  .github/ISSUE_TEMPLATE/config.yml -> legacy/.github/ISSUE_TEMPLATE/config.yml
+R  .github/ISSUE_TEMPLATE/feature-request.md -> legacy/.github/ISSUE_TEMPLATE/feature-request.md
+R  .github/pull_request_template.md -> legacy/.github/pull_request_template.md
+R  .github/workflows/lock.yaml -> legacy/.github/workflows/lock.yaml
+R  .github/workflows/pre-commit.yaml -> legacy/.github/workflows/pre-commit.yaml
+R  .github/workflows/publish.yaml -> legacy/.github/workflows/publish.yaml
+R  .github/workflows/tests.yaml -> legacy/.github/workflows/tests.yaml
+R  .github/workflows/zizmor.yaml -> legacy/.github/workflows/zizmor.yaml
+R  .gitignore -> legacy/.gitignore
+R  .pre-commit-config.yaml -> legacy/.pre-commit-config.yaml
+R  .readthedocs.yaml -> legacy/.readthedocs.yaml
+R  CHANGES.rst -> legacy/CHANGES.rst
+R  LICENSE.txt -> legacy/LICENSE.txt
+R  README.md -> legacy/README.md
+R  docs/Makefile -> legacy/docs/Makefile
+R  docs/_static/debugger.png -> legacy/docs/_static/debugger.png
+-- rename detection sample --
+236
+committed

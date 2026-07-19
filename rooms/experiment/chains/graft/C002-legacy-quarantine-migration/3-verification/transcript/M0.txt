@@ -1,0 +1,27 @@
+########## M0. 사전 상태 캡처 ##########
+-- commit count --
+     676
+-- tag count --
+      16
+-- history of src/flask/app.py (last 5) --
+fbb6f0b all teardown callbacks are called despite errors
+7b00886 fix typing
+daca74d Merge branch 'stable'
+c17f379 request context tracks session access
+c77a520 deprecate should_ignore_error
+-- top-level entries --
+.devcontainer
+.editorconfig
+.github
+.gitignore
+.pre-commit-config.yaml
+.readthedocs.yaml
+CHANGES.rst
+LICENSE.txt
+README.md
+docs
+examples
+pyproject.toml
+src
+tests
+uv.lock

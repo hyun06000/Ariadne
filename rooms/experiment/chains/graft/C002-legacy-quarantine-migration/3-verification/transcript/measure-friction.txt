@@ -1,0 +1,20 @@
+########## 측정2. 마찰 완화 재관찰 ##########
+-- F2/F4: gil log/fsck 사는가? --
+OK — 체인 1개, 사이클 1개, 위반 0건 (스키마 v0.5)
+=== chain: flaskwork — 사이클 1개 ===
+
+●  C001-adopt-flask [open] Flask에 gil 채택
+
+root: C001-adopt-flask
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-adopt-flask  ←  (root)
+
+-- F3: releases (격리가 태그 충돌 표면을 없앴나? Flask 16태그는 legacy/ 안으로 사라졌나?) --
+배포 계보 — 0개 릴리스  [T=태그 C=CHANGELOG]
+gil:releases 0 drift=0
+-- Flask 원래 태그는 여전히 저장소에 있나? (git tag는 파일이 아니라 ref라 legacy/ 이동 무관) --
+      16
+2.2.3
+2.2.4
+2.2.5

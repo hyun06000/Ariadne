@@ -1,0 +1,15 @@
+########## M2. gil 골격 심기 ##########
+열림: flaskwork/C001-adopt-flask
+-- top-level after M2 (rooms/ 옆에? legacy/ 그대로?) --
+legacy
+rooms
+-- F7: gil open --git 커밋이 rooms/만 담나 (legacy 무접촉)? --
+d3de967 gil: open flaskwork/C001-adopt-flask — 1/5 가설
+ .../chains/flaskwork/C001-adopt-flask/1-hypothesis.md      |  3 +++
+ .../chains/flaskwork/C001-adopt-flask/2-design.md          |  3 +++
+ .../flaskwork/C001-adopt-flask/3-verification/README.md    |  3 +++
+ .../chains/flaskwork/C001-adopt-flask/4-analysis.md        |  3 +++
+ .../chains/flaskwork/C001-adopt-flask/5-report.md          |  3 +++
+ .../chains/flaskwork/C001-adopt-flask/cycle.yaml           | 14 ++++++++++++++
+ rooms/experiment/chains/flaskwork/chain.md                 |  5 +++++
+ 7 files changed, 34 insertions(+)
