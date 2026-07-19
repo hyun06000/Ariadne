@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.31.0] — 2026-07-19
+
+- step 커밋을 스텝 경계로 스코프 — cycle.yaml + 스텝 ≤N 파일만 담아 미리 만든 뒷 스텝 파일이 안 딸려오게(이슈 #20). 참조 104·Go 90 (STEP-SCOPE 신설). (loom/C080)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.30.0] — 2026-07-19
 
 - 마지막 예약을 소비하는 open --git 각인 — 삭제된 untracked reservations.tsv 경로를 git add에서 제외(파일 존재 OR tracked일 때만), pathspec 거부로 커밋 실패하던 선재 버그 수정. 참조 103·Go 89 (OPEN-LAST-RESERVATION-GIT 신설). (loom/C079)
