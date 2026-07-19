@@ -4,11 +4,11 @@ parent: C006-releases-in-viewer
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "사이클→배포 연결 — git tag 조상 관계로 각 사이클의 최초 배포 릴리스를 판정해 뷰어 노드에 배포/미배포 배지를 달아, 끝난 실험이 배포까지 갔는지 본다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
