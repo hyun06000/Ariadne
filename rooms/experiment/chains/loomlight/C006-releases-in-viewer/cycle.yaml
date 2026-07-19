@@ -7,7 +7,7 @@ author: clew
 status: open
 opened: 2026-07-19
 closed: null
-title: ""
+title: "배포를 뷰어에 — CHANGELOG·태그·현재 버전·drift를 gil-data releases에 담고 배포 패널을 렌더해, 사람이 어떤 버전으로 배포 중인지·릴리스 이력·배포 무결성을 본다"
 verdict: null
 deviations: 0
 corrections: 0
