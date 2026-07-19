@@ -1,0 +1,14 @@
+id: C084-withdraw-pure-retraction
+chain: loom
+parent: C035-superseded-pointer
+lineage: [graft/C002-legacy-quarantine-migration]
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "대체 없는 사이클 철회: gil withdraw <ref>가 open 오판을 자기 언어로 되감는다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
