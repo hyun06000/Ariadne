@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.27.0] — 2026-07-19
+
+- web 레이아웃(_layout_columns/layoutColumns) 무한 스핀 종료 보장 — 분기 그래프에서 gil 프로세스 누적·CPU 100% 유발하던 결함 수정, 참조·Go 양 구현, WEB-LAYOUT-TERMINATES 판정 신설 (loom/C076)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.26.0] — 2026-07-19
 
 - threads(#4 열린 실 훑기)·release drift 게이트·넓은 그래프 미니맵·web 병렬 배너 — 병렬 가시성과 배포 무결성
