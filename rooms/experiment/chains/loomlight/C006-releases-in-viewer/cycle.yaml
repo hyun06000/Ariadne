@@ -4,11 +4,11 @@ parent: C005-beings-in-viewer
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "배포를 뷰어에 — CHANGELOG·태그·현재 버전·drift를 gil-data releases에 담고 배포 패널을 렌더해, 사람이 어떤 버전으로 배포 중인지·릴리스 이력·배포 무결성을 본다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
