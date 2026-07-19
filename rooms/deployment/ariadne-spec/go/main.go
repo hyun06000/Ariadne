@@ -1398,7 +1398,47 @@ func worktreeLand(a worktreeArgs) error {
 
 type closeArgs struct {
 	chain, cycleID, date, root, verdict string
-	git, push, noCommit, noWeb          bool
+	git, push, noCommit, noWeb, allowExtra bool
+}
+
+// closeStandardFiles: close 봉인 스코프 게이트의 표준 산출물 (loom/C081). 3-verification/ 안은
+// 자유 산출물이 정상이라 게이트 대상이 아니다.
+var closeStandardFiles = map[string]bool{
+	"cycle.yaml": true, "1-hypothesis.md": true, "2-design.md": true,
+	"4-analysis.md": true, "5-report.md": true,
+	"deviations.yaml": true, "corrections.yaml": true,
+}
+
+// closeUnexpectedFiles: close가 새로 봉인할(untracked) 파일 중 "3-verification/ 밖 + 표준 산출물
+// 밖"인 것을 반환한다 (흔한 오배치). 3-verification/ 아래 자유 산출물은 제외 (loom/C081, 이슈 #19).
+func closeUnexpectedFiles(repo, cycleRel string) []string {
+	out, _, code := gitRun(repo, "status", "--porcelain", "--", cycleRel)
+	if code != 0 {
+		return nil
+	}
+	var res []string
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "??") { // untracked(신규)만
+			continue
+		}
+		path := strings.Trim(strings.TrimSpace(line[2:]), "\"")
+		relInCycle, rerr := filepath.Rel(cycleRel, path)
+		if rerr != nil {
+			continue
+		}
+		top := relInCycle
+		if i := strings.Index(relInCycle, "/"); i >= 0 {
+			top = relInCycle[:i]
+		}
+		if top == "3-verification" {
+			continue
+		}
+		if !closeStandardFiles[filepath.Base(relInCycle)] {
+			res = append(res, relInCycle)
+		}
+	}
+	sort.Strings(res)
+	return res
 }
 
 func cmdClose(a closeArgs) error {
@@ -1495,6 +1535,21 @@ func cmdClose(a closeArgs) error {
 		if rerr != nil {
 			os.WriteFile(yamlPath, original, 0o644)
 			return cerr("%v", rerr)
+		}
+		// 봉인 스코프 게이트 (loom/C081, 이슈 #19): 봉인될 신규(untracked) 파일 중 "3-verification/ 밖
+		// + 표준 산출물 밖"인 것(흔한 오배치)이 있으면 --allow-extra 없이 거부한다(불변 태그·저장소 무변화).
+		// 3-verification/ 하위 자유 산출물은 정상이라 게이트하지 않는다.
+		extra := closeUnexpectedFiles(repo, cycleRel)
+		if len(extra) > 0 {
+			listing := "        " + strings.Join(extra, "\n        ")
+			if !a.allowExtra {
+				os.WriteFile(yamlPath, original, 0o644) // 게이트 거부 — yaml 원복
+				return cerr("%s/%s: 표준 산출물 밖의 신규 파일이 봉인 대상이다 "+
+					"(불변 태그에 들어가면 되돌리기 어렵다):\n%s\n"+
+					"      오배치면 정리하고, 의도한 것이면 --allow-extra 로 승인하라 (이슈 #19).",
+					a.chain, a.cycleID, listing)
+			}
+			fmt.Printf("경고: 표준 밖 신규 파일을 봉인한다 (--allow-extra):\n%s\n", listing)
 		}
 		title := fields["title"]
 		if gerr := func() error {
@@ -4963,7 +5018,7 @@ func main() {
 		}
 	case "close":
 		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
-			"date": true, "root": true, "verdict": true, "git": false, "push": false, "no-commit": false, "no-web": false,
+			"date": true, "root": true, "verdict": true, "git": false, "push": false, "no-commit": false, "no-web": false, "allow-extra": false,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
@@ -4975,13 +5030,14 @@ func main() {
 		}
 		if err := cmdClose(closeArgs{
 			chain: pos[0], cycleID: pos[1],
-			date:     flagVal(flags, "date", today),
-			root:     flagVal(flags, "root", defaultRoot),
-			verdict:  flagVal(flags, "verdict", ""),
-			git:      len(flags["git"]) > 0,
-			push:     len(flags["push"]) > 0,
-			noCommit: len(flags["no-commit"]) > 0,
-			noWeb:    len(flags["no-web"]) > 0,
+			date:       flagVal(flags, "date", today),
+			root:       flagVal(flags, "root", defaultRoot),
+			verdict:    flagVal(flags, "verdict", ""),
+			git:        len(flags["git"]) > 0,
+			push:       len(flags["push"]) > 0,
+			noCommit:   len(flags["no-commit"]) > 0,
+			noWeb:      len(flags["no-web"]) > 0,
+			allowExtra: len(flags["allow-extra"]) > 0,
 		}); err != nil {
 			fail(err)
 		}

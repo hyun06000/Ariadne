@@ -511,6 +511,51 @@ def main():
     r = impl.run(croot, "close", "demo", "C001-first-step", "--date", "2026-01-06")
     check("CLOSE-DOUBLE-REJECT", "이중 닫기 거부", r.returncode != 0)
 
+    # CLOSE-SEAL-GATE (loom/C081, 이슈 #19): close는 불변 태그를 각인하므로, 봉인될 신규(untracked)
+    # 파일 중 "3-verification/ 밖 + 표준 산출물 밖"인 것(흔한 오배치)이 있으면 --allow-extra 없이 거부한다
+    # (저장소·태그 무변화). 3-verification/ 하위 자유 산출물(probe·fixtures)은 정상이라 게이트하지 않는다.
+    csg = make_sandbox(os.path.join(work, "close-seal"))
+    def csgg(*cli):
+        return subprocess.run(["git", "-C", csg, *cli], capture_output=True, text=True)
+    csgg("init", "-q", "-b", "main"); csgg("config", "user.name", "t"); csgg("config", "user.email", "t@t")
+    csgr = os.path.join(csg, "rooms/experiment/chains")
+    impl.run(csg, "open", "demo", "cyc", "--author", "t", "--new-chain", "--git", "--root", csgr)
+    scd = os.path.join(csgr, "demo", "C001-cyc")
+    with open(os.path.join(scd, "5-report.md"), "w", encoding="utf-8") as f:
+        f.write("# 5. 결과 보고\n\n## 요약\n\n계약 검증용 실보고서.\n")
+    # (a) 사이클 루트 오배치 신규 파일 → 게이트 거부(태그 없음)
+    with open(os.path.join(scd, "misplaced.txt"), "w", encoding="utf-8") as f:
+        f.write("오배치")
+    rgate = impl.run(csg, "close", "demo", "C001-cyc", "--verdict", "supported", "--git", "--root", csgr)
+    tag_absent = "cycle/demo/C001-cyc" not in csgg("tag", "-l").stdout
+    check("CLOSE-SEAL-GATE",
+          "표준 밖 신규 파일(오배치)이 봉인 대상이면 --allow-extra 없이 거부 (불변 태그·저장소 무변화) · C081/이슈#19",
+          rgate.returncode != 0 and tag_absent, f"rc={rgate.returncode} tag_absent={tag_absent}")
+    # (b) --allow-extra로 승인 시 봉인
+    rallow = impl.run(csg, "close", "demo", "C001-cyc", "--verdict", "supported", "--allow-extra", "--git", "--root", csgr)
+    check("CLOSE-SEAL-ALLOW",
+          "--allow-extra로 표준 밖 신규 파일 봉인 승인 (태그 각인) · C081",
+          rallow.returncode == 0 and "cycle/demo/C001-cyc" in csgg("tag", "-l").stdout,
+          f"rc={rallow.returncode}")
+    # (c) 3-verification/ 하위 자유 산출물은 게이트하지 않는다 (오탐 0)
+    csg2 = make_sandbox(os.path.join(work, "close-seal-free"))
+    def csg2g(*cli):
+        return subprocess.run(["git", "-C", csg2, *cli], capture_output=True, text=True)
+    csg2g("init", "-q", "-b", "main"); csg2g("config", "user.name", "t"); csg2g("config", "user.email", "t@t")
+    csg2r = os.path.join(csg2, "rooms/experiment/chains")
+    impl.run(csg2, "open", "demo", "cyc", "--author", "t", "--new-chain", "--git", "--root", csg2r)
+    scd2 = os.path.join(csg2r, "demo", "C001-cyc")
+    with open(os.path.join(scd2, "5-report.md"), "w", encoding="utf-8") as f:
+        f.write("# 5. 결과 보고\n\n## 요약\n\n계약 검증용 실보고서.\n")
+    os.makedirs(os.path.join(scd2, "3-verification", "fixtures"), exist_ok=True)
+    with open(os.path.join(scd2, "3-verification", "fixtures", "data.txt"), "w", encoding="utf-8") as f:
+        f.write("자유 산출물")
+    rfree = impl.run(csg2, "close", "demo", "C001-cyc", "--verdict", "supported", "--git", "--root", csg2r)
+    check("CLOSE-SEAL-VERIFICATION-FREE",
+          "3-verification/ 하위 자유 산출물은 게이트하지 않고 정상 봉인 (오탐 0) · C081",
+          rfree.returncode == 0 and "cycle/demo/C001-cyc" in csg2g("tag", "-l").stdout,
+          f"rc={rfree.returncode}")
+
     # ---- step (자체 구축 샌드박스, v0.6.0 계약) ----
     sroot = make_sandbox(os.path.join(work, "step"))
     write_cycle(sroot, "demo", "C001-first-step", step="1")

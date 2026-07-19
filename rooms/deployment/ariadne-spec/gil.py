@@ -2796,6 +2796,36 @@ def cmd_verify(args):
     return 0
 
 
+# close 봉인 스코프 게이트 (loom/C081). 사이클 표준 산출물: 5스텝 문서 + cycle.yaml +
+# deviations/corrections.yaml. 3-verification/ 안은 자유 산출물이 정상이라 게이트 대상이 아니다.
+_CLOSE_STANDARD_FILES = {"cycle.yaml", "1-hypothesis.md", "2-design.md",
+                         "4-analysis.md", "5-report.md",
+                         "deviations.yaml", "corrections.yaml"}
+
+
+def _close_unexpected_files(repo, cycle_dir, cycle_rel):
+    """close가 새로 봉인할(untracked) 파일 중 '3-verification/ 밖 + 표준 산출물 밖'인 것을 반환한다.
+    이것들은 흔한 오배치(사이클 루트나 잘못된 위치의 신규 파일)라 봉인 전 게이트한다. 3-verification/
+    아래는 probe·데이터·fixtures 등 자유 산출물이 정상이므로 제외한다."""
+    r = _git(repo, "status", "--porcelain", "--", cycle_rel, check=False)
+    if r.returncode != 0:
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        if not line.startswith("??"):  # untracked(신규)만 — 이미 tracked는 재봉인이라 새 위험 아님
+            continue
+        path = line[3:].strip().strip('"')
+        rel_in_cycle = os.path.relpath(path, cycle_rel)
+        # 3-verification/ 안은 존중(자유 산출물). 그 밖에서 표준 문서가 아닌 것만 게이트.
+        top = rel_in_cycle.split("/", 1)[0]
+        if top == "3-verification":
+            continue
+        base = os.path.basename(rel_in_cycle)
+        if base not in _CLOSE_STANDARD_FILES:
+            out.append(rel_in_cycle)
+    return sorted(out)
+
+
 def cmd_close(args):
     chains_root = args.root
     cycle_dir = os.path.join(chains_root, args.chain, args.cycle_id)
@@ -2875,6 +2905,21 @@ def cmd_close(args):
     if repo:
         cycle_rel = _rel_to_repo(cycle_dir, repo)
         title = data.get("title") or ""
+        # 봉인 스코프 게이트 (loom/C081, 이슈 #19): close는 불변 태그를 각인한다 — 오배치 파일이
+        # 무심코 봉인되면 나중에 지울 때 verify가 변조로 보고 태그를 못 고쳐 중복 봉인이 영구화된다.
+        # 봉인될 신규(untracked) 파일 중 "3-verification/ 밖 + 표준 산출물 밖"인 것은 흔한 오배치라
+        # 게이트한다. 3-verification/ 안은 자유 산출물(probe·데이터·fixtures)이 정상이라 요약만.
+        extra = _close_unexpected_files(repo, cycle_dir, cycle_rel)
+        if extra:
+            listing = "\n".join(f"        {p}" for p in extra)
+            if not getattr(args, "allow_extra", False):
+                with open(yaml_path, "w", encoding="utf-8") as f:
+                    f.write(original)  # 게이트 거부 — yaml 원복(저장소 무변화)
+                raise ChainError(
+                    f"{args.chain}/{args.cycle_id}: 표준 산출물 밖의 신규 파일이 봉인 대상이다 "
+                    f"(불변 태그에 들어가면 되돌리기 어렵다):\n{listing}\n"
+                    f"      오배치면 정리하고, 의도한 것이면 --allow-extra 로 승인하라 (이슈 #19).")
+            print(f"경고: 표준 밖 신규 파일을 봉인한다 (--allow-extra):\n{listing}")
         try:
             _git(repo, "add", "-A", "--", cycle_rel)
             _git(repo, "commit",
@@ -3535,6 +3580,8 @@ def main(argv=None):
     p_close.add_argument("--verdict", help="결말: supported|partial|rejected|inconclusive (v0.3)")
     p_close.add_argument("--push", action="store_true", help="각인 후 push --follow-tags")
     p_close.add_argument("--no-web", dest="no_web", action="store_true", help="뷰어 자동 갱신 끄기 (v2.2)")
+    p_close.add_argument("--allow-extra", dest="allow_extra", action="store_true",
+                         help="3-verification/ 밖의 신규 비표준 파일 봉인을 승인 (이슈 #19, loom/C081)")
     p_close.set_defaults(func=cmd_close)
 
     p_verify = sub.add_parser("verify", help="닫힌 사이클의 태그↔작업 트리 대조 (변조 탐지)")
