@@ -2,7 +2,7 @@ id: C077-go-web-app-port
 chain: loom
 parent: C075-web-weight-lazy-docs
 lineage: []
-step: 2
+step: 3
 author: weft
 status: open
 opened: 2026-07-19
