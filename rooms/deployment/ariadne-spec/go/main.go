@@ -3905,6 +3905,10 @@ const webHierCSS = `.gil .card.beings{padding:16px 20px}
 .gil .rtools{color:var(--muted);font-size:11px;flex-basis:100%}
 .gil .rdrift{color:var(--supersede);font-size:11px;font-weight:600}
 .gil .relempty{color:var(--muted);font-size:13px}
+.gil .relmore{margin-top:8px}
+.gil .relmore>summary{cursor:pointer;font-size:12px;color:var(--node);font-weight:600;padding:4px 0}
+.gil .relmore>summary:hover{text-decoration:underline}
+.gil .relmore>.rellist{margin-top:6px}
 .gil .cyrel{font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
 .gil .cyrel.shipped{color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent)}
 .gil .cyrel.unshipped{color:var(--muted);background:color-mix(in srgb,var(--muted) 14%,transparent)}
@@ -4736,8 +4740,7 @@ func renderReleasesPanel(rel *releasesData) string {
 	if cur == "" {
 		cur = "?"
 	}
-	var rows strings.Builder
-	for _, e := range rel.entries {
+	row := func(e releaseEntry) string {
 		drift := ""
 		if !(e.inTag && e.inChangelog) {
 			which := "CHANGELOG만"
@@ -4750,13 +4753,32 @@ func renderReleasesPanel(rel *releasesData) string {
 		if e.tools != "" {
 			toolsHTML = `<span class="rtools">도구: ` + htmlEscape(e.tools) + `</span>`
 		}
-		rows.WriteString(`<li class="rel"><span class="rver">v` + htmlEscape(e.version) + `</span>` +
+		return `<li class="rel"><span class="rver">v` + htmlEscape(e.version) + `</span>` +
 			`<span class="rdate">` + htmlEscape(e.date) + `</span>` + drift +
-			`<span class="rnote">` + htmlEscape(e.note) + `</span>` + toolsHTML + `</li>`)
+			`<span class="rnote">` + htmlEscape(e.note) + `</span>` + toolsHTML + `</li>`
 	}
+	// [loomlight/C008] 최신 N개만 항상 표시, 나머지는 <details>로 접는다 (상현님 피드백). JS 0.
+	const relHead = 5
 	listing := `<p class="relempty">아직 릴리스가 없다.</p>`
 	if len(rel.entries) > 0 {
-		listing = `<ul class="rellist">` + rows.String() + `</ul>`
+		head := rel.entries
+		if len(head) > relHead {
+			head = head[:relHead]
+		}
+		var hb strings.Builder
+		for _, e := range head {
+			hb.WriteString(row(e))
+		}
+		listing = `<ul class="rellist">` + hb.String() + `</ul>`
+		if len(rel.entries) > relHead {
+			rest := rel.entries[relHead:]
+			var mb strings.Builder
+			for _, e := range rest {
+				mb.WriteString(row(e))
+			}
+			listing += `<details class="relmore"><summary>이전 릴리스 ` + strconv.Itoa(len(rest)) +
+				`개 더 보기</summary><ul class="rellist">` + mb.String() + `</ul></details>`
+		}
 	}
 	return `<section class="card releases"><h2>배포</h2>` +
 		`<p class="releaseshint">현재 배포 버전 <b class="rcurrent">v` + cur + `</b> — 이 뷰어를 구운 도구의 버전. 아래는 릴리스 이력(태그 ↔ CHANGELOG 대조, ⚠는 drift).</p>` +

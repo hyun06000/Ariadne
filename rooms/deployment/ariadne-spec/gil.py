@@ -1508,6 +1508,10 @@ _WEB_HIER_CSS = """
 .gil .rtools{color:var(--muted);font-size:11px;flex-basis:100%}
 .gil .rdrift{color:var(--supersede);font-size:11px;font-weight:600}
 .gil .relempty{color:var(--muted);font-size:13px}
+.gil .relmore{margin-top:8px}
+.gil .relmore>summary{cursor:pointer;font-size:12px;color:var(--node);font-weight:600;padding:4px 0}
+.gil .relmore>summary:hover{text-decoration:underline}
+.gil .relmore>.rellist{margin-top:6px}
 .gil .cyrel{font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
 .gil .cyrel.shipped{color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent)}
 .gil .cyrel.unshipped{color:var(--muted);background:color-mix(in srgb,var(--muted) 14%,transparent)}
@@ -2020,8 +2024,9 @@ def _render_releases_panel(releases):
     if not releases:
         return ""
     cur = html.escape(releases.get("current") or "?")
-    rows = []
-    for e in releases.get("entries", []):
+    entries = releases.get("entries", [])
+
+    def _row(e):
         v = html.escape(e.get("version") or "")
         drift = ""
         if not (e.get("in_tag") and e.get("in_changelog")):
@@ -2029,11 +2034,23 @@ def _render_releases_panel(releases):
             drift = f'<span class="rdrift">⚠ {which}</span>'
         tools = html.escape(e.get("tools") or "")
         tools_html = f'<span class="rtools">도구: {tools}</span>' if tools else ""
-        rows.append(
-            f'<li class="rel"><span class="rver">v{v}</span>'
-            f'<span class="rdate">{html.escape(e.get("date") or "")}</span>{drift}'
-            f'<span class="rnote">{html.escape(e.get("note") or "")}</span>{tools_html}</li>')
-    listing = f'<ul class="rellist">{"".join(rows)}</ul>' if rows else '<p class="relempty">아직 릴리스가 없다.</p>'
+        return (f'<li class="rel"><span class="rver">v{v}</span>'
+                f'<span class="rdate">{html.escape(e.get("date") or "")}</span>{drift}'
+                f'<span class="rnote">{html.escape(e.get("note") or "")}</span>{tools_html}</li>')
+
+    # [loomlight/C008] 최신 N개만 항상 표시, 나머지는 <details>로 접는다 (상현님 피드백: 65개가 무겁다).
+    # ≤N이면 details 없이 전부 (소수 저장소 기존과 동일). JS 0 — 네이티브 details.
+    _REL_HEAD = 5
+    if not entries:
+        listing = '<p class="relempty">아직 릴리스가 없다.</p>'
+    else:
+        head = "".join(_row(e) for e in entries[:_REL_HEAD])
+        listing = f'<ul class="rellist">{head}</ul>'
+        rest = entries[_REL_HEAD:]
+        if rest:
+            more = "".join(_row(e) for e in rest)
+            listing += (f'<details class="relmore"><summary>이전 릴리스 {len(rest)}개 더 보기</summary>'
+                        f'<ul class="rellist">{more}</ul></details>')
     return (f'<section class="card releases"><h2>배포</h2>'
             f'<p class="releaseshint">현재 배포 버전 <b class="rcurrent">v{cur}</b> — 이 뷰어를 구운 도구의 버전. 아래는 릴리스 이력(태그 ↔ CHANGELOG 대조, ⚠는 drift).</p>'
             f'{listing}</section>')
