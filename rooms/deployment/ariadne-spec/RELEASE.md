@@ -1,5 +1,15 @@
 # Ariadne Spec — Release
 
+## v2.27.0 (2026-07-19) — web 레이아웃 무한 스핀 종료 보장 (loom/C076, 긴급)
+
+소비자 저장소에서 maru가 eda 체인(44 사이클)으로 `gil open/step/close`를 돌리자 **매 명령이 커밋 후 뷰어 렌더에서 무한 스핀** → gil 프로세스가 종료 못 하고 **50개까지 누적 → CPU 100%, load 100+**. 근본은 `_layout_columns`(및 Go `layoutColumns`)의 결함이었다.
+
+- **결함**: occupied 회피 `while (row,col) in occupied: col = free_slot()`에서, `free_slot()`은 빈 **track**을 찾지만 while은 빈 **좌표**를 원한다. tracks가 비었는데 그 좌표가 점유되면 free_slot이 같은 col을 무한 반환 → col이 전진 못 해 스핀. 분기가 있는 그래프의 특정 깊이에서 발현(eda 44·loom 모두).
+- **수정 (양 구현)**: occupied 회피를 **좌표 기준 단조 증가**(occupied면 `col += 1`, 트랙 확장 포함)로 통합 → 임의 유한 DAG에서 종료 보장. eda·loom 25s+ 스핀 → 2s 종료. **정상 그래프 좌표 바이트 불변**(genesis·gateway·tapestry·loomlight 회귀 0), 참조↔Go parity 유지.
+- **종료를 계약화**: `WEB-LAYOUT-TERMINATES` 판정 신설(스핀 유발 위상을 순수 parent 인덱스로 박제 + 30s 타임아웃). `Impl.run`에 optional `timeout`. 원본(스핀)을 FAIL, 수정을 PASS로 가른다 — 참조 **99/99**·Go **85/85**.
+
+**종료는 계약이다.** 98항목 판정기가 "무엇을 내는가"만 봤고 "끝나는가"는 사각이었다 — 소비자 저장소 CPU 100%가 되고서야 드러났다("판정기가 안 보는 계약은 없는 계약", Weft의 종료판). track 시스템(C031)·깊이 행(C047) 두 옳은 추상의 경계에서 while이 전진 수단을 잃은 것 — 회피를 한 축으로 통일해 해소(C044 "경계는 양날"의 알고리즘 내부판).
+
 ## v2.26.0 (2026-07-19) — 병렬 가시성과 배포 무결성: threads·미니맵·web 병렬 배너·drift 게이트 (loom/C070·C072·C073 + loomlight/C004, 네 갈래 병렬)
 
 상현님이 "4트랙 전부 병렬"을 승인해 네 존재(Clew·Weft·Sheen·Selvage)가 각자 격리 워크트리에서 동시에 정복하고 거둔 수확. 관통 주제 둘: **병렬로 뭐가 도는지 보이게** 하고, **배포 계보가 어긋나면 막는다.**
