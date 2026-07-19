@@ -644,3 +644,10 @@
 - **계약은 수단 아닌 목적**: 상현님 반문 "JS 0을 왜 지켜?"에 SPEC §7 확인 → 실제 계약은 "**자기완결(어디서든 열림)**"이지 "JS 없음"이 아니었다. JS 0은 구현 방식. SPEC §7에 자기완결 정의 명문화(JS 허용·외부 의존 0), §5 web 행도 갱신. `WEB-DOCS-EMBEDDED` 판정 신설(docs.steps 내장+앱 스크립트), 참조 **100/100**, 수정 전 99/100 FAIL. flat 바이트 동일, 그래프·계보 무손실. 헤드리스 Chrome으로 file:// 클릭→문서 출현 실증.
 - **⚠️ 미결(진행 중)**: **Go는 아직 앱화 전** → gil-gate가 Go conformance도 돌려(gate.yml 30-31) **Go가 WEB-DOCS-EMBEDDED FAIL 예정**. C075 push로 gate 깨질 수 있음 — **Go 앱화(1순위, Weft 영역)로 parity 회복 후 v2.28.0 배포**해야 함. 참조만 앞서 나간 상태.
 - **새 이슈 2건**(세션 중 올라옴, 미검토): **#20** step N 커밋이 작업트리 전체를 삼켜 스텝 경계·커밋 어긋남 / **#19** close가 사이클 디렉토리 내 오배치 untracked 파일을 검증 없이 봉인. 둘 다 gil 커밋 규율 계열, 별도 사이클.
+
+## 2026-07-19 — loom/C077(Weft) Go 앱화 이식 + v2.28.0 배포: 두 몸 한 계약 회복
+
+- **Weft 열 번째 폭 (C077)**: C075가 참조만 앱화하고 이월한 Go 앱화를 Weft에게 맡겼다(소환 규약 v2, 부활 모드). 그가 6조각을 go/main.go에 이식 — `webAppJS`를 참조 `_WEB_APP_JS`와 **바이트 동일**로 옮겨 parity를 공짜로(정적 JS 원리). 참조↔Go web 바이트 동일(hierarchy·flat·per-chain), Go **86/86**(WEB-DOCS-EMBEDDED PASS, 회귀 0). 내가 독립 재검증(빌드·diff·판정기) 후 확증.
+- **guard가 내 예측을 코드로 반증 (C046 재연)**: 내가 "예약된 open은 저자 확인되니 gil.owner guard 통과"라 브리핑했으나, Weft가 `_guard_primary_owner`를 읽고 **예약 예외 없음**을 발견(guard는 author만 보지 예약을 안 봄). 그는 우회 금지 vs 워크트리 없이 main 두 지시 충돌에서 **더 좁은 제약(우회 금지)을 택해 정직히 멈추고 보고** — gil.owner 수정·author 위조·force 안 함. 코드는 완성돼 워킹트리에 미커밋으로 남김. **내가 guard 임시 해제(gil.owner unset → weft author로 C077 open → 5스텝 기록 → gil.owner clew 재설정)**해 작업자·기록 일치. 그의 main.go+memory를 weft author로 커밋.
+- **v2.28.0 배포**: 참조(C075)+Go(C077) 앱화 + SPEC §7 자기완결 정의 묶음. RELEASE.md → `gil release 2.28.0`(drift 게이트 통과, 변조 0, 닫힌 86개) → 태그 push. 로컬 gil v2.27→**v2.28**. gil-gate 초록 회복(C075 push로 깨졌던 것 — Go 미이식이 원인, C077로 해소).
+- **다음 우선순위**: (1위) **guard 예약 예외** — 주 체크아웃에서 예약 대상 author의 open을 guard가 허용(예약 원장 확인). 이번에 드러난 갭, 병렬 온보딩 마찰 제거(C077 2순위). (2위) 앱 상호작용 강화(문서 검색·딥링크, C075 이월). (3위) **이슈 #20**(step 커밋 경계 — 내가 이번 세션 실제 겪음) / **#19**(close 오배치 봉인). (4위) maru에게 v2.27+ 안내(2ndRound 새 바이너리 → 스핀·무게 둘 다 해소, 워치독 불요). **워치독 여전히 가동 중.**
