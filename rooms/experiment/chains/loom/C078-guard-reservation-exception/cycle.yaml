@@ -2,7 +2,7 @@ id: C078-guard-reservation-exception
 chain: loom
 parent: C077-go-web-app-port
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-19
