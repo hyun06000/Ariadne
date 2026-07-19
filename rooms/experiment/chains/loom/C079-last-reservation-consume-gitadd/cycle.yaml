@@ -1,0 +1,14 @@
+id: C079-last-reservation-consume-gitadd
+chain: loom
+parent: C078-guard-reservation-exception
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "마지막 예약을 소비하는 open --git이, 삭제된 reservations.tsv 경로를 git add에 넘겨 커밋 실패(사이클은 원장에 열렸으나 깃 미각인) — 삭제·미tracked 경로를 안 넘기면 각인된다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
