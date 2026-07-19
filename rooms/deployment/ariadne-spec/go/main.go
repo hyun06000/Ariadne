@@ -2917,6 +2917,14 @@ func jsonStrOrNull(v *string) string {
 	return jsonStr(*v)
 }
 
+// jsonBool: 파이썬 json.dumps와 동일하게 true/false. [loomlight/C006]
+func jsonBool(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
 func jsonStrList(vals []string) string {
 	if len(vals) == 0 {
 		return "[]"
@@ -3528,6 +3536,139 @@ func parseBeings(chainsRoot string) []being {
 	return beings
 }
 
+// [loomlight/C006] 배포 계보 — CHANGELOG(원장)+태그(깃 진실). 참조 _build_releases_data와 동형.
+type releaseEntry struct {
+	version, date, note, tools string
+	inTag, inChangelog         bool
+}
+type releasesData struct {
+	current string
+	entries []releaseEntry
+}
+
+var changelogHeaderRe = regexp.MustCompile(`^## \[(\d+\.\d+\.\d+)\]\s+—\s+(\S+)`)
+var relSemverRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+type clEntry struct{ date, note, tools string }
+
+// parseChangelogReleases: 참조 _parse_changelog_releases — '## [X.Y.Z] — 날짜' 엔트리 파싱.
+func parseChangelogReleases(path string) map[string]clEntry {
+	out := map[string]clEntry{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		m := changelogHeaderRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		version, date := m[1], m[2]
+		note, tools := "", ""
+		for _, body := range lines[i+1:] {
+			if strings.HasPrefix(body, "## ") {
+				break
+			}
+			s := strings.TrimSpace(body)
+			if strings.HasPrefix(s, "- 도구 변경:") || strings.HasPrefix(s, "- 도구 동기화:") {
+				tools = strings.TrimSpace(strings.SplitN(s, ":", 2)[1])
+			} else if strings.HasPrefix(s, "- ") && note == "" {
+				note = strings.TrimSpace(s[2:])
+			}
+		}
+		out[version] = clEntry{date: date, note: note, tools: tools}
+	}
+	return out
+}
+
+type tagEntry struct{ date, subject string }
+
+// gitReleaseTags: 참조 _git_release_tags — v<semver> 태그를 {version: {date, subject}}로. git 부재면 nil.
+func gitReleaseTags(repo string) map[string]tagEntry {
+	if repo == "" {
+		return nil
+	}
+	out, _, code := gitRun(repo, "for-each-ref",
+		"--format=%(refname:short)\t%(creatordate:short)\t%(subject)", "refs/tags/v*")
+	if code != 0 {
+		return map[string]tagEntry{}
+	}
+	res := map[string]tagEntry{}
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		name := parts[0]
+		if !strings.HasPrefix(name, "v") || !relSemverRe.MatchString(name[1:]) {
+			continue
+		}
+		e := tagEntry{}
+		if len(parts) > 1 {
+			e.date = parts[1]
+		}
+		if len(parts) > 2 {
+			e.subject = parts[2]
+		}
+		res[name[1:]] = e
+	}
+	return res
+}
+
+// buildReleasesData: 참조 _build_releases_data. CHANGELOG 없으면 nil(무배포 → releases 키 부재).
+func buildReleasesData(chainsRoot string) *releasesData {
+	rr := filepath.Clean(filepath.Join(chainsRoot, "..", "..", ".."))
+	changelog := filepath.Join(rr, "rooms", "deployment", "CHANGELOG.md")
+	if fi, err := os.Stat(changelog); err != nil || fi.IsDir() {
+		return nil
+	}
+	cl := parseChangelogReleases(changelog)
+	tags := gitReleaseTags(repoRoot(rr))
+	if tags == nil {
+		tags = map[string]tagEntry{}
+	}
+	seen := map[string]bool{}
+	var vers []string
+	for v := range cl {
+		if !seen[v] {
+			seen[v] = true
+			vers = append(vers, v)
+		}
+	}
+	for v := range tags {
+		if !seen[v] {
+			seen[v] = true
+			vers = append(vers, v)
+		}
+	}
+	sort.Slice(vers, func(i, j int) bool { return semverGreater(parseSemverTriple(vers[i]), parseSemverTriple(vers[j])) })
+	entries := make([]releaseEntry, 0, len(vers))
+	for _, v := range vers {
+		clE, inCl := cl[v]
+		tgE, inTag := tags[v]
+		e := releaseEntry{version: v, inTag: inTag, inChangelog: inCl}
+		if inCl {
+			e.date, e.note, e.tools = clE.date, clE.note, clE.tools
+		} else {
+			e.date, e.note = tgE.date, tgE.subject
+		}
+		entries = append(entries, e)
+	}
+	return &releasesData{current: gilVersion, entries: entries}
+}
+
+func parseSemverTriple(v string) [3]int {
+	var t [3]int
+	parts := strings.SplitN(v, ".", 3)
+	for i := 0; i < 3 && i < len(parts); i++ {
+		n := 0
+		fmt.Sscanf(parts[i], "%d", &n)
+		t[i] = n
+	}
+	return t
+}
+
 func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy bool, chainsRoot string) string {
 	var b strings.Builder
 	// v0.4 (loom/C042): bake — 산출물이 자기를 어떻게 다시 굽는지 스스로 말한다.
@@ -3661,6 +3802,22 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy b
 			b.WriteString("]")
 		}
 	}
+	// [loomlight/C006] 배포 계보 top-level releases 키(참조와 동일: beings 뒤, hierarchy 전용).
+	// 무배포(CHANGELOG 없음)/flat은 키 부재 → 바이트 동일. 참조 dict 순서 current·entries, entry는 version·date·note·tools·in_tag·in_changelog.
+	if hierarchy {
+		if rel := buildReleasesData(chainsRoot); rel != nil {
+			b.WriteString(`, "releases": {"current": ` + jsonStr(rel.current) + `, "entries": [`)
+			for i, e := range rel.entries {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(`{"version": ` + jsonStr(e.version) + `, "date": ` + jsonStr(e.date) +
+					`, "note": ` + jsonStr(e.note) + `, "tools": ` + jsonStr(e.tools) +
+					`, "in_tag": ` + jsonBool(e.inTag) + `, "in_changelog": ` + jsonBool(e.inChangelog) + `}`)
+			}
+			b.WriteString(`]}`)
+		}
+	}
 	b.WriteString("}") // 최상위 객체 닫기
 	return b.String()
 }
@@ -3685,6 +3842,20 @@ const webHierCSS = `.gil .card.beings{padding:16px 20px}
 .gil .beingdoc:target{display:block;margin-top:14px;padding-top:12px;border-top:1px solid var(--ring)}
 .gil .bdetailname{font-size:15px;font-weight:650;margin:0 0 2px}
 .gil .bdetailrole{font-size:12px;color:var(--muted);margin:0 0 10px}
+.gil .card.releases{padding:16px 20px}
+.gil .releases h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.gil .releaseshint{color:var(--muted);font-size:12px;margin:0 0 12px}
+.gil .rcurrent{color:var(--node);font-size:13px}
+.gil .rellist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.gil li.rel{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px;
+  padding-bottom:6px;border-bottom:1px solid var(--ring)}
+.gil li.rel:last-child{border-bottom:none;padding-bottom:0}
+.gil .rver{font-weight:650;color:var(--node);min-width:64px}
+.gil .rdate{color:var(--muted);font-size:12px;min-width:82px}
+.gil .rnote{flex:1 1 240px}
+.gil .rtools{color:var(--muted);font-size:11px;flex-basis:100%}
+.gil .rdrift{color:var(--supersede);font-size:11px;font-weight:600}
+.gil .relempty{color:var(--muted);font-size:13px}
 .gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
 .gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
 .gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
@@ -4497,6 +4668,42 @@ func renderBeingsPanel(beings []being) string {
 		`<div class="beinggrid">` + cards.String() + `</div>` + mounts.String() + `</section>`
 }
 
+// renderReleasesPanel: 참조 _render_releases_panel — 현재 버전 + 릴리스 목록(drift 배지). 초기 DOM 직접(경량).
+func renderReleasesPanel(rel *releasesData) string {
+	if rel == nil {
+		return ""
+	}
+	cur := htmlEscape(rel.current)
+	if cur == "" {
+		cur = "?"
+	}
+	var rows strings.Builder
+	for _, e := range rel.entries {
+		drift := ""
+		if !(e.inTag && e.inChangelog) {
+			which := "CHANGELOG만"
+			if e.inTag {
+				which = "태그만"
+			}
+			drift = `<span class="rdrift">⚠ ` + which + `</span>`
+		}
+		toolsHTML := ""
+		if e.tools != "" {
+			toolsHTML = `<span class="rtools">도구: ` + htmlEscape(e.tools) + `</span>`
+		}
+		rows.WriteString(`<li class="rel"><span class="rver">v` + htmlEscape(e.version) + `</span>` +
+			`<span class="rdate">` + htmlEscape(e.date) + `</span>` + drift +
+			`<span class="rnote">` + htmlEscape(e.note) + `</span>` + toolsHTML + `</li>`)
+	}
+	listing := `<p class="relempty">아직 릴리스가 없다.</p>`
+	if len(rel.entries) > 0 {
+		listing = `<ul class="rellist">` + rows.String() + `</ul>`
+	}
+	return `<section class="card releases"><h2>배포</h2>` +
+		`<p class="releaseshint">현재 배포 버전 <b class="rcurrent">v` + cur + `</b> — 이 뷰어를 구운 도구의 버전. 아래는 릴리스 이력(태그 ↔ CHANGELOG 대조, ⚠는 drift).</p>` +
+		listing + `</section>`
+}
+
 func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLineage int, chainsRoot, gilDataJSON string) string {
 	style := webCSS + "\n" + webHierCSS
 	var toc, chainsHTML strings.Builder
@@ -4532,6 +4739,7 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
 %s
 %s
+%s
 <div class="card hmap">%s
 <div class="mapchains">%s</div></div>
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
@@ -4540,7 +4748,7 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <script type="application/json" id="gil-data">%s</script>
 <script>%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderBeingsPanel(parseBeings(chainsRoot)), renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON, webAppJS)
+		renderBeingsPanel(parseBeings(chainsRoot)), renderReleasesPanel(buildReleasesData(chainsRoot)), renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON, webAppJS)
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).

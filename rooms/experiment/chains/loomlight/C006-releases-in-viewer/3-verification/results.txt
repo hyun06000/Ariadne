@@ -1,0 +1,21 @@
+# 검증 산출물 — loomlight/C006 배포를 뷰어에
+
+## 참조 conformance (수정 후)
+PASS WEB-RELEASES: 배포 계보를 gil-data releases에 — current=도구 자기버전 · entries=CHANGELOG∪태그(지어냄 0) · 무CHANGELOG면 키 부재
+계약 준수: 114/114  ✔ 이 구현은 gil이다
+## 참조 (수정 전 — WEB-RELEASES FAIL이어야 유효)
+FAIL WEB-RELEASES: 배포 계보를 gil-data releases에 — current=도구 자기버전 · entries=CHANGELOG∪태그(지어냄 0) · 무CHANGELOG면 키 부재  [absent=True cur=False entries=False([]) note=False panel=False]
+계약 준수: 112/114  ✘ 계약 위반
+## Go conformance (수정 후)
+PASS WEB-RELEASES: 배포 계보를 gil-data releases에 — current=도구 자기버전 · entries=CHANGELOG∪태그(지어냄 0) · 무CHANGELOG면 키 부재
+계약 준수: 100/100  ✔ 이 구현은 gil이다
+
+## parity
+hierarchy(releases 포함): 바이트 동일
+flat: 바이트 동일
+
+## 실렌더 (실저장소 배포 데이터)
+current: 2.33.0 / entries: 65
+drift: 0 (0=태그·CHANGELOG 정합)
+최신: 2.33.0 - 바이너리 자족성: pages -o/--output 대칭(#21)
+배포 패널 초기 DOM: True / current 표시 v2.33.0: True

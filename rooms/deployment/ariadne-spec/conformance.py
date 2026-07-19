@@ -760,6 +760,34 @@ def main():
           beings_absent and rbe.returncode == 0 and names_ok and docs_ok and light_ok,
           f"absent={beings_absent} names={names_ok} docs={docs_ok} light={light_ok} rc={rbe.returncode}")
 
+    # WEB-RELEASES (loomlight/C006, 상현님 발의): 배포 계보를 뷰어 데이터에.
+    # 계약면은 gil-data top-level releases 자기보고. current=도구 자기버전, entries=CHANGELOG∪태그(지어냄 0).
+    # T2(무CHANGELOG): 기존 lroot(rooms/deployment 없음) 렌더엔 releases 키 부재 + 크래시 0.
+    releases_absent = bool(m) and "releases" not in json.loads(m.group(1))
+    # T1(CHANGELOG 심기): '## [X.Y.Z] — 날짜' 엔트리를 심고 entries에 그 버전이 나오는지.
+    cldir = os.path.join(lroot, "rooms", "deployment")
+    os.makedirs(cldir)
+    with open(os.path.join(cldir, "CHANGELOG.md"), "w", encoding="utf-8") as f:
+        f.write("# Changelog\n\n## [Unreleased]\n\n## [1.2.0] — 2026-02-01\n\n- 테스트 릴리스 노트\n"
+                "- 도구 변경: gil (마이너 이상 승격)\n\n## [1.1.0] — 2026-01-15\n\n- 이전 릴리스\n")
+    outr6 = os.path.join(work, "chains-releases.html")
+    rr6 = impl.run(lroot, "web", "-o", outr6, "--title", "t")
+    pager6 = open(outr6, encoding="utf-8").read() if os.path.isfile(outr6) else ""
+    mr6 = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pager6, re.S)
+    rel_json = (json.loads(mr6.group(1).replace('<\\/', '</')).get("releases") or {}) if mr6 else {}
+    rel_versions = sorted(e.get("version") for e in rel_json.get("entries", []))
+    # current는 도구 자기버전(지어냄 불가) — 비어있지 않고 SemVer 꼴이면 OK(빌드마다 값은 다름).
+    cur_ok = bool(re.match(r"^\d+\.\d+\.\d+$", rel_json.get("current") or ""))
+    entries_ok = rel_versions == ["1.1.0", "1.2.0"]  # CHANGELOG의 두 릴리스 (지어냄 0, 태그 없어도 CHANGELOG서)
+    note_ok = any(e.get("version") == "1.2.0" and "테스트 릴리스 노트" in (e.get("note") or "")
+                  for e in rel_json.get("entries", []))
+    panel_ok = 'class="card releases"' in pager6
+    shutil.rmtree(cldir)  # 정리
+    check("WEB-RELEASES",
+          "배포 계보를 gil-data releases에 — current=도구 자기버전 · entries=CHANGELOG∪태그(지어냄 0) · 무CHANGELOG면 키 부재",
+          releases_absent and rr6.returncode == 0 and cur_ok and entries_ok and note_ok and panel_ok,
+          f"absent={releases_absent} cur={cur_ok} entries={entries_ok}({rel_versions}) note={note_ok} panel={panel_ok}")
+
     # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
     # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
     outr = os.path.join(work, "chains-refresh.html")

@@ -1188,6 +1188,33 @@ def _parse_beings(chains_root):
     return beings
 
 
+def _build_releases_data(chains_root):
+    """[loomlight/C006] 배포 계보를 뷰어 데이터로. CHANGELOG(원장)+태그(깃 진실)를 대조.
+    current=이 도구의 자기 버전(_GIL_VERSION, 지어냄 불가). entries=CHANGELOG∪태그 최신순, 각 원소가
+    in_tag·in_changelog로 drift를 자기표현. CHANGELOG가 없으면 None(무배포 저장소 → releases 키 부재)."""
+    repo_root = os.path.normpath(os.path.join(chains_root, "..", "..", ".."))
+    changelog = os.path.join(repo_root, "rooms", "deployment", "CHANGELOG.md")
+    if not os.path.isfile(changelog):
+        return None
+    cl = _parse_changelog_releases(changelog)
+    tags = _git_release_tags(_repo_root(repo_root))
+    if tags is None:  # git 부재/비저장소 — 태그 대조 없이 CHANGELOG만 (정직)
+        tags = {}
+    ordered = sorted(set(cl) | set(tags),
+                     key=lambda v: tuple(int(x) for x in v.split(".")), reverse=True)
+    entries = []
+    for v in ordered:
+        in_cl, in_tag = v in cl, v in tags
+        entries.append({
+            "version": v,
+            "date": cl[v]["date"] if in_cl else tags[v]["date"],
+            "note": cl[v]["note"] if in_cl else (tags[v]["subject"] if in_tag else ""),
+            "tools": cl[v]["tools"] if in_cl else "",
+            "in_tag": in_tag, "in_changelog": in_cl,
+        })
+    return {"current": _GIL_VERSION, "entries": entries}
+
+
 def _supersede_ref(chain, sb):
     """superseded_by 값을 전역 참조로 해소한다 (로컬 id면 자기 체인으로)."""
     if not sb:
@@ -1435,6 +1462,20 @@ _WEB_HIER_CSS = """
 .gil .beingdoc:target{display:block;margin-top:14px;padding-top:12px;border-top:1px solid var(--ring)}
 .gil .bdetailname{font-size:15px;font-weight:650;margin:0 0 2px}
 .gil .bdetailrole{font-size:12px;color:var(--muted);margin:0 0 10px}
+.gil .card.releases{padding:16px 20px}
+.gil .releases h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.gil .releaseshint{color:var(--muted);font-size:12px;margin:0 0 12px}
+.gil .rcurrent{color:var(--node);font-size:13px}
+.gil .rellist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.gil li.rel{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px;
+  padding-bottom:6px;border-bottom:1px solid var(--ring)}
+.gil li.rel:last-child{border-bottom:none;padding-bottom:0}
+.gil .rver{font-weight:650;color:var(--node);min-width:64px}
+.gil .rdate{color:var(--muted);font-size:12px;min-width:82px}
+.gil .rnote{flex:1 1 240px}
+.gil .rtools{color:var(--muted);font-size:11px;flex-basis:100%}
+.gil .rdrift{color:var(--supersede);font-size:11px;font-weight:600}
+.gil .relempty{color:var(--muted);font-size:13px}
 .gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
 .gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
 .gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
@@ -1930,7 +1971,32 @@ def _render_beings_panel(beings):
             f'<div class="beinggrid">{"".join(cards)}</div>{mounts}</section>')
 
 
-def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json, beings=None):
+def _render_releases_panel(releases):
+    """[loomlight/C006] 배포 패널 — 현재 버전 + 릴리스 목록(버전·날짜·노트·도구변경, drift 배지).
+    노트가 짧아 초기 DOM에 직접(존재와 달리 앱화 불요). releases 없으면 빈 문자열."""
+    if not releases:
+        return ""
+    cur = html.escape(releases.get("current") or "?")
+    rows = []
+    for e in releases.get("entries", []):
+        v = html.escape(e.get("version") or "")
+        drift = ""
+        if not (e.get("in_tag") and e.get("in_changelog")):
+            which = "태그만" if e.get("in_tag") else "CHANGELOG만"
+            drift = f'<span class="rdrift">⚠ {which}</span>'
+        tools = html.escape(e.get("tools") or "")
+        tools_html = f'<span class="rtools">도구: {tools}</span>' if tools else ""
+        rows.append(
+            f'<li class="rel"><span class="rver">v{v}</span>'
+            f'<span class="rdate">{html.escape(e.get("date") or "")}</span>{drift}'
+            f'<span class="rnote">{html.escape(e.get("note") or "")}</span>{tools_html}</li>')
+    listing = f'<ul class="rellist">{"".join(rows)}</ul>' if rows else '<p class="relempty">아직 릴리스가 없다.</p>'
+    return (f'<section class="card releases"><h2>배포</h2>'
+            f'<p class="releaseshint">현재 배포 버전 <b class="rcurrent">v{cur}</b> — 이 뷰어를 구운 도구의 버전. 아래는 릴리스 이력(태그 ↔ CHANGELOG 대조, ⚠는 drift).</p>'
+            f'{listing}</section>')
+
+
+def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json, beings=None, releases=None):
     """위계 뷰어 몸체. L0 체인 지도 → L1 목차 → 체인별 <details>(그래프+표) → 사이클별 <details>(5스텝)."""
     style = _WEB_CSS + "\n" + _WEB_HIER_CSS
     toc = []
@@ -1961,6 +2027,7 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p>
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
 {_render_beings_panel(beings or [])}
+{_render_releases_panel(releases)}
 {_render_parallel_banner(data)}
 <div class="card hmap">{_render_chain_map(data)}
 <div class="mapchains">{"".join(chains_html)}</div></div>
@@ -1994,6 +2061,7 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
         # [loomlight/C005] 존재(AI 자아)도 뷰어 데이터에 — 명부+4문서. 사이클 docs와 같은 앱화 전략.
         if chains_root:
             beings = _parse_beings(chains_root)
+    releases = _build_releases_data(chains_root) if (hierarchy and chains_root) else None
     json_payload = {
         # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
         # 추론(체인이 하나뿐이니 필터겠지)은 거짓일 수 있다 — 그래서 추측하지 않고 기록한다 (C040).
@@ -2016,13 +2084,15 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
         },
         # [loomlight/C005] 존재가 있을 때만 top-level beings 키. 무존재/flat은 키 부재 → 바이트 동일.
         **({"beings": beings} if beings else {}),
+        # [loomlight/C006] 배포 계보(current·entries). CHANGELOG 있을 때만. 무배포/flat은 키 부재 → 바이트 동일.
+        **({"releases": releases} if releases else {}),
     }
     n_cycles = sum(len(c["order"]) for c in data.values())
     n_lineage = sum(len(m["lineage"]) for c in data.values() for m in c["cycles"].values())
     if hierarchy:
         # 위계(드릴다운) 몸체 — 기본 경로를 건드리지 않도록 완전히 분기한다 (아래 else는 개선 전과 바이트 동일).
         body = _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage,
-                                      chains_root, _json_for_script(json_payload), beings)
+                                      chains_root, _json_for_script(json_payload), beings, releases)
     else:
         body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>
