@@ -2,7 +2,7 @@ id: C076-layout-columns-infinite-loop
 chain: loom
 parent: C047-web-topology-layout
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-19
