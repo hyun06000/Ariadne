@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.34.0] — 2026-07-19
+
+- 뷰어 확장: 존재(AI 자아)·배포(릴리스/버전/drift)·사이클별 배포상태를 gil web에 (loomlight C005~C008)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.33.0] — 2026-07-19
 
 - 바이너리 자족성: pages -o/--output 대칭(#21) + version --check/--update(#22) — 병렬 C082·C083
