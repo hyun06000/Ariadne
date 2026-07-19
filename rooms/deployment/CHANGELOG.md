@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.32.0] — 2026-07-19
+
+- close 봉인 스코프 게이트 — 3-verification/ 밖의 신규 비표준 파일(오배치)이 봉인 대상이면 --allow-extra 없이 거부(불변 태그 보호). 3-verification 자유 산출물은 존중(오탐 0). 참조 107·Go 93 (CLOSE-SEAL 3항목 신설). (loom/C081, 이슈 #19)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.31.0] — 2026-07-19
 
 - step 커밋을 스텝 경계로 스코프 — cycle.yaml + 스텝 ≤N 파일만 담아 미리 만든 뒷 스텝 파일이 안 딸려오게(이슈 #20). 참조 104·Go 90 (STEP-SCOPE 신설). (loom/C080)
