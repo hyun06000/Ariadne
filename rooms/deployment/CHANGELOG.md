@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.29.0] — 2026-07-19
+
+- guard 예약 예외 — 예약된 존재가 주 체크아웃(main)에서 자기 사이클을 열 수 있게. C062 guard가 예약 원장을 조회해 예약 대상 author의 open은 허용(C050 방지 유지: author 일치 요구, correct 미적용). 참조 102·Go 88 (GUARD-RESERVED-OK/AUTHOR 신설). (loom/C078)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.28.0] — 2026-07-19
 
 - gil web 완전한 앱화 — 5스텝 문서를 gil-data JSON에 내장하고 인라인 JS 앱이 클릭 시 DOM 구축(초기 DOM 73%↓, CPU/로딩 문제 해소), fetch 0으로 자기완결 유지. SPEC §7 자기완결 정의 명문화. WEB-DOCS-EMBEDDED 신설, 참조 100·Go 86 parity 바이트 동일 (loom/C075·C077)

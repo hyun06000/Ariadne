@@ -4740,7 +4740,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.28.0" // gil:version
+const gilVersion = "2.29.0" // gil:version
 
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
