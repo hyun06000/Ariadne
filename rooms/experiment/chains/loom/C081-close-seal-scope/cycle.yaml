@@ -1,0 +1,14 @@
+id: C081-close-seal-scope
+chain: loom
+parent: C080-step-commit-scope
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "close가 사이클 디렉토리 전체를 봉인해 오배치 untracked 파일까지 불변 태그에 넣는다 — 봉인 대상을 보여주고 예상 밖 경로를 경고/차단하면 중복 봉인이 영구화되지 않는다 (이슈 #19)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
