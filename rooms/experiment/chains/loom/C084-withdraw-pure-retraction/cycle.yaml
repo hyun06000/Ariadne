@@ -4,11 +4,11 @@ parent: C035-superseded-pointer
 lineage: [graft/C002-legacy-quarantine-migration]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "대체 없는 사이클 철회: gil withdraw <ref>가 open 오판을 자기 언어로 되감는다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
