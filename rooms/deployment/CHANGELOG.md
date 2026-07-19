@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.28.0] — 2026-07-19
+
+- gil web 완전한 앱화 — 5스텝 문서를 gil-data JSON에 내장하고 인라인 JS 앱이 클릭 시 DOM 구축(초기 DOM 73%↓, CPU/로딩 문제 해소), fetch 0으로 자기완결 유지. SPEC §7 자기완결 정의 명문화. WEB-DOCS-EMBEDDED 신설, 참조 100·Go 86 parity 바이트 동일 (loom/C075·C077)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.27.0] — 2026-07-19
 
 - web 레이아웃(_layout_columns/layoutColumns) 무한 스핀 종료 보장 — 분기 그래프에서 gil 프로세스 누적·CPU 100% 유발하던 결함 수정, 참조·Go 양 구현, WEB-LAYOUT-TERMINATES 판정 신설 (loom/C076)
