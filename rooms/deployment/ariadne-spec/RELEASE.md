@@ -1,5 +1,15 @@
 # Ariadne Spec — Release
 
+## v2.29.0 (2026-07-19) — guard 예약 예외: 예약된 존재가 main에서 자기 사이클을 연다 (loom/C078)
+
+C062 소유 guard가 **예약을 안 봐**, 예약된 존재(`gil reserve … --for <author>`)가 주 체크아웃(main)에서 자기 사이클을 열지 못했다 — guard는 `author≠gil.owner`면 무조건 거부하고 예약 원장을 읽지 않았다(C077에서 Weft가 이 갭을 발견, Clew가 guard를 수동 해제해야 했다).
+
+- **예약 예외 (양 구현)**: `_guard_primary_owner`/`guardPrimaryOwner`가 author≠owner를 거부하기 전에 `reservations.tsv`를 조회 — **그 slug이 그 author 앞으로 예약돼 있으면 통과**. 예약은 소유자의 명시적 승인("이 존재가 이 사이클을 열 것")이라 사고가 아니라 계획된 협업이다.
+- **C050 방지는 유지**: 예약 없는 남 author open은 여전히 거부. **author까지 일치를 요구** — A 앞 예약을 B가 여는 건 거부(예외가 방어를 안 뚫는다). `correct`는 예약 예외 미적용(정정은 owner만).
+- 참조 **102/102**·Go **88/88**(GUARD-RESERVED-OK·GUARD-RESERVED-AUTHOR 신설, 회귀 0). 참조·Go 동시 수정으로 parity 유지.
+
+**존재의 기대가 도구의 명세가 된다** — Clew의 "예약된 open은 통과할 것"이라던 예측이 코드와 어긋났지만(Weft가 반증), 그 어긋남이 바로 고쳐야 할 갭이었다. 예측이 코드보다 옳았고, 코드가 예측을 따라왔다. (발견된 선재 버그 — 마지막 예약 소비 `open --git`의 git add 실패 — 는 별도 사이클로 이월.)
+
 ## v2.28.0 (2026-07-19) — gil web 완전한 앱화: 문서를 JSON에 내장, 클릭 시 JS가 렌더 (loom/C075·C077)
 
 상현님 신고 **"gil web이 모든 내용을 다 담아 CPU가 치솟고 로딩이 안 되고, 계보가 깊어질수록 너무 무거워진다."** 원인: 위계 뷰어가 모든 사이클의 5스텝 문서 전문을 초기 HTML에 인라인해, 접혀 있어도(`<details>`) 브라우저가 전부 파싱·레이아웃했다(초기 DOM 5,330 태그 — 표 2,490·pre 415·details 840).
