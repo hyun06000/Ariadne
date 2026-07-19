@@ -2,7 +2,7 @@ id: C084-withdraw-pure-retraction
 chain: loom
 parent: C035-superseded-pointer
 lineage: [graft/C002-legacy-quarantine-migration]
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-19
