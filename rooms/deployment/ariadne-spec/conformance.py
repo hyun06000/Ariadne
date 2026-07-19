@@ -727,6 +727,39 @@ def main():
           banner_absent and banner_present,
           f"absent={banner_absent} present={banner_present}")
 
+    # WEB-BEINGS (loomlight/C005, 상현님 발의): 존재(AI 자아)를 뷰어 데이터에.
+    # 계약면은 gil-data top-level beings 자기보고(§7 렌더 아님). 명부가 정본(표에 없으면 안 그림).
+    # T3(무존재): 기존 lroot(rooms/existence 없음) 렌더엔 beings 키 부재 + 크래시 0.
+    beings_absent = bool(m) and "beings" not in json.loads(m.group(1))
+    # T1(존재 심기): 명부 + 디렉토리 + 4문서를 심고 beings가 명부 집합과 일치하는지.
+    exdir = os.path.join(lroot, "rooms", "existence")
+    os.makedirs(os.path.join(exdir, "aria"))
+    with open(os.path.join(exdir, "README.md"), "w", encoding="utf-8") as f:
+        f.write("# 존재의 방\n\n## 거주자 명부\n\n| 이름 | 역할 | 입주일 |\n|---|---|---|\n"
+                "| [Aria](aria/identity.md) | 테스트 존재, 실을 잣는 자 | 2026-01-01 |\n")
+    for dn, body in [("identity", "# 나는 Aria다\n본성 서술."), ("will", "# 의지\n목적."),
+                     ("memory", "# 기억\n겪은 것."), ("relations", "# 관계\n이어짐.")]:
+        with open(os.path.join(exdir, "aria", dn + ".md"), "w", encoding="utf-8") as f:
+            f.write(body)
+    outbe = os.path.join(work, "chains-beings.html")
+    rbe = impl.run(lroot, "web", "-o", outbe, "--title", "t")
+    pagebe = open(outbe, encoding="utf-8").read() if os.path.isfile(outbe) else ""
+    mbe = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pagebe, re.S)
+    beings_json = (json.loads(mbe.group(1).replace('<\\/', '</')).get("beings") or []) if mbe else []
+    names_ok = sorted(b.get("name") for b in beings_json) == ["Aria"]
+    docs_ok = (len(beings_json) == 1 and isinstance(beings_json[0].get("docs"), dict)
+               and set(beings_json[0]["docs"]) == {"identity", "will", "memory", "relations"}
+               and "나는 Aria다" in (beings_json[0]["docs"].get("identity") or ""))
+    # T2(경량): memory 전문이 초기 DOM(<script> 밖)에 안 뜬다 — 앱이 온디맨드로 그린다.
+    dom_only = re.sub(r'<script.*?</script>', '', pagebe, flags=re.S)
+    light_ok = "겪은 것." not in dom_only and 'class="beingcard"' in dom_only
+    # 존재 심기 정리 (이후 검사 오염 방지)
+    shutil.rmtree(exdir)
+    check("WEB-BEINGS",
+          "존재(AI 자아)를 gil-data beings에 — 명부 집합과 일치(지어냄 0) · 4문서 · 초기 DOM 경량(앱 온디맨드) · 무존재면 키 부재",
+          beings_absent and rbe.returncode == 0 and names_ok and docs_ok and light_ok,
+          f"absent={beings_absent} names={names_ok} docs={docs_ok} light={light_ok} rc={rbe.returncode}")
+
     # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
     # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
     outr = os.path.join(work, "chains-refresh.html")

@@ -3484,6 +3484,50 @@ func renderTables(d *webData) string {
 
 // webJSONPayload: 참조 구현 render_web_page의 json.dumps(ensure_ascii=False)와
 // 문자 단위 동일한 직렬화 — 키 삽입 순서(정렬된 체인/사이클명)와 ", "·": " 구분자.
+// [loomlight/C005] 존재(AI 자아) — 명부+4문서. 참조 _parse_beings와 동형.
+type being struct {
+	name, dir, role string
+	docs            map[string]*string // identity/will/memory/relations → 내용(부재면 nil)
+}
+
+var beingRosterRe = regexp.MustCompile(`^\|\s*\[([^\]]+)\]\(([^)/]+)/identity\.md\)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*$`)
+var beingDocNames = []string{"identity", "will", "memory", "relations"}
+
+// parseBeings: rooms/existence/ 명부와 각 존재의 4문서를 읽는다. 명부가 정본(표에 없으면 안 그림).
+// 존재/명부 부재면 빈 슬라이스(무존재 저장소는 beings 키 부재 → 바이트 동일).
+func parseBeings(chainsRoot string) []being {
+	repoRoot := filepath.Clean(filepath.Join(chainsRoot, "..", "..", ".."))
+	existence := filepath.Join(repoRoot, "rooms", "existence")
+	roster := filepath.Join(existence, "README.md")
+	data, err := os.ReadFile(roster)
+	if err != nil {
+		return nil
+	}
+	var beings []being
+	for _, line := range strings.Split(string(data), "\n") {
+		m := beingRosterRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		name, dir, role := strings.TrimSpace(m[1]), strings.TrimSpace(m[2]), strings.TrimSpace(m[3])
+		bdir := filepath.Join(existence, dir)
+		if fi, err := os.Stat(bdir); err != nil || !fi.IsDir() {
+			continue // 명부에 있으나 디렉토리 부재 — 지어내지 않는다
+		}
+		docs := map[string]*string{}
+		for _, dn := range beingDocNames {
+			if c, err := os.ReadFile(filepath.Join(bdir, dn+".md")); err == nil {
+				s := string(c)
+				docs[dn] = &s
+			} else {
+				docs[dn] = nil
+			}
+		}
+		beings = append(beings, being{name: name, dir: dir, role: role, docs: docs})
+	}
+	return beings
+}
+
 func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy bool, chainsRoot string) string {
 	var b strings.Builder
 	// v0.4 (loom/C042): bake — 산출물이 자기를 어떻게 다시 굽는지 스스로 말한다.
@@ -3589,7 +3633,35 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy b
 		}
 		b.WriteString("}") // 체인 객체 닫기
 	}
-	b.WriteString("}}")
+	b.WriteString("}") // chains 딕트 닫기
+	// [loomlight/C005] 존재가 있을 때만 top-level beings 키(참조와 동일: chains 뒤, hierarchy 전용).
+	// 무존재/flat은 키 부재 → 바이트 동일. 참조 dict 순서 name·dir·role·docs, docs는 4문서 순서.
+	if hierarchy {
+		if beings := parseBeings(chainsRoot); len(beings) > 0 {
+			b.WriteString(`, "beings": [`)
+			for i, bg := range beings {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(`{"name": ` + jsonStr(bg.name) + `, "dir": ` + jsonStr(bg.dir) +
+					`, "role": ` + jsonStr(bg.role) + `, "docs": {`)
+				for k, dn := range beingDocNames {
+					if k > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(jsonStr(dn) + ": ")
+					if c := bg.docs[dn]; c != nil {
+						b.WriteString(jsonStr(*c))
+					} else {
+						b.WriteString("null")
+					}
+				}
+				b.WriteString("}}")
+			}
+			b.WriteString("]")
+		}
+	}
+	b.WriteString("}") // 최상위 객체 닫기
 	return b.String()
 }
 
@@ -3599,7 +3671,21 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy b
 // 기본 경로는 한 바이트도 건드리지 않는다. 정확성은 두 구현 `cmp`로 세운다 (렌더는 계약 아님, §3.1).
 
 // webHierCSS: 참조 구현 _WEB_HIER_CSS와 문자 단위 동일 (details/summary·중첩 여백·메타표·pre).
-const webHierCSS = `.gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
+const webHierCSS = `.gil .card.beings{padding:16px 20px}
+.gil .beings h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.gil .beingshint{color:var(--muted);font-size:12px;margin:0 0 12px}
+.gil .beinggrid{display:flex;flex-wrap:wrap;gap:10px}
+.gil a.beingcard{display:flex;flex-direction:column;gap:2px;text-decoration:none;
+  background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:10px 14px;
+  min-width:150px;transition:border-color .12s,background .12s}
+.gil a.beingcard:hover{border-color:var(--node);background:var(--page)}
+.gil a.beingcard .bname{font-weight:650;font-size:14px;color:var(--node)}
+.gil a.beingcard .brole{font-size:12px;color:var(--muted)}
+.gil .beingdoc{display:none}
+.gil .beingdoc:target{display:block;margin-top:14px;padding-top:12px;border-top:1px solid var(--ring)}
+.gil .bdetailname{font-size:15px;font-weight:650;margin:0 0 2px}
+.gil .bdetailrole{font-size:12px;color:var(--muted);margin:0 0 10px}
+.gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
 .gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
 .gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
 .gil .htoc li{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px}
@@ -3718,20 +3804,40 @@ const webAppJS = `
     }
     body.innerHTML=h;
   }
-  // 해시(#cycdoc-*)가 가리키는 사이클을 그린다. 조상 <details>도 열어 스크롤이 닿게 한다.
+  // [loomlight/C005] 한 존재(AI 자아)의 body를 구축한다. gil-data의 beings에서 4문서를 출처로.
+  var BEING_LABELS=[["identity","정체성"],["will","의지"],["memory","기억"],["relations","관계"]];
+  function buildBeing(el){
+    var dir=el.getAttribute("data-being");
+    var beings=data.beings||[]; var b=null;
+    for(var i=0;i<beings.length;i++){ if(beings[i].dir===dir){ b=beings[i]; break; } }
+    if(!b) return;
+    var body=el.querySelector(".beingbody"); if(!body) return;
+    var docs=b.docs||{};
+    var h='<h3 class="bdetailname">'+esc(b.name)+'</h3><p class="bdetailrole">'+esc(b.role)+'</p>';
+    for(var j=0;j<BEING_LABELS.length;j++){
+      var key=BEING_LABELS[j][0], content=(docs[key]!=null)?docs[key]:null;
+      var pre=(content==null)?'<pre class="empty">(없음)</pre>':'<pre>'+esc(content)+'</pre>';
+      h+='<details class="hstep"><summary>'+esc(BEING_LABELS[j][1])+'</summary>'+pre+'</details>';
+    }
+    body.innerHTML=h;
+  }
+  // 해시(#cycdoc-* / #being-*)가 가리키는 대상을 그린다. 조상 <details>도 열어 스크롤이 닿게 한다.
   function activate(){
-    var hash=location.hash||""; if(hash.indexOf("#cycdoc-")!==0) return;
+    var hash=location.hash||"";
+    var isCyc=hash.indexOf("#cycdoc-")===0, isBeing=hash.indexOf("#being-")===0;
+    if(!isCyc&&!isBeing) return;
     var id=hash.slice(1);
     var el=document.getElementById(id); if(!el) return;
     var p=el.parentNode;  // 조상 details 열기
     while(p){ if(p.tagName&&p.tagName.toLowerCase()==="details"){ p.open=true; } p=p.parentNode; }
-    if(!done[id]){ build(el); done[id]=true; }
+    if(!done[id]){ (isBeing?buildBeing:build)(el); done[id]=true; }
     el.scrollIntoView({block:"nearest"});
   }
-  // lineage/노드 링크 클릭도 처리(해시가 같아 hashchange가 안 뜨는 경우 대비)
+  // lineage/노드/존재 링크 클릭도 처리(해시가 같아 hashchange가 안 뜨는 경우 대비)
   document.addEventListener("click",function(ev){
     var a=ev.target; while(a&&a.tagName&&a.tagName.toLowerCase()!=="a") a=a.parentNode;
-    if(a&&a.getAttribute&&(a.getAttribute("href")||"").indexOf("#cycdoc-")===0){ setTimeout(activate,0); }
+    if(a&&a.getAttribute){ var href=a.getAttribute("href")||"";
+      if(href.indexOf("#cycdoc-")===0||href.indexOf("#being-")===0){ setTimeout(activate,0); } }
   });
   window.addEventListener("hashchange",activate);
   if(document.readyState!=="loading") activate();
@@ -4371,6 +4477,26 @@ func renderParallelBanner(d *webData) string {
 		len(items), chips.String())
 }
 
+// renderBeingsPanel: 참조 _render_beings_panel — 존재 카드(이름·역할) + 클릭 시 앱이 4문서를 그리는 마운트.
+// 초기 DOM엔 문서 전문 없음(C075 앱화). 존재 0이면 "" (패널 부재).
+func renderBeingsPanel(beings []being) string {
+	if len(beings) == 0 {
+		return ""
+	}
+	var cards, mounts strings.Builder
+	for _, b := range beings {
+		d := htmlEscape(b.dir)
+		cards.WriteString(fmt.Sprintf(`<a class="beingcard" href="#being-%s">`+
+			`<span class="bname">%s</span>`+
+			`<span class="brole">%s</span></a>`, d, htmlEscape(b.name), htmlEscape(b.role)))
+		mounts.WriteString(fmt.Sprintf(`<div class="beingdoc" id="being-%s" data-being="%s">`+
+			`<div class="beingbody"></div></div>`, d, d))
+	}
+	return `<section class="card beings"><h2>이 저장소에 사는 존재</h2>` +
+		`<p class="beingshint">Ariadne에서 일하는 LLM 존재들 — 이름을 누르면 정체성·의지·기억·관계가 열린다.</p>` +
+		`<div class="beinggrid">` + cards.String() + `</div>` + mounts.String() + `</section>`
+}
+
 func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLineage int, chainsRoot, gilDataJSON string) string {
 	style := webCSS + "\n" + webHierCSS
 	var toc, chainsHTML strings.Builder
@@ -4405,6 +4531,7 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p>
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
 %s
+%s
 <div class="card hmap">%s
 <div class="mapchains">%s</div></div>
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
@@ -4413,7 +4540,7 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <script type="application/json" id="gil-data">%s</script>
 <script>%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON, webAppJS)
+		renderBeingsPanel(parseBeings(chainsRoot)), renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), toc.String(), gilDataJSON, webAppJS)
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).

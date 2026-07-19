@@ -1,0 +1,23 @@
+# 검증 산출물 — loomlight/C005 존재를 뷰어에
+
+## 참조 conformance (수정 후)
+PASS WEB-BEINGS: 존재(AI 자아)를 gil-data beings에 — 명부 집합과 일치(지어냄 0) · 4문서 · 초기 DOM 경량(앱 온디맨드) · 무존재면 키 부재
+계약 준수: 113/113  ✔ 이 구현은 gil이다
+## 참조 (수정 전 — WEB-BEINGS FAIL이어야 유효)
+FAIL WEB-BEINGS: 존재(AI 자아)를 gil-data beings에 — 명부 집합과 일치(지어냄 0) · 4문서 · 초기 DOM 경량(앱 온디맨드) · 무존재면 키 부재  [absent=True names=False docs=False light=False rc=0]
+계약 준수: 112/113  ✘ 계약 위반
+## Go conformance (수정 후)
+PASS WEB-BEINGS: 존재(AI 자아)를 gil-data beings에 — 명부 집합과 일치(지어냄 0) · 4문서 · 초기 DOM 경량(앱 온디맨드) · 무존재면 키 부재
+계약 준수: 99/99  ✔ 이 구현은 gil이다
+
+## parity
+생성: /tmp/rh.html (체인 5개)
+생성: /tmp/gh.html (체인 5개)
+hierarchy(beings 포함): 바이트 동일
+생성: /tmp/rf.html (체인 5개) · 평면
+생성: /tmp/gf.html (체인 5개) · 평면
+flat: 바이트 동일
+=== 실렌더 + 헤드리스 (별도) ===
+beings 수: 5 = ['Clew (클루)', 'Weft (위프트)', 'Sheen (신)', 'Selvage (셀비지)', 'Warp (워프)']
+초기 DOM <pre> 수: 0 / 존재 카드 초기 DOM: True
+헤드리스 clew 클릭 상세 출현: True

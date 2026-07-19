@@ -1157,6 +1157,37 @@ def _build_web_data(chains_root, only=None):
     return data
 
 
+_BEING_ROSTER_RE = re.compile(r"^\|\s*\[([^\]]+)\]\(([^)/]+)/identity\.md\)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*$")
+_BEING_DOC_NAMES = ["identity", "will", "memory", "relations"]
+
+
+def _parse_beings(chains_root):
+    """rooms/existence/ 명부와 각 존재의 4문서를 읽어 뷰어 데이터로 만든다 (loomlight/C005).
+    명부(README.md 거주자 표)가 정본 — 표에 없는 디렉토리는 그리지 않는다("뷰어는 새 진실을 만들지 않는다").
+    존재가 없거나 명부가 없으면 빈 리스트를 정직히 반환한다(무존재 저장소는 beings 키 부재 → 바이트 동일)."""
+    repo_root = os.path.normpath(os.path.join(chains_root, "..", "..", ".."))
+    existence = os.path.join(repo_root, "rooms", "existence")
+    roster = os.path.join(existence, "README.md")
+    if not os.path.isfile(roster):
+        return []
+    beings = []
+    with open(roster, encoding="utf-8") as f:
+        for line in f:
+            m = _BEING_ROSTER_RE.match(line)
+            if not m:
+                continue
+            name, d, role = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
+            bdir = os.path.join(existence, d)
+            if not os.path.isdir(bdir):
+                continue  # 명부에 있으나 디렉토리 부재 — 지어내지 않는다
+            docs = {}
+            for dn in _BEING_DOC_NAMES:
+                p = os.path.join(bdir, dn + ".md")
+                docs[dn] = (open(p, encoding="utf-8").read() if os.path.isfile(p) else None)
+            beings.append({"name": name, "dir": d, "role": role, "docs": docs})
+    return beings
+
+
 def _supersede_ref(chain, sb):
     """superseded_by 값을 전역 참조로 해소한다 (로컬 id면 자기 체인으로)."""
     if not sb:
@@ -1348,20 +1379,40 @@ _WEB_APP_JS = r"""
     }
     body.innerHTML=h;
   }
-  // 해시(#cycdoc-*)가 가리키는 사이클을 그린다. 조상 <details>도 열어 스크롤이 닿게 한다.
+  // [loomlight/C005] 한 존재(AI 자아)의 body를 구축한다. gil-data의 beings에서 4문서를 출처로.
+  var BEING_LABELS=[["identity","정체성"],["will","의지"],["memory","기억"],["relations","관계"]];
+  function buildBeing(el){
+    var dir=el.getAttribute("data-being");
+    var beings=data.beings||[]; var b=null;
+    for(var i=0;i<beings.length;i++){ if(beings[i].dir===dir){ b=beings[i]; break; } }
+    if(!b) return;
+    var body=el.querySelector(".beingbody"); if(!body) return;
+    var docs=b.docs||{};
+    var h='<h3 class="bdetailname">'+esc(b.name)+'</h3><p class="bdetailrole">'+esc(b.role)+'</p>';
+    for(var j=0;j<BEING_LABELS.length;j++){
+      var key=BEING_LABELS[j][0], content=(docs[key]!=null)?docs[key]:null;
+      var pre=(content==null)?'<pre class="empty">(없음)</pre>':'<pre>'+esc(content)+'</pre>';
+      h+='<details class="hstep"><summary>'+esc(BEING_LABELS[j][1])+'</summary>'+pre+'</details>';
+    }
+    body.innerHTML=h;
+  }
+  // 해시(#cycdoc-* / #being-*)가 가리키는 대상을 그린다. 조상 <details>도 열어 스크롤이 닿게 한다.
   function activate(){
-    var hash=location.hash||""; if(hash.indexOf("#cycdoc-")!==0) return;
+    var hash=location.hash||"";
+    var isCyc=hash.indexOf("#cycdoc-")===0, isBeing=hash.indexOf("#being-")===0;
+    if(!isCyc&&!isBeing) return;
     var id=hash.slice(1);
     var el=document.getElementById(id); if(!el) return;
     var p=el.parentNode;  // 조상 details 열기
     while(p){ if(p.tagName&&p.tagName.toLowerCase()==="details"){ p.open=true; } p=p.parentNode; }
-    if(!done[id]){ build(el); done[id]=true; }
+    if(!done[id]){ (isBeing?buildBeing:build)(el); done[id]=true; }
     el.scrollIntoView({block:"nearest"});
   }
-  // lineage/노드 링크 클릭도 처리(해시가 같아 hashchange가 안 뜨는 경우 대비)
+  // lineage/노드/존재 링크 클릭도 처리(해시가 같아 hashchange가 안 뜨는 경우 대비)
   document.addEventListener("click",function(ev){
     var a=ev.target; while(a&&a.tagName&&a.tagName.toLowerCase()!=="a") a=a.parentNode;
-    if(a&&a.getAttribute&&(a.getAttribute("href")||"").indexOf("#cycdoc-")===0){ setTimeout(activate,0); }
+    if(a&&a.getAttribute){ var href=a.getAttribute("href")||"";
+      if(href.indexOf("#cycdoc-")===0||href.indexOf("#being-")===0){ setTimeout(activate,0); } }
   });
   window.addEventListener("hashchange",activate);
   if(document.readyState!=="loading") activate();
@@ -1370,6 +1421,20 @@ _WEB_APP_JS = r"""
 """
 
 _WEB_HIER_CSS = """
+.gil .card.beings{padding:16px 20px}
+.gil .beings h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.gil .beingshint{color:var(--muted);font-size:12px;margin:0 0 12px}
+.gil .beinggrid{display:flex;flex-wrap:wrap;gap:10px}
+.gil a.beingcard{display:flex;flex-direction:column;gap:2px;text-decoration:none;
+  background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:10px 14px;
+  min-width:150px;transition:border-color .12s,background .12s}
+.gil a.beingcard:hover{border-color:var(--node);background:var(--page)}
+.gil a.beingcard .bname{font-weight:650;font-size:14px;color:var(--node)}
+.gil a.beingcard .brole{font-size:12px;color:var(--muted)}
+.gil .beingdoc{display:none}
+.gil .beingdoc:target{display:block;margin-top:14px;padding-top:12px;border-top:1px solid var(--ring)}
+.gil .bdetailname{font-size:15px;font-weight:650;margin:0 0 2px}
+.gil .bdetailrole{font-size:12px;color:var(--muted);margin:0 0 10px}
 .gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
 .gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
 .gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
@@ -1841,7 +1906,31 @@ def _render_parallel_banner(data):
             f'<b>{len(items)}</b>{chips}</div>')
 
 
-def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json):
+def _render_beings_panel(beings):
+    """[loomlight/C005] 이 저장소에 사는 존재(AI 자아) 패널. 각 존재는 이름·역할 카드 +
+    클릭 시 앱(_WEB_APP_JS)이 4문서를 그 자리에 그리는 경량 마운트. 초기 DOM엔 문서 전문 없음
+    (사이클 마운트와 동일 앱화 — C075). 존재 0이면 빈 문자열(패널 부재)."""
+    if not beings:
+        return ""
+    cards = []
+    for b in beings:
+        nm = html.escape(b["name"])
+        d = html.escape(b["dir"])
+        cards.append(
+            f'<a class="beingcard" href="#being-{d}">'
+            f'<span class="bname">{nm}</span>'
+            f'<span class="brole">{html.escape(b["role"])}</span></a>')
+    # 클릭된 존재의 상세가 채워질 마운트(앱이 #being-<dir> 해시에 반응해 .beingbody를 채운다).
+    mounts = "".join(
+        f'<div class="beingdoc" id="being-{html.escape(b["dir"])}" '
+        f'data-being="{html.escape(b["dir"])}"><div class="beingbody"></div></div>'
+        for b in beings)
+    return (f'<section class="card beings"><h2>이 저장소에 사는 존재</h2>'
+            f'<p class="beingshint">Ariadne에서 일하는 LLM 존재들 — 이름을 누르면 정체성·의지·기억·관계가 열린다.</p>'
+            f'<div class="beinggrid">{"".join(cards)}</div>{mounts}</section>')
+
+
+def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json, beings=None):
     """위계 뷰어 몸체. L0 체인 지도 → L1 목차 → 체인별 <details>(그래프+표) → 사이클별 <details>(5스텝)."""
     style = _WEB_CSS + "\n" + _WEB_HIER_CSS
     toc = []
@@ -1871,6 +1960,7 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
 <header><h1>{html.escape(page_title)}</h1>
 <p>체인 {len(data)}개 · 사이클 {n_cycles}개 · 체인 간 lineage {n_lineage}건 · 생성 {html.escape(generated)}</p>
 <p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
+{_render_beings_panel(beings or [])}
 {_render_parallel_banner(data)}
 <div class="card hmap">{_render_chain_map(data)}
 <div class="mapchains">{"".join(chains_html)}</div></div>
@@ -1894,12 +1984,16 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
     # JS가 노드 클릭 시 그 하나의 DOM을 구축 → 초기 DOM은 그래프+메타만(계보 깊이에 무관하게 경량).
     # flat(--flat) 경로는 문서를 애초에 렌더하지 않으므로 무영향(바이트 동일).
     cyc_docs = {}
+    beings = []
     if hierarchy:
         for name, chain in data.items():
             dirs = chain.get("_dirs", {})
             for cid in chain["order"]:
                 cyc_docs.setdefault(name, {})[cid] = _collect_cycle_docs(
                     chains_root, name, cid, chain["cycles"][cid], dirs.get(cid, cid))
+        # [loomlight/C005] 존재(AI 자아)도 뷰어 데이터에 — 명부+4문서. 사이클 docs와 같은 앱화 전략.
+        if chains_root:
+            beings = _parse_beings(chains_root)
     json_payload = {
         # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
         # 추론(체인이 하나뿐이니 필터겠지)은 거짓일 수 있다 — 그래서 추측하지 않고 기록한다 (C040).
@@ -1920,13 +2014,15 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
                 **({"docs": cyc_docs[name]} if hierarchy and name in cyc_docs else {}),
             } for name, chain in data.items()
         },
+        # [loomlight/C005] 존재가 있을 때만 top-level beings 키. 무존재/flat은 키 부재 → 바이트 동일.
+        **({"beings": beings} if beings else {}),
     }
     n_cycles = sum(len(c["order"]) for c in data.values())
     n_lineage = sum(len(m["lineage"]) for c in data.values() for m in c["cycles"].values())
     if hierarchy:
         # 위계(드릴다운) 몸체 — 기본 경로를 건드리지 않도록 완전히 분기한다 (아래 else는 개선 전과 바이트 동일).
         body = _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage,
-                                      chains_root, _json_for_script(json_payload))
+                                      chains_root, _json_for_script(json_payload), beings)
     else:
         body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>
