@@ -2,7 +2,7 @@ id: C082-warp-selfupdate
 chain: loom
 parent: C081-close-seal-scope
 lineage: []
-step: 3
+step: 4
 author: Warp
 status: open
 opened: 2026-07-19
