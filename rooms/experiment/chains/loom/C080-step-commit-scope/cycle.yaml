@@ -2,7 +2,7 @@ id: C080-step-commit-scope
 chain: loom
 parent: C079-last-reservation-consume-gitadd
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-19
