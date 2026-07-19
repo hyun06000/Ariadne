@@ -2,7 +2,7 @@ id: C079-last-reservation-consume-gitadd
 chain: loom
 parent: C078-guard-reservation-exception
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-19
