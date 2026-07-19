@@ -2,7 +2,7 @@ id: C009-panel-order
 chain: loomlight
 parent: C008-releases-panel-fold
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-19
