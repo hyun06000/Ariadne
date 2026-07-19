@@ -2,7 +2,7 @@ id: C001-map-of-difficulties
 chain: graft
 parent: null
 lineage: [gateway/C002-user-facing-onboarding, loom/C001-lineage-is-reconstructable]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-19
