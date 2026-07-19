@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.33.0] — 2026-07-19
+
+- 바이너리 자족성: pages -o/--output 대칭(#21) + version --check/--update(#22) — 병렬 C082·C083
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+
+
 ## [2.32.0] — 2026-07-19
 
 - close 봉인 스코프 게이트 — 3-verification/ 밖의 신규 비표준 파일(오배치)이 봉인 대상이면 --allow-extra 없이 거부(불변 태그 보호). 3-verification 자유 산출물은 존중(오탐 0). 참조 107·Go 93 (CLOSE-SEAL 3항목 신설). (loom/C081, 이슈 #19)
