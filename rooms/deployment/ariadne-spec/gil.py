@@ -666,7 +666,8 @@ def cmd_open(args):
         raise ChainError(
             "저자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"
             f"      존재의 이름을 명시하라:  gil open {args.chain} {args.slug} --author <이름>")
-    _guard_primary_owner(_repo_root(chains_root), args.author)  # C062 — 주 체크아웃 오염 방지
+    # C062 — 주 체크아웃 오염 방지 · C078 — 예약된 open은 예약 대상 author에게 허용
+    _guard_primary_owner(_repo_root(chains_root), args.author, chain_dir, args.slug)
     if args.parent and args.new_root:  # O3 — 모순
         raise ChainError("--parent와 --new-root는 함께 쓸 수 없다 — 부모가 있으면 루트가 아니다")
     if not _SLUG_RE.match(args.slug):
@@ -2247,21 +2248,31 @@ def _is_primary_worktree(repo):
             == os.path.realpath(os.path.join(repo, gcd.stdout.strip())))
 
 
-def _guard_primary_owner(repo, author):
+def _guard_primary_owner(repo, author, chain_dir=None, slug=None):
     """주 체크아웃 소유 guard (loom/C062 — 상현님 발의: 사고를 도구가 막는다).
     존재가 자기 워크트리 밖 공유 main으로 cd해 커밋하는 C050 사고를 커밋 이전에 구조적으로 거부한다.
     - gil.owner 미설정이면 미적용 (opt-in — 기존 저장소·CI 무파손).
     - 링크드 워크트리(존재의 정당한 작업공간)는 미적용 — 오탐 0.
+    - 예약 예외 (loom/C078): open의 slug이 그 author 앞으로 예약돼 있으면(reservations.tsv) 허용한다.
+      예약은 소유자의 명시적 승인("이 존재가 이 사이클을 열 것")이라 사고가 아니라 계획된 협업이다.
+      예약 없는 남 author open은 여전히 거부 — C050 방지는 유지된다. correct는 chain_dir/slug 없이
+      호출되어 예약 예외가 미적용(정정은 owner만).
     규제 대상은 오직 주 체크아웃 = 모든 존재가 공유하는 유일한 공간이자 세 사고가 전부 난 곳."""
     if not repo or not _is_primary_worktree(repo):
         return
     r = _git(repo, "config", "gil.owner", check=False)
     owner = r.stdout.strip() if r.returncode == 0 else ""
     if owner and author and author != owner:
+        # 예약 예외: 이 open이 그 author 앞으로 예약된 slug이면 허용 (C078).
+        if chain_dir and slug:
+            for res in _load_reservations(chain_dir):
+                if res["for"] == author and res["slug"] == slug:
+                    return
         raise ChainError(
             f"이 체크아웃은 '{owner}'의 주 작업공간이다 — author '{author}'로 여기서 커밋할 수 없다.\n"
             f"      네 워크트리에서 실행하라:  gil worktree add <chain> <slug> --author {author}\n"
-            f"      (병렬 사이클 모드 — 공유 main 오염 방지, C050·C062)")
+            f"      또는 소유자가 예약하라:  gil reserve <chain> {slug or '<slug>'} --for {author}\n"
+            f"      (병렬 사이클 모드 — 공유 main 오염 방지, C050·C062·C078)")
 
 
 def _tag_name(chain, cycle_id):

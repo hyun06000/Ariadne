@@ -1349,6 +1349,24 @@ def main():
           r.returncode == 0 and os.path.isdir(os.path.join(gwtr, "demo2")), f"rc={r.returncode}")
     gdg("worktree", "remove", "--force", gwt)
 
+    # GUARD-RESERVED-OK / GUARD-RESERVED-AUTHOR (loom/C078): 예약은 소유자의 명시적 승인이다 —
+    # 주 체크아웃에서도 예약 대상 author의 open은 guard가 허용한다(병렬 온보딩 마찰 제거). 단 예약된
+    # author 본인만 — A 앞 예약을 B가 여는 것은 여전히 거부(예약 예외가 C050 방지를 안 뚫는다).
+    # 예약을 둘 걸어 하나 소비 후에도 reservations.tsv가 안 비게 한다(빈 원장 삭제 시 git add 경로 문제 회피).
+    impl.run(gd, "reserve", "demo", "res-a", "--for", "alice", "--root", gdr)
+    impl.run(gd, "reserve", "demo", "res-b", "--for", "bob", "--root", gdr)
+    ra = impl.run(gd, "open", "demo", "res-a", "--author", "alice", "--parent", "C001-mine", "--git", "--root", gdr)
+    check("GUARD-RESERVED-OK",
+          "주 체크아웃에서 예약 대상 author의 예약된 open은 통과 (예약=소유자 승인 · C078)",
+          ra.returncode == 0 and os.path.isdir(os.path.join(gdr, "demo", "C002-res-a")),
+          f"rc={ra.returncode}")
+    # bob 앞 예약(res-b)을 mallory가 열려 하면 거부 — 예약 예외는 예약된 author 본인에게만
+    rm_ = impl.run(gd, "open", "demo", "res-b", "--author", "mallory", "--parent", "C001-mine", "--git", "--root", gdr)
+    check("GUARD-RESERVED-AUTHOR",
+          "남 앞으로 예약된 slug을 다른 author가 열면 거부 (예약 예외는 C050 방지를 안 뚫는다 · C078)",
+          rm_.returncode != 0 and not os.path.isdir(os.path.join(gdr, "demo", "C003-res-b")),
+          f"rc={rm_.returncode}")
+
     shutil.rmtree(work, ignore_errors=True)
     total, passed = len(RESULTS), sum(RESULTS)
     print(f"\n계약 준수: {passed}/{total}" + ("  ✔ 이 구현은 gil이다" if passed == total else "  ✘ 계약 위반"))

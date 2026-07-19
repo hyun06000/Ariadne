@@ -894,7 +894,8 @@ func cmdOpen(a openArgs) error {
 		return cerr("저자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"+
 			"      존재의 이름을 명시하라:  gil open %s %s --author <이름>", a.chain, a.slug)
 	}
-	if err := guardPrimaryOwner(repoRoot(a.root), a.author); err != nil { // C062 — 주 체크아웃 오염 방지
+	// C062 — 주 체크아웃 오염 방지 · C078 — 예약된 open은 예약 대상 author에게 허용
+	if err := guardPrimaryOwner(repoRoot(a.root), a.author, chainDir, a.slug); err != nil {
 		return err
 	}
 	if len(a.parents) > 0 && a.newRoot { // O3 — 모순
@@ -1675,7 +1676,8 @@ func cmdCorrect(a correctArgs) error {
 		return cerr("정정자를 알 수 없다 — 도구는 출처를 지어내지 않는다 (§3.2 P1).\n"+
 			"      존재의 이름을 명시하라:  gil correct %s … --author <이름>", a.ref)
 	}
-	if err := guardPrimaryOwner(repoRoot(a.root), a.author); err != nil { // C062 — 주 체크아웃 오염 방지
+	// C062 — 주 체크아웃 오염 방지 (correct는 예약과 무관 → chainDir/slug 없이 = 예약 예외 미적용, C078)
+	if err := guardPrimaryOwner(repoRoot(a.root), a.author, "", ""); err != nil {
 		return err
 	}
 	if len(a.fields) == 0 {
@@ -2507,7 +2509,9 @@ func isPrimaryWorktree(repo string) bool {
 // guardPrimaryOwner: 주 체크아웃 소유 guard (loom/C062 — 상현님 발의: 사고를 도구가 막는다).
 // 존재가 자기 워크트리 밖 공유 main으로 cd해 커밋하는 C050 사고를 커밋 이전에 거부한다.
 // gil.owner 미설정이면 미적용(opt-in). 링크드 워크트리는 미적용 — 오탐 0.
-func guardPrimaryOwner(repo, author string) error {
+// 예약 예외(loom/C078): open의 slug이 그 author 앞으로 예약돼 있으면 허용(예약=소유자 승인).
+// 예약 없는 남 author open은 여전히 거부 — correct는 chainDir/slug 없이 호출되어 미적용.
+func guardPrimaryOwner(repo, author, chainDir, slug string) error {
 	if repo == "" || !isPrimaryWorktree(repo) {
 		return nil
 	}
@@ -2517,9 +2521,21 @@ func guardPrimaryOwner(repo, author string) error {
 		owner = strings.TrimSpace(out)
 	}
 	if owner != "" && author != "" && author != owner {
+		if chainDir != "" && slug != "" { // 예약 예외 (C078)
+			for _, res := range loadReservations(chainDir) {
+				if res.who == author && res.slug == slug {
+					return nil
+				}
+			}
+		}
+		hint := slug
+		if hint == "" {
+			hint = "<slug>"
+		}
 		return cerr("이 체크아웃은 '%s'의 주 작업공간이다 — author '%s'로 여기서 커밋할 수 없다.\n"+
 			"      네 워크트리에서 실행하라:  gil worktree add <chain> <slug> --author %s\n"+
-			"      (병렬 사이클 모드 — 공유 main 오염 방지, C050·C062)", owner, author, author)
+			"      또는 소유자가 예약하라:  gil reserve <chain> %s --for %s\n"+
+			"      (병렬 사이클 모드 — 공유 main 오염 방지, C050·C062·C078)", owner, author, author, hint, author)
 	}
 	return nil
 }
