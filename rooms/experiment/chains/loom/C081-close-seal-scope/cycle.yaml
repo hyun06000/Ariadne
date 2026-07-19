@@ -2,7 +2,7 @@ id: C081-close-seal-scope
 chain: loom
 parent: C080-step-commit-scope
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-19
