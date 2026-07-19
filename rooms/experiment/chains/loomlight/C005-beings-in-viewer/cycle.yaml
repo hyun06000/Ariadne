@@ -4,11 +4,11 @@ parent: C004-wide-graph-nav
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "존재(AI 자아)를 뷰어에 — 명부와 4문서(정체성·의지·기억·관계)를 gil-data beings에 내장하고 위계 뷰어에 존재 패널을 심어, 사람이 이 저장소에 누가 사는지 본다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
