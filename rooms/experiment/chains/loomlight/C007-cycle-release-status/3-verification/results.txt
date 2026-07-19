@@ -1,0 +1,18 @@
+# 검증 산출물 — loomlight/C007 사이클→배포 연결
+## 참조 conformance (수정 후)
+PASS WEB-CYCLE-RELEASE: 사이클→배포: released_in = 사이클 태그를 포함하는 최소 릴리스(최초 배포) · 미배포/무릴리스는 키 부재 · 지어냄 0
+계약 준수: 115/115  ✔ 이 구현은 gil이다
+## 참조 (수정 전 — FAIL이어야 유효)
+FAIL WEB-CYCLE-RELEASE: 사이클→배포: released_in = 사이클 태그를 포함하는 최소 릴리스(최초 배포) · 미배포/무릴리스는 키 부재 · 지어냄 0  [rel_ok=False badge=False rc=0 C1=None C2=None]
+계약 준수: 112/115  ✘ 계약 위반
+## Go conformance (수정 후)
+PASS WEB-CYCLE-RELEASE: 사이클→배포: released_in = 사이클 태그를 포함하는 최소 릴리스(최초 배포) · 미배포/무릴리스는 키 부재 · 지어냄 0
+계약 준수: 101/101  ✔ 이 구현은 gil이다
+## parity
+hierarchy: 바이트 동일
+flat: 바이트 동일
+## 실렌더 released_in (실저장소)
+C082: 2.33.0
+C081: 2.32.0
+C005(loomlight): 미배포
+배포된 사이클: 92/96

@@ -2952,7 +2952,8 @@ type webCycle struct {
 	title                                                          string  // 참조 구현: title or ""
 	act                                                            *lastAct
 	parents, lineage                                               []string
-	rounds                                                         *int // v2.5 (C045): 2 이상일 때만 non-nil (무라운드 JSON 불변)
+	rounds                                                         *int    // v2.5 (C045): 2 이상일 때만 non-nil (무라운드 JSON 불변)
+	releasedIn                                                     *string // [loomlight/C007] 배포된 사이클만 non-nil
 }
 
 // supersedeRef: 참조 구현 _supersede_ref — 로컬 id면 자기 체인으로 해소한다.
@@ -3109,6 +3110,7 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 	}
 	sort.Strings(names)
 	d := &webData{chains: map[string]*webChain{}}
+	relIndex := cycleReleaseIndex(chainsRoot) // [loomlight/C007] 사이클→배포 릴리스
 	for _, name := range names {
 		g, err := loadChainGraph(name, filepath.Join(chainsRoot, name))
 		if err != nil {
@@ -3145,6 +3147,10 @@ func buildWebData(chainsRoot, only string) (*webData, error) {
 				if n, err := strconv.Atoi(rv); err == nil && n > 1 {
 					c.rounds = &n
 				}
+			}
+			if v, ok := relIndex[cid]; ok { // [loomlight/C007] 배포된 사이클만 released_in
+				vc := v
+				c.releasedIn = &vc
 			}
 			wc.cycles[cid] = c
 		}
@@ -3658,6 +3664,46 @@ func buildReleasesData(chainsRoot string) *releasesData {
 	return &releasesData{current: gilVersion, entries: entries}
 }
 
+// cycleReleaseIndex: 참조 _cycle_release_index — 각 사이클이 처음 배포된 릴리스. 낮은 버전부터
+// git tag --merged로 포함 cycle 태그를 미배정분에 배정. git 부재/태그 0이면 빈 map.
+func cycleReleaseIndex(chainsRoot string) map[string]string {
+	repo := repoRoot(filepath.Clean(filepath.Join(chainsRoot, "..", "..", "..")))
+	if repo == "" {
+		return map[string]string{}
+	}
+	out, _, code := gitRun(repo, "tag", "-l", "v*")
+	if code != 0 {
+		return map[string]string{}
+	}
+	var versions []string
+	for _, t := range strings.Fields(out) {
+		if strings.HasPrefix(t, "v") && relSemverRe.MatchString(t[1:]) {
+			versions = append(versions, t)
+		}
+	}
+	sort.Slice(versions, func(i, j int) bool {
+		return semverGreater(parseSemverTriple(versions[j][1:]), parseSemverTriple(versions[i][1:]))
+	})
+	index := map[string]string{}
+	for _, v := range versions { // 낮은 버전부터
+		m, _, c2 := gitRun(repo, "tag", "--merged", v)
+		if c2 != 0 {
+			continue
+		}
+		for _, tag := range strings.Fields(m) {
+			if !strings.HasPrefix(tag, "cycle/") {
+				continue
+			}
+			parts := strings.Split(tag, "/")
+			cid := parts[len(parts)-1]
+			if _, ok := index[cid]; !ok {
+				index[cid] = v[1:]
+			}
+		}
+	}
+	return index
+}
+
 func parseSemverTriple(v string) [3]int {
 	var t [3]int
 	parts := strings.SplitN(v, ".", 3)
@@ -3725,6 +3771,9 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy b
 			b.WriteString(`, "lineage": ` + jsonStrList(c.lineage))
 			if c.rounds != nil { // v2.5 (C045): rounds>1일 때만 마지막 키로 (무라운드 저장소는 바이트 동일, H3)
 				b.WriteString(fmt.Sprintf(`, "rounds": %d`, *c.rounds))
+			}
+			if c.releasedIn != nil { // [loomlight/C007] 배포된 사이클만 (미배포/무릴리스 바이트 동일)
+				b.WriteString(`, "released_in": ` + jsonStr(*c.releasedIn))
 			}
 			b.WriteString("}")
 		}
@@ -3856,6 +3905,9 @@ const webHierCSS = `.gil .card.beings{padding:16px 20px}
 .gil .rtools{color:var(--muted);font-size:11px;flex-basis:100%}
 .gil .rdrift{color:var(--supersede);font-size:11px;font-weight:600}
 .gil .relempty{color:var(--muted);font-size:13px}
+.gil .cyrel{font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.gil .cyrel.shipped{color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent)}
+.gil .cyrel.unshipped{color:var(--muted);background:color-mix(in srgb,var(--muted) 14%,transparent)}
 .gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
 .gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
 .gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
@@ -4255,9 +4307,16 @@ func renderCycleMount(name, cid string, c *webCycle) string {
 			htmlEscape(*c.supersededBy))
 	}
 	anchor := htmlEscape(name + "-" + cid)
+	// [loomlight/C007] 배포 배지 — released_in 있으면 배포 릴리스, 닫혔는데 없으면 미배포.
+	relHTML := ""
+	if c.releasedIn != nil {
+		relHTML = `<span class="cyrel shipped">v` + htmlEscape(*c.releasedIn) + ` 배포</span>`
+	} else if c.status != nil && *c.status == "closed" {
+		relHTML = `<span class="cyrel unshipped">미배포</span>`
+	}
 	head := fmt.Sprintf(`<div class="cycdoc-head"><span class="ccid">%s</span>`+
-		`<span class="cyst">%s</span>%s%s%s</div>`,
-		htmlEscape(cid), htmlEscape(state), titleHTML, lin, supHTML)
+		`<span class="cyst">%s</span>%s%s%s%s</div>`,
+		htmlEscape(cid), htmlEscape(state), relHTML, titleHTML, lin, supHTML)
 	return fmt.Sprintf(`<div class="cycdoc" id="cycdoc-%s" data-chain="%s" `+
 		`data-cid="%s">%s<div class="cycbody"></div></div>`,
 		anchor, htmlEscape(name), htmlEscape(cid), head)

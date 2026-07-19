@@ -788,6 +788,40 @@ def main():
           releases_absent and rr6.returncode == 0 and cur_ok and entries_ok and note_ok and panel_ok,
           f"absent={releases_absent} cur={cur_ok} entries={entries_ok}({rel_versions}) note={note_ok} panel={panel_ok}")
 
+    # WEB-CYCLE-RELEASE (loomlight/C007, 상현님 발의): 사이클→배포 릴리스 연결.
+    # 계약면은 gil-data chains.cycles[cid].released_in 자기보고. 릴리스 태그가 포함하는 사이클 = 그 사이클의
+    # 최소 버전. 미배포/열림/무릴리스는 키 부재(지어냄 0). git 저장소 sandbox에 태그를 심어 검사.
+    def _g(cwd, *a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    croot = os.path.realpath(make_sandbox(os.path.join(work, "cyclerel")))
+    write_cycle(croot, "demo", "C001-early", status="closed", closed="2026-01-01")
+    write_cycle(croot, "demo", "C002-late", parent="C001-early", status="closed", closed="2026-01-02")
+    write_cycle(croot, "demo", "C003-unshipped", parent="C002-late", status="closed", closed="2026-01-03")
+    cr_ok = _g(croot, "init", "-q").returncode == 0
+    _g(croot, "config", "user.email", "t@t"); _g(croot, "config", "user.name", "t")
+    _g(croot, "add", "-A"); _g(croot, "commit", "-qm", "c1")
+    _g(croot, "tag", "cycle/demo/C001-early")
+    _g(croot, "tag", "v1.0.0")                         # v1.0.0은 C001만 포함
+    _g(croot, "commit", "-q", "--allow-empty", "-m", "c2")
+    _g(croot, "tag", "cycle/demo/C002-late")
+    _g(croot, "tag", "v1.1.0")                         # v1.1.0은 C001·C002 포함
+    _g(croot, "commit", "-q", "--allow-empty", "-m", "c3")
+    _g(croot, "tag", "cycle/demo/C003-unshipped")      # C003은 사이클 태그만, 릴리스 태그 없음 → 미배포
+    outcr = os.path.join(work, "chains-cyclerel.html")
+    rcr = impl.run(croot, "web", "-o", outcr, "--title", "t")
+    pagecr = open(outcr, encoding="utf-8").read() if os.path.isfile(outcr) else ""
+    mcr = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pagecr, re.S)
+    cyc = (json.loads(mcr.group(1).replace('<\\/', '</')).get("chains", {}).get("demo", {}).get("cycles", {})) if mcr else {}
+    # C001은 v1.0.0(최초), C002는 v1.1.0, C003은 released_in 부재(미배포)
+    rel_ok = (cyc.get("C001-early", {}).get("released_in") == "1.0.0"
+              and cyc.get("C002-late", {}).get("released_in") == "1.1.0"
+              and "released_in" not in cyc.get("C003-unshipped", {}))
+    badge_ok = "v1.0.0 배포" in pagecr and "미배포" in pagecr
+    check("WEB-CYCLE-RELEASE",
+          "사이클→배포: released_in = 사이클 태그를 포함하는 최소 릴리스(최초 배포) · 미배포/무릴리스는 키 부재 · 지어냄 0",
+          cr_ok and rcr.returncode == 0 and rel_ok and badge_ok,
+          f"rel_ok={rel_ok} badge={badge_ok} rc={rcr.returncode} C1={cyc.get('C001-early',{}).get('released_in')} C2={cyc.get('C002-late',{}).get('released_in')}")
+
     # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
     # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
     outr = os.path.join(work, "chains-refresh.html")

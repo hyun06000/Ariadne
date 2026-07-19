@@ -1120,9 +1120,38 @@ def _ago(epoch):
     return f"{delta // 86400}일 전"
 
 
+def _cycle_release_index(chains_root):
+    """[loomlight/C007] 각 사이클이 처음 배포된 릴리스를 판정한다. 사이클 태그 cycle/<chain>/<id>가
+    릴리스 태그 v<semver>의 조상이면 그 릴리스에 포함된 것. **낮은 버전부터** 순회하며 미배정 사이클에
+    배정 → 각 사이클의 '최초 배포 릴리스'. git 호출 = 릴리스 수(사이클 수 아님). 반환 {cid: version}.
+    git 부재/태그 0이면 빈 dict(released_in 전무 — 정직)."""
+    repo = _repo_root(os.path.normpath(os.path.join(chains_root, "..", "..", "..")))
+    if not repo:
+        return {}
+    r = _git(repo, "tag", "-l", "v*", check=False)
+    if r.returncode != 0:
+        return {}
+    versions = sorted(
+        (t for t in r.stdout.split() if t.startswith("v") and _SEMVER_RE.match(t[1:])),
+        key=lambda t: tuple(int(x) for x in t[1:].split(".")))
+    index = {}
+    for v in versions:  # 낮은 버전부터
+        m = _git(repo, "tag", "--merged", v, check=False)
+        if m.returncode != 0:
+            continue
+        for tag in m.stdout.split():
+            if not tag.startswith("cycle/"):
+                continue
+            cid = tag.rsplit("/", 1)[-1]  # cycle/<chain>/<id> → <id>
+            if cid not in index:          # 최초 배포 릴리스만 (이미 배정되면 건너뜀)
+                index[cid] = v[1:]        # "v2.33.0" → "2.33.0"
+    return index
+
+
 def _build_web_data(chains_root, only=None):
     """log와 동일한 로더·그래프 재구성. 깨진 체인이면 ChainError가 그대로 전파된다."""
     data = {}
+    rel_index = _cycle_release_index(chains_root)  # [loomlight/C007] 사이클→배포 릴리스
     names = sorted(
         e for e in os.listdir(chains_root)
         if os.path.isdir(os.path.join(chains_root, e)) and (not only or e == only)
@@ -1148,6 +1177,9 @@ def _build_web_data(chains_root, only=None):
             rounds = c.get("rounds")  # v2.5 (C045): 라운드는 2 이상일 때만 키를 넣는다 —
             if isinstance(rounds, str) and rounds.isdigit() and int(rounds) > 1:  # 무라운드 저장소는
                 entry[cid]["rounds"] = int(rounds)                                # JSON 바이트 동일 (H3)
+            # [loomlight/C007] 배포된 사이클만 released_in — 미배포/무릴리스는 키 부재(바이트 동일).
+            if cid in rel_index:
+                entry[cid]["released_in"] = rel_index[cid]
         res = _load_reservations(os.path.join(chains_root, name))  # loom/C043: 예약도 원장 상태 (C042)
         # _dirs: cid → 디스크 디렉토리명. 위계 뷰어(loomlight/C002)가 스텝 파일을 찾는 데만 쓴다.
         # json_payload는 이 키를 직렬화하지 않으므로 기본 web 산출물은 바이트 동일로 남는다.
@@ -1476,6 +1508,9 @@ _WEB_HIER_CSS = """
 .gil .rtools{color:var(--muted);font-size:11px;flex-basis:100%}
 .gil .rdrift{color:var(--supersede);font-size:11px;font-weight:600}
 .gil .relempty{color:var(--muted);font-size:13px}
+.gil .cyrel{font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.gil .cyrel.shipped{color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent)}
+.gil .cyrel.unshipped{color:var(--muted);background:color-mix(in srgb,var(--muted) 14%,transparent)}
 .gil .htoc{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:16px 20px}
 .gil .htoc h2{font-size:14px;font-weight:650;margin:0 0 10px}
 .gil .htoc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
@@ -1800,8 +1835,16 @@ def _render_cycle_mount(name, cid, meta):
     sup_html = (f'<a class="linchip sup" href="#cycdoc-{html.escape(_supersede_ref(name, sup).replace("/", "-"))}">'
                 f'↣ {html.escape(sup)}</a>') if sup else ""
     anchor = html.escape(f"{name}-{cid}")
+    # [loomlight/C007] 배포 배지 — released_in 있으면 배포된 릴리스, 닫혔는데 없으면 미배포.
+    rel = meta.get("released_in")
+    if rel:
+        rel_html = f'<span class="cyrel shipped">v{html.escape(rel)} 배포</span>'
+    elif meta.get("status") == "closed":
+        rel_html = '<span class="cyrel unshipped">미배포</span>'
+    else:
+        rel_html = ""
     head = (f'<div class="cycdoc-head"><span class="ccid">{html.escape(cid)}</span>'
-            f'<span class="cyst">{html.escape(state)}</span>{title_html}{lin}{sup_html}</div>')
+            f'<span class="cyst">{html.escape(state)}</span>{rel_html}{title_html}{lin}{sup_html}</div>')
     return (f'<div class="cycdoc" id="cycdoc-{anchor}" data-chain="{html.escape(name)}" '
             f'data-cid="{html.escape(cid)}">{head}<div class="cycbody"></div></div>')
 
