@@ -1013,10 +1013,16 @@ def _layout_columns(order, cycles, children):
                 tracks[i] = None
         else:
             col = free_slot()
-        while (row, col) in occupied:  # D3: 레인 재사용이 같은 깊이에 겹치면 새 레인으로 민다
+        if (row, col) in occupied:  # D3: 레인 재사용이 같은 깊이에 겹치면 미점유 열로 민다
+            # free_slot(빈 트랙)과 occupied(빈 좌표)가 분리돼, 트랙이 비었는데 그 좌표가
+            # 점유되면 free_slot이 같은 col을 무한 반환한다(loom/C076). 좌표 기준으로 통합해
+            # col을 단조 증가시키면 유한 DAG에서 반드시 종료한다 — 정상 그래프 좌표는 불변.
             if tracks[col] == node:
                 tracks[col] = None
-            col = free_slot()
+            while (row, col) in occupied:
+                col += 1
+            while len(tracks) <= col:
+                tracks.append(None)
         occupied.add((row, col))
         pos[node] = (row, col)
         kids = children[node]

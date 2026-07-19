@@ -3113,11 +3113,19 @@ func layoutColumns(order []string, children map[string][]string) map[string][2]i
 		} else {
 			col = freeSlot()
 		}
-		for occupied[[2]int{row, col}] { // D3: 레인 재사용이 같은 깊이에 겹치면 새 레인으로 민다
+		if occupied[[2]int{row, col}] { // D3: 레인 재사용이 같은 깊이에 겹치면 미점유 열로 민다
+			// freeSlot(빈 트랙)과 occupied(빈 좌표) 회피가 분리돼, 트랙이 비었는데 그 좌표가
+			// 점유되면 freeSlot이 같은 col을 무한 반환한다(loom/C076). 좌표 기준으로 통합해
+			// col을 단조 증가시키면 유한 DAG에서 반드시 종료한다 — 정상 그래프 좌표는 불변.
 			if col < len(tracks) && tracks[col] == node {
 				tracks[col] = ""
 			}
-			col = freeSlot()
+			for occupied[[2]int{row, col}] {
+				col++
+			}
+			for len(tracks) <= col {
+				tracks = append(tracks, "")
+			}
 		}
 		occupied[[2]int{row, col}] = true
 		pos[node] = [2]int{row, col}

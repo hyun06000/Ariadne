@@ -46,8 +46,9 @@ class Impl:
     def __init__(self, cmd):
         self.argv = shlex.split(cmd)
 
-    def run(self, cwd, *cli, env=None):
-        return subprocess.run(self.argv + list(cli), cwd=cwd, capture_output=True, text=True, env=env)
+    def run(self, cwd, *cli, env=None, timeout=None):
+        return subprocess.run(self.argv + list(cli), cwd=cwd, capture_output=True, text=True,
+                              env=env, timeout=timeout)
 
     def run_nogit(self, cwd, *cli):
         """git이 PATH에 없는 환경을 재현한다 (loom/C052). 런처(argv[0])는 절대경로화해
@@ -579,6 +580,30 @@ def main():
           rr.returncode == 0 and 'http-equiv="refresh" content="3"' in pager
           and ext_r == [] and refresh_baked,
           f"rc={rr.returncode} baked={refresh_baked} ext={ext_r}")
+
+    # WEB-LAYOUT-TERMINATES (loom/C076): 레이아웃(_layout_columns)은 분기·병합이 깊이에 걸쳐 반복되는
+    # 그래프에서 무한 스핀했다 — free_slot(빈 트랙)과 occupied(빈 좌표) 회피가 분리돼, 트랙이 비었는데
+    # 그 좌표가 점유되면 같은 col을 영원히 반환. 이 버그는 소비자 저장소에서 gil 프로세스가 종료 못 하고
+    # 누적돼 CPU 100%를 냈다. 종료는 계약이다 — 판정기가 안 보는 계약은 없는 계약(Weft).
+    # 스핀을 실제로 유발했던 위상(loom prefix 36, id 무관 순수 parent 인덱스)을 박제해 web에 타임아웃을 건다.
+    _spin_parents = [[], [0], [1], [2], [3], [4], [5], [6], [7], [8], [9], [10], [11], [11],
+                     [12], [14], [13], [15], [17], [16], [18], [20], [19], [22], [23], [24],
+                     [25], [26], [27], [28], [29], [30], [31], [32], [33], []]
+    troot = make_sandbox(os.path.join(work, "layout-spin"))
+    for i, ps in enumerate(_spin_parents):
+        write_cycle(troot, "spin", f"C{i:03}-n",
+                    parent=(f"C{ps[0]:03}-n" if ps else "null"),
+                    status="closed", closed="2026-01-02")
+    outt = os.path.join(work, "spin.html")
+    layout_ok = False
+    try:
+        rt = impl.run(troot, "web", "-o", outt, "--title", "t", timeout=30)
+        layout_ok = rt.returncode == 0 and os.path.isfile(outt)
+    except subprocess.TimeoutExpired:
+        layout_ok = False  # 스핀 = 종료 실패 = FAIL
+    check("WEB-LAYOUT-TERMINATES",
+          "분기·병합 반복 그래프에서 레이아웃이 유한 시간에 종료(무한 스핀 없음) — 30s 타임아웃 내 web 생성",
+          layout_ok, f"terminated={layout_ok}")
 
     # ---- 깃 각인 (가용 시) ----
     if args.skip_git or shutil.which("git") is None:
