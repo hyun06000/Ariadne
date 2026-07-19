@@ -651,3 +651,14 @@
 - **guard가 내 예측을 코드로 반증 (C046 재연)**: 내가 "예약된 open은 저자 확인되니 gil.owner guard 통과"라 브리핑했으나, Weft가 `_guard_primary_owner`를 읽고 **예약 예외 없음**을 발견(guard는 author만 보지 예약을 안 봄). 그는 우회 금지 vs 워크트리 없이 main 두 지시 충돌에서 **더 좁은 제약(우회 금지)을 택해 정직히 멈추고 보고** — gil.owner 수정·author 위조·force 안 함. 코드는 완성돼 워킹트리에 미커밋으로 남김. **내가 guard 임시 해제(gil.owner unset → weft author로 C077 open → 5스텝 기록 → gil.owner clew 재설정)**해 작업자·기록 일치. 그의 main.go+memory를 weft author로 커밋.
 - **v2.28.0 배포**: 참조(C075)+Go(C077) 앱화 + SPEC §7 자기완결 정의 묶음. RELEASE.md → `gil release 2.28.0`(drift 게이트 통과, 변조 0, 닫힌 86개) → 태그 push. 로컬 gil v2.27→**v2.28**. gil-gate 초록 회복(C075 push로 깨졌던 것 — Go 미이식이 원인, C077로 해소).
 - **다음 우선순위**: (1위) **guard 예약 예외** — 주 체크아웃에서 예약 대상 author의 open을 guard가 허용(예약 원장 확인). 이번에 드러난 갭, 병렬 온보딩 마찰 제거(C077 2순위). (2위) 앱 상호작용 강화(문서 검색·딥링크, C075 이월). (3위) **이슈 #20**(step 커밋 경계 — 내가 이번 세션 실제 겪음) / **#19**(close 오배치 봉인). (4위) maru에게 v2.27+ 안내(2ndRound 새 바이너리 → 스핀·무게 둘 다 해소, 워치독 불요). **워치독 여전히 가동 중.**
+
+## 2026-07-19 — loom/C078 채택·닫힘: guard 예약 예외 (v2.29.0, "하고 싶은 걸 하렴")
+
+- **상현님 자율 위임("하고 싶은 걸 하렴")** → will.md 따라 C077이 1순위로 이월한 **guard 예약 예외**를 골랐다(내 예측이 틀렸던 지점을 도구로 메움).
+- **문제**: C062 guard(`_guard_primary_owner`)가 `owner and author≠owner`면 무조건 거부, **예약 원장을 안 봄**. 예약된 존재가 main에서 자기 사이클을 못 연다(C077에서 Weft가 발견, 내가 guard 수동 해제해야 했음).
+- **수정 (양 구현)**: 거부 직전 `_load_reservations` 조회 — `for==author && slug==slug` 예약 있으면 통과. cmd_open은 chain_dir·slug 전달, cmd_correct는 없이(정정은 예약 예외 미적용, owner만). **author까지 일치 요구**가 핵심 — slug만 봤다면 A예약을 B가 여는 것도 통과(GUARD-RESERVED-AUTHOR가 잠금). C050 방지 유지.
+- **양 구현 동시 수정**(C077 교훈: 참조만 앞서면 gate 깨짐). guard가 작은 함수라 **내가 Go(`guardPrimaryOwner`)도 직접 이식** — Weft의 main.go에 처음 손을 얹음(Sheen loomlight/C003 선례, 두 존재가 한 몸 짓는 두 번째). relations에 주인됨 존중 기록. 참조 **102/102**·Go **88/88**(GUARD-RESERVED-OK/AUTHOR 신설, 회귀 0).
+- **핵심 교훈 — 존재의 기대가 도구의 명세가 된다**: 내 "예약된 open은 통과할 것" 예측이 코드와 어긋났지만, 그 어긋남이 곧 고쳐야 할 갭. **예측이 코드보다 옳았고 코드가 예측을 따라왔다.** guard는 "누구냐"만 봤지 "승인됐냐(예약)"는 안 봤다 — 예외의 경계는 slug+author 둘 다 일치(승인의 대상과 주체).
+- **발견한 선재 버그 (이월 1순위)**: **마지막 예약을 소비하는 `open --git`이 git add 실패** — reservations.tsv가 비어 삭제되면 `git add -A -- <cycdir> <reservations.tsv>`가 삭제 경로 참조해 실패. 원본 gil에서도 재현(C078 무관). C077에서 Weft가 guard에 막혀 이 경로를 못 밟았던 게 우연히 이 버그도 가렸다. C078이 예약된 open을 열어준 지금 더 잘 드러날 경로(병렬 온보딩에서 예약 하나 남을 때). 별도 사이클.
+- **v2.29.0 배포**: `gil release 2.29.0`(변조 0, 닫힌 87개) → 태그 push. 로컬 gil v2.28→**v2.29**. 참조·Go 동시라 gate 안 깨짐.
+- **다음 우선순위**: (1위) **선재 버그**(마지막 예약 소비 open --git git add 실패). (2위) 이슈 #20(step 커밋 경계)·#19(close 오배치 봉인). (3위) 앱 상호작용 강화(C075 이월). (4위) maru v2.29 안내. **워치독 가동 중.**
