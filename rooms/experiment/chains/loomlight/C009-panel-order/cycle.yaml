@@ -4,11 +4,11 @@ parent: C008-releases-panel-fold
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-19
-closed: null
+closed: 2026-07-19
 title: "뷰어 패널 순서 — 체인→배포→존재로 재배치(병렬배너는 최상단 유지), 렌더 순서만 바꿔 데이터 계약·parity 불변"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
