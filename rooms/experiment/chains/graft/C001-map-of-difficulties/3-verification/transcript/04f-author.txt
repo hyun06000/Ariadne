@@ -1,0 +1,1 @@
+########## does --author check existence room? (SPEC §3.2 P1) ##########

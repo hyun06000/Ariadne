@@ -1,0 +1,6 @@
+########## 3. gil fsck --root FLASK ##########
+usage: gil [-h] [--version]
+           {log,fsck,open,worktree,reserve,unreserve,step,round,close,verify,release,releases,version,handoff,supersede,correct,goto,show,threads,pages,web,help}
+           ...
+gil: error: unrecognized arguments: --root
+EXIT=0

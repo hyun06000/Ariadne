@@ -1,0 +1,5 @@
+########## 4b. cd FLASK; gil open --new-chain ##########
+열림: mychain/C001-first-cycle
+EXIT=
+=== what got created? ===
+?? rooms/

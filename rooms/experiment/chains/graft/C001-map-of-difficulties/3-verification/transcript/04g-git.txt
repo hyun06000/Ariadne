@@ -1,0 +1,13 @@
+열림: mychain/C002-second-cycle
+EXIT=
+=== the gil commit — did it stay isolated to rooms/, not touch Flask src? ===
+2d025c7 gil: open mychain/C002-second-cycle — 1/5 가설
+ .../chains/mychain/C002-second-cycle/1-hypothesis.md       |  3 +++
+ .../chains/mychain/C002-second-cycle/2-design.md           |  3 +++
+ .../mychain/C002-second-cycle/3-verification/README.md     |  3 +++
+ .../chains/mychain/C002-second-cycle/4-analysis.md         |  3 +++
+ .../chains/mychain/C002-second-cycle/5-report.md           |  3 +++
+ .../experiment/chains/mychain/C002-second-cycle/cycle.yaml | 14 ++++++++++++++
+ 6 files changed, 29 insertions(+)
+=== author of that commit (git identity vs gil --author) ===
+git-author=Sang-hyun Park <hyun06000@gmail.com>

@@ -1,0 +1,11 @@
+########## now gil log/fsck work? ##########
+OK — 체인 1개, 사이클 1개, 위반 0건 (스키마 v0.5)
+=== chain: mychain — 사이클 1개 ===
+
+●  C001-first-cycle [open] test
+
+root: C001-first-cycle
+
+계보 (토폴로지 순서, 동순위는 id 오름차순):
+  C001-first-cycle  ←  (root)
+

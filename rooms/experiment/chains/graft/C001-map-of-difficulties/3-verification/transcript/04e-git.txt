@@ -1,0 +1,11 @@
+########## 4e. open --git : how does it treat Flask's huge worktree? ##########
+오류: 체인 'mychain'에 이미 사이클이 있다 (tip: C001-first-cycle) — 부모를 알 수 없다 (§3.2 P2).
+      부모를 명시하라:  --parent C001-first-cycle   (분기면 여러 번)
+      정말 새 루트라면:  --new-root
+EXIT=
+=== what did that commit contain? ===
+36e4a82 Any for  CertParamType type
+--- files in that commit ---
+36e4a82 Any for  CertParamType type
+ src/flask/cli.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
