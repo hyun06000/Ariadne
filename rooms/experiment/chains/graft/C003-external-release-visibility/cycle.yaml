@@ -1,0 +1,14 @@
+id: C003-external-release-visibility
+chain: graft
+parent: C002-legacy-quarantine-migration
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-19
+closed: null
+title: "gil이 레거시의 비-semver 태그·CHANGELOG를 external 릴리스로 인식 (F3 실명 수정)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
