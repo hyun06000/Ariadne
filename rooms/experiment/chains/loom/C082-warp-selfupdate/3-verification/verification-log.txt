@@ -1,0 +1,28 @@
+# 검증 로그 — C082 version --check/--update (이슈 #22)
+
+## 1. gil.py version --check (실조회, 부작용 없음)
+현재 gil 2.32.0 — 최신입니다
+gil:version-check 2.32.0 2.32.0 current
+rc=0
+
+## 2. go version --check (parity)
+현재 gil 2.32.0 — 최신입니다
+gil:version-check 2.32.0 2.32.0 current
+rc=0
+
+## 3. outdated 경로 (로컬 2.0.0 패치본)
+-- gil.py --
+현재 gil 2.0.0 — 상위 최신 2.32.0 사용 가능 (gil version --update)
+gil:version-check 2.0.0 2.32.0 outdated
+-- go --
+현재 gil 2.0.0 — 상위 최신 2.32.0 사용 가능 (gil version --update)
+gil:version-check 2.0.0 2.32.0 outdated
+
+## 4. --update 제자리 교체 (샌드박스, 실 다운로드+SHA 일치)
+-- gil.py: target 교체 후 새 바이너리가 gil 2.32.0 보고 (위 세션 로그) --
+-- go: /tmp/goup/target 교체 후 --
+gil 2.32.0
+
+## 5. SHA256 불일치 → 교체 거부 (게이트 작동)
+-- gil.py: 위조 declared → 'SHA256 불일치 … 교체하지 않는다', target 바이트 불변(b'OLD') --
+-- go: gate_test TestSHAGate PASS --

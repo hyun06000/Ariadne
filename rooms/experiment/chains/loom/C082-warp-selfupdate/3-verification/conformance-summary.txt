@@ -1,0 +1,8 @@
+=== conformance summary ===
+gil.py:
+PASS GUARD-LINKED-OK: 링크드 워크트리에서는 남의 author open도 통과 (오탐 0 — 존재의 작업공간)
+PASS GUARD-RESERVED-OK: 주 체크아웃에서 예약 대상 author의 예약된 open은 통과 (예약=소유자 승인 · C078)
+PASS GUARD-RESERVED-AUTHOR: 남 앞으로 예약된 slug을 다른 author가 열면 거부 (예약 예외는 C050 방지를 안 뚫는다 · C078)
+계약 준수: 110/110  ✔ 이 구현은 gil이다
+go:
+계약 준수: 96/96  ✔ 이 구현은 gil이다

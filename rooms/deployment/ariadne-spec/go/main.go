@@ -13,14 +13,18 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -4815,6 +4819,256 @@ func fail(err error) {
 
 const gilVersion = "2.32.0" // gil:version
 
+// releaseRepo — 릴리스 자산의 상위 저장소 (pages 워크플로와 단일 소스, 이슈 #22).
+const releaseRepo = "hyun06000/Ariadne"
+
+var tagRe = regexp.MustCompile(`/tag/v(\d+\.\d+\.\d+)`)
+
+// parseSemver "2.32.0"/"v2.32.0" → [3]int, ok.
+func parseSemver(s string) ([3]int, bool) {
+	s = strings.TrimPrefix(s, "v")
+	var v [3]int
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return v, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
+}
+
+func semverGreater(a, b [3]int) bool {
+	for i := 0; i < 3; i++ {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return false
+}
+
+// platformAsset — 이 플랫폼의 릴리스 자산명 gil-<os>-<arch> (windows는 +.exe).
+func platformAsset() string {
+	arch := runtime.GOARCH // amd64 | arm64
+	name := fmt.Sprintf("gil-%s-%s", runtime.GOOS, arch)
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return name
+}
+
+// latestReleaseVersion — releases/latest 리다이렉트에서 최신 태그 vX.Y.Z 조회 (부작용 없음, 네트워크).
+func latestReleaseVersion() ([3]int, error) {
+	var zero [3]int
+	url := fmt.Sprintf("https://github.com/%s/releases/latest", releaseRepo)
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "gil-version-check")
+	resp, err := client.Do(req)
+	if err != nil {
+		return zero, fmt.Errorf("상위 릴리스 조회 실패: %v", err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	final := resp.Request.URL.String()
+	m := tagRe.FindStringSubmatch(final)
+	if m == nil {
+		return zero, fmt.Errorf("최신 릴리스 태그를 파싱할 수 없다: %s", final)
+	}
+	v, _ := parseSemver(m[1])
+	return v, nil
+}
+
+func downloadFile(url, dest string) error {
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "gil-version-update")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// declaredSHA256 — SHA256SUMS('<hex>  <asset>')에서 자산의 선언 해시. pages 워크플로의 대조 계약과 동일.
+func declaredSHA256(sumsPath, asset string) (string, error) {
+	data, err := os.ReadFile(sumsPath)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) == 2 && parts[1] == asset {
+			return strings.ToLower(parts[0]), nil
+		}
+	}
+	return "", nil
+}
+
+// replaceBinary — 검증된 새 바이너리로 target 원자적 교체 (같은 디렉토리 임시 → rename).
+func replaceBinary(newBin, target string) error {
+	tgtDir := filepath.Dir(target)
+	if tgtDir == "" {
+		tgtDir = "."
+	}
+	stage, err := os.CreateTemp(tgtDir, ".gil-new-")
+	if err != nil {
+		return err
+	}
+	stagePath := stage.Name()
+	src, err := os.Open(newBin)
+	if err != nil {
+		stage.Close()
+		os.Remove(stagePath)
+		return err
+	}
+	if _, err := io.Copy(stage, src); err != nil {
+		src.Close()
+		stage.Close()
+		os.Remove(stagePath)
+		return err
+	}
+	src.Close()
+	stage.Close()
+	if err := os.Chmod(stagePath, 0o755); err != nil {
+		os.Remove(stagePath)
+		return err
+	}
+	return os.Rename(stagePath, target) // 같은 파일시스템 원자적 rename
+}
+
+// cmdVersion — gil version [--check | --update] [--output …]. 플래그 없으면 자기 버전만 (하위호환).
+func cmdVersion(args []string) int {
+	pos, flags, err := parseCLI(args, map[string]bool{
+		"check": false, "update": false, "output": true,
+	})
+	if err != nil || len(pos) > 0 {
+		fmt.Fprintln(os.Stderr, "사용: gil version [--check | --update] [--output <경로>]")
+		return 2
+	}
+	check := len(flags["check"]) > 0
+	update := len(flags["update"]) > 0
+	if !check && !update {
+		fmt.Printf("gil %s\n", gilVersion)
+		return 0
+	}
+
+	local, _ := parseSemver(gilVersion)
+	latest, err := latestReleaseVersion()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+		return 1
+	}
+	lv := fmt.Sprintf("%d.%d.%d", local[0], local[1], local[2])
+	rv := fmt.Sprintf("%d.%d.%d", latest[0], latest[1], latest[2])
+	outdated := semverGreater(latest, local)
+	status := "current"
+	if outdated {
+		status = "outdated"
+	}
+
+	if check {
+		if outdated {
+			fmt.Printf("현재 gil %s — 상위 최신 %s 사용 가능 (gil version --update)\n", lv, rv)
+		} else {
+			fmt.Printf("현재 gil %s — 최신입니다\n", lv)
+		}
+		fmt.Printf("gil:version-check %s %s %s\n", lv, rv, status) // 자기보고 표면 (기계 훅)
+		return 0
+	}
+
+	// --update
+	if !outdated {
+		fmt.Printf("이미 최신입니다 (gil %s). 교체하지 않습니다.\n", lv)
+		fmt.Printf("gil:version-update %s %s up-to-date\n", lv, rv)
+		return 0
+	}
+	asset := platformAsset()
+	base := fmt.Sprintf("https://github.com/%s/releases/latest/download", releaseRepo)
+	tmp, err := os.MkdirTemp("", "gil-update-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "오류: 임시 디렉토리 생성 실패: %v\n", err)
+		return 1
+	}
+	defer os.RemoveAll(tmp)
+	binPath := filepath.Join(tmp, asset)
+	sumsPath := filepath.Join(tmp, "SHA256SUMS")
+	if err := downloadFile(base+"/"+asset, binPath); err != nil {
+		fmt.Fprintf(os.Stderr, "오류: 자산 다운로드 실패: %v\n", err)
+		return 1
+	}
+	if err := downloadFile(base+"/SHA256SUMS", sumsPath); err != nil {
+		fmt.Fprintf(os.Stderr, "오류: SHA256SUMS 다운로드 실패: %v\n", err)
+		return 1
+	}
+	declared, err := declaredSHA256(sumsPath, asset)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "오류: SHA256SUMS 읽기 실패: %v\n", err)
+		return 1
+	}
+	if declared == "" {
+		fmt.Fprintf(os.Stderr, "오류: SHA256SUMS에 %s 항목이 없다 — 교체하지 않는다\n", asset)
+		return 1
+	}
+	actual, err := sha256File(binPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "오류: 해시 계산 실패: %v\n", err)
+		return 1
+	}
+	if actual != declared {
+		fmt.Fprintf(os.Stderr, "오류: SHA256 불일치 (선언 %s… ≠ 실물 %s…) — 교체하지 않는다\n",
+			declared[:12], actual[:12])
+		return 1
+	}
+	// 검증 통과 → 제자리 교체. 대상은 --output, 없으면 현재 실행 바이너리.
+	target := flagVal(flags, "output", "")
+	if target == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: 실행 경로 확인 실패: %v\n", err)
+			return 1
+		}
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = resolved
+		}
+		target = exe
+	}
+	if err := replaceBinary(binPath, target); err != nil {
+		fmt.Fprintf(os.Stderr, "오류: 교체 실패 (원본 유지): %v\n", err)
+		return 1
+	}
+	fmt.Printf("교체 완료: %s → gil %s\n", target, rv)
+	fmt.Printf("gil:version-update %s %s replaced\n", lv, rv)
+	return 0
+}
+
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
 // 목록을 두 번 적지 않는다: 여기에 없는 것은 이 바이너리에 없다.
@@ -4835,7 +5089,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"handoff", "gil handoff [chains-root]", "세션의 매듭: 현황·부활 경로·다음 실"},
 	{"supersede", "gil supersede <old-ref> <new-ref>", "전방 무효화: 닫힌 사이클에 superseded_by 각인"},
 	{"correct", "gil correct <chain>/<id> --field <author|parent|lineage> --to <값> --evidence <파일>[:<줄>] --author <이름> [--reason …] [--push]", "정정: 봉인된 사이클의 출처 필드를 문서가 증언하는 값으로 수리 (§4.1)"},
-	{"version", "gil version", "이 바이너리의 버전"},
+	{"version", "gil version [--check | --update] [--output <경로>]", "버전 (--check: 상위 최신과 대조·부작용 없음, --update: 검증 후 제자리 교체)"},
 	{"help", "gil help [<명령>]", "구현 명령 목록 — 부작용 없는 능력 탐침"},
 }
 
@@ -4897,7 +5151,7 @@ func main() {
 	defaultRoot := "rooms/experiment/chains"
 	switch os.Args[1] {
 	case "version", "--version", "-v":
-		fmt.Printf("gil %s\n", gilVersion)
+		os.Exit(cmdVersion(os.Args[2:]))
 	case "help", "--help", "-h":
 		// §7.2-3: 인자가 있으면 그 명령의 능력 탐침 (없는 명령이면 exit 3 — 거짓말하지 않는다)
 		if len(os.Args) >= 3 && !strings.HasPrefix(os.Args[2], "-") {
