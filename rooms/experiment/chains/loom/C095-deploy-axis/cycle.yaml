@@ -1,0 +1,14 @@
+id: C095-deploy-axis
+chain: loom
+parent: C091-node-io-markers
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: ""
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
