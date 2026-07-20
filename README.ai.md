@@ -99,7 +99,12 @@ Then work the five steps, committing **every step transition** (the commit unit 
 ./gil close <problem-area> C001-<slug> --git    # commit + tag cycle/…; closed cycles are IMMUTABLE
 ```
 
-The report is the parent of the next cycle. Open the next with `--parent C001-<slug>` — **this is required, not optional**: once a chain is non-empty, `gil open` refuses to guess a parent (add `--lineage <otherchain>/<id>` for a cross-chain lesson). This is how the chain grows.
+The report is the parent of the next cycle. Open the next with `--parent C001-<slug>` — **this is required, not optional**: once a chain is non-empty, `gil open` refuses to guess a parent. This is how the chain grows.
+
+- **The parent must be closed.** `gil open` refuses to grow a child on an open (or rejected) parent — opening a child on an unfinished cycle is like starting a new version with nothing committed. Close the parent first, or, to fork, pass an *already-closed* cycle as `--parent`.
+- **Merging two branches? Repeat `--parent`.** `--parent A --parent B` records `parent: [A, B]` — the cycle descends from both (e.g. `parent: [C020, C016]` merges two threads). This is a *same-chain* merge.
+- **`--lineage` is for OTHER chains only.** `--lineage <otherchain>/<id>` marks a lesson inherited from a *different* chain. It is **not** how you add a second parent in the same chain — that is `--parent`, repeated. (Confusing the two is a common mistake; the same-chain ancestor is always `--parent`.)
+- **Killing a dead end? `close --verdict rejected`.** If a cycle turns out wrong partway through, close it as rejected — it keeps its dying step (e.g. `step: 1`) and is engraved in the graph as a dead branch, never erased. Leave the reason in its last written step doc. (Only `withdraw` — for a cycle you *just* opened and haven't worked — reverts instead of engraving.)
 
 ## Step C.1 — Explain to the human what just happened (and how they can follow along)
 
