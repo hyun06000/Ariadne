@@ -2,7 +2,7 @@ id: C099-multiparent-and-death-docs
 chain: loom
 parent: C098-rejected-close-incomplete
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-20
