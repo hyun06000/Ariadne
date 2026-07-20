@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.38.0] — 2026-07-20
+
+- 온보딩 철칙: gil을 포크·래핑하지 말고 이슈로 (README.ai.md Iron rules + QUICKSTART, 문서 릴리스)
+- 도구 변경: 없음 (문서 릴리스)
+- 근거 사이클: gateway/C003-upstream-not-fork
+
+
 ## [2.37.0] — 2026-07-20
 
 - release --cycle <chain>/<id>: 배포에 근거 사이클 계약화 — 닫힘 검증 + 태그·CHANGELOG 기록 (loom/C086, 이슈 #25, RELEASE-CYCLE-SOURCE)
