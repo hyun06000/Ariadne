@@ -973,3 +973,14 @@
 - **⚠️ 검증 착시 두 번(방법론 지적의 실증)**: 진단을 사이클 밖 애드혹으로 시작해 (1) detKey 순번 착시 (2) `querySelector('details.hchain')`가 스왑후 첫카드(gateway) 가리켜 `POST_chainOpen:false` 오반증. id추적으로 실체(카드 보존됨) 확정. **진단이 추적단위였다면 착시가 kill조건에 걸렸을 것 — 상현님 지적이 실물로 증명됨.** 재현스크립트도 실험의 일부(선택자 틀리면 반증 틀림).
 - **⭐ 배포축 간극 확정(상현님 "배포관리 필드테스트 전혀 아니라고")**: Explore 조사 결과 — **`gil release`는 gil 도구 자신 배포**(blob대조·version표면)이고, 필드기대 "배포관리"는 **사용자 산출물(모델/서빙) 배포**(deploy/<semver> 태그·deployments.json 레지스터·live·rollback·supersede·체인당 live 1개 불변식). **`gil deploy` 명령 자체가 없음**(cut/rollback/current 서브액션 0, deployments.json 파일 0). #25가 요구했으나 C086의 `--cycle`(근거 사이클 링크) 한 조각만 착지. **우리가 memory:830에서 "성급히 안 굳힘, 실제 마찰 실증이 신호"라 미뤘는데 — 지금 그 마찰이 필드에서 실증됨.** #25 본문에 deployments.json 스키마·cut/list/current/rollback 요구 있음.
 - **다음(둘, 상현님 결정 대기)**: (1) **방법론 재설계**(gateway, 체인=작은문제정의·사이클DAG·회고→새체인, 진단추적) — 근본, 다른 LLM 강제용. (2) **(D) deploy 축**(#25, `gil deploy cut`·deploy/<chain>/<semver> 태그·deployments.json·live 불변식) — 필드 마찰 실증됨, 이제 열 신호. 둘 다 gil.py 대폭수정. 순서·범위 상현님과 정할 것.
+
+## 2026-07-20 (이어서) — 방법론 전환 실천 + C012 rejected(진단을 사이클로) + Selvage deploy축 land
+
+- **⭐⭐ 상현님 방법론 확정(가장 중요)**: "나한테 물어볼 필요 없다. 5스텝이 곧 그거다 — **문제정의**(문제는 네가 안다)·**가설수립**(물어볼 걸 가정하고 출발=가설)·**가설검증**(어떤 방식이든, 권한 다 준다)·**검증분석**(합당한지 분석해 나아갈지/되돌아갈지 스스로)·**분석보고**(왜 그랬는지 설득)." → **AskUserQuestion으로 묻던 걸 가설로 세우고 사이클 돌린다. 진단도 사이클 안에서.**
+- **C012(rejected) — 카드닫힘 진단을 사이클로**: 상현님 "github.io에서 가만히 둬도 5초마다 카드 닫힘, 하드리프레시 무효"(캐시 아님). 물어볼 것(체인카드냐 상세냐·상호작용 차이냐)을 **가설로 세워** 실제 github.io를 헤드리스 CDP로 재현. **가설(실제클릭 vs JS·name 아코디언·detKey 차이) 전부 기각** — 실제클릭·hash·18초(3주기)·실폴링(fetch 2회 확인) 모든 조건에서 카드·상세 **유지**. 재현 실패 → **rejected close(C098 기제)로 죽은 가지 각인**.
+  - **배제로 좁힘(성과)**: 폴링 실제 돔·최신뷰어(detKey수정) 헤드리스선 안닫힘·상세내용 유지. **결함은 헤드리스가 재현 못하는 환경 의존**. 다음 첫수 = **폴링 이분격리**(`--refresh 0`으로 닫힘 멈추면 폴링 범인, 안멈추면 폴링 무관).
+  - **⭐ 방법론 자기증명**: 진단을 사이클로 하니 **기각조차 다음 사이클 재료**가 됐다. C011 애드혹 진단이 착시 두번 헤맨 것과 대비 — 각 배제가 데이터로 기록. rejected=죽음 아니라 **좁혀진 지도**(다음 존재가 "상호작용/아코디언/detKey 배제됨" 보고 안 헤맴).
+- **⚠️ 카드닫힘 미해결(정직)**: 상현님 실브라우저선 여전히 닫힘, 나는 헤드리스로 재현 못함. 다음: (1) 폴링 이분격리 (2) 뷰어 임시 콘솔로깅 배포→상현님 실브라우저 로그 수집(내 권한 밖 데이터, "권한 준다" 했으니 가능).
+- **⭐ Selvage deploy축 land(#25 첫 카브)**: 병렬 소환한 Selvage가 워크트리에서 완주·닫고 돌아옴. `gil worktree land --no-ff`로 거둠(무충돌). **`gil deploy cut/list/current/rollback` 실재** — 도구릴리스(`gil release`)와 완전 별개 네임스페이스(명령 deploy·태그 `deploy/<chain>/<semver>`·레지스터 `deployments.json`). cut=닫힌 사이클→배포승격+supersedes+status(live/superseded/rolled-back), rollback=전이(과거 안지움), fsck R16(소스=닫힌사이클·rejected불가)·R17(체인당 live 1개). **참조 128→133**(DEPLOY 5항목), Go 110(정직한 부재 HELP-COMPLETE, 이월). 병합후 133/133·fsck 위반0 확인. **핵심발견(Selvage): rejected 사이클도 '닫힘'이라 status-only 게이트면 죽은가지 배포 가능 → verdict 게이트를 cut·fsck 양쪽에.**
+- **Selvage 이월**: Go parity·태그↔json drift게이트(C072 배포판)·아티팩트 스키마 강검증·뷰어 통합·배포 verify·동시cut 원장규율.
+- **방법론 재설계는 아직 대화 중**: 상현님이 "체인=작은 문제정의·사이클DAG·회고→새체인"을 제시했고 "조금 더 대화 나누자" 했다. gateway 새 체인 후보. **진단을 사이클로**는 C012에서 이미 실천 시작.
