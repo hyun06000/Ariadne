@@ -1,5 +1,15 @@
 # Ariadne Spec — Release
 
+## v2.43.0 (2026-07-20) — Go 이식으로 gil-gate 완전 녹색 (loom/C094)
+
+이번 세션의 참조 구현 변경(C085 refresh 기본·C090 step 강제·C088 마크다운 렌더)을 매번 "Go parity 이월"로 미뤄, gil-gate의 **Go 구현 검사가 4항목 FAIL**(100/104)이었다. 상현님 "Go에 이식(정공법)"에 따라 main.go에 옮겨 **Go 104/104 "이 구현은 gil이다"**를 회복했다. 참조 122/122 무회귀.
+
+- **C085 refresh 기본 (Go)**: `webDefaultRefresh=5`, web 미지정→5초·`--refresh 0` 옵트아웃. bake에 0도 기록(`>=0`), `bakeMeta`를 `*int`로 바꿔 "키 부재(nil, 구버전 뷰어→기본 5) vs 명시적 0(끔)"을 구별 — Go zero value가 둘을 못 가르는 문제를 포인터로 해결.
+- **C090 open 1스텝 + step 가드 (Go)**: `stepScaffold`·`contentSubstantive`(C092판)·`stepWritten`·`createStepFile` 헬퍼 신설. open은 1-hypothesis만, cmdStep은 이전 스텝 실질작성 검증(미완이면 무변화 거부) + 다음 스텝 생성 + 안내.
+- **C088 마크다운 렌더 토글 (Go)**: webAppJS에 `renderMd`·`inlineMd`·`safeUrl`·`stepHtml` + 토글 핸들러(참조 클라이언트 JS와 동일 — 재작성 아닌 이식, Go raw string 백틱 이스케이프). 헤더에 mdtoggle 버튼 + gil 버전(C087도 함께), CSS 이식.
+
+**parity는 미루면 빚이 된다** — 계약이 두 구현을 정의하는 이상 한쪽만 앞서면 gate가 붉다. 이식은 재작성이 아니라 참조(정본)를 옮기는 것. **정직한 미이식**: C088 이미지 base64 임베드(Go)는 conformance 정적 검사가 안 잡아 미이식 — 실제 이미지 표시 동형은 후속.
+
 ## v2.42.0 (2026-07-20) — step 가드가 깬 conformance 회귀 청산 (loom/C092·C093)
 
 v2.41.0(C090 step 가드)이 **기존 conformance 테스트를 깨** gil-gate가 `sum(RESULTS)` TypeError로 실패했다. 로컬 회귀 검사가 놓친 이유: gil이 PATH에 없어 conformance가 조기 실패한 baseline과 비교한 착시였고, **gil을 실제 실행하는 CI(gil-gate)만** 진짜 회귀를 잡았다. 계단식으로 청산했다.
