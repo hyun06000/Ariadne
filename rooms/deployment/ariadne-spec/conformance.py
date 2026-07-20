@@ -936,34 +936,45 @@ def main():
           rcr.returncode == 0 and node_io_ok,
           f"node_io_ok={node_io_ok}")
 
-    # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
-    # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
+    # WEB-REFRESH (loom/C049 → loomlight/C010): --refresh N → 실시간 라이브 폴링(자기완결 JS) + bake 기록.
+    # [loomlight/C010] meta refresh(전체 문서 리로드)는 열린 details·스크롤·렌더 토글을 매 주기 파괴했다
+    # (필드 결함). 이제 실시간성은 meta가 아니라 인라인 JS 폴링이 준다 — 그래서 meta refresh는 **부재**하고,
+    # 폴링 마운트(fetch + setInterval)와 bake.refresh 기록이 존재하며, 외부 리소스는 0이다(자기완결).
+    # 상태 보존 자체는 헤드리스 실측(3-verification)이 본다 — 여기선 구조·계약면만 판정한다(§3.1).
     outr = os.path.join(work, "chains-refresh.html")
     rr = impl.run(lroot, "web", "-o", outr, "--title", "t", "--refresh", "3")
     pager = open(outr, encoding="utf-8").read() if os.path.isfile(outr) else ""
     ext_r = re.findall(r'(?:src=|href=|url\(|@import)[^>\n]*https?://', pager)
     mr = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pager, re.S)
     refresh_baked = bool(mr) and (json.loads(mr.group(1)).get("bake") or {}).get("refresh") == 3
-    check("WEB-REFRESH", '--refresh N → meta refresh(자동 리로드) + bake 기록, 자기완결 유지',
-          rr.returncode == 0 and 'http-equiv="refresh" content="3"' in pager
+    poll_mount = "function poll" in pager and "setInterval" in pager and "fetch(" in pager
+    no_meta_reload = 'http-equiv="refresh"' not in pager  # 전체 리로드는 상태를 파괴하므로 부재해야
+    check("WEB-REFRESH", '--refresh N → 라이브 폴링(JS fetch, meta refresh 부재) + bake 기록, 자기완결',
+          rr.returncode == 0 and no_meta_reload and poll_mount
           and ext_r == [] and refresh_baked,
-          f"rc={rr.returncode} baked={refresh_baked} ext={ext_r}")
+          f"rc={rr.returncode} baked={refresh_baked} poll={poll_mount} no_meta={no_meta_reload} ext={ext_r}")
 
-    # WEB-REFRESH-DEFAULT (loom/C085): 실시간이 기본이다. 옵션 무 → meta refresh 존재.
+    # WEB-REFRESH-DEFAULT (loom/C085 → loomlight/C010): 실시간이 기본이다. 옵션 무 → 폴링 켜짐(bake.refresh>0).
     # --refresh 0으로 옵트아웃하며, 그 0이 bake에 기록되어 재굽기가 옵트아웃을 되돌리지 않는다.
+    # meta refresh는 어느 경우에도 부재(상태 파괴 금지). 폴링 on/off는 bake.refresh 값이 가른다.
     outd = os.path.join(work, "chains-refresh-default.html")
     rd = impl.run(lroot, "web", "-o", outd, "--title", "t")
     paged = open(outd, encoding="utf-8").read() if os.path.isfile(outd) else ""
-    default_on = rd.returncode == 0 and 'http-equiv="refresh"' in paged
+    md = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', paged, re.S)
+    # 기본 5초(gil.py _WEB_DEFAULT_REFRESH). 값 자체보다 "옵션 무 → refresh>0로 기록"이 계약의 핵심.
+    default_baked = bool(md) and ((json.loads(md.group(1)).get("bake") or {}).get("refresh") or 0) > 0
+    default_on = (rd.returncode == 0 and default_baked
+                  and 'http-equiv="refresh"' not in paged
+                  and "function poll" in paged and "setInterval" in paged)
     outo = os.path.join(work, "chains-refresh-off.html")
     ro = impl.run(lroot, "web", "-o", outo, "--title", "t", "--refresh", "0")
     pageo = open(outo, encoding="utf-8").read() if os.path.isfile(outo) else ""
     mo = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pageo, re.S)
     off_baked = bool(mo) and (json.loads(mo.group(1)).get("bake") or {}).get("refresh") == 0
     off_ok = ro.returncode == 0 and 'http-equiv="refresh"' not in pageo and off_baked
-    check("WEB-REFRESH-DEFAULT", '실시간이 기본(옵션 무 → meta 존재); --refresh 0으로 옵트아웃(0을 bake 기록)',
+    check("WEB-REFRESH-DEFAULT", '실시간이 기본(옵션 무 → 폴링 켜짐·bake.refresh>0, meta 부재); --refresh 0으로 옵트아웃',
           default_on and off_ok,
-          f"default_on={default_on} off_ok={off_ok} off_baked={off_baked}")
+          f"default_on={default_on} default_baked={default_baked} off_ok={off_ok} off_baked={off_baked}")
 
     # WEB-MD-RENDER (loom/C088): 스텝 문서 마크다운 렌더 토글 + XSS 안전 + 자기완결.
     # 기본은 원문(초기 DOM에 렌더된 .mdbody div 없음 — 클릭 시 JS 생성), 토글 버튼과 인라인 파서(외부 CDN 0)가 존재하며,

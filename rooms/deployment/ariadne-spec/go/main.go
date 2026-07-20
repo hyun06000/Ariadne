@@ -4193,8 +4193,74 @@ const webAppJS = `
       t.setAttribute("aria-pressed",rendered?"true":"false"); rebuildOpen();
     }
   });
-  if(document.readyState!=="loading") activate();
-  else document.addEventListener("DOMContentLoaded",activate);
+  // [loomlight/C010] 라이브 폴링 — meta refresh(전체 리로드)가 열린 details·스크롤·렌더 토글을
+  // 파괴하던 결함을 제거한다. 대신 같은 URL을 주기적으로 fetch해 gil-data와 서버 렌더 구조 영역만
+  // in-place 갱신하고, 사용자 런타임 상태(열린 details·스크롤·rendered 토글)를 갱신을 가로질러 보존한다.
+  // 외부 리소스 0·자기완결(같은 문서를 same-origin fetch) — C049의 실시간성을 상태 파괴 없이 잇는다.
+  // 안정 키: 각 <details>를 (가장 가까운 id 조상 + 그 조상 밑에서 details 태그 순번)으로 식별한다.
+  // JS로 온-디맨드 구축되는 .hstep는 id가 없지만, 부모 마운트(#cycdoc-*/#being-*)가 안정 id라 경로로 잡힌다.
+  function detKey(d){
+    var anc=d, id=null;
+    while(anc){ if(anc.id){ id=anc.id; break; } anc=anc.parentNode; }
+    // id 조상 subtree에서 이 details의 순번
+    var scope=id?document.getElementById(id):document;
+    var all=scope.getElementsByTagName("details"), idx=-1;
+    for(var i=0;i<all.length;i++){ if(all[i]===d){ idx=i; break; } }
+    return (id||"~root")+"#"+idx;
+  }
+  function snapshotOpen(){
+    var open={}, all=document.getElementsByTagName("details");
+    for(var i=0;i<all.length;i++){ if(all[i].open){ open[detKey(all[i])]=true; } }
+    return open;
+  }
+  function restoreOpen(open){
+    var all=document.getElementsByTagName("details");
+    for(var i=0;i<all.length;i++){ if(open[detKey(all[i])]){ all[i].open=true; } }
+  }
+  // 폴링으로 갱신할 서버 렌더 동적 영역(구조/집계). JS 마운트 body(.cycbody/.beingbody)는 여기서
+  // 통스왑하지 않고(온-디맨드 구축 보존), 아래 rebuildOpen로 새 data에서 다시 그린다.
+  var POLL_SEL=[".mapchains",".hmap > svg","header p:first-of-type",".htoc","[role=\"status\"]",
+    ".releases",".beings",".wrap > .card:not(.hmap)"];
+  function swapRegions(newDoc){
+    for(var s=0;s<POLL_SEL.length;s++){
+      var cur=document.querySelectorAll(POLL_SEL[s]), nw=newDoc.querySelectorAll(POLL_SEL[s]);
+      var n=Math.min(cur.length,nw.length);
+      for(var i=0;i<n;i++){
+        // 마운트(#cycdoc-*/#being-*)를 통째로 갈면 열린 body가 사라지므로, .mapchains 안의
+        // .cycbody/.beingbody는 비운 채로 스왑하고(=마운트 껍데기만 최신 그래프·표로) 아래서 재구축.
+        var imported=document.importNode(nw[i],true);
+        cur[i].parentNode.replaceChild(imported,cur[i]);
+      }
+    }
+  }
+  var polling=false;
+  function poll(){
+    if(polling) return; polling=true;
+    var openSnap=snapshotOpen(), sx=window.scrollX, sy=window.scrollY;
+    var openMounts={}; for(var k in done){ if(done.hasOwnProperty(k)) openMounts[k]=true; }
+    fetch(location.href,{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
+      var newDoc=new DOMParser().parseFromString(t,"text/html");
+      var gd=newDoc.getElementById("gil-data");
+      if(gd){ var cur=document.getElementById("gil-data");
+        if(cur) cur.textContent=gd.textContent;
+        try{ data=JSON.parse(gd.textContent); }catch(e){} }
+      swapRegions(newDoc);
+      // 열려 있던 JS 마운트를 새 data로 다시 그린다(스왑으로 빈 .cycbody가 됐으므로).
+      for(var mk in openMounts){ if(openMounts.hasOwnProperty(mk)){
+        var el=document.getElementById(mk);
+        if(el){ (mk.indexOf("being-")===0?buildBeing:build)(el); }
+      } }
+      restoreOpen(openSnap);
+      window.scrollTo(sx,sy);
+      polling=false;
+    }).catch(function(){ polling=false; });
+  }
+  function startPolling(){
+    var sec=(data&&data.bake&&typeof data.bake.refresh==="number")?data.bake.refresh:0;
+    if(sec&&sec>0){ setInterval(poll,sec*1000); }
+  }
+  if(document.readyState!=="loading"){ activate(); startPolling(); }
+  else document.addEventListener("DOMContentLoaded",function(){ activate(); startPolling(); });
 })();
 `
 
@@ -5069,18 +5135,17 @@ func renderWebPage(d *webData, pageTitle, generated, only string, refresh int, h
 %s
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web --flat이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
-<script type="application/json" id="gil-data">%s</script>`,
+<script type="application/json" id="gil-data">%s</script>
+<script>%s</script>`,
 			webCSS, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-			renderParallelBanner(d), renderSVG(d), renderTables(d), gilData)
+			renderParallelBanner(d), renderSVG(d), renderTables(d), gilData, webAppJS)
 	}
-	// v0.5 (loom/C049): meta refresh — JS 아닌 HTML 표준으로 N초마다 리로드 (자기완결 계약 유지)
-	refreshMeta := ""
-	if refresh > 0 {
-		refreshMeta = fmt.Sprintf("<meta http-equiv=\"refresh\" content=\"%d\">\n", refresh)
-	}
+	// v0.5 (loom/C049): 실시간 자동 갱신. [loomlight/C010] meta refresh(전체 문서 리로드)는
+	// 열린 details·스크롤·렌더 토글을 매 주기 파괴했다(필드 결함). 이제 refresh 주기는 bake JSON에만
+	// 기록하고, 자기완결 인라인 JS(webAppJS)가 그 값을 읽어 같은 URL을 폴링·부분 갱신한다 —
+	// DOM을 유지한 채 데이터만 갈아 상태 보존. 정적 페이지는 meta 태그를 더 안 낸다.
 	return "<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n" +
 		"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
-		refreshMeta +
 		"<title>" + htmlEscape(pageTitle) + "</title>\n</head>\n<body>\n" + body + "\n</body>\n</html>\n"
 }
 

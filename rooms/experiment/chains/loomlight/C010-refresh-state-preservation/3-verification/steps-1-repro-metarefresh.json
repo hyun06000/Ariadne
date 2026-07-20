@@ -1,0 +1,7 @@
+[
+  {"eval": "(function(){var d=document.querySelector('details');if(!d)return 'no-details';d.open=true;d.setAttribute('data-probe','1');return 'opened:'+(d.querySelector('summary')?d.querySelector('summary').textContent.slice(0,30):'?');})()"},
+  {"eval": "window.scrollTo(0,500); String(window.scrollY)"},
+  {"eval": "var d=document.querySelector('details[data-probe]'); JSON.stringify({open:d?d.open:null, hasProbe:!!d, scroll:window.scrollY})"},
+  {"sleep_ms": 4500},
+  {"eval": "var d=document.querySelector('details[data-probe]'); JSON.stringify({afterRefresh_open:d?d.open:null, afterRefresh_hasProbe:!!d, afterRefresh_scroll:window.scrollY, firstDetailsOpen: document.querySelector('details')?document.querySelector('details').open:null})"}
+]
