@@ -1,0 +1,14 @@
+id: C013-polling-bisect-refresh-off
+chain: loomlight
+parent: C012-polling-card-closes-live
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "폴링 이분격리: --refresh 0이면 카드닫힘이 멈추는가 — 폴링이 유일 범인인지 한 번에 가른다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
