@@ -1,0 +1,14 @@
+id: C014-swapregions-wholesale-suspect
+chain: loomlight
+parent: C013-polling-bisect-refresh-off
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "폴링 swapRegions 통스왑이 열린 노드를 교체하는가 — 헤드리스로 검증 가능한 상태파괴 원인 축"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
