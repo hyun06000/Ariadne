@@ -4,11 +4,11 @@ parent: C093-release-cycle-source-relfile
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "Go 이식: open 1스텝 + step 가드 + refresh 기본 + md 렌더 토글 (gil-gate Go 104→완전 녹색)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
