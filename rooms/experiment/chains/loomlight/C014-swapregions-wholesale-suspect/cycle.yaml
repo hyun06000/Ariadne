@@ -2,7 +2,7 @@ id: C014-swapregions-wholesale-suspect
 chain: loomlight
 parent: C013-polling-bisect-refresh-off
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-20
