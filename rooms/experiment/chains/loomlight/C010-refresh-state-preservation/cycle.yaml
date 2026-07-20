@@ -2,7 +2,7 @@ id: C010-refresh-state-preservation
 chain: loomlight
 parent: C009-panel-order
 lineage: []
-step: 3
+step: 4
 author: sheen
 status: open
 opened: 2026-07-20
