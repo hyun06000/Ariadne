@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.45.0] — 2026-07-20
+
+- open 부모-닫힘 게이트: 열린/rejected 부모 위 자식 open 거부 (C095·C096 절차위반 근본수정), 참조 125·Go 107 (loom/C097)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+- 근거 사이클: loom/C097-open-parent-closed-gate
+
+
 ## [2.44.0] — 2026-07-20
 
 - 노드 입출력 마커(lineage 위/배포 아래 수직화살표)+배포 근거 사이클 링크, WEB-NODE-IO, 참조 123·Go 105 (loom/C091)
