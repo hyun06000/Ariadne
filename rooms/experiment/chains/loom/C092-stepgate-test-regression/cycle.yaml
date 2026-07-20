@@ -4,11 +4,11 @@ parent: C090-step-gate-sequential
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "C090 step 가드가 기존 conformance 테스트(write_cycle+step)를 깸 — gil-gate 적색 긴급 수정"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
