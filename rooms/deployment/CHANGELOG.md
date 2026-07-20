@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.36.0] — 2026-07-20
+
+- web: 실시간 자동 리로드(meta refresh 5초)를 기본값으로, --refresh 0으로 옵트아웃 (loom/C085, WEB-REFRESH-DEFAULT)
+- 도구 변경: gil·conformance (마이너 이상 승격)
+
+
 ## [2.35.0] — 2026-07-19
 
 - 뷰어 패널 순서 재배치: 체인→배포→존재 (loomlight/C009)
