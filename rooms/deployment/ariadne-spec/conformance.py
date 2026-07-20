@@ -98,6 +98,21 @@ def write_cycle(root, chain_dir, cid_dir, **fields):
             f.write(f"{k}: {data[k]}\n")
         if "step" in fields:
             f.write(f"step: {fields['step']}\n")
+    # [loom/C092] step=N 상태의 사이클은 스텝 1..N 파일이 실질 작성돼 있어야 새 step 가드(C090)와 정합한다.
+    # 헬퍼가 이를 보장해, write_cycle+step을 쓰는 기존 테스트가 전이 가드에 거부당하지 않는다.
+    _STEP_DOC = {1: "1-hypothesis.md", 2: "2-design.md", 3: "3-verification/README.md",
+                 4: "4-analysis.md", 5: "5-report.md"}
+    try:
+        upto = 5 if data.get("status") == "closed" else int(str(fields.get("step", "1")))
+    except (ValueError, TypeError):
+        upto = 1
+    for k in range(1, min(max(upto, 1), 5) + 1):
+        rel = _STEP_DOC[k]
+        p = os.path.join(d, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if not os.path.exists(p):
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(f"# 스텝 {k}\n\n테스트 사이클의 실질 내용 (write_cycle, loom/C092).\n")
 
 
 def snapshot(root):
@@ -281,9 +296,11 @@ def main():
                  "--author", "fx", "--date", "2026-01-01")
     ypath = os.path.join(root, "rooms/experiment/chains/demo/C001-first-step/cycle.yaml")
     y = open(ypath, encoding="utf-8").read() if os.path.isfile(ypath) else ""
-    check("OPEN-CREATE", "open이 v0.2 준수 사이클 생성", r.returncode == 0
+    _oc = os.path.join(root, "rooms/experiment/chains/demo/C001-first-step")
+    check("OPEN-CREATE", "open이 사이클 생성 (step-by-step: 1스텝만 스캐폴딩) · C090", r.returncode == 0
           and all(k in y for k in ("id: C001-first-step", "chain: demo", "parent: null", "status: open", "step: 1"))
-          and os.path.isfile(os.path.join(root, "rooms/experiment/chains/demo/C001-first-step/5-report.md")),
+          and os.path.isfile(os.path.join(_oc, "1-hypothesis.md"))
+          and not os.path.exists(os.path.join(_oc, "5-report.md")),  # [loom/C092] 다음 스텝은 아직 없다
           r.stderr.strip()[-120:])
     r = impl.run(root, "open", "demo", "second-step", "--parent", "C001-first-step",
                  "--title", "t", "--author", "fx", "--date", "2026-01-02")
@@ -612,8 +629,13 @@ def main():
     write_cycle(sroot, "demo", "C001-first-step", step="1")
     write_cycle(sroot, "demo", "C009-done", status="closed", closed="2026-01-02", step="5")
     sy = os.path.join(sroot, "rooms/experiment/chains/demo/C001-first-step/cycle.yaml")
+    # [loom/C092] step-by-step 강제(C090) 이후 전이는 순차다. 각 스텝을 실질 작성한 뒤 다음으로.
+    impl.run(sroot, "step", "demo", "C001-first-step", "2")
+    scd_first = os.path.join(sroot, "rooms/experiment/chains/demo/C001-first-step")
+    with open(os.path.join(scd_first, "2-design.md"), "w", encoding="utf-8") as f:
+        f.write("# 2. 설계\n\n실질 설계 내용.\n")
     r = impl.run(sroot, "step", "demo", "C001-first-step", "3")
-    check("STEP-OK", "step 전이 반영 (1→3)", r.returncode == 0
+    check("STEP-OK", "step 전이 반영 (순차 2→3)", r.returncode == 0
           and "step: 3" in open(sy, encoding="utf-8").read(), r.stderr.strip()[-120:])
     before = open(sy, encoding="utf-8").read()
     r = impl.run(sroot, "step", "demo", "C001-first-step", "9")
@@ -632,6 +654,9 @@ def main():
     ssgr = os.path.join(ssg, "rooms/experiment/chains")
     impl.run(ssg, "open", "demo", "cyc", "--author", "t", "--new-chain", "--git", "--root", ssgr)
     scd = os.path.join(ssgr, "demo", "C001-cyc")
+    # [loom/C092] step 가드(C090)를 통과하려면 1-hypothesis가 실질 작성돼 있어야 한다. 스캐폴딩을 실내용으로.
+    with open(os.path.join(scd, "1-hypothesis.md"), "w", encoding="utf-8") as f:
+        f.write("# 1. 가설\n\n실질 가설 내용.\n")
     for fn, body in [("2-design.md", "설계"), ("4-analysis.md", "분석-미리"), ("5-report.md", "보고-미리")]:
         with open(os.path.join(scd, fn), "w", encoding="utf-8") as f:
             f.write(body)
@@ -1011,6 +1036,10 @@ def main():
                     # v1.0.0 태그를 다는 _mk_release_repo와 drift가 안 나게 CHANGELOG에도 1.0.0 엔트리를 둔다.
                     d, dg = _mk_release_repo(name,
                         "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] — 2026-07-18\n\n- 첫 릴리스\n")
+                    # [loom/C093] release는 봉인 전 RELEASE.md에 그 버전 서술을 요구한다(C038). _mk_release_repo는
+                    # drift 게이트용이라 RELEASE.md를 안 만든다 — 여기선 release를 실제 성공시켜야 하므로 추가한다.
+                    with open(os.path.join(d, "rooms/deployment/ariadne-spec/RELEASE.md"), "w", encoding="utf-8") as f:
+                        f.write("# Release\n\n## v1.1.0\n\n근거 사이클 계약 검증용.\n")
                     write_cycle(d, "src", "C001-done", status="closed", closed="2026-07-20",
                                 step='"5"', verdict="supported")
                     write_cycle(d, "src", "C002-open", status="open", step='"1"')
@@ -1373,8 +1402,8 @@ def main():
         cycle_commit = gg("show", "--name-only", "--format=", "HEAD~1").stdout.split()
         web_commit = gg("show", "--name-only", "--format=", "HEAD").stdout.split()
         check("WEB-AUTO-PURE-COMMIT", "사이클 커밋에 뷰어가 섞이지 않는다 (뷰어는 별도 커밋)",
-              cycle_commit and all(p.startswith("rooms/experiment/chains/demo/C001-first") for p in cycle_commit)
-              and web_commit == ["chains.html"],
+              bool(cycle_commit) and all(p.startswith("rooms/experiment/chains/demo/C001-first") for p in cycle_commit)
+              and web_commit == ["chains.html"],  # [loom/C092] bool() — 빈 리스트가 cond로 새면 sum(RESULTS)가 터진다
               f"cycle={cycle_commit} web={web_commit}")
 
         # 강요 금지: 뷰어를 안 쓰는 사람에게는 아무 파일도 생기지 않는다

@@ -1,5 +1,14 @@
 # Ariadne Spec — Release
 
+## v2.42.0 (2026-07-20) — step 가드가 깬 conformance 회귀 청산 (loom/C092·C093)
+
+v2.41.0(C090 step 가드)이 **기존 conformance 테스트를 깨** gil-gate가 `sum(RESULTS)` TypeError로 실패했다. 로컬 회귀 검사가 놓친 이유: gil이 PATH에 없어 conformance가 조기 실패한 baseline과 비교한 착시였고, **gil을 실제 실행하는 CI(gil-gate)만** 진짜 회귀를 잡았다. 계단식으로 청산했다.
+
+- **loom/C092 — step 가드가 깬 회귀**: 테스트 헬퍼 `write_cycle(step=N)`이 스텝 1..N 파일을 실질 작성하게 정합화(한 곳). "step=N 상태의 사이클"이 C090 가드와 일치해 write_cycle+step 테스트가 전이 가드에 안 걸린다. 연쇄로 OPEN-CREATE(1스텝 스캐폴딩)·STEP-OK(순차 전이)·STEP-SCOPE를 새 계약에 맞추고, WEB-AUTO-PURE-COMMIT의 빈-리스트 cond를 `bool()`로 방어(빈 리스트가 cond로 새면 `sum(int+list)` TypeError). 크래시 제거로 121/122 완주.
+- **loom/C093 — 크래시가 가렸던 기존 버그**: 크래시를 걷자 드러난 RELEASE-CYCLE-SOURCE의 결함 — `_mk_src_repo`가 release 봉인에 필요한 RELEASE.md를 안 만들어(C086에서 테스트 추가 시 누락) release가 rc=1. RELEASE.md 서술을 추가해 **conformance 122/122 "이 구현은 gil이다"** 완전 녹색.
+
+**도구(gil.py) 무변경 — conformance 검증기만 정합.** 교훈: ① 계약(생산 코드)을 바꾸면 그 계약을 검증하는 테스트도 바뀌어야 한다 ② 로컬 검증도 gil을 실제 실행해 CI를 재현해야 한다(PATH 착시 방지) ③ 한 크래시가 다른 결함을 가린다 — 크래시를 먼저 걷어야 아래가 보인다.
+
 ## v2.41.0 (2026-07-20) — step-by-step을 파일 존재 수준에서 강제 (loom/C090)
 
 상현님: **"사이클은 step-by-step을 강제하는 도구다. 이전 스텝을 수행·커밋하지 않으면 다음으로 못 가야 하고, 뷰어에도 로컬에도 그 경고가, 완수하면 다음 스텝 안내가 떠야 한다."** 기존 강제는 커밋 스코프(C080, step N 커밋은 ≤N 파일만)에만 있고 **파일 존재엔 없었다** — `open`이 5스텝 파일을 전부 `(작성할 것)`로 미리 만들고 `step N`은 순서를 검증하지 않아, "다음 스텝 재료가 미리 나와있는" 상태였다.
