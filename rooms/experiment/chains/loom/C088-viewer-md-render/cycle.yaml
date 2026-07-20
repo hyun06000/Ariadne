@@ -4,11 +4,11 @@ parent: C075-web-weight-lazy-docs
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "스텝 문서 뷰어에 마크다운 렌더링 토글(+이미지) — 기본은 원문 <pre>, 버튼으로 렌더"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
