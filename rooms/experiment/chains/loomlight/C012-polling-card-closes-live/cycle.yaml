@@ -1,0 +1,14 @@
+id: C012-polling-card-closes-live
+chain: loomlight
+parent: C011-polling-detkey-fix
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "github.io 최신 뷰어에서도 카드가 5초마다 닫힌다 — 하드리프레시 무효, 진짜 잔존 결함 (진단부터 사이클)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
