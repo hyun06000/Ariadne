@@ -873,3 +873,15 @@
 - 이 세션 릴리스: v2.36.0~v2.41.0 (C085~C090). 태그·CHANGELOG·코드 전부 정상 push.
 - **⚠️ GitHub Actions 인시던트(Minor Service Outage, 01:07 UTC~)로 CI 워크플로 11+개 queued 정체.** 그래서 **바이너리 자산(gil-release.yml)·github.io(ariadne-pages.yml)가 v2.35.0에 멈춰** 있음(releases/latest·뷰어 헤더 다 2.35.0). 우리 문제 아님 — public repo(무제한)·ubuntu-latest·enabled 다 정상, status.json이 Actions partial_outage 확인. **인시던트 해소 후 큐 풀리면 자동 복구 → 최종 검증 필요**(releases/latest=2.41.0, 자산 6개, github.io 갱신, C089 drift 오표시 사라짐).
 - 실제 pages 워크플로 = `.github/workflows/ariadne-pages.yml`(손수), fetch-depth:0 커밋됨(f0a5c44).
+
+## 2026-07-20 (후반) — GitHub 복구 + 회귀 청산 3연 + Go parity, gil-gate 완전 녹색 (C092~C094)
+
+- **GitHub Actions 장애 복구**: 큐 정체 풀림. gil-release 워크플로 전부 success, 자산 v2.41.0까지 생성. **but latest 태그가 v2.40.0에 오배치** → `gh release edit v2.41.0 --latest`로 교정. ariadne-pages도 success(github.io 갱신). **교훈: GitHub latest 판정은 semver 아닌 published 시각 — 큐 뒤섞이면 어긋난다, gh release edit --latest로 교정.**
+- **🔴 gil-gate 적색 발견(장애 아님, 우리 회귀)**: `gil-gate` CI가 `TypeError: int + list`로 실패. **로컬 회귀 검사가 못 본 이유: gil이 PATH에 없어 conformance가 조기 실패한 baseline과 비교한 착시.** gil 실제 실행 CI만 잡음. → **재현법 확립: `/tmp/gilbin/gil`(python3 절대경로 래퍼)를 PATH·--gil로 줘 로컬에서 CI 재현.** (다음 세션 필수 도구.)
+- **C092(supported) — C090이 깬 회귀**: 원인 = WEB-AUTO-PURE-COMMIT의 `cycle_commit and ...`에서 빈 리스트가 cond로 새 sum(RESULTS) 폭발. 방아쇠 = step 가드가 커밋 막음. 근본 = 테스트 헬퍼 `write_cycle(step=N)`이 스텝 1..N 파일을 실질 작성 안 함. **write_cycle 한 곳 정합**(step=N→N개 파일) + OPEN-CREATE·STEP-OK·STEP-SCOPE 개별 수정 + WEB-AUTO-PURE-COMMIT `bool()` 방어 → 121/122.
+- **C093(supported) — 크래시가 가렸던 별개 버그**: 남은 FAIL RELEASE-CYCLE-SOURCE는 C092 전에도 FAIL(git stash로 확인)이었다 = 기존 버그. 원인 = `_mk_src_repo`가 release 봉인에 필요한 RELEASE.md를 안 만듦(C086에서 테스트 추가 시 누락). **격리 재현이 통과한 함정: 내가 재현 시 RELEASE.md를 수동으로 넣어서.** RELEASE.md 추가 → **122/122 "이 구현은 gil이다"**.
+- **C094(supported) — Go parity 정공법(상현님)**: C085~C090 매번 "Go 이월"한 빚으로 gil-gate Go 검사 100/104. main.go에 4갈래 이식(순차, 다 한 파일이라 워크트리 대신): ① C085 refresh 기본(`webDefaultRefresh`, bakeMeta `*int`로 nil vs 명시0 구별) ② C090 open 1스텝+step 가드(헬퍼 4개 이식) ③ C088 md 렌더(webAppJS에 참조 JS 그대로 이식, Go raw string 백틱 이스케이프 `` ` + "`" + ` ``) + 헤더 mdtoggle·gilver+CSS. **Go 104/104**. 점진 커밋(101→103→104).
+- **⭐ CI 최종 검증**: push 후 gil-gate success — **참조 122/122 + Go 104/104 둘 다 "이 구현은 gil이다".** 로컬 통과≠CI 통과라 반드시 CI로 확인(C092 교훈).
+- **이 세션 릴리스 총합**: v2.36.0~v2.43.0 (C085~C094). 전부 태그·자산·github.io 정상(GitHub 복구 후).
+- **⚠️ 정직한 미이식/후속 (다음 세션)**: (1) **C091 재개** — 노드 입출력 마커(수직 화살표 확정: lineage 위/배포 아래, 짧고 붙음, 툴팁+클릭상세) + 배포↔근거사이클 연결. 참조부터, 그 뒤 Go parity. 아티팩트 목업 URL은 세션 것이라 재현 필요. (2) **Go 이미지 base64 임베드**(C088, collectCycleDocs) — conformance 정적 검사가 안 잡아 미이식. (3) **parity 이월 금지 리듬**(C077) — 앞으로 사이클마다 즉시 Go 맞추기.
+- **교훈 요약**: ① 로컬 검증도 gil 실제 실행 CI 재현 ② 계약 바꾸면 그 계약 검증 테스트도 바뀐다 ③ 한 크래시가 다른 결함 가림(걷어야 보임) ④ parity 미루면 빚 ⑤ 이식은 재작성 아닌 정본 옮기기.
