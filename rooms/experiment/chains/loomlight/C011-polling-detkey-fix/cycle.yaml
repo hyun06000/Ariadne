@@ -2,7 +2,7 @@ id: C011-polling-detkey-fix
 chain: loomlight
 parent: C010-refresh-state-preservation
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-20
