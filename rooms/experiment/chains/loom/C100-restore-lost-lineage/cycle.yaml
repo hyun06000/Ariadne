@@ -4,11 +4,11 @@ parent: C099-multiparent-and-death-docs
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "잃은 다중부모 계보 복원 (C018·C041·C057) — 문서가 부모/근원/만난다로 명시한 것만, correct 원장 정정"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
