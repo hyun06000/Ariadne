@@ -1,0 +1,6 @@
+[
+  {"eval": "(function(){var t=document.getElementById('chain-loom');t.open=true;return 'opened chain-loom by id';})()"},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');return 'PRE chain-loom.open='+t.open;})()"},
+  {"sleep_ms": 4500},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');return JSON.stringify({POST_loomOpen:t?t.open:'GONE', loomExists:!!t});})()"}
+]

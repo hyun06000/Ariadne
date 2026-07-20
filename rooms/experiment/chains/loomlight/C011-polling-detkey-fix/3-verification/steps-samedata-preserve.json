@@ -1,0 +1,6 @@
+[
+  {"eval": "(function(){var cs=document.querySelectorAll('details.hchain');var t=null;for(var i=0;i<cs.length;i++){if(cs[i].id==='chain-loom'){t=cs[i];break;}}t.open=true;return 'opened chain-loom, name='+t.getAttribute('name');})()"},
+  {"eval": "(function(){var o=[];document.querySelectorAll('details.hchain').forEach(function(c){if(c.open)o.push(c.id);});return 'PRE open: '+JSON.stringify(o);})()"},
+  {"sleep_ms": 4500},
+  {"eval": "(function(){var o=[];document.querySelectorAll('details.hchain').forEach(function(c){if(c.open)o.push(c.id);});return 'POST open (동일데이터 폴링): '+JSON.stringify(o);})()"}
+]
