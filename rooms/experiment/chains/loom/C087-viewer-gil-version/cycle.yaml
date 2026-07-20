@@ -1,0 +1,14 @@
+id: C087-viewer-gil-version
+chain: loom
+parent: C061-deployment-lineage-query
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "뷰어 헤더에 이 뷰어를 구운 gil 버전을 항상 표시"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
