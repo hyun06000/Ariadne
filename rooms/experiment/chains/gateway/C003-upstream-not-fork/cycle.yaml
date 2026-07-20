@@ -2,7 +2,7 @@ id: C003-upstream-not-fork
 chain: gateway
 parent: C002-user-facing-onboarding
 lineage: [loom/C086-release-cycle-source]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-20
