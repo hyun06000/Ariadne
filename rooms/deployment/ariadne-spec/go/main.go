@@ -1019,24 +1019,17 @@ func cmdOpen(a openArgs) error {
 			return cerr("%v", err)
 		}
 	}
-	if useEmbedded {
-		if err := os.MkdirAll(filepath.Join(dest, "3-verification"), 0o755); err != nil {
-			return cerr("%v", err)
-		}
-		scaffold := map[string]string{
-			"1-hypothesis.md":          "# 1. 가설 수립\n\n(작성할 것)\n",
-			"2-design.md":              "# 2. 실험 설계\n\n(작성할 것)\n",
-			"3-verification/README.md": "# 3. 가설 검증\n\n(작성할 것)\n",
-			"4-analysis.md":            "# 4. 결과 분석\n\n(작성할 것)\n",
-			"5-report.md":              "# 5. 결과 보고\n\n(작성할 것)\n",
-		}
-		for name, body := range scaffold {
-			if err := os.WriteFile(filepath.Join(dest, name), []byte(body), 0o644); err != nil {
-				return cerr("%v", err)
-			}
-		}
-	} else if err := copyTree(template, dest); err != nil {
-		return cerr("템플릿 복사 실패: %v", err)
+	// [loom/C094 ← C090] step-by-step 강제: open은 1스텝(가설)만 스캐폴딩한다. 2~5·3-verification은
+	// step 전이가 이전 스텝 완수를 검증한 뒤에야 생성한다 — 다음 스텝 재료가 미리 나와있지 않게.
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return cerr("%v", err)
+	}
+	tmplForStep := ""
+	if !useEmbedded {
+		tmplForStep = template
+	}
+	if err := createStepFile(dest, 1, tmplForStep); err != nil {
+		return cerr("%v", err)
 	}
 	parentVal := "null"
 	if len(a.parents) == 1 {
@@ -2151,6 +2144,25 @@ func cmdStep(a stepArgs) error {
 	if fields["status"] == "closed" {
 		return cerr("%s/%s: 닫힌 사이클의 step은 바꿀 수 없다", a.chain, a.cycleID)
 	}
+	// [loom/C094 ← C090] 전이 가드 — step N은 스텝 1..N-1이 모두 실질 작성됨을 요구한다(step-by-step 강제).
+	// 이전 스텝을 수행하지 않으면 다음으로 못 간다. 미완이면 무변화로 거부한다.
+	for k := 1; k < n; k++ {
+		if !stepWritten(cycleDir, k) {
+			return cerr("스텝 [%s]가 미완이다 — step-by-step은 이전 스텝 완수를 요구한다.\n"+
+				"      먼저 %s을 작성하고 커밋한 뒤 진행하라 (gil step %s %s %d).",
+				stepFiles[k-1][0], stepScaffold[k][0], a.chain, a.cycleID, k)
+		}
+	}
+	// 다음 스텝 재료는 전이 때 나온다 — 이 스텝의 파일이 없으면 지금 생성한다.
+	tmplStep := ""
+	if td := templateDir(a.root); td != "" {
+		if fi, err := os.Stat(td); err == nil && fi.IsDir() {
+			tmplStep = td
+		}
+	}
+	if err := createStepFile(cycleDir, n, tmplStep); err != nil {
+		return cerr("%v", err)
+	}
 	original, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return cerr("%v", err)
@@ -2210,6 +2222,13 @@ func cmdStep(a stepArgs) error {
 		suffix = "  각인: 커밋"
 	}
 	fmt.Printf("스텝: %s/%s → %d/5 %s%s\n", a.chain, a.cycleID, n, stepNames[n], suffix)
+	// [loom/C094 ← C090] 다음 스텝 안내 — 완수하면 다음으로 가는 길을 알린다.
+	if n < 5 {
+		fmt.Printf("  다음: %s을 작성하고 `gil step %s %s %d` → %d/5 %s (%s)\n",
+			stepScaffold[n][0], a.chain, a.cycleID, n+1, n+1, stepNames[n+1], stepScaffold[n+1][0])
+	} else {
+		fmt.Printf("  다음: 5-report.md를 작성하고 `gil close %s %s --verdict <결말>`\n", a.chain, a.cycleID)
+	}
 	refreshViewers(a.root, fmt.Sprintf("%s/%s → %d/5", a.chain, a.cycleID, n), a.noWeb, a.push)
 	return nil
 }
@@ -4077,6 +4096,79 @@ var stepFiles = [][2]string{
 	{"1 · 가설", "1-hypothesis.md"}, {"2 · 설계", "2-design.md"},
 	{"3 · 검증", "3-verification"}, // 디렉토리 — README + 산출물 목록
 	{"4 · 분석", "4-analysis.md"}, {"5 · 보고", "5-report.md"},
+}
+
+// [loom/C094 ← C090] 각 스텝의 스캐폴딩(파일 상대경로, 본문). open은 1스텝만, step 전이가 다음을 이 내용으로 생성.
+var stepScaffold = map[int][2]string{
+	1: {"1-hypothesis.md", "# 1. 가설 수립\n\n(작성할 것)\n"},
+	2: {"2-design.md", "# 2. 실험 설계\n\n(작성할 것)\n"},
+	3: {"3-verification/README.md", "# 3. 가설 검증\n\n(작성할 것)\n"},
+	4: {"4-analysis.md", "# 4. 결과 분석\n\n(작성할 것)\n"},
+	5: {"5-report.md", "# 5. 결과 보고\n\n(작성할 것)\n"},
+}
+
+const stepScaffoldMark = "(작성할 것)" // 이 문구만 남으면 미완 (step-by-step 강제)
+
+// contentSubstantive: 헤더(# ...) 밖에 실질 텍스트가 있는가. 본문 실질 줄이 스캐폴딩 마크 하나뿐이면 미완(loom/C092).
+func contentSubstantive(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var body []string
+	for _, line := range strings.Split(string(b), "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
+			continue
+		}
+		body = append(body, t)
+	}
+	if len(body) == 0 {
+		return false
+	}
+	if len(body) == 1 && body[0] == stepScaffoldMark {
+		return false
+	}
+	return true
+}
+
+// stepWritten: 스텝 n이 '실질 작성됨'인가. 3-verification은 README 실질작성 또는 산출물 존재.
+func stepWritten(cycleDir string, n int) bool {
+	fname := stepFiles[n-1][1]
+	path := filepath.Join(cycleDir, fname)
+	if fname == "3-verification" {
+		fi, err := os.Stat(path)
+		if err != nil || !fi.IsDir() {
+			return false
+		}
+		entries, _ := os.ReadDir(path)
+		for _, e := range entries {
+			if e.Name() != "README.md" {
+				return true // 산출물 존재 = 완수
+			}
+		}
+		return contentSubstantive(filepath.Join(path, "README.md"))
+	}
+	return contentSubstantive(path)
+}
+
+// createStepFile: 스텝 n의 스캐폴딩 파일 생성(이미 있으면 두지 않음). 커스텀 template 있으면 그 스텝 원본 존중.
+func createStepFile(cycleDir string, n int, template string) error {
+	rel, body := stepScaffold[n][0], stepScaffold[n][1]
+	path := filepath.Join(cycleDir, rel)
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if template != "" {
+		tsrc := filepath.Join(template, rel)
+		if b, err := os.ReadFile(tsrc); err == nil {
+			return os.WriteFile(path, b, 0o644)
+		}
+	}
+	return os.WriteFile(path, []byte(body), 0o644)
 }
 
 // verdictTally: 참조 구현 _verdict_tally — 닫힌 사이클을 verdict별로, 열린 사이클을 따로 센다.
