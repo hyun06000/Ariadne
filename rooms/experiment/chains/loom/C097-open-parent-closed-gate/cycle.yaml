@@ -1,0 +1,14 @@
+id: C097-open-parent-closed-gate
+chain: loom
+parent: C091-node-io-markers
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "open이 열린 부모 위에서 자식을 못 열게 게이트 — 절차 위반(C095·C096)의 직접 수정"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
