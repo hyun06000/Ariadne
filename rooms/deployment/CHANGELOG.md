@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.47.0] — 2026-07-20
+
+- 뷰어 라이브 폴링(상태보존 실시간, meta refresh 대체) + 다중부모·죽은가지 문서화, 참조 128·Go 110 (loomlight/C010, loom/C099)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+- 근거 사이클: loomlight/C010-refresh-state-preservation, loom/C099-multiparent-and-death-docs
+
+
 ## [2.46.0] — 2026-07-20
 
 - 미완 step 사이클의 rejected close: 죽은 시점 step 보존·5-report 완화·R9 예외 (C095 5/5 우회의 근본제거), 참조 128·Go 110 (loom/C098)
