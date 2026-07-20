@@ -1,5 +1,15 @@
 # Ariadne Spec — Release
 
+## v2.40.0 (2026-07-20) — github.io 뷰어 "CHANGELOG만" 오표시 수정 (loom/C089)
+
+상현님: **"길 뷰어에 모든 버전이 '⚠ CHANGELOG만'이라고 적혀있다."** CLI `gil releases`·로컬 `gil web`은 태그(71개)를 읽어 전부 정상 `[TC]`인데, **github.io(CI 배포) 뷰어만** 전 릴리스를 drift로 오표시했다. 원인: GitHub Actions의 `actions/checkout@v4`가 기본적으로 태그를 안 가져와(shallow) CI에서 뷰어를 구울 때 태그를 하나도 못 읽음 → 모든 릴리스 in_tag=False.
+
+- **워크플로(근본, loom/C089)**: `_PAGES_WORKFLOW`의 checkout에 `fetch-depth: 0`을 넣어 CI가 태그까지 가져온다. 이 릴리스가 push되면 새 워크플로가 github.io를 재빌드해 오표시가 자동 교정된다.
+- **뷰어 강건성(방어선)**: `_build_releases_data`가 `tags_readable`(태그를 못 읽는 환경이면 False — tags가 None이거나 {}인데 CHANGELOG엔 릴리스가 있음)을 데이터에 담고, `_render_releases_panel`이 False면 drift 배지를 억제한다. CLI `cmd_releases`의 `git_absent` 처리를 뷰어에 이식 — 같은 진실(drift)을 보는 두 표면이 같은 환경 판별을 하게. **진짜 drift**(태그는 읽혔는데 특정 버전만 없음)는 그대로 유지.
+- 세 시나리오(태그있음·CI모사(태그0)·진짜drift) 검증 통과, 회귀 0. 참조 우선(Go parity 이월).
+
+**환경이 진실을 가리면 도구는 '모른다'고 말한다** — 태그 못 읽는 CI에서 "태그 없음=drift"는 거짓이다. tags_readable로 "대조 불가"를 표현해 오탐을 억제했다(지어냄 0 원칙 §3.2의 배포 표면판). 증상("전부 CHANGELOG만")이 개별 렌더가 아니라 데이터 생성의 환경 판별 부재를 가리켰다.
+
 ## v2.39.0 (2026-07-20) — 뷰어 개선 두 갈래: gil 버전 표시 + 스텝 문서 마크다운 렌더 토글 (loom/C087·C088)
 
 상현님 뷰어 제안 둘을 한 릴리스로 거둔다.
