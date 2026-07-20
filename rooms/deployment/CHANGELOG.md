@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.44.0] — 2026-07-20
+
+- 노드 입출력 마커(lineage 위/배포 아래 수직화살표)+배포 근거 사이클 링크, WEB-NODE-IO, 참조 123·Go 105 (loom/C091)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+- 근거 사이클: loom/C091-node-io-markers
+
+
 ## [2.43.0] — 2026-07-20
 
 - Go 이식: C085 refresh 기본·C090 step 강제·C088 md 렌더 → Go 104/104 완전 녹색 (loom/C094)
