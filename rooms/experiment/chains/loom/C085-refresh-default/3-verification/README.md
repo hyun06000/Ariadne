@@ -1,14 +1,15 @@
-# 3. 가설 검증
+# 3. 검증 — refresh 기본화
 
-이 디렉토리에 실험 실행에 사용된 **모든 것**이 저장된다: 코드, 스크립트, 입력 데이터(또는 그 출처와 해시), 실행 로그, 연산 결과, 생성된 아티팩트.
+`gil()` = `python3 rooms/deployment/ariadne-spec/gil.py`.
+gil이 PATH 미설치라 conformance 전체 러너는 `--gil "python3 …"`(공백 인자)를 못 불러 5개 무관 FAIL이 baseline과 동일(회귀 0). 아래는 직접 재현.
 
-## 재현 방법
+| 테스트 | 명령 | 기대 | 결과 |
+|---|---|---|---|
+| T1 기본 실시간 | `gil web` | `content="5"` | PASS |
+| T2 옵트아웃 | `gil web --refresh 0` | meta 없음 + bake `"refresh":0` | PASS |
+| T3 명시값 | `gil web --refresh 10` | `content="10"` | PASS |
+| T4a 옵트아웃 재굽기 보존 | `_bake_meta(off)` | 0 | PASS |
+| T4b 구버전 뷰어 재굽기 | `_bake_meta(refresh 키 없음)` | 5 | PASS |
+| WEB-REFRESH-DEFAULT | conformance 신설 계약 | PASS | PASS |
 
-<!-- 이 디렉토리만 가지고 실험을 처음부터 다시 실행하는 정확한 명령 순서를 쓴다. -->
-
-```bash
-```
-
-## 실행 기록
-
-<!-- 실제 실행 일시, 환경(OS, 버전), 소요 시간, 실행 중 발생한 특이사항. -->
+산출물: runs/{default,off,ten}.html
