@@ -942,3 +942,15 @@
 - **⭐ 교훈**: 코드 옳아도 how-to 침묵하면 필드 오해(SPEC 스키마 주석은 `[a,b]` 알았지만 O-table·README.ai 침묵→내 C096 오해). C096①("기능없다 근원이 문서")의 대칭 — **기능있음도 문서 침묵하면 없는 것처럼 쓰인다.** 병렬충돌은 파일단위 회피(순수.md vs 코드).
 - **보류/이월**: ① **문서 릴리스는 Sheen land 후** 그의 코드 릴리스에 SPEC·QUICKSTART 변경 함께 담기(지금 별도 릴리스 내면 버전 꼬임). README.ai는 패키지 밖이라 어차피 별도커밋(이미 함). ② **코드 문안 정련**(gil.py·main.go 에러/help) — Sheen land 후 최신 코드 위에서, 이월패치 기계적용 말고 다시쓰기(C097이 691 이미 변경). ③ (C) 잃은 계보 복원·(D) deploy 축.
 - **다음(main)**: Sheen land 대기하며 (C) 또는 (D) 착수 가능 — 단 (C) correct는 gil.py 안 건드리고 원장만 고치므로 Sheen과 무충돌. (D) deploy는 gil.py 대폭 수정이라 **Sheen land 후**가 안전.
+
+## 2026-07-20 (이어서) — C100 채택: 잃은 계보 복원 (C) — 2/3 복원, 1 이월 (Sheen 뷰어 여전히 병렬)
+
+- **(C) 잃은 다중부모 계보 복원**: 부모 C099. 과거 다중부모 사용법 몰라 단일부모로 봉인된 사이클의 잃은 부모를, **봉인 문서가 증언하는 것에 한해** `gil correct`로 병합 복원. **Sheen이 gil.py 병렬수정 중이라 (C)를 (D)보다 먼저** 택함 — correct는 원장(cycle.yaml)+corrections.yaml만 고치고 gil.py 무변경이라 무충돌.
+- **복원 결과**: **C018 → `[C016-number-ledger, C012-go-binary-log-fsck]`**(evidence 1-hyp:5 한 줄), **C057 → `[C056-…, C053-windows-entry]`**(evidence 1-hyp 파일전체). 둘 다 C5 증거검사 우회없이 통과, corrections.yaml 기록, 태그 이동. `gil log`에 `◀ 병합`·병합점·분기점(C012→C018, C016→C018, C053→C057) 렌더, `✎ corrected(1)`. **거짓(단일부모) 안 지우고 진실 덧댐**(§4.1).
+- **C041 이월(정직)**: 2-design.md가 C035·C040을 **번호로만**(`C035`·`C040`, 경로없이) 불러 correct 풀슬러그 문자매칭 실패(C029만 풀슬러그). memory "번호접두 미검"의 실물 답 = **풀슬러그는 경로(`../C016-number-ledger/`) 덕에 매칭, 번호-only는 안 됨.** correct 확장(번호접두 매칭/다중 evidence) 필요 → gil.py 수정이라 Sheen land 후.
+- **C043 제외(기준 적용)**: 문서가 부모를 C042로만 명시, C015·C018·C037은 **재발이력**(부모 아님). 상현님 기준 "부모/근원/만난다만" → 불변. **복원은 관계 만들기가 아니라 빠진 것 넣기 — 계보≠영향이력.**
+- **검증**: fsck 위반0(정정경고만), conformance 128 유지, C043 불변, gil.py 변경0(Sheen 무충돌). M1~M7 통과.
+- **⭐ 교훈**: ① 잃은 계보는 지어내는 게 아니라 증거로 복원(correct C5). ② 문서가 조상을 어떻게 부르냐가 복원가능성 가름(경로>번호). ③ 되는 것 하고 안 되는 것 명시(C036·C046 절제). ④ 재발이력≠부모.
+- **이 세션 사이클 총계: C097·C098·C099·C100** (A1·A2·B·C 완주). **D(deploy)는 Sheen land 후**(gil.py 대폭수정 충돌회피).
+- **Sheen land 후 할 일 큐**: ① Sheen 뷰어(loomlight/C010) 거두기(`gil worktree land`) ② 문서 릴리스(C099 SPEC·QUICKSTART, Sheen 코드릴리스에 합류) ③ 코드 문안 정련(C099 이월, gil.py·main.go 에러/help, 이월패치 다시쓰기) ④ C041 복원(correct 확장) ⑤ (D) deploy 축.
+- **⚠️ 병렬 규율 실천 기록**: 이 세션 내내 Sheen(gil.py·main.go)과 나(문서·원장) 파일 분리로 무충돌 유지 — C074 "파일 겹치면 순차, 동시성일 때만 워크트리"의 반대편: **한 도구를 둘이 고칠 때는 파일 범위를 갈라 병렬**. gil.py를 건드리는 일(D·correct확장·코드문안)은 전부 Sheen land까지 대기.
