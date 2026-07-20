@@ -1,5 +1,13 @@
 # Ariadne Spec — Release
 
+## v2.46.0 (2026-07-20) — 미완 step 사이클의 rejected close (loom/C098)
+
+C097(open 부모-닫힘 게이트)의 짝. C097이 잘못된 open을 **예방**했다면, C098은 정당히 죽일 미완 가지를 그래프에 **각인**하는 사후 기제다. 이번 세션 심야에 C095(open, 1/5)를 죽일 때 `gil close`가 닫힘=step5를 강제해 "5/5 형식 진행 후 rejected close"라는 **우회**를 써야 했고, step 필드가 "1/5에서 죽음" 대신 "5/5"라는 거짓을 담았다 — 그 근본을 없앴다.
+
+- **rejected close 경로 (참조·Go)**: `close --verdict rejected`는 세 강제를 완화한다. ① **step 보존** — `step: 5` 덮어쓰기를 건너뛰어 죽은 시점 step이 그대로 남는다("1/5에서 죽음"이 그래프의 진실). ② **5-report 완화** — 강제 대신 마지막 스텝 문서가 실질 내용을 가질 것(`_step_written` 재사용, C090의 판정기). **죽음도 왜 죽었는지는 남긴다.** ③ **fsck R9 예외** — "닫힌 사이클의 step은 5, 단 verdict=rejected면 1~5 허용". 완화는 **오직 rejected에만** — supported/partial/inconclusive는 완주 강제 유지.
+- **conformance**: `CLOSE-REJECTED-INCOMPLETE`(미완 rejected close+step 보존)·`CLOSE-REJECTED-NEEDS-REASON`(스텁만이면 거부)·`CLOSE-NORMAL-STILL-STRICT`(완화는 rejected 전용) 3항목 신설.
+- 참조 **128/128**·Go **110/110** "이 구현은 gil이다". 회귀 0.
+
 ## v2.45.0 (2026-07-20) — open 부모-닫힘 게이트 (loom/C097)
 
 이번 세션 심야에 죽은 C095·C096(rejected, "열린 부모의 자식" 절차 위반)의 **근본 결함을 직접 고쳤다.** `gil open`이 부모의 **존재**(R6)만 보고 **닫힘**은 안 봐서, 열린 사이클 위에 자식을 여는 것을 허용했다 — 상현님 원칙: *"부모 안 닫고 자식 여는 건 커밋 없이 새 버전 여는 것 — 분기할 시점이지 같은 가지에서 자라면 안 된다."*

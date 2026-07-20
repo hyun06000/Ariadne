@@ -297,7 +297,8 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 				n, aerr := strconv.Atoi(s)
 				if !isDigits(s) || aerr != nil || n < 1 || n > 5 {
 					add("R9", loc, "step '"+s+"'는 1~5 정수여야 한다")
-				} else if status == "closed" && n != 5 {
+				} else if status == "closed" && n != 5 && r.fields["verdict"] != "rejected" {
+					// [loom/C098] 정상 완주는 step 5. 단 rejected(죽은 가지)는 죽은 시점 step 보존.
 					add("R9", loc, "닫힌 사이클의 step은 5여야 한다 (현재 "+s+")")
 				}
 			}
@@ -1477,6 +1478,12 @@ func cmdClose(a closeArgs) error {
 		}
 	}
 
+	// [loom/C098] verdict 선검증 + rejected 경로 플래그. rejected(죽은 가지)는 완주를 강제받지 않는다.
+	if a.verdict != "" && !verdicts[a.verdict] {
+		return cerr("verdict '%s'는 supported|partial|rejected|inconclusive 중 하나여야 한다", a.verdict)
+	}
+	isRejected := a.verdict == "rejected"
+
 	// 기본 커밋 (v1.7, C033): 깃 저장소면 자동 커밋+각인. --no-commit으로만 끈다.
 	var repo, tag string
 	if !a.noCommit {
@@ -1493,18 +1500,35 @@ func cmdClose(a closeArgs) error {
 		return cerr("--git: 깃 저장소가 아니다 — %s", a.root)
 	}
 
-	reportPath := filepath.Join(cycleDir, "5-report.md")
-	report, err := os.ReadFile(reportPath)
-	if err != nil {
-		return cerr("%s/%s: 5-report.md가 없다 — 보고 없이 닫을 수 없다", a.chain, a.cycleID)
-	}
-	stubs := []string{"# 5. 결과 보고\n\n(작성할 것)\n"} // 내장 스캐폴드의 미작성 보고서 (v1.1)
-	if tpl, err := os.ReadFile(filepath.Join(templateDir(a.root), "5-report.md")); err == nil {
-		stubs = append(stubs, string(tpl))
-	}
-	for _, st := range stubs {
-		if string(report) == st {
-			return cerr("%s/%s: 보고서가 템플릿 그대로다 — 결과 보고를 작성할 것", a.chain, a.cycleID)
+	if isRejected {
+		// [loom/C098] 죽은 가지: 5-report 강제를 풀되 마지막 스텝 문서가 실질 내용을 가질 것(죽은 이유).
+		curStep := 1
+		if n, e := strconv.Atoi(fields["step"]); e == nil {
+			curStep = n
+		}
+		if curStep < 1 {
+			curStep = 1
+		} else if curStep > 5 {
+			curStep = 5
+		}
+		if !stepWritten(cycleDir, curStep) {
+			return cerr("%s/%s: rejected로 닫으려면 마지막 스텝(%d) 문서에 죽은 이유를 남겨야 한다 — "+
+				"미완이어도 왜 죽었는지는 기록한다.", a.chain, a.cycleID, curStep)
+		}
+	} else {
+		reportPath := filepath.Join(cycleDir, "5-report.md")
+		report, err := os.ReadFile(reportPath)
+		if err != nil {
+			return cerr("%s/%s: 5-report.md가 없다 — 보고 없이 닫을 수 없다", a.chain, a.cycleID)
+		}
+		stubs := []string{"# 5. 결과 보고\n\n(작성할 것)\n"} // 내장 스캐폴드의 미작성 보고서 (v1.1)
+		if tpl, err := os.ReadFile(filepath.Join(templateDir(a.root), "5-report.md")); err == nil {
+			stubs = append(stubs, string(tpl))
+		}
+		for _, st := range stubs {
+			if string(report) == st {
+				return cerr("%s/%s: 보고서가 템플릿 그대로다 — 결과 보고를 작성할 것", a.chain, a.cycleID)
+			}
 		}
 	}
 
@@ -1514,15 +1538,15 @@ func cmdClose(a closeArgs) error {
 	}
 	updated := replaceFirstLine(regexp.MustCompile(`(?m)^status:.*$`), string(original), "status: closed")
 	updated = replaceFirstLine(regexp.MustCompile(`(?m)^closed:.*$`), updated, "closed: "+a.date)
-	if regexp.MustCompile(`(?m)^step:`).MatchString(updated) {
-		updated = replaceFirstLine(regexp.MustCompile(`(?m)^step:.*$`), updated, "step: 5")
-	} else {
-		updated = insertAfterFirstLine(regexp.MustCompile(`(?m)^closed:.*$`), updated, "step: 5")
-	}
-	if a.verdict != "" { // v0.3: 결말 기록
-		if !verdicts[a.verdict] {
-			return cerr("verdict '%s'는 supported|partial|rejected|inconclusive 중 하나여야 한다", a.verdict)
+	// [loom/C098] 정상(채택)만 step 5 각인. rejected는 죽은 시점 step 보존(R9가 verdict=rejected면 허용).
+	if !isRejected {
+		if regexp.MustCompile(`(?m)^step:`).MatchString(updated) {
+			updated = replaceFirstLine(regexp.MustCompile(`(?m)^step:.*$`), updated, "step: 5")
+		} else {
+			updated = insertAfterFirstLine(regexp.MustCompile(`(?m)^closed:.*$`), updated, "step: 5")
 		}
+	}
+	if a.verdict != "" { // v0.3: 결말 기록 (유효성은 위에서 선검증됨, C098)
 		if regexp.MustCompile(`(?m)^verdict:`).MatchString(updated) {
 			updated = replaceFirstLine(regexp.MustCompile(`(?m)^verdict:.*$`), updated, "verdict: "+a.verdict)
 		} else {
@@ -5439,7 +5463,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.45.0" // gil:version
+const gilVersion = "2.46.0" // gil:version
 
 // releaseRepo — 릴리스 자산의 상위 저장소 (pages 워크플로와 단일 소스, 이슈 #22).
 const releaseRepo = "hyun06000/Ariadne"

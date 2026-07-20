@@ -620,6 +620,42 @@ def main():
     r = impl.run(croot, "close", "demo", "C001-first-step", "--date", "2026-01-06")
     check("CLOSE-DOUBLE-REJECT", "이중 닫기 거부", r.returncode != 0)
 
+    # CLOSE-REJECTED-INCOMPLETE (loom/C098): 미완 step 사이클을 rejected로 닫으면 죽은 시점 step을
+    #   보존한 채 봉인된다 — "1/5에서 죽었다"는 진실이 그래프에 남는다. C095를 "5/5 형식 진행 후
+    #   rejected close"로 우회해야 했던 근본을 없앤 기제. write_cycle(step=1)은 1-hypothesis를 실질
+    #   작성하므로 "죽은 이유"가 있는 정당한 죽음이다.
+    rroot = make_sandbox(os.path.join(work, "close-rejected"))
+    write_cycle(rroot, "demo", "C001-dead", status="open", step=1)  # 미완(1/5), 5-report 없음
+    rcy = os.path.join(rroot, "rooms/experiment/chains/demo/C001-dead/cycle.yaml")
+    r = impl.run(rroot, "close", "demo", "C001-dead", "--verdict", "rejected", "--date", "2026-01-05")
+    y = open(rcy, encoding="utf-8").read()
+    check("CLOSE-REJECTED-INCOMPLETE", "미완 step 사이클을 rejected로 닫기 (죽은 시점 step 보존, 5-report 불요) · C098",
+          r.returncode == 0 and "status: closed" in y and "verdict: rejected" in y and "step: 1" in y,
+          r.stderr.strip()[-140:])
+
+    # CLOSE-REJECTED-NEEDS-REASON (loom/C098): 죽음도 이유는 남긴다 — 마지막 스텝 문서가 스텁(미작성)이면
+    #   rejected close도 거부 + 무변화. write_cycle을 쓰되 1-hypothesis를 스텁으로 덮어 미작성 상태를 만든다.
+    nroot = make_sandbox(os.path.join(work, "close-rejected-stub"))
+    write_cycle(nroot, "demo", "C001-nostory", status="open", step=1)
+    ncd = os.path.join(nroot, "rooms/experiment/chains/demo/C001-nostory")
+    with open(os.path.join(ncd, "1-hypothesis.md"), "w", encoding="utf-8") as f:
+        f.write("# 1. 가설 수립\n\n(작성할 것)\n")  # 스텁 — 죽은 이유 없음
+    ncy = os.path.join(ncd, "cycle.yaml")
+    before_n = open(ncy, encoding="utf-8").read()
+    r = impl.run(nroot, "close", "demo", "C001-nostory", "--verdict", "rejected", "--date", "2026-01-05")
+    check("CLOSE-REJECTED-NEEDS-REASON", "스텁 스텝만 있는 사이클의 rejected close 거부 + 무변화 (죽음도 이유는 남긴다) · C098",
+          r.returncode != 0 and open(ncy, encoding="utf-8").read() == before_n, f"rc={r.returncode}")
+
+    # CLOSE-NORMAL-STILL-STRICT (loom/C098): 완화는 오직 rejected에만 — verdict≠rejected(supported)면
+    #   미완 step close가 여전히 5-report를 요구한다(과잉 완화 방어).
+    sroot = make_sandbox(os.path.join(work, "close-normal-strict"))
+    write_cycle(sroot, "demo", "C001-wip", status="open", step=1)  # 5-report 없음
+    scy = os.path.join(sroot, "rooms/experiment/chains/demo/C001-wip/cycle.yaml")
+    before_s = open(scy, encoding="utf-8").read()
+    r = impl.run(sroot, "close", "demo", "C001-wip", "--verdict", "supported", "--date", "2026-01-05")
+    check("CLOSE-NORMAL-STILL-STRICT", "verdict≠rejected면 미완 close 여전히 거부 (완화는 rejected 전용) · C098",
+          r.returncode != 0 and open(scy, encoding="utf-8").read() == before_s, f"rc={r.returncode}")
+
     # CLOSE-SEAL-GATE (loom/C081, 이슈 #19): close는 불변 태그를 각인하므로, 봉인될 신규(untracked)
     # 파일 중 "3-verification/ 밖 + 표준 산출물 밖"인 것(흔한 오배치)이 있으면 --allow-extra 없이 거부한다
     # (저장소·태그 무변화). 3-verification/ 하위 자유 산출물(probe·fixtures)은 정상이라 게이트하지 않는다.
