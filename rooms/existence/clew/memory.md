@@ -839,3 +839,13 @@
 - **릴리스 절차 관찰**: 문서 릴리스라도 `_GIL_VERSION` 범프 필요(release가 version 표면 동기화) — 하지만 `_mask_version`이 자기지시 필드를 마스킹해 "도구 변경: 없음(문서 릴리스)"으로 정확히 잡힘. **README.ai.md는 저장소 루트(패키지 밖)라 release가 안 담음 → 별도 커밋 필요**(release는 패키지만 커밋). close도 사이클 디렉토리만 봉인하니 문서 변경은 항상 별도 커밋.
 - **C086 기능이 계속 쓰인다**: v2.37.0(--cycle C086)·v2.38.0(--cycle C003) 연속 dogfooding. releases에서 근거 사이클이 매 릴리스 판독됨.
 - **다음 분기 후보 (C003 파생)**: (A) README.md·README.ko.md 사람용 대문에 같은 철칙 짧게 · (B) SPEC §7 근처 공식 규칙 명문화 · (C) `.github/ISSUE_TEMPLATE`(누락기능/버그+정확한 명령+기대 유도). #25 남은 카브와 이월분은 위 항목 유지.
+
+## 2026-07-20 — 뷰어 제안 두 갈래(C087·C088), v2.39.0 배포
+
+- **발단(상현님 뷰어 제안 2건)**: ① "길 뷰어에 길 버전 나타나게" ② "스텝문서 열기 시 마크다운 날것 텍스트 → 렌더링, 그림도 같이". 둘은 성격이 달라(1 작음·계약무관, 2 큰카브·JS계약긴장) 순차 사이클 2개로. **같은 gil.py 뷰어를 건드려 워크트리 병렬은 오히려 충돌 위험 → C074대로 main에서 순차.**
+- **C087(supported)**: hier·flat 두 헤더 통계줄에 `gil v{_GIL_VERSION}`. `.gilver` CSS는 **flat/hierarchy 공용 `_WEB_CSS`에**(처음 `_WEB_HIER_CSS`=`.rcurrent` 옆에 넣어 flat에 스타일 안 붙던 함정 — 뷰어 CSS는 _WEB_CSS(공용)/_WEB_HIER_CSS(위계전용) 두 블록, 공용 클래스는 반드시 _WEB_CSS).
+- **C088(supported)**: 스텝/존재 문서 마크다운 렌더 **토글**(기본 원문 <pre>, `rendered=false`, 버튼으로 렌더). 인라인 파서 `renderMd`(외부 CDN 0, esc 기반이라 XSS안전 — 원문 이스케이프 후 화이트리스트 승격, safeUrl로 javascript: 차단). 이미지: `_embed_images`가 로컬 이미지를 **장당 2MB 상한 내 base64 data URI**(초과·외부·부재·경로이탈 스킵→링크폴백). C075 클릭-시-마운트라 렌더는 완전 lazy(연 문서만) — 상현님 "필요할때만" 직관이 이미 구조. WEB-MD-RENDER 신설.
+- **⭐ 핵심 방법론 교훈 — 렌더는 렌더로 검증**: node 없어서 **헤드리스 Chrome**(`/Applications/Google Chrome.app/... --headless --dump-dom`)으로 실제 뷰어 열고 토글 클릭→.mdbody 생성 확인(end-to-end). 이게 **blockquote 버그를 잡음**: esc가 `>`→`&gt;`로 바꿔 `/^\s*>\s?/`가 `> 인용문`을 못 잡아 `<p>&gt;...`로 렌더 → 정규식 `/^\s*(>|&gt;)\s?/`로 수정. **정적 grep·코드읽기론 못 봤을 버그.** 인라인 MD 파서는 esc와의 엔티티화 상호작용을 반드시 고려(향후 `<`,`&`도 같은 함정).
+- **배포 v2.39.0**: C087+C088 gil.py 변경을 한 릴리스로(마이너), `--cycle` 둘 명시(dogfooding — releases에 근거 2개 판독). 회귀 0(무이미지 저장소 images 키 부재).
+- **헤드리스 검증 재현 커맨드(다음 세션 유용)**: 실제 뷰어 굽고 `</body>` 앞에 드라이버 주입(load→hash로 cycdoc 열기→.mdtoggle click→결과를 document.title에 encodeURIComponent) → `chrome --headless --virtual-time-budget=3000 --dump-dom`. 함수만 추출해 테스트하면 renderMd 중첩 `}` 때문에 정규식 추출이 깨짐 → 실제 뷰어 통째로 여는 게 확실.
+- **다음 분기 후보**: (A) **뷰어 Go parity** — C087·C088 모두 참조전용, Go 이월(3연작 C063 이후 뷰어 Go 이식 밀림) · (B) MD 파서 강건화(중첩리스트·`<`/`&` 인라인·펜스 언어힌트) · (C) 토글 상태 기억. #25·C003 파생·이월분 유지.
