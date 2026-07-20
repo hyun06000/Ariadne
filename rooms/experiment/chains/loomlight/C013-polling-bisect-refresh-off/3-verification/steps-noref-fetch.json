@@ -1,0 +1,6 @@
+[
+  {"sleep_ms": 3500},
+  {"eval": "(function(){window.__b=performance.getEntriesByType('resource').length;return 'base='+window.__b;})()"},
+  {"sleep_ms": 8000},
+  {"eval": "(function(){var n=performance.getEntriesByType('resource').length;return JSON.stringify({base:window.__b, now:n, newFetches:n-window.__b});})()"}
+]
