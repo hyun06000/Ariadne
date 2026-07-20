@@ -4,11 +4,11 @@ parent: C080-step-commit-scope
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "step-by-step 강제: open은 1스텝만 스캐폴딩, step은 이전 스텝 완수를 검증하고 다음 스텝 생성+안내"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
