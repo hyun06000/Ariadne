@@ -1,0 +1,8 @@
+[
+  {"eval": "(function(){document.querySelector('details.hchain').open=true;return 'ok';})()"},
+  {"eval": "JSON.parse(document.getElementById('gil-data').textContent).SENTINEL || 'none-before'"},
+  {"sleep_ms": 500},
+  {"eval": "'REBAKE'"},
+  {"sleep_ms": 5000},
+  {"eval": "JSON.stringify({chainStillOpen:document.querySelector('details.hchain').open, sentinelInDom:(JSON.parse(document.getElementById('gil-data').textContent).SENTINEL||'none-after')})"}
+]

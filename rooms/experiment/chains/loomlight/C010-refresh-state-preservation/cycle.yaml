@@ -1,0 +1,14 @@
+id: C010-refresh-state-preservation
+chain: loomlight
+parent: C009-panel-order
+lineage: []
+step: 5
+author: sheen
+status: closed
+opened: 2026-07-20
+closed: 2026-07-20
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null

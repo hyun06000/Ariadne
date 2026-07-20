@@ -1,0 +1,10 @@
+[
+  {"eval": "(function(){document.querySelector('details.hchain').open=true;return 'ok';})()"},
+  {"eval": "(function(){location.hash=document.querySelector('a.gnode,a.mnode').getAttribute('href');return 'nav';})()"},
+  {"sleep_ms": 300},
+  {"eval": "(function(){var steps=document.querySelectorAll('.cycdoc .cycbody details.hstep');steps[1].open=true;return 'opened idx1 of '+steps.length;})()"},
+  {"eval": "window.scrollTo(0,420); 'scrolled'"},
+  {"eval": "JSON.stringify({chainOpen:document.querySelector('details.hchain').open, step1Open:document.querySelectorAll('.cycdoc .cycbody details.hstep')[1].open, scroll:Math.round(window.scrollY)})"},
+  {"sleep_ms": 4200},
+  {"eval": "JSON.stringify({A_chainOpen:document.querySelector('details.hchain').open, A_step1Open:(document.querySelectorAll('.cycdoc .cycbody details.hstep')[1]||{}).open, A_cycbodyFilled:(document.querySelector('.cycdoc .cycbody').children.length>0), A_scroll:Math.round(window.scrollY)})"}
+]
