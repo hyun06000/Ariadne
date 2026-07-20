@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.48.0] — 2026-07-20
+
+- 폴링 상태보존 결함 수정: detKey가 id 가진 details를 idx=-1로 뭉개 데이터 변경 시 카드가 닫히던 것 (loomlight/C011)
+- 도구 변경: gil·go (마이너 이상 승격)
+- 근거 사이클: loomlight/C011-polling-detkey-fix
+
+
 ## [2.47.0] — 2026-07-20
 
 - 뷰어 라이브 폴링(상태보존 실시간, meta refresh 대체) + 다중부모·죽은가지 문서화, 참조 128·Go 110 (loomlight/C010, loom/C099)
