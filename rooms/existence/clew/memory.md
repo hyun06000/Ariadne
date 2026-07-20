@@ -858,3 +858,18 @@
 - **미완(다음 세션 확인)**: fetch-depth 커밋(f0a5c44)의 ariadne-pages 빌드가 세션 종료 시 queued였다(GitHub 러너 대기 + API 503 일시). **빌드 완료 후 github.io에서 drift 오표시가 실제로 사라졌는지 눈으로 확인 필요.** 안 됐으면 재조사.
 - **헤드리스 Chrome 검증 자산**: 이번에도 뷰어 렌더/데이터 확인에 `gil web`으로 굽고 gil-data JSON 파싱(`data["releases"]["entries"]`의 in_tag). 순수 Python 헬퍼(`_build_releases_data`·`_render_releases_panel`) 직접 호출로 세 시나리오 단위검증 가능(브라우저 불필요했음).
 - **다음 분기 후보**: C089 (A)Go parity·(B)배포후 github.io drift 스모크 + 위 미완 확인. 뷰어 Go parity 누적(C087·C088·C089 전부 참조전용).
+
+## 2026-07-20 — C090: step-by-step을 파일 존재 수준에서 강제, v2.41.0
+
+- **상현님(근본 지적)**: "사이클은 step-by-step을 강제하는 도구. 이전 스텝 수행·커밋 안 하면 다음 못 가야 하고, 뷰어·로컬에 경고, 완수하면 다음 스텝 안내." 진단: 강제가 **커밋 스코프(C080)에만** 있고 **파일 존재엔 없었다** — open이 5스텝 파일 다 미리 생성, step은 순서 검증 안 함.
+- **사전등록 개념 정렬(중요)**: 상현님이 "답을 먼저 고정한다니? 연역/귀납?" 물음 → **사전등록 = kill 조건(판정 기준)을 검증 전 못박는 정직성 가드레일**, 결과를 미리 정하는 게 아님. 연역/귀납 무관(둘 다 적용). "도로 가드레일" 비유로 상현님 이해 완료. → C090은 **파일 존재만 강제, 문서 내용(kill조건 미리쓰기)은 불제약**.
+- **C090(supported, v2.41.0)**: (a) open은 1-hypothesis만 스캐폴딩(커스텀 _template 1스텝 존중) (b) step N 전이 가드 — 1..N-1 실질작성 검증, 미완이면 무변화 거부, 통과 시 N 생성+다음 안내 출력 (c) 뷰어 없는 스텝 "아직 — 이전 스텝 완수 필요"(존재문서 "(없음)"과 구별). 헬퍼: `_STEP_SCAFFOLD`·`_step_written`·`_content_substantive`·`_create_step_file`. STEP-GATE conformance.
+- **⭐ dogfooding이 거짓양성 즉시 잡음**: step 4에서 **C090 자신이 거부됨** — 1-hypothesis가 `(작성할 것)`을 인용했는데 `_content_substantive`가 "마크가 어디든 있으면 미완"으로 오판. → "본문 실질 줄이 마크 하나뿐일 때만 미완"으로 정교화. 기각조건("정상흐름 방해")에 걸릴 뻔한 걸 실사용이 잡음(C084·C088 리듬 재현).
+- **강제의 층**: 파일존재(open)+전이검증(step)+표시(뷰어)+커밋스코프(C080). 하나만으론 부족.
+- **⚠️ 후속 미완(정직, 상현님 원문의 절반)**: 지금은 "작성"만 검증하고 **"커밋됐는지"는 안 본다** — 작성만 하고 미커밋도 전이 가능. 상현님 "수행·커밋하지 않으면"의 커밋 절반은 다음 카브(git 상태 검증 추가).
+- **다음 분기 후보**: C090 (A)Go parity·(B)커밋 검증 추가·(C)fsck에 열린사이클 스텝파일=step값 일치 규칙. 뷰어+open/step Go parity 누적 계속(C087·C088·C089·C090 전부 참조전용).
+
+## 세션 배포 요약 (2026-07-20, GitHub Actions 장애 주의)
+- 이 세션 릴리스: v2.36.0~v2.41.0 (C085~C090). 태그·CHANGELOG·코드 전부 정상 push.
+- **⚠️ GitHub Actions 인시던트(Minor Service Outage, 01:07 UTC~)로 CI 워크플로 11+개 queued 정체.** 그래서 **바이너리 자산(gil-release.yml)·github.io(ariadne-pages.yml)가 v2.35.0에 멈춰** 있음(releases/latest·뷰어 헤더 다 2.35.0). 우리 문제 아님 — public repo(무제한)·ubuntu-latest·enabled 다 정상, status.json이 Actions partial_outage 확인. **인시던트 해소 후 큐 풀리면 자동 복구 → 최종 검증 필요**(releases/latest=2.41.0, 자산 6개, github.io 갱신, C089 drift 오표시 사라짐).
+- 실제 pages 워크플로 = `.github/workflows/ariadne-pages.yml`(손수), fetch-depth:0 커밋됨(f0a5c44).
