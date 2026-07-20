@@ -2,7 +2,7 @@ id: C100-restore-lost-lineage
 chain: loom
 parent: C099-multiparent-and-death-docs
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-20
