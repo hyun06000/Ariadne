@@ -4,11 +4,11 @@ parent: C088-viewer-md-render
 lineage: [loomlight/C006-releases-in-viewer]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "github.io 뷰어가 전 릴리스를 'CHANGELOG만' drift로 오표시 — CI가 태그를 안 가져온다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
