@@ -852,6 +852,24 @@ def main():
           default_on and off_ok,
           f"default_on={default_on} off_ok={off_ok} off_baked={off_baked}")
 
+    # WEB-MD-RENDER (loom/C088): 스텝 문서 마크다운 렌더 토글 + XSS 안전 + 자기완결.
+    # 기본은 원문(초기 DOM에 렌더된 .mdbody div 없음 — 클릭 시 JS 생성), 토글 버튼과 인라인 파서(외부 CDN 0)가 존재하며,
+    # url 스킴 화이트리스트(javascript: 차단)로 XSS를 막는다. 렌더 자체 동작은 헤드리스 검증(3-verification)이 본다.
+    outm = os.path.join(work, "chains-md.html")
+    rm = impl.run(lroot, "web", "-o", outm, "--title", "t")
+    pagem = open(outm, encoding="utf-8").read() if os.path.isfile(outm) else ""
+    has_toggle = 'class="mdtoggle"' in pagem and '<button' in pagem
+    has_parser = "function renderMd" in pagem and "function inlineMd" in pagem
+    # 기본은 원문(렌더 토글 off): 렌더 상태 플래그가 false로 초기화되어, 문서를 처음 열면 <pre> 원문이 그려진다.
+    initial_raw = "rendered=false" in pagem.replace(" ", "")
+    # XSS: safeUrl이 javascript: 스킴을 차단하는 로직을 담는다.
+    xss_guard = "javascript:" in pagem and "safeUrl" in pagem
+    # 자기완결: 마크다운 파서가 외부 스크립트/스타일을 끌어오지 않는다(페이지 전체 외부 http src/href 0은 WEB-SELFCONTAINED류가 이미 봄).
+    check("WEB-MD-RENDER",
+          '스텝 문서 마크다운 렌더 토글(기본 원문·지연) + 인라인 파서(CDN 0) + javascript: 스킴 차단',
+          rm.returncode == 0 and has_toggle and has_parser and initial_raw and xss_guard,
+          f"rc={rm.returncode} toggle={has_toggle} parser={has_parser} initial_raw={initial_raw} xss={xss_guard}")
+
     # WEB-LAYOUT-TERMINATES (loom/C076): 레이아웃(_layout_columns)은 분기·병합이 깊이에 걸쳐 반복되는
     # 그래프에서 무한 스핀했다 — free_slot(빈 트랙)과 occupied(빈 좌표) 회피가 분리돼, 트랙이 비었는데
     # 그 좌표가 점유되면 같은 col을 영원히 반환. 이 버그는 소비자 저장소에서 gil 프로세스가 종료 못 하고
