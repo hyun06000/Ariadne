@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # [loom/C089] 태그까지 가져온다 — 없으면 뷰어가 배포 계보를 태그와 대조 못 해
+                           # 전 릴리스를 "⚠ CHANGELOG만" drift로 오표시한다(checkout 기본은 태그 미포함).
       - name: Build chain viewer
         run: |
           mkdir -p _site/branches
