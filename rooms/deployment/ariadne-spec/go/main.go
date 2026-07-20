@@ -931,8 +931,10 @@ func cmdOpen(a openArgs) error {
 		}
 	}
 	ids := map[string]bool{}
+	statusByID := map[string]string{} // C097 — 부모 닫힘 게이트용
 	for _, r := range records {
 		ids[r.fields["id"]] = true
+		statusByID[r.fields["id"]] = r.fields["status"]
 	}
 	// O2 (§3.2 P2·P3): 빈 체인의 첫 사이클이 루트라는 것은 계산이지만, 비어있지 않은 체인에서
 	// parent를 비우는 것은 추측이다 — 조용히 두 번째 루트를 만드는 대신 저자에게 묻는다.
@@ -958,6 +960,13 @@ func cmdOpen(a openArgs) error {
 		}
 		if !ids[p] {
 			return cerr("parent '%s'가 체인 '%s'에 없다 (R6 위반 예정)", p, a.chain)
+		}
+		// C097 — 열린 부모의 자식 차단: 부모가 닫혀 있어야만 그 위에 자식을 연다.
+		if statusByID[p] != "closed" {
+			return cerr("부모 '%s'가 아직 닫히지 않았다 (status: %s) — "+
+				"열린 부모 위에 자식을 열 수 없다.\n"+
+				"      부모를 먼저 닫거나(gil close), 정말 갈래를 나누려면 이미 닫힌 사이클을 --parent로 지정하라.",
+				p, statusByID[p])
 		}
 	}
 	chains, err := scanChains(a.root)
@@ -5430,7 +5439,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.44.0" // gil:version
+const gilVersion = "2.45.0" // gil:version
 
 // releaseRepo — 릴리스 자산의 상위 저장소 (pages 워크플로와 단일 소스, 이슈 #22).
 const releaseRepo = "hyun06000/Ariadne"

@@ -82,6 +82,28 @@ def make_sandbox(root):
     return root
 
 
+def _seal_closed(cycle_dir, date="2026-01-02", verdict="supported"):
+    """[loom/C097] gil이 만든 열린 사이클을 fsck 통과하는 closed 상태로 봉인한다.
+    부모 닫힘 게이트 테스트에서 '부모를 먼저 닫는' 정상 전제를 값싸게 만들기 위한 헬퍼
+    (gil close는 5-report 작성·커밋이 필요해 무겁다). status/closed/step/verdict를 직접 쓴다."""
+    import re as _re
+    yp = os.path.join(cycle_dir, "cycle.yaml")
+    with open(yp, encoding="utf-8") as f:
+        y = f.read()
+    y = _re.sub(r"^status:.*$", "status: closed", y, count=1, flags=_re.M)
+    y = _re.sub(r"^closed:.*$", f"closed: {date}", y, count=1, flags=_re.M)
+    if _re.search(r"^step:", y, flags=_re.M):
+        y = _re.sub(r"^step:.*$", "step: 5", y, count=1, flags=_re.M)
+    else:
+        y += "step: 5\n"
+    if _re.search(r"^verdict:", y, flags=_re.M):
+        y = _re.sub(r"^verdict:.*$", f"verdict: {verdict}", y, count=1, flags=_re.M)
+    else:
+        y += f"verdict: {verdict}\n"
+    with open(yp, "w", encoding="utf-8") as f:
+        f.write(y)
+
+
 def write_cycle(root, chain_dir, cid_dir, **fields):
     cdir = os.path.join(root, "rooms", "experiment", "chains", chain_dir)
     d = os.path.join(cdir, cid_dir)
@@ -302,6 +324,7 @@ def main():
           and os.path.isfile(os.path.join(_oc, "1-hypothesis.md"))
           and not os.path.exists(os.path.join(_oc, "5-report.md")),  # [loom/C092] 다음 스텝은 아직 없다
           r.stderr.strip()[-120:])
+    _seal_closed(_oc)  # [loom/C097] 부모 닫힘 게이트: 자식을 열려면 부모가 닫혀 있어야 한다
     r = impl.run(root, "open", "demo", "second-step", "--parent", "C001-first-step",
                  "--title", "t", "--author", "fx", "--date", "2026-01-02")
     check("OPEN-INCREMENT", "번호 자동 증가 (C002)", r.returncode == 0
@@ -346,6 +369,24 @@ def main():
     y = open(ypath, encoding="utf-8").read() if os.path.isfile(ypath) else ""
     check("OPEN-NEW-ROOT", "O5: --new-root로 의도된 두 번째 루트 생성 (parent: null)",
           r.returncode == 0 and "parent: null" in y, r.stderr.strip()[-120:])
+    # OPEN-PARENT-CLOSED-GATE (loom/C097): 열린(또는 rejected) 부모 위에 자식을 열 수 없다.
+    #   부모 안 닫고 자식 여는 건 커밋 없이 새 버전 여는 것 — 분기할 시점이지 같은 가지에서 자라면 안 된다.
+    #   판정: 열린 부모 --parent → exit≠0 + 무변화 / 닫힌 부모 --parent → 성공.
+    groot = make_sandbox(os.path.join(work, "open-parent-gate"))
+    write_cycle(groot, "demo", "C001-closed-root", status="closed", closed="2026-01-02", step=5)
+    write_cycle(groot, "demo", "C002-open-branch", parent="C001-closed-root", status="open", step=2)
+    before = snapshot(groot)
+    r = impl.run(groot, "open", "demo", "child-of-open", "--parent", "C002-open-branch",
+                 "--title", "t", "--author", "fx", "--date", "2026-01-05")
+    check("OPEN-PARENT-CLOSED-GATE", "열린 부모 위 자식 open 거부 + 무변화 (C097)",
+          r.returncode != 0 and snapshot(groot) == before, f"rc={r.returncode}")
+    # 짝: 닫힌 부모 위 자식은 정상 통과해야 한다 (과잉 거부 방어).
+    r = impl.run(groot, "open", "demo", "child-of-closed", "--parent", "C001-closed-root",
+                 "--title", "t", "--author", "fx", "--date", "2026-01-05")
+    check("OPEN-PARENT-CLOSED-OK", "닫힌 부모 위 자식 open 성공 (C097 과잉거부 방어)",
+          r.returncode == 0
+          and os.path.isdir(os.path.join(groot, "rooms/experiment/chains/demo/C003-child-of-closed")),
+          r.stderr.strip()[-120:])
     # 과잉 작동 방어: 빈 체인의 첫 사이클이 루트라는 것은 추측이 아니라 계산이다 (§3.2 P3).
     # 이 항목이 실패하는 구현은 '정당한 루트'를 불법화한 것이다 — README 대문의 딸깍이 그 증인이다.
     eroot = make_sandbox(os.path.join(work, "open-empty"))
@@ -1772,6 +1813,8 @@ def main():
     r = impl.run(gd, "open", "demo", "mine", "--author", "owner-x", "--new-chain", "--git", "--root", gdr)
     check("GUARD-OWNER-OK", "주 체크아웃에서 주인(gil.owner) author의 open은 통과",
           r.returncode == 0 and os.path.isdir(os.path.join(gdr, "demo")), f"rc={r.returncode}")
+    _seal_closed(os.path.join(gdr, "demo", "C001-mine"))  # [C097] 아래 예약 open들이 이 부모의 자식이므로 닫는다
+    gdg("add", "-A"); gdg("commit", "-q", "-m", "seal C001-mine")
     # 링크드 워크트리(존재의 정당한 공간)에서는 남의 author도 통과 — 오탐 0
     gwt = os.path.join(work, "guard-wt")
     gdg("worktree", "add", "-q", "-b", "feat", gwt)
