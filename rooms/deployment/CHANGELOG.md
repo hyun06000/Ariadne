@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.37.0] — 2026-07-20
+
+- release --cycle <chain>/<id>: 배포에 근거 사이클 계약화 — 닫힘 검증 + 태그·CHANGELOG 기록 (loom/C086, 이슈 #25, RELEASE-CYCLE-SOURCE)
+- 도구 변경: gil·conformance (마이너 이상 승격)
+- 근거 사이클: loom/C086-release-cycle-source
+
+
 ## [2.36.0] — 2026-07-20
 
 - web: 실시간 자동 리로드(meta refresh 5초)를 기본값으로, --refresh 0으로 옵트아웃 (loom/C085, WEB-REFRESH-DEFAULT)
