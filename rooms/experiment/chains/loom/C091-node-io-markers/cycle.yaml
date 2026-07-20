@@ -2,7 +2,7 @@ id: C091-node-io-markers
 chain: loom
 parent: C088-viewer-md-render
 lineage: [loomlight/C007-cycle-release-status]
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-20
