@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.42.0] — 2026-07-20
+
+- step 가드가 깬 conformance 회귀 청산: write_cycle 정합 + RELEASE.md 누락 수정 → 122/122 (loom/C092·C093)
+- 도구 변경: conformance (마이너 이상 승격)
+- 근거 사이클: loom/C092-stepgate-test-regression, loom/C093-release-cycle-source-relfile
+
+
 ## [2.41.0] — 2026-07-20
 
 - step-by-step 강제: open은 1스텝만 스캐폴딩, step은 이전 스텝 완수 검증+다음 스텝 생성+안내, 뷰어가 미완 스텝 표시 (loom/C090, STEP-GATE)
