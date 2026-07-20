@@ -2,7 +2,7 @@ id: C001-define-v3-target
 chain: v3-build
 parent: null
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-20
