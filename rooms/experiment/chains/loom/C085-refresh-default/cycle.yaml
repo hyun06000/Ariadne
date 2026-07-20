@@ -4,11 +4,11 @@ parent: C049-live-viewer-refresh
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "실시간 자동 리로드를 뷰어 기본값으로 (--refresh 0으로 옵트아웃)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
