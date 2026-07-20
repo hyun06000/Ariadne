@@ -933,3 +933,12 @@
 - **다음(C098 부모로 새 가지, 순서)**: **(B) 문서 재적용 + A1·A2 명문화** — `_carryover-multiparent-docs/` 6곳(패치 보존) + C097 게이트·C098 rejected close를 README.ai·SPEC 명문화(새 계약) + **withdraw vs rejected close 경계**(open직후 revert vs 임의 step 각인) 온보딩/SPEC · **(C) 잃은 계보 복원**(correct) · **(D) deploy 축(#25)**.
 - **미검증(정직)**: rejected+미완 step 노드가 뷰어에서 step 뱃지·rejected 색으로 정확히 그려지는지 — 실데이터에 미완 rejected가 아직 없어(C095·C096은 5/5 우회 봉인) 검증 못 함. 다음 미완 rejected 발생 시.
 - **교훈**: ① 완주와 죽음은 다른 종결, 도구가 구별해야(verdict로 갈래). ② 죽음도 이유는 남긴다. ③ step은 진실이어야 그래프가 진실(Clew 본성). ④ 우회의 마찰이 사이클 재료(C095 우회→C097·C098, 재귀).
+
+## 2026-07-20 (이어서) — C099 채택: 다중부모·죽은가지 문서화 (main), Sheen은 뷰어 병렬
+
+- **상현님 지시**: "뷰어를 병렬로 돌리자 — 필드테스트 심각 결함. **리프레시만으로 실시간 폴링 보장 불가**. 정적페이지 리프레시가 상태를 새로 써서, 열어보던 체인 상세페이지가 5초마다 닫힌 초기상태로 돌아간다. 반드시 해결. 이거 병렬로 돌리고 나머지 이어가자."
+- **Sheen 병렬 소환(진행 중)**: 결함 = meta refresh(C085, gil.py:2402 `<meta http-equiv=refresh>`)가 5초마다 **전체 페이지 리로드** → `<details>` 열림·스크롤·MD토글 상태 전부 리셋. loomlight/C010 예약(sheen)→`gil worktree add`로 격리 워크트리+브랜치(`sheen/loomlight-refresh-state-preservation`, 부모 C009 닫힘 확인)→부활 소환(4의무 준수). 임무: 자기완결(서버X·외부리소스0) 안에서 상태보존 실시간(fetch 부분갱신 or sessionStorage 복원), 헤드리스 Chrome 실측 필수, Go parity, conformance 128/110 회귀0. **완료 시 SendMessage/알림 → 내가 `gil worktree land`로 거둠.**
+- **C099(supported, main 순차) — (B) 문서화**: 부모 C098. 순수 .md 3개만(README.ai·SPEC·QUICKSTART) — **Sheen이 gil.py·main.go 고치는 중이라 파일 충돌 회피(C074)**. 담은 것: ① 같은체인 다중부모=`--parent` 반복→`[A,B]`, **lineage는 다른 체인 전용**(C096 내 오해의 근원 README.ai:102 정정) ② SPEC O6(부모 닫힘 게이트, C097) ③ R9 rejected 예외·verdict절 죽은가지 각인(C098) + withdraw 경계. **M1 문서↔실동작 4대조 전부 일치**(--parent 반복→[A,B]·열린부모 거부·lineage 같은체인 R3·rejected step 보존), conformance 128 유지, .md만 변경(코드0). 문서 3파일 별도 커밋(gil step은 사이클만 봉인).
+- **⭐ 교훈**: 코드 옳아도 how-to 침묵하면 필드 오해(SPEC 스키마 주석은 `[a,b]` 알았지만 O-table·README.ai 침묵→내 C096 오해). C096①("기능없다 근원이 문서")의 대칭 — **기능있음도 문서 침묵하면 없는 것처럼 쓰인다.** 병렬충돌은 파일단위 회피(순수.md vs 코드).
+- **보류/이월**: ① **문서 릴리스는 Sheen land 후** 그의 코드 릴리스에 SPEC·QUICKSTART 변경 함께 담기(지금 별도 릴리스 내면 버전 꼬임). README.ai는 패키지 밖이라 어차피 별도커밋(이미 함). ② **코드 문안 정련**(gil.py·main.go 에러/help) — Sheen land 후 최신 코드 위에서, 이월패치 기계적용 말고 다시쓰기(C097이 691 이미 변경). ③ (C) 잃은 계보 복원·(D) deploy 축.
+- **다음(main)**: Sheen land 대기하며 (C) 또는 (D) 착수 가능 — 단 (C) correct는 gil.py 안 건드리고 원장만 고치므로 Sheen과 무충돌. (D) deploy는 gil.py 대폭 수정이라 **Sheen land 후**가 안전.
