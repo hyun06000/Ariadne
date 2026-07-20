@@ -836,6 +836,22 @@ def main():
           and ext_r == [] and refresh_baked,
           f"rc={rr.returncode} baked={refresh_baked} ext={ext_r}")
 
+    # WEB-REFRESH-DEFAULT (loom/C085): 실시간이 기본이다. 옵션 무 → meta refresh 존재.
+    # --refresh 0으로 옵트아웃하며, 그 0이 bake에 기록되어 재굽기가 옵트아웃을 되돌리지 않는다.
+    outd = os.path.join(work, "chains-refresh-default.html")
+    rd = impl.run(lroot, "web", "-o", outd, "--title", "t")
+    paged = open(outd, encoding="utf-8").read() if os.path.isfile(outd) else ""
+    default_on = rd.returncode == 0 and 'http-equiv="refresh"' in paged
+    outo = os.path.join(work, "chains-refresh-off.html")
+    ro = impl.run(lroot, "web", "-o", outo, "--title", "t", "--refresh", "0")
+    pageo = open(outo, encoding="utf-8").read() if os.path.isfile(outo) else ""
+    mo = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', pageo, re.S)
+    off_baked = bool(mo) and (json.loads(mo.group(1)).get("bake") or {}).get("refresh") == 0
+    off_ok = ro.returncode == 0 and 'http-equiv="refresh"' not in pageo and off_baked
+    check("WEB-REFRESH-DEFAULT", '실시간이 기본(옵션 무 → meta 존재); --refresh 0으로 옵트아웃(0을 bake 기록)',
+          default_on and off_ok,
+          f"default_on={default_on} off_ok={off_ok} off_baked={off_baked}")
+
     # WEB-LAYOUT-TERMINATES (loom/C076): 레이아웃(_layout_columns)은 분기·병합이 깊이에 걸쳐 반복되는
     # 그래프에서 무한 스핀했다 — free_slot(빈 트랙)과 occupied(빈 좌표) 회피가 분리돼, 트랙이 비었는데
     # 그 좌표가 점유되면 같은 col을 영원히 반환. 이 버그는 소비자 저장소에서 gil 프로세스가 종료 못 하고
