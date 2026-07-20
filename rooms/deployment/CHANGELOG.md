@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.43.0] — 2026-07-20
+
+- Go 이식: C085 refresh 기본·C090 step 강제·C088 md 렌더 → Go 104/104 완전 녹색 (loom/C094)
+- 도구 변경: go (마이너 이상 승격)
+- 근거 사이클: loom/C094-go-parity-session
+
+
 ## [2.42.0] — 2026-07-20
 
 - step 가드가 깬 conformance 회귀 청산: write_cycle 정합 + RELEASE.md 누락 수정 → 122/122 (loom/C092·C093)
