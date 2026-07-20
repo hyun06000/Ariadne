@@ -1,5 +1,18 @@
 # Ariadne Spec — Release
 
+## v2.47.0 (2026-07-20) — 뷰어 라이브 폴링(상태보존 실시간) + 다중부모·죽은가지 문서화 (loomlight/C010, loom/C099)
+
+**필드 결함 해소 — 낡은 화면을 지금으로 (Sheen, loomlight/C010)**: meta refresh(C085 실시간 기본화)가 5초마다 **전체 페이지를 리로드**해 사용자가 열어둔 체인 상세·5스텝 드릴다운·스크롤·MD토글을 전부 닫힌 초기상태로 파괴하던 결함을, **meta refresh 제거 + 자기완결 인라인 JS 라이브 폴링**으로 대체해 고쳤다.
+
+- **라이브 폴링 (참조·Go 바이트 동일)**: 같은 URL을 주기 fetch → `#gil-data`와 서버 렌더 구조 영역만 **in-place 스왑**하고, 열린 details(안정 키: id 조상+순번)·스크롤·`rendered` 토글은 스냅샷→복원한다. 전체 리로드가 아니라 **파괴를 국소화**해 실시간성과 상태보존을 동시에 얻는다. flat body의 앱 JS 미배선(meta에만 의존하던 것)도 함께 고쳤다.
+- **접근법**: sessionStorage 복원(봉합)을 기각하고 근원 제거(meta 삭제)를 택함 — 전체 리로드는 DOM을 새로 써 런타임 상태가 원리적으로 소멸하므로. C049가 meta를 고른 전제("JS 0줄이 계약")는 C075/C088에서 자기완결 JS가 표준이 된 지금 사라졌다.
+- **실측**: 헤드리스 Chrome(CDP, stdlib raw-WebSocket 드라이버)로 결함 재현→상태보존→데이터 갱신을 시간 가로질러 증명. `WEB-REFRESH`·`WEB-REFRESH-DEFAULT`를 새 계약(meta 부재 + 폴링 마운트 + bake.refresh 기록 + 자기완결)으로 재정의.
+
+**다중부모·죽은가지 문서화 (Clew, loom/C099)**: SPEC.md·QUICKSTART.md에 — 같은 체인 다중부모=`--parent` 반복→`[A,B]`(lineage는 다른 체인 전용, C096 오해 근원 정정), O6 부모 닫힘 게이트(C097), R9 rejected 예외·죽은 가지 각인+withdraw 경계(C098). (README.ai.md는 패키지 밖이라 별도 커밋됨.)
+
+- 참조 **128/128**·Go **110/110** "이 구현은 gil이다". 회귀 0.
+- **알려진 이월**: 참조↔Go 전체 산출물 cmp가 line 36에서 갈리는 pre-existing CSS drift(`_WEB_CSS`↔`webCSS`, C088 영역) — C010 표면은 바이트 동일. mdtoggle 열린 스텝 소실(C088 유래)도 미수정.
+
 ## v2.46.0 (2026-07-20) — 미완 step 사이클의 rejected close (loom/C098)
 
 C097(open 부모-닫힘 게이트)의 짝. C097이 잘못된 open을 **예방**했다면, C098은 정당히 죽일 미완 가지를 그래프에 **각인**하는 사후 기제다. 이번 세션 심야에 C095(open, 1/5)를 죽일 때 `gil close`가 닫힘=step5를 강제해 "5/5 형식 진행 후 rejected close"라는 **우회**를 써야 했고, step 필드가 "1/5에서 죽음" 대신 "5/5"라는 거짓을 담았다 — 그 근본을 없앴다.
