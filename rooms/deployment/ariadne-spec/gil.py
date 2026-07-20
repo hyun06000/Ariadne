@@ -513,6 +513,40 @@ def fsck_collect(chains, chains_root=None):
         # v0.6에서 태어나 유예할 과거가 없다(R13의 선례). chains_root가 있을 때만 파일을 본다(R10·R13 패턴).
         if chains_root and not os.path.isfile(os.path.join(chains_root, ch, "chain.md")):
             violations.append(("R14", ch, "chain.md가 없다 — 체인의 문제 정의 문서가 커밋되지 않았다"))
+
+    # R16·R17 (loom/C101, 이슈 #25): 사용자 산출물 배포 무결성 (deployments.json).
+    # 배포 축은 도구 릴리스와 별개다. deployments.json이 없으면 규칙 불발(하위호환 — 배포 안 쓰는 저장소 무영향).
+    # 신규 규칙이라 유예할 과거 없고, cut/rollback이 항상 불변식을 지켜 정당한 탈출구가 없다(R13·R14 선례).
+    if chains_root:
+        reg_path = _deployments_path(chains_root)
+        deployments = _load_deployments(reg_path)
+        if deployments:
+            live_count = {}
+            for i, d in enumerate(deployments, 1):
+                dch = d.get("chain")
+                loc = f"{dch or '?'}/deploy:v{d.get('version', '?')}"
+                # R16 소스 무결성: 배포는 실재하는 닫힌 사이클을 소스로만 (출처를 지어내지 않는다, §3.2).
+                src = d.get("source_cycle")
+                if not src or src.count("/") != 1:
+                    violations.append(("R16", loc, f"source_cycle '{src}'는 전역 표기 <chain>/<id>여야 한다"))
+                else:
+                    sch, sid = src.split("/")
+                    srec = next((r for r in chains.get(sch, []) if r.get("id") == sid), None)
+                    if srec is None:
+                        violations.append(("R16", loc, f"source_cycle '{src}'가 존재하지 않는다 (배포는 실재하는 닫힌 사이클을 소스로만)"))
+                    elif srec.get("status") != "closed":
+                        violations.append(("R16", loc, f"source_cycle '{src}'가 닫히지 않았다 (배포는 닫힌 사이클을 소스로만)"))
+                    elif srec.get("verdict") == "rejected":
+                        violations.append(("R16", loc, f"source_cycle '{src}'는 rejected(죽은 가지)라 배포 소스가 될 수 없다"))
+                st = d.get("status")
+                if st is not None and st not in _DEPLOY_STATUSES:
+                    violations.append(("R16", loc, f"status '{st}'는 {'|'.join(_DEPLOY_STATUSES)} 중 하나여야 한다"))
+                if st == "live" and dch:
+                    live_count[dch] = live_count.get(dch, 0) + 1
+            # R17 live 불변식: 체인당 live는 최대 1개.
+            for dch, n in sorted(live_count.items()):
+                if n > 1:
+                    violations.append(("R17", dch, f"live 배포가 {n}개 — 체인당 live는 1개여야 한다 (배포 불변식)"))
     return violations, warnings
 
 
@@ -4257,6 +4291,246 @@ def cmd_releases(args):
     return 0
 
 
+# ---------- deploy (사용자 산출물 배포 축 — loom/C101, 이슈 #25) ----------
+# 도구 릴리스(gil release, v<semver> 태그, CHANGELOG)와 결이 다른 별개의 축이다:
+# 사용자 산출물(모델/서빙)이 무엇으로 언제 라이브가 됐고, 무엇으로 롤백하는가.
+# 절대 도구 릴리스와 섞지 않는다 — 별 명령(deploy), 별 태그(deploy/<chain>/<semver>),
+# 별 레지스터(deployments.json). release의 v* 태그는 _git_release_tags의 SemVer 필터가 배제한다.
+# 출처를 지어내지 않는다(§3.2): cut은 실재하는 닫힌 사이클을 소스로만 허용한다(_resolve_source_cycle 재사용).
+
+_DEPLOY_STATUSES = ("live", "superseded", "rolled-back")
+
+
+def _cycle_verdict(chains_root, canon):
+    """정규표기 <chain>/<id> 사이클의 verdict를 돌려준다 (없으면 None). rejected 게이트에 쓴다."""
+    chain, cid = canon.split("/", 1)
+    for rec in load_chain_records(os.path.join(chains_root, chain)):
+        if rec["_dir"] == cid:
+            return rec.get("verdict")
+    return None
+
+
+def _deployments_path(chains_root):
+    """deployments.json 위치를 chains_root(rooms/experiment/chains)에서 유추한다.
+    → rooms/deployment/deployments.json (배포의 방; 도구 릴리스 파일 CHANGELOG와 별 파일)."""
+    return os.path.normpath(os.path.join(chains_root, "..", "..", "deployment", "deployments.json"))
+
+
+def _load_deployments(path):
+    """레지스터를 읽어 레코드 리스트를 돌려준다. 파일 없으면 []. append-only 원장이라 관대히 읽는다."""
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (ValueError, OSError):
+        return []
+    return data.get("deployments", []) if isinstance(data, dict) else []
+
+
+def _save_deployments(path, deployments):
+    """레지스터를 쓴다. append-only는 호출자가 지킨다(여기선 통째로 직렬화)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"version": 1, "deployments": deployments}, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def _deploy_tag(chain, version):
+    return f"deploy/{chain}/{version}"
+
+
+def _chain_deployments(deployments, chain):
+    """그 체인의 배포 레코드만, 파일 순서(=시간순) 그대로."""
+    return [d for d in deployments if d.get("chain") == chain]
+
+
+def _live_deployment(deployments, chain):
+    """그 체인의 현 live 레코드(불변식상 최대 1개). 없으면 None."""
+    lives = [d for d in _chain_deployments(deployments, chain) if d.get("status") == "live"]
+    return lives[-1] if lives else None
+
+
+def cmd_deploy(args):
+    action = args.deploy_action
+    if action == "cut":
+        return _deploy_cut(args)
+    if action == "list":
+        return _deploy_list(args)
+    if action == "current":
+        return _deploy_current(args)
+    if action == "rollback":
+        return _deploy_rollback(args)
+    raise ChainError(f"알 수 없는 deploy 하위명령: {action}")
+
+
+def _deploy_cut(args):
+    chains_root = args.root
+    chain = args.chain
+    repo = _repo_root(chains_root)
+    # ---- 사전 검증: 저장소를 건드리기 전에 전부 확인한다 (release 패턴) ----
+    if not args.cycle_id:
+        raise ChainError("deploy cut <chain> <cycle-id> — 소스 사이클 id가 필요하다")
+    if not args.version:
+        raise ChainError("deploy cut ... --version <semver>가 필요하다")
+    if not repo:
+        raise ChainError(f"깃 저장소가 아니다: {chains_root}")
+    m = _SEMVER_RE.match(args.version)
+    if not m:
+        raise ChainError(f"버전 '{args.version}'은 SemVer(X.Y.Z)가 아니다")
+    new = tuple(int(g) for g in m.groups())
+    # 출처 계약(§3.2): 소스 사이클은 실재하는 닫힌 사이클이어야 한다 — 지어내지 않는다.
+    canon, status = _resolve_source_cycle(chains_root, f"{chain}/{args.cycle_id}")
+    if canon is None:
+        raise ChainError(
+            f"소스 사이클 '{chain}/{args.cycle_id}'가 존재하지 않는다 — "
+            f"배포는 실재하는 닫힌 사이클을 소스로만 승격한다(이슈 #25)")
+    if status != "closed":
+        raise ChainError(
+            f"소스 사이클 '{canon}'가 닫히지 않았다(status: {status or '?'}) — "
+            f"배포는 닫힌 사이클을 소스로만 각인한다(이슈 #25). 사이클을 닫은 뒤 다시 cut할 것")
+    # rejected(죽은 가지)는 닫혔어도 배포 소스가 될 수 없다 (verdict/무결성 규율을 배포 게이트에 재사용, #25).
+    src_verdict = _cycle_verdict(chains_root, canon)
+    if src_verdict == "rejected":
+        raise ChainError(
+            f"소스 사이클 '{canon}'는 rejected(죽은 가지)라 배포할 수 없다 — "
+            f"배포는 채택된 계보만 승격한다(이슈 #25)")
+    tag = _deploy_tag(chain, args.version)
+    if _tag_exists(repo, tag):
+        raise ChainError(f"배포 태그 '{tag}'가 이미 존재한다")
+    reg_path = _deployments_path(chains_root)
+    deployments = _load_deployments(reg_path)
+    # 그 체인의 마지막 배포 버전보다 커야 한다 (단조 증가 — release의 _last_release_version 정신).
+    chain_vers = [tuple(int(x) for x in d["version"].split("."))
+                  for d in _chain_deployments(deployments, chain)
+                  if _SEMVER_RE.match(d.get("version", ""))]
+    if chain_vers and new <= max(chain_vers):
+        last = ".".join(map(str, max(chain_vers)))
+        raise ChainError(f"버전 {args.version}은 체인 '{chain}'의 마지막 배포 {last}보다 커야 한다")
+    _fsck_or_report(chains_root)  # 깨진 저장소 위에는 배포하지 않는다
+
+    # ---- 실행: live 전이 → append → json 커밋 → 태그 ----
+    prev_live = _live_deployment(deployments, chain)
+    supersedes = prev_live.get("version") if prev_live else None
+    if prev_live:  # 직전 live를 superseded로 전이 (live 불변식: 체인당 1개)
+        prev_live["status"] = "superseded"
+    record = {
+        "chain": chain,
+        "version": args.version,
+        "source_cycle": canon,
+        "artifact": args.artifact or "",
+        "params": args.params or "",
+        "performance": args.perf or "",
+        "deployed_at": args.date,
+        "supersedes": supersedes,
+        "status": "live",
+    }
+    deployments.append(record)  # append-only: 과거는 지우지 않는다
+    _save_deployments(reg_path, deployments)
+
+    reg_rel = _rel_to_repo(reg_path, repo)
+    try:
+        _git(repo, "add", "-A", "--", reg_rel)
+        _git(repo, "commit", "-m",
+             f"deploy: cut {tag} (소스 {canon})\n\n배포 버전 {args.version} — {canon}", "--", reg_rel)
+        tag_msg = f"Ariadne deploy {tag}\n\n소스 사이클: {canon}"
+        if args.artifact:
+            tag_msg += f"\n아티팩트: {args.artifact}"
+        _git(repo, "tag", "-a", tag, "-m", tag_msg)
+    except ChainError:
+        _git(repo, "reset", "-q", "--", reg_rel, check=False)
+        _git(repo, "checkout", "-q", "--", reg_rel, check=False)
+        raise
+    print(f"배포: {tag} (소스: {canon}"
+          + (f", 대체: {supersedes}" if supersedes else "") + ")")
+    print(f"gil:deploy-cut {chain} {args.version} source={canon} supersedes={supersedes or '-'} status=live")
+    return 0
+
+
+def _deploy_list(args):
+    reg_path = _deployments_path(args.root)
+    deployments = _load_deployments(reg_path)
+    recs = _chain_deployments(deployments, args.chain)
+    live = _live_deployment(deployments, args.chain)
+    print(f"배포 계보 [{args.chain}] — {len(recs)}개 배포"
+          + (f"  (live: {live['version']})" if live else "  (live 없음)"))
+    for d in reversed(recs):  # 최신 우선
+        mark = {"live": "●", "superseded": "·", "rolled-back": "↩"}.get(d.get("status"), "?")
+        line = f"  {mark} v{d.get('version', '?'):<9} {d.get('deployed_at', '?'):<10} " \
+               f"[{d.get('status', '?')}]  소스: {d.get('source_cycle', '?')}"
+        if d.get("supersedes"):
+            line += f"  ↞{d['supersedes']}"
+        if d.get("artifact"):
+            line += f"  · {d['artifact']}"
+        print(line)
+    for d in reversed(recs):  # 기계 훅 (§7.2 정신) — 사람 렌더 뒤
+        print(f"gil:deploy {args.chain} {d.get('version', '?')} {d.get('status', '?')} "
+              f"source={d.get('source_cycle', '-')} supersedes={d.get('supersedes') or '-'}")
+    print(f"gil:deploys {len(recs)} live={live['version'] if live else '-'}")
+    return 0
+
+
+def _deploy_current(args):
+    reg_path = _deployments_path(args.root)
+    live = _live_deployment(_load_deployments(reg_path), args.chain)
+    if not live:
+        print(f"현 배포 [{args.chain}] — (없음)")
+        print(f"gil:deploy-current {args.chain} -")
+        return 0
+    print(f"현 배포 [{args.chain}] — v{live['version']}  ({live.get('deployed_at', '?')})")
+    print(f"  소스: {live.get('source_cycle', '?')}")
+    if live.get("artifact"):
+        print(f"  아티팩트: {live['artifact']}")
+    if live.get("params"):
+        print(f"  파라미터: {live['params']}")
+    if live.get("performance"):
+        print(f"  성능: {live['performance']}")
+    if live.get("supersedes"):
+        print(f"  롤백 타깃: v{live['supersedes']}")
+    print(f"gil:deploy-current {args.chain} {live['version']} source={live.get('source_cycle', '-')} "
+          f"rollback={live.get('supersedes') or '-'}")
+    return 0
+
+
+def _deploy_rollback(args):
+    chains_root = args.root
+    chain = args.chain
+    repo = _repo_root(chains_root)
+    if not repo:
+        raise ChainError(f"깃 저장소가 아니다: {chains_root}")
+    reg_path = _deployments_path(chains_root)
+    deployments = _load_deployments(reg_path)
+    live = _live_deployment(deployments, chain)
+    if not live:
+        raise ChainError(f"체인 '{chain}'에 live 배포가 없다 — 되돌릴 것이 없다")
+    target_ver = live.get("supersedes")
+    if not target_ver:
+        raise ChainError(
+            f"현 live v{live['version']}에 직전 배포(supersedes)가 없다 — 되돌릴 곳이 없다 "
+            f"(첫 배포는 롤백 대상이 없다)")
+    # supersedes가 가리키는 직전 배포를 찾는다 (그 체인 안에서).
+    target = next((d for d in _chain_deployments(deployments, chain)
+                   if d.get("version") == target_ver), None)
+    if target is None:
+        raise ChainError(f"롤백 타깃 v{target_ver}가 레지스터에 없다 (계보 손상)")
+    # 전이만: 현 live→rolled-back, 직전→live 재활성 (append-only — 레코드는 지우지 않는다).
+    live["status"] = "rolled-back"
+    target["status"] = "live"
+    _save_deployments(reg_path, deployments)
+    reg_rel = _rel_to_repo(reg_path, repo)
+    try:
+        _git(repo, "add", "-A", "--", reg_rel)
+        _git(repo, "commit", "-m",
+             f"deploy: rollback {chain} v{live['version']} → v{target_ver}", "--", reg_rel)
+    except ChainError:
+        _git(repo, "reset", "-q", "--", reg_rel, check=False)
+        _git(repo, "checkout", "-q", "--", reg_rel, check=False)
+        raise
+    print(f"롤백: [{chain}] v{live['version']} (rolled-back) → v{target_ver} (live)")
+    print(f"gil:deploy-rollback {chain} from={live['version']} to={target_ver}")
+    return 0
+
+
 # ---------- CLI ----------
 
 def _scan_chains(root, only=None):
@@ -4439,6 +4713,20 @@ def main(argv=None):
     p_rels = sub.add_parser("releases", help="배포 계보 조회: 깃 태그(v*)와 CHANGELOG를 대조해 릴리스 이력을 보고 (읽기 전용)")
     p_rels.add_argument("--package", default="rooms/deployment/ariadne-spec", help="릴리스 패키지 경로 (CHANGELOG는 <package>/../CHANGELOG.md, 저장소도 여기서 유추)")
     p_rels.set_defaults(func=cmd_releases)
+
+    # deploy (loom/C101, 이슈 #25): 사용자 산출물 배포 축 — 도구 릴리스(release/releases)와 별개.
+    p_dep = sub.add_parser("deploy", help="사용자 산출물 배포 축 — cut(닫힌 사이클→배포 승격)·list·current·rollback (loom/C101, #25). 도구 릴리스(release)와 별개")
+    p_dep.add_argument("deploy_action", choices=["cut", "list", "current", "rollback"],
+                       help="cut: 닫힌 사이클을 배포 버전으로 승격 / list·current: 조회(읽기 전용) / rollback: 직전 배포로 되돌림")
+    p_dep.add_argument("chain", help="배포 체인")
+    p_dep.add_argument("cycle_id", nargs="?", help="cut의 소스 사이클 id (닫힌 사이클 — 그 외 하위명령은 생략)")
+    p_dep.add_argument("--version", help="cut의 배포 SemVer (X.Y.Z) — deploy/<chain>/<semver> 태그로 각인")
+    p_dep.add_argument("--artifact", help="cut: 아티팩트 서술 (모델/양자화/vLLM버전 등, 자유 형식)")
+    p_dep.add_argument("--params", help="cut: 운영 파라미터 (예: concurrency=32, 자유 형식)")
+    p_dep.add_argument("--perf", help="cut: 성능 (예: p50=120ms tput=45req/s, 자유 형식)")
+    p_dep.add_argument("--date", default=today, help="cut의 deployed_at 일자 (기본: 오늘)")
+    p_dep.add_argument("--root", default="rooms/experiment/chains", help="체인 루트 (deployments.json은 여기서 유추)")
+    p_dep.set_defaults(func=cmd_deploy)
 
     p_ver = sub.add_parser("version", help="이 도구의 버전 (--check: 상위 최신과 대조, --update: 검증 후 제자리 교체)")
     p_ver.add_argument("--check", action="store_true", help="상위 releases/latest와 대조해 드리프트 보고 (부작용 없음)")

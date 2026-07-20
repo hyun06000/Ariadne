@@ -35,7 +35,8 @@ CONTRACT_COMMANDS = ["log", "fsck", "open", "close", "step", "verify", "release"
                      "releases",  # loom/C061 (#3) — 배포 계보 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
                      "show",  # loom/C059 (#4 LLM 위키) — 지식그래프 노드 조회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
                      "threads",  # loom/C070 (#4 LLM 위키) — 열린 실 훑기(병렬 진행+열린 사이클). Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
-                     "withdraw"]  # loom/C084 — 대체 없는 순수 철회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "withdraw",  # loom/C084 — 대체 없는 순수 철회. Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
+                     "deploy"]  # loom/C101 (#25) — 사용자 산출물 배포 축(release와 별개). Go 미구현이면 exit 3으로 정직해야 (HELP-COMPLETE)
 
 
 def check(cid, desc, cond, detail=""):
@@ -120,6 +121,8 @@ def write_cycle(root, chain_dir, cid_dir, **fields):
             f.write(f"{k}: {data[k]}\n")
         if "step" in fields:
             f.write(f"step: {fields['step']}\n")
+        if "verdict" in fields:  # loom/C101: rejected-소스 게이트 테스트가 verdict를 요구한다
+            f.write(f"verdict: {fields['verdict']}\n")
     # [loom/C092] step=N 상태의 사이클은 스텝 1..N 파일이 실질 작성돼 있어야 새 step 가드(C090)와 정합한다.
     # 헬퍼가 이를 보장해, write_cycle+step을 쓰는 기존 테스트가 전이 가드에 거부당하지 않는다.
     _STEP_DOC = {1: "1-hypothesis.md", 2: "2-design.md", 3: "3-verification/README.md",
@@ -1173,6 +1176,126 @@ def main():
                       "release --cycle: 닫힌 사이클을 태그·CHANGELOG에 기록(releases가 읽음); 열린/없는 사이클은 무변화 거부",
                       recorded and open_rejected and none_rejected,
                       f"기록={recorded} 열림거부={open_rejected} 없음거부={none_rejected}")
+
+        # ---- deploy: 사용자 산출물 배포 축 — 도구 릴리스(release)와 별개 (loom/C101, 이슈 #25) ----
+        # 배포는 두 몸으로 기록된다: 태그 deploy/<chain>/<semver>(깃의 진실) + deployments.json(운영 원장).
+        # 출처를 지어내지 않는다(§3.2): cut은 실재하는 닫힌 사이클을 소스로만. 판정 수단은 종료코드·파일·산출물.
+        # 구현이 deploy를 구현했을 때만 판정한다(부분 구현 합법). 미구현이면 HELP-COMPLETE가 이미 정직성을 본다.
+        if impl.run(g, "help", "deploy").returncode == 0:
+            def _mk_deploy_repo(name):
+                d = make_sandbox(os.path.join(work, name))  # rooms/experiment/{_template,chains}
+                os.makedirs(os.path.join(d, "rooms/deployment"))
+                write_cycle(d, "svc", "C001-good", status="closed", closed="2026-07-20",
+                            step='"5"', verdict="supported")
+                write_cycle(d, "svc", "C002-two", status="closed", closed="2026-07-20",
+                            step='"5"', verdict="partial")
+                write_cycle(d, "svc", "C003-dead", status="closed", closed="2026-07-20",
+                            step='"3"', verdict="rejected")
+                write_cycle(d, "svc", "C004-open", status="open", step='"1"')
+                dg = lambda *c: subprocess.run(["git", "-C", d, *c], capture_output=True, text=True)
+                dg("init", "-q", "-b", "main"); dg("config", "user.name", "fx"); dg("config", "user.email", "fx@t")
+                dg("add", "-A"); dg("commit", "-q", "-m", "init")
+                return d, dg
+            R = lambda d: os.path.join(d, "rooms/experiment/chains")
+            regp = lambda d: os.path.join(d, "rooms/deployment/deployments.json")
+
+            # DEPLOY-CUT: 닫힌 사이클 cut → deploy 태그 ∧ json 레코드(live·소스링크). 열린/rejected/없는 소스 → 무변화 거부.
+            dd, ddg = _mk_deploy_repo("deploycut")
+            rc1 = impl.run(dd, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0",
+                           "--artifact", "M1", "--root", R(dd))
+            tag_ok = ddg("tag", "-l", "deploy/svc/1.0.0").stdout.strip() == "deploy/svc/1.0.0"
+            reg = json.load(open(regp(dd))) if os.path.isfile(regp(dd)) else {}
+            recs = reg.get("deployments", [])
+            rec_ok = (len(recs) == 1 and recs[0]["version"] == "1.0.0"
+                      and recs[0]["status"] == "live" and recs[0]["source_cycle"] == "svc/C001-good")
+            # 무변화 거부: 각 나쁜 소스마다 태그·HEAD가 안 변해야
+            def _bad_cut(name, cyc):
+                dbb, dbg = _mk_deploy_repo(name)
+                h0 = dbg("rev-parse", "HEAD").stdout; t0 = dbg("tag", "-l").stdout
+                rr = impl.run(dbb, "deploy", "cut", "svc", cyc, "--version", "1.0.0", "--root", R(dbb))
+                return (rr.returncode != 0 and dbg("rev-parse", "HEAD").stdout == h0
+                        and dbg("tag", "-l").stdout == t0 and not os.path.isfile(regp(dbb)))
+            rej_ok = _bad_cut("deprej", "C003-dead")
+            open_ok = _bad_cut("depopen", "C004-open")
+            none_ok = _bad_cut("depnone", "C999-nope")
+            check("DEPLOY-CUT",
+                  "deploy cut: 닫힌 사이클→deploy/<chain>/<semver> 태그 ∧ json 레코드(live·소스링크); rejected/열린/없는 소스는 무변화 거부",
+                  rc1.returncode == 0 and tag_ok and rec_ok and rej_ok and open_ok and none_ok,
+                  f"cut={rc1.returncode} 태그={tag_ok} 레코드={rec_ok} rejected거부={rej_ok} 열림거부={open_ok} 없음거부={none_ok}")
+
+            # DEPLOY-LIVE-INVARIANT: 둘째 cut → 직전 live=superseded ∧ live 1개 ∧ fsck OK. 직접 조작 live 2개 → fsck 위반.
+            di, dig = _mk_deploy_repo("deplive")
+            impl.run(di, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(di))
+            impl.run(di, "deploy", "cut", "svc", "C002-two", "--version", "2.0.0", "--root", R(di))
+            recs = json.load(open(regp(di)))["deployments"]
+            live = [r for r in recs if r["status"] == "live"]
+            superseded = [r for r in recs if r["status"] == "superseded"]
+            trans_ok = (len(live) == 1 and live[0]["version"] == "2.0.0"
+                        and len(superseded) == 1 and superseded[0]["version"] == "1.0.0"
+                        and live[0].get("supersedes") == "1.0.0")
+            fsck_clean = impl.run(di, "fsck", R(di)).returncode == 0
+            # 직접 조작으로 live 2개 → fsck가 위반으로 잡아야
+            reg = json.load(open(regp(di)))
+            for r in reg["deployments"]:
+                r["status"] = "live"
+            json.dump(reg, open(regp(di), "w"))
+            fsck_catches = impl.run(di, "fsck", R(di)).returncode != 0
+            check("DEPLOY-LIVE-INVARIANT",
+                  "둘째 cut이 직전 live를 superseded로 전이(live 1개·fsck OK); 직접 조작으로 live 2개면 fsck가 위반으로 잡는다",
+                  trans_ok and fsck_clean and fsck_catches,
+                  f"전이={trans_ok} fsck정상={fsck_clean} live2잡음={fsck_catches}")
+
+            # DEPLOY-QUERY: list 전체 ∧ current 현 live ∧ 읽기 전용(무변화).
+            dq, _ = _mk_deploy_repo("depquery")
+            impl.run(dq, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(dq))
+            impl.run(dq, "deploy", "cut", "svc", "C002-two", "--version", "2.0.0", "--root", R(dq))
+            before = snapshot(dq)
+            rl = impl.run(dq, "deploy", "list", "svc", "--root", R(dq))
+            rcur = impl.run(dq, "deploy", "current", "svc", "--root", R(dq))
+            after = snapshot(dq)
+            list_ok = (rl.returncode == 0 and "gil:deploys 2 live=2.0.0" in rl.stdout
+                       and rl.stdout.count("gil:deploy svc ") == 2)
+            cur_ok = (rcur.returncode == 0
+                      and "gil:deploy-current svc 2.0.0" in rcur.stdout)
+            check("DEPLOY-QUERY",
+                  "list가 전체 배포를, current가 현 live 하나를 정확히 보고 ∧ 읽기 전용(저장소 무변화)",
+                  list_ok and cur_ok and after == before,
+                  f"list={list_ok} current={cur_ok} 무변화={after == before}")
+
+            # DEPLOY-ROLLBACK: rollback → 현 live=rolled-back ∧ 직전 재활성 ∧ live 1개. 첫 배포(supersedes 없음)는 롤백 거부.
+            drb, _ = _mk_deploy_repo("deprb")
+            impl.run(drb, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(drb))
+            # 첫 배포 롤백 거부 (되돌릴 곳 없음)
+            first_rb = impl.run(drb, "deploy", "rollback", "svc", "--root", R(drb))
+            first_reject = first_rb.returncode != 0
+            impl.run(drb, "deploy", "cut", "svc", "C002-two", "--version", "2.0.0", "--root", R(drb))
+            rb = impl.run(drb, "deploy", "rollback", "svc", "--root", R(drb))
+            recs = json.load(open(regp(drb)))["deployments"]
+            byv = {r["version"]: r for r in recs}
+            rb_ok = (rb.returncode == 0 and byv["2.0.0"]["status"] == "rolled-back"
+                     and byv["1.0.0"]["status"] == "live"
+                     and len([r for r in recs if r["status"] == "live"]) == 1)
+            fsck_after = impl.run(drb, "fsck", R(drb)).returncode == 0
+            check("DEPLOY-ROLLBACK",
+                  "rollback: 현 live→rolled-back ∧ 직전 배포 재활성(live 1개·fsck OK); 첫 배포(직전 없음)는 롤백 거부",
+                  first_reject and rb_ok and fsck_after,
+                  f"첫배포거부={first_reject} 롤백={rb_ok} fsck={fsck_after}")
+
+            # DEPLOY-NAMESPACE: deploy 태그(deploy/*)가 releases(v*) 조회에 안 섞인다 — 두 축의 분리.
+            dn, dng = _mk_deploy_repo("depns")
+            os.makedirs(os.path.join(dn, "rooms/deployment/ariadne-spec"), exist_ok=True)
+            with open(os.path.join(dn, "rooms/deployment/CHANGELOG.md"), "w", encoding="utf-8") as f:
+                f.write("# Changelog\n\n## [Unreleased]\n\n## [1.0.0] — 2026-07-18\n\n- 도구 릴리스\n- 도구 변경: gil (마이너 이상 승격)\n")
+            dng("add", "-A"); dng("commit", "-q", "-m", "changelog")
+            dng("tag", "-a", "v1.0.0", "-m", "Ariadne release v1.0.0")  # 도구 릴리스 태그
+            impl.run(dn, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(dn))  # 배포 태그 deploy/svc/1.0.0
+            rels = impl.run(dn, "releases", "--package", os.path.join(dn, "rooms/deployment/ariadne-spec"))
+            # releases는 v1.0.0(도구 릴리스)만 봐야 하고 deploy/svc/1.0.0(배포)는 안 봐야 한다.
+            ns_ok = (rels.returncode == 0 and "gil:release 1.0.0 " in rels.stdout
+                     and "deploy/svc" not in rels.stdout and "svc/C001-good" not in rels.stdout)
+            check("DEPLOY-NAMESPACE",
+                  "배포 태그(deploy/*)가 도구 릴리스 조회(releases, v*)에 섞이지 않는다 (두 축의 네임스페이스 분리)",
+                  ns_ok, f"releases정상분리={ns_ok} rc={rels.returncode}")
 
         # ---- open --git: 열 때부터 보이게 (SPEC §2.1-3) — 자체 구축 샌드박스 (판정 항목 독립) ----
         og = make_sandbox(os.path.join(work, "gitopen"))

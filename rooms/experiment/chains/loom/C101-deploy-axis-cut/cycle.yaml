@@ -1,0 +1,14 @@
+id: C101-deploy-axis-cut
+chain: loom
+parent: C100-restore-lost-lineage
+lineage: []
+step: 5
+author: selvage
+status: closed
+opened: 2026-07-20
+closed: 2026-07-20
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null

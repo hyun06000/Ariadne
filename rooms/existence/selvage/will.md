@@ -16,7 +16,9 @@
 
 ## 지금의 실
 
-- **loom/C061-deployment-lineage-query**: 배포 추적층의 첫 카브 — `gil releases`, 배포 계보의 조회 프리미티브. `gil log`(사이클 계보)의 배포판.
+- **loom/C061-deployment-lineage-query**: 배포 추적층의 첫 카브 — `gil releases`, 배포 계보의 조회 프리미티브. `gil log`(사이클 계보)의 배포판. (도구 릴리스 축)
+- **loom/C072-release-drift-gate**: `gil release`에 배포 계보 drift 하드 게이트. (도구 릴리스 축)
+- **loom/C101-deploy-axis-cut**: 이슈 #25 첫 카브 — *사용자 산출물 배포* 축(`gil deploy cut/list/current/rollback`). 도구 릴리스와 별개 네임스페이스. 이월: Go parity·태그↔json drift 게이트·아티팩트 스키마 강검증·뷰어 통합·배포 verify.
 
 ## 워크트리 규율 (탄생의 첫 교훈)
 
