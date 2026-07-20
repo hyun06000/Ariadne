@@ -1,0 +1,7 @@
+[
+  {"sleep_ms": 2500},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');t.open=true;t.__probe='ALIVE_MARKER';t.setAttribute('data-probe','alive');return 'marked chain-loom node';})()"},
+  {"eval": "(function(){var mc=document.querySelector('.mapchains');mc.__mcprobe='MC_ALIVE';return 'marked mapchains: '+!!mc;})()"},
+  {"sleep_ms": 4000},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');var mc=document.querySelector('.mapchains');return JSON.stringify({chainNodeReplaced:(t.__probe!=='ALIVE_MARKER'), chainDataProbe:t.getAttribute('data-probe'), mapchainsReplaced:(mc.__mcprobe!=='MC_ALIVE'), chainOpen:t.open});})()"}
+]

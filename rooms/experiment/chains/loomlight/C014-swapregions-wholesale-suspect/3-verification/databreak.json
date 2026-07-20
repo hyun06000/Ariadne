@@ -1,0 +1,7 @@
+[
+  {"sleep_ms": 2500},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');t.open=true;t.__probe='ALIVE';return 'marked';})()"},
+  {"eval": "(function(){return 'PRE header: '+(document.querySelector('header p')?document.querySelector('header p').textContent.slice(0,40):'none');})()"},
+  {"sleep_ms": 4500},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');return JSON.stringify({openCardPreserved:(t&&t.__probe==='ALIVE'), stillOpen:t?t.open:'GONE', headerUpdated:(document.querySelector('header p')?document.querySelector('header p').textContent.slice(0,40):'none')});})()"}
+]

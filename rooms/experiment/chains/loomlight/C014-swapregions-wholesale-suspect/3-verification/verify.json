@@ -1,0 +1,7 @@
+[
+  {"sleep_ms": 2500},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');t.open=true;t.__probe='ALIVE';return 'opened+marked';})()"},
+  {"eval": "(function(){var gd=document.getElementById('gil-data');return 'gildata len PRE='+gd.textContent.length;})()"},
+  {"sleep_ms": 4500},
+  {"eval": "(function(){var t=document.getElementById('chain-loom');var gd=document.getElementById('gil-data');return JSON.stringify({M1_nodePreserved:(t.__probe==='ALIVE'), M3_stillOpen:t.open, M2_gildataLen:gd.textContent.length});})()"}
+]

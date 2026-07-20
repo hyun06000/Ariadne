@@ -1,0 +1,1 @@
+[{"sleep_ms":2500},{"eval":"(function(){document.getElementById('chain-loom').open=true;return 'o';})()"},{"sleep_ms":4500},{"eval":"JSON.stringify({loomOpen:document.getElementById('chain-loom').open})"}]
