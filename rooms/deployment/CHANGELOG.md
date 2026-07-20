@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.46.0] — 2026-07-20
+
+- 미완 step 사이클의 rejected close: 죽은 시점 step 보존·5-report 완화·R9 예외 (C095 5/5 우회의 근본제거), 참조 128·Go 110 (loom/C098)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+- 근거 사이클: loom/C098-rejected-close-incomplete
+
+
 ## [2.45.0] — 2026-07-20
 
 - open 부모-닫힘 게이트: 열린/rejected 부모 위 자식 open 거부 (C095·C096 절차위반 근본수정), 참조 125·Go 107 (loom/C097)
