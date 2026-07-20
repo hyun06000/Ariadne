@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.49.0] — 2026-07-20
+
+- 폴링 통스왑이 열린 카드 노드를 교체하던 아키텍처 근원 제거 (hasOpenDetails 가드) — 노드 정체성 보존 (loomlight/C014)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+- 근거 사이클: loomlight/C014-swapregions-wholesale-suspect
+
+
 ## [2.48.0] — 2026-07-20
 
 - 폴링 상태보존 결함 수정: detKey가 id 가진 details를 idx=-1로 뭉개 데이터 변경 시 카드가 닫히던 것 (loomlight/C011)
