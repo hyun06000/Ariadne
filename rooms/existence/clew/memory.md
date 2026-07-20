@@ -920,3 +920,16 @@
 - **배포**: 준비커밋(버전범프 2표면+RELEASE.md+코드3파일) → `gil release 2.45.0 --cycle loom/C097`(도구변경 gil·conformance·go 정확 감지, version 2표면 동기화) → push. **latest 정확 배치(큐 뒤섞임 0), gil-gate·gil-release·ariadne-pages 전부 success.**
 - **다음(C097 부모로 새 가지, 순서 유지)**: (A2) **미완 step rejected close** — 이번 게이트는 잘못된 open의 *예방*, A2는 정당히 죽일 미완 가지를 그래프에 남기는 *사후 기제*(이번세션 C095 "5/5 형식후 rejected" 우회의 근본). R9 계약변경 파급 큼 · (B) 문서 재적용(`_carryover-multiparent-docs/` 6곳 + 게이트 존재도 README.ai·SPEC 명문화) · (C) 잃은 계보 복원(correct) · (D) deploy 축(#25). fsck 편입(R15?) 후보 — open시점만 보는 게이트를 상시규칙으로, 단 봉인된 죽은가지 예외 필요해 결 복잡.
 - **교훈**: ① 도구가 막았어야 할 절차를 안 막으면 존재가 실수한다(부모닫힘=순수 절차=도구 몫, loom/C003). ② 사전 검증 블록에 두면 원자성 공짜. ③ 금지는 대안과 함께(gateway/C003 재확인). ④ 작은 확실함 먼저(A를 A1/A2로 쪼갬 = Clew 기질).
+
+## 2026-07-20 (이어서) — C098 채택·배포(v2.46.0): A2 완주 — 미완 step 사이클의 rejected close
+
+- **C097의 짝(상현님 "이어가자")**: C097이 잘못된 open의 *예방*이면, C098은 정당히 죽일 미완 가지를 그래프에 *각인*하는 사후 기제. 부모 C097(닫힘)에서 새 가지 C098 — **C097 게이트를 dogfooding으로 통과**(닫힌 부모 위 자식). 이번 세션 심야에 C095(open,1/5)를 죽일 때 close가 닫힘=step5를 강제해 "5/5 형식 진행 후 rejected close" 우회를 써야 했고 step이 "1/5→5/5" 거짓을 담은 것 — 그 근본 제거.
+- **설계 갈림길 2개 상현님 확정(AskUserQuestion)**: ① R9 방향 = **죽은 시점 step 보존**(close가 rejected면 step 5로 안 덮음, R9는 "closed+rejected면 step≠5 허용" 예외) ② 5-report = **유연하게**(강제 풀되 마지막 step 문서에 죽은 이유는 남기게).
+- **C098(supported, v2.46.0)**: `close`에 verdict 선검증+`is_rejected` 플래그. rejected면 세 완화 — ① `step: 5` 덮어쓰기 스킵(진실 보존) ② 5-report 강제→`_step_written(cur_step)`(C090 판정기 재사용, "죽은 이유" 강제) ③ fsck R9 예외. **완화는 오직 rejected에만**(supported 등은 완주 강제 유지). conformance 3신설(CLOSE-REJECTED-INCOMPLETE·CLOSE-REJECTED-NEEDS-REASON·CLOSE-NORMAL-STILL-STRICT). **참조 128/128·Go 110/110**, CI success.
+- **Go parity 즉시(C094 이월금지)**: main.go cmdClose·R9 동형 이식(`isRejected`·`stepWritten` 재사용). 실 시나리오 참조↔Go 바이트 동일 행동 확인.
+- **⭐ 재사용의 발견**: C090이 step-by-step 강제로 만든 `_step_written`("step 문서 실질작성됨?")이 "죽은 이유 있음?" 판정에 그대로 맞았다 — **완주와 죽음이 같은 '실질 작성' 개념 공유.** 도구 개념이 잘 쪼개져 있으면 사후 재사용된다.
+- **부수 리팩터**: verdict 검증이 원래 close 로직 뒤에 있었는데 rejected 분기 위해 앞으로 당기니 뒤쪽이 중복 → 단일 검증점으로 정리.
+- **배포 절차(C097과 동일)**: 버전범프 2표면+RELEASE.md+코드3파일 준비커밋 → `gil release 2.46.0 --cycle loom/C098` → push. latest 정확, gil-gate·gil-release·ariadne-pages 전부 success. **releases는 저장소 루트에서 확인**(C097 함정3 준수, `[TC]` drift 0).
+- **다음(C098 부모로 새 가지, 순서)**: **(B) 문서 재적용 + A1·A2 명문화** — `_carryover-multiparent-docs/` 6곳(패치 보존) + C097 게이트·C098 rejected close를 README.ai·SPEC 명문화(새 계약) + **withdraw vs rejected close 경계**(open직후 revert vs 임의 step 각인) 온보딩/SPEC · **(C) 잃은 계보 복원**(correct) · **(D) deploy 축(#25)**.
+- **미검증(정직)**: rejected+미완 step 노드가 뷰어에서 step 뱃지·rejected 색으로 정확히 그려지는지 — 실데이터에 미완 rejected가 아직 없어(C095·C096은 5/5 우회 봉인) 검증 못 함. 다음 미완 rejected 발생 시.
+- **교훈**: ① 완주와 죽음은 다른 종결, 도구가 구별해야(verdict로 갈래). ② 죽음도 이유는 남긴다. ③ step은 진실이어야 그래프가 진실(Clew 본성). ④ 우회의 마찰이 사이클 재료(C095 우회→C097·C098, 재귀).
