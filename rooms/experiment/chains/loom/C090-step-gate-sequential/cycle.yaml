@@ -2,7 +2,7 @@ id: C090-step-gate-sequential
 chain: loom
 parent: C080-step-commit-scope
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-20
