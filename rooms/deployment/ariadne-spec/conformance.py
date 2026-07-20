@@ -1069,6 +1069,31 @@ def main():
               and f"{cyc}/cycle.yaml" in committed,
               r.stderr.strip()[-120:] or str(committed))
 
+        # STEP-GATE (loom/C090): step-by-step 강제. open은 1스텝만 스캐폴딩, step N은 이전 스텝 완수를
+        # 요구하고(미완이면 무변화 거부) 통과 시 N 파일을 생성한다. 다음 스텝 재료가 미리 나와있지 않다.
+        sg = make_sandbox(os.path.join(work, "stepgate"))
+        sgg = lambda *c: subprocess.run(["git", "-C", sg, *c], capture_output=True, text=True)
+        sgg("init", "-q"); sgg("config", "user.name", "fx"); sgg("config", "user.email", "fx@t")
+        impl.run(sg, "open", "demo", "one", "--new-chain", "--title", "t", "--author", "fx")
+        cdir = os.path.join(sg, "rooms/experiment/chains/demo/C001-one")
+        # (1) open은 1-hypothesis만 (2~5·3-verification 부재)
+        only_step1 = (os.path.isfile(os.path.join(cdir, "1-hypothesis.md"))
+                      and not os.path.exists(os.path.join(cdir, "2-design.md"))
+                      and not os.path.exists(os.path.join(cdir, "3-verification"))
+                      and not os.path.exists(os.path.join(cdir, "5-report.md")))
+        # (2) 1 미완(스캐폴딩만) 상태로 step 2 → 거부(무변화)
+        r_block = impl.run(sg, "step", "demo", "C001-one", "2")
+        blocked = r_block.returncode != 0 and not os.path.exists(os.path.join(cdir, "2-design.md"))
+        # (3) 1 작성 후 step 2 → 통과 + 2-design 생성
+        with open(os.path.join(cdir, "1-hypothesis.md"), "w", encoding="utf-8") as f:
+            f.write("# 1. 가설\n\n실질 가설 내용.\n")
+        r_ok = impl.run(sg, "step", "demo", "C001-one", "2")
+        advanced = r_ok.returncode == 0 and os.path.isfile(os.path.join(cdir, "2-design.md"))
+        check("STEP-GATE",
+              "step-by-step 강제: open은 1스텝만 · 이전 스텝 미완이면 step 거부(무변화) · 완수 후 다음 스텝 생성",
+              only_step1 and blocked and advanced,
+              f"only_step1={only_step1} blocked={blocked} advanced={advanced}")
+
         # ---- open --new-chain --git: 새 체인의 chain.md도 같은 커밋에 (loom/C044, 이슈 #14) — 자체 샌드박스 ----
         # 짝 항목 FSCK-R14와 함께 이슈 #14의 양면이다: open이 커밋하고, fsck가 존재를 요구한다.
         nc = make_sandbox(os.path.join(work, "newchain"))
