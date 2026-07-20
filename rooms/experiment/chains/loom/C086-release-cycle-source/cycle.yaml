@@ -4,11 +4,11 @@ parent: C061-deployment-lineage-query
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "배포에 근거 사이클을 계약화 — gil release --cycle <chain>/<id> (닫힘 검증 + 태그 기록)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
