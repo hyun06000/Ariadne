@@ -1,0 +1,14 @@
+id: C093-release-cycle-source-relfile
+chain: loom
+parent: C092-stepgate-test-regression
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "RELEASE-CYCLE-SOURCE 테스트가 RELEASE.md를 안 만들어 release가 rc=1 — gil-gate 잔여 적색"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
