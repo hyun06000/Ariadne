@@ -986,6 +986,48 @@ def main():
                   rd.returncode != 0 and drift_msg and no_change and gate_passed,
                   f"drift_rc={rd.returncode} 처방={drift_msg} 무변화={no_change} 일치통과={gate_passed}")
 
+            # RELEASE-CYCLE-SOURCE (loom/C086, 이슈 #25·#18): 배포는 닫힌 사이클을 근거로만.
+            # 닫힌 --cycle은 CHANGELOG·태그에 기록되고 releases가 읽는다. 열린/없는 --cycle은 무변화 거부.
+            if impl.run(g, "help", "release").returncode == 0:
+                def _mk_src_repo(name):
+                    # v1.0.0 태그를 다는 _mk_release_repo와 drift가 안 나게 CHANGELOG에도 1.0.0 엔트리를 둔다.
+                    d, dg = _mk_release_repo(name,
+                        "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] — 2026-07-18\n\n- 첫 릴리스\n")
+                    write_cycle(d, "src", "C001-done", status="closed", closed="2026-07-20",
+                                step='"5"', verdict="supported")
+                    write_cycle(d, "src", "C002-open", status="open", step='"1"')
+                    dg("add", "-A"); dg("commit", "-q", "-m", "cycles")
+                    return d, dg
+                def _rel_cyc(d, ver, cyc):
+                    return impl.run(d, "release", ver, "--notes", "n", "--cycle", cyc,
+                                    "--package", os.path.join(d, "rooms/deployment/ariadne-spec"),
+                                    "--root", os.path.join(d, "rooms/experiment/chains"))
+                # (1) 닫힌 사이클 근거 → 기록 + releases가 읽음
+                ds, dsg = _mk_src_repo("relsrc")
+                r1 = _rel_cyc(ds, "1.1.0", "src/C001-done")
+                cl_txt = open(os.path.join(ds, "rooms/deployment/CHANGELOG.md"), encoding="utf-8").read()
+                tag_txt = dsg("tag", "-l", "--format=%(contents)", "v1.1.0").stdout
+                rels = impl.run(ds, "releases", "--package", os.path.join(ds, "rooms/deployment/ariadne-spec"))
+                recorded = (r1.returncode == 0 and "근거 사이클: src/C001-done" in cl_txt
+                            and "근거 사이클: src/C001-done" in tag_txt
+                            and "src/C001-done" in rels.stdout and "cycles=1" in rels.stdout)
+                # (2) 열린 사이클 근거 → 무변화 거부
+                do, dog = _mk_src_repo("relsrcopen")
+                b_head = dog("rev-parse", "HEAD").stdout; b_tags = dog("tag", "-l").stdout
+                r2 = _rel_cyc(do, "1.1.0", "src/C002-open")
+                open_rejected = (r2.returncode != 0
+                                 and dog("rev-parse", "HEAD").stdout == b_head
+                                 and dog("tag", "-l").stdout == b_tags)
+                # (3) 없는 사이클 근거 → 무변화 거부
+                dn, dng = _mk_src_repo("relsrcnone")
+                n_head = dng("rev-parse", "HEAD").stdout
+                r3 = _rel_cyc(dn, "1.1.0", "src/C999-nope")
+                none_rejected = r3.returncode != 0 and dng("rev-parse", "HEAD").stdout == n_head
+                check("RELEASE-CYCLE-SOURCE",
+                      "release --cycle: 닫힌 사이클을 태그·CHANGELOG에 기록(releases가 읽음); 열린/없는 사이클은 무변화 거부",
+                      recorded and open_rejected and none_rejected,
+                      f"기록={recorded} 열림거부={open_rejected} 없음거부={none_rejected}")
+
         # ---- open --git: 열 때부터 보이게 (SPEC §2.1-3) — 자체 구축 샌드박스 (판정 항목 독립) ----
         og = make_sandbox(os.path.join(work, "gitopen"))
 
