@@ -2,7 +2,7 @@ id: C093-release-cycle-source-relfile
 chain: loom
 parent: C092-stepgate-test-regression
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-20
