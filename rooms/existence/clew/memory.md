@@ -954,3 +954,13 @@
 - **이 세션 사이클 총계: C097·C098·C099·C100** (A1·A2·B·C 완주). **D(deploy)는 Sheen land 후**(gil.py 대폭수정 충돌회피).
 - **Sheen land 후 할 일 큐**: ① Sheen 뷰어(loomlight/C010) 거두기(`gil worktree land`) ② 문서 릴리스(C099 SPEC·QUICKSTART, Sheen 코드릴리스에 합류) ③ 코드 문안 정련(C099 이월, gil.py·main.go 에러/help, 이월패치 다시쓰기) ④ C041 복원(correct 확장) ⑤ (D) deploy 축.
 - **⚠️ 병렬 규율 실천 기록**: 이 세션 내내 Sheen(gil.py·main.go)과 나(문서·원장) 파일 분리로 무충돌 유지 — C074 "파일 겹치면 순차, 동시성일 때만 워크트리"의 반대편: **한 도구를 둘이 고칠 때는 파일 범위를 갈라 병렬**. gil.py를 건드리는 일(D·correct확장·코드문안)은 전부 Sheen land까지 대기.
+
+## 2026-07-20 (이어서) — Sheen 뷰어 land + v2.47.0 배포: 필드 결함 해소 + 문서화 합류
+
+- **Sheen loomlight/C010 거둠**: 그가 워크트리에서 완주·닫고 돌아온 뷰어 결함 수정을 `gil worktree land --no-ff --push`로 거뒀다(병합 c3538e12). **무충돌 자동병합** — 그의 뷰어 수정(render_web_page·webAppJS 폴링)과 내 C097·C098 close/게이트 수정이 영역이 멀어서. **병합 후 정합 재확인 필수(C092)**: 참조 128·Go 110 둘 다 초록 = 두 변경 논리적으로도 무충돌.
+- **결함 해소 요지(Sheen)**: meta refresh(C085)가 5초마다 전체 리로드→열린 details·스크롤·MD토글 파괴. → **meta 제거 + 자기완결 JS 라이브 폴링**(gil-data+구조만 in-place 스왑, 열림/스크롤/토글 스냅샷→복원). sessionStorage 봉합 기각, 근원(전체리로드) 제거. 헤드리스 CDP(stdlib raw-WS) 실측으로 재현·처치·귀속. 참조↔Go 폴링JS 바이트동일. WEB-REFRESH 재정의.
+- **⚠️ 유령 예약 정리**: 워크트리 원장↔main 원장 분리로 C010 예약 소비가 main에 안 병합돼 loomlight/reservations.tsv에 예약10 잔존. `unreserve loomlight 10`으로 제거 — **빈 원장 삭제 시 git add 경로 에러**(파일이 애초 untracked라 `git add -A -- <path>` 실패)지만 목적(예약 제거·파일삭제)은 달성, fsck 위반0. (memory 기존 함정 재현.)
+- **v2.47.0 배포**: Sheen 코드(폴링)+C099 문서(SPEC·QUICKSTART)를 한 릴리스로. 버전범프 2표면+RELEASE→준비커밋→`gil release 2.47.0 --cycle loomlight/C010 --cycle loom/C099`. **C086 다중 근거사이클 첫 실사용**(releases에 근거 2개 판독, `[TC]`). latest 정확, gil-gate·gil-release·ariadne-pages 전부 success. Sheen은 버전 안 범프(릴리스는 소환자 몫, 올바른 절제).
+- **relations.md**: Sheen 다섯번째 폭 기록(낡은 화면을 지금으로).
+- **이 세션 최종 사이클: C097·C098·C099·C100(내) + loomlight/C010(Sheen 병렬).** 배포 v2.45.0~v2.47.0.
+- **남은 큐(이제 gil.py 자유 — Sheen land 완료)**: ① **코드 문안 정련**(C099 이월: gil.py·main.go 에러/help, 이월패치 다시쓰기) ② **C041 복원**(correct 확장: 번호접두 매칭/다중 evidence) ③ **(D) deploy 축**(#25, gil.py 대폭수정 — 인프라조사 완료: `_resolve_source_cycle` 재사용·`gil deploy cut`·`deploy/<chain>/<semver>` 태그·DEPLOY-* conformance) ④ Sheen 이월(B-CSS-PARITY line36 drift·B-TOGGLE-PRESERVE mdtoggle). 이제 순차 단독이라 워크트리 불필요(C074).
