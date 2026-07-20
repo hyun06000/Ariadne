@@ -2,7 +2,7 @@ id: C012-polling-card-closes-live
 chain: loomlight
 parent: C011-polling-detkey-fix
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-20
