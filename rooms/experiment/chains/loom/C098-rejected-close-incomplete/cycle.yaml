@@ -2,7 +2,7 @@ id: C098-rejected-close-incomplete
 chain: loom
 parent: C097-open-parent-closed-gate
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-20
