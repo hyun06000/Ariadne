@@ -1,14 +1,20 @@
-# 3. 가설 검증
+# 3. 검증 — CI 태그 미포함 drift 오표시
 
-이 디렉토리에 실험 실행에 사용된 **모든 것**이 저장된다: 코드, 스크립트, 입력 데이터(또는 그 출처와 해시), 실행 로그, 연산 결과, 생성된 아티팩트.
+## 재현
+`_build_releases_data` + `_render_releases_panel`을 세 시나리오로 (임시 저장소):
+- A: 현 저장소(태그 71개) → tags_readable=True, in_tag=True.
+- B: CHANGELOG만 있고 태그 0(git init+commit, no tag = CI 상태) → tags_readable=False, rdrift 배지 억제.
+- C: 태그 일부만(v1.1.0 태그, v1.2.0은 CHANGELOG만) → tags_readable=True, v1.2.0 진짜 drift 배지 유지.
+- D: `gil pages -o -`에 `fetch-depth: 0` 포함.
 
-## 재현 방법
+## 결과
+| 시나리오 | 기대 | 결과 |
+|---|---|---|
+| A 태그있음 | readable True, drift 없음 | PASS |
+| B CI모사 | readable False, rdrift 억제 | PASS |
+| C 진짜 drift | 배지 유지 | PASS |
+| D 워크플로 | fetch-depth: 0 | PASS |
+| E 회귀 | baseline 5 FAIL 동일 | PASS(0) |
 
-<!-- 이 디렉토리만 가지고 실험을 처음부터 다시 실행하는 정확한 명령 순서를 쓴다. -->
-
-```bash
-```
-
-## 실행 기록
-
-<!-- 실제 실행 일시, 환경(OS, 버전), 소요 시간, 실행 중 발생한 특이사항. -->
+## 원인
+CLI `gil releases`·로컬 `gil web`은 태그(71개)를 읽어 전부 `[TC]`인데, github.io는 CI의 `actions/checkout@v4`가 태그를 안 가져와(shallow) 뷰어가 in_tag=False → 전 릴리스 "⚠ CHANGELOG만". 근본=워크플로 fetch-depth, 방어=뷰어가 "태그 못 읽음"을 감지해 오탐 억제.
