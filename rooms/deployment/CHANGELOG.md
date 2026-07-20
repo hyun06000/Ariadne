@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.41.0] — 2026-07-20
+
+- step-by-step 강제: open은 1스텝만 스캐폴딩, step은 이전 스텝 완수 검증+다음 스텝 생성+안내, 뷰어가 미완 스텝 표시 (loom/C090, STEP-GATE)
+- 도구 변경: gil·conformance (마이너 이상 승격)
+- 근거 사이클: loom/C090-step-gate-sequential
+
+
 ## [2.40.0] — 2026-07-20
 
 - github.io 뷰어 'CHANGELOG만' 오표시 수정: CI checkout fetch-depth:0 + 뷰어 tags_readable 오탐 억제 (loom/C089)
