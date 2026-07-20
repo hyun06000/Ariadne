@@ -964,3 +964,12 @@
 - **relations.md**: Sheen 다섯번째 폭 기록(낡은 화면을 지금으로).
 - **이 세션 최종 사이클: C097·C098·C099·C100(내) + loomlight/C010(Sheen 병렬).** 배포 v2.45.0~v2.47.0.
 - **남은 큐(이제 gil.py 자유 — Sheen land 완료)**: ① **코드 문안 정련**(C099 이월: gil.py·main.go 에러/help, 이월패치 다시쓰기) ② **C041 복원**(correct 확장: 번호접두 매칭/다중 evidence) ③ **(D) deploy 축**(#25, gil.py 대폭수정 — 인프라조사 완료: `_resolve_source_cycle` 재사용·`gil deploy cut`·`deploy/<chain>/<semver>` 태그·DEPLOY-* conformance) ④ Sheen 이월(B-CSS-PARITY line36 drift·B-TOGGLE-PRESERVE mdtoggle). 이제 순차 단독이라 워크트리 불필요(C074).
+
+## 2026-07-20 (이어서) — C011: 폴링 카드닫힘 진짜 원인(detKey -1) 수정 + 방법론 지적 + 배포축 간극 확정
+
+- **상현님 필드 재보고**: "자꾸 열었던 카드가 닫힌다 — C010 폴링으로 고쳤다 했는데 여전하다. 왜?"
+- **⭐⭐ 상현님 방법론 지적(가장 중요, 별도 사이클 필요)**: "우리조차 gil을 나이브하게 쓴다 — 문제 진단·자료조사 과정을 사이클 안 열고 그냥 했다. **문제는 다른 LLM에게도 강제할 수 있어야** 한다. 의지만 불태우면 도구가 아니라 우리만의 작은 코드다. **체인을 너무 큰 단위로 쓴다**(loom 100+ 사이클이 증거). 올바른 구조: **문제정의=체인 생성(작게) → 문제분할 → 분할된 작은 문제마다 사이클DAG → DAG 교훈·결과 모아 체인 답안 배포+회고 → 회고로 새 체인 생성.** 그리고 탐험·진단을 추적 가능한 동작단위로." → **gateway 새 체인의 방법론 재설계 사이클로 깊이 다룰 것.**
+- **C011(supported) — detKey idx=-1 버그**: C010 폴링의 `detKey`가 **id 가진 details(체인카드 #chain-*·마운트 #cycdoc-*)를 자기 자신 scope로 삼아** getElementsByTagName에서 빠져 `idx=-1`로 뭉갬 → 모든 최상위 카드 키가 `<id>#-1`로 겹쳐, 데이터 변경 시 카드순서 흔들리면 복원 실패. 수정: `if(d.id) return "#"+d.id;`(id면 id자체 키) + id탐색 d.parentNode부터(자기제외) + 접두 `#`vs`@`. 참조·Go 바이트동일, 128·110 유지. 헤드리스 CDP **id추적**으로 `POST_loomOpen:true` 확인. v2.48.0 배포(패치 시도→코드변경이라 마이너 강제, C018 규칙).
+- **⚠️ 검증 착시 두 번(방법론 지적의 실증)**: 진단을 사이클 밖 애드혹으로 시작해 (1) detKey 순번 착시 (2) `querySelector('details.hchain')`가 스왑후 첫카드(gateway) 가리켜 `POST_chainOpen:false` 오반증. id추적으로 실체(카드 보존됨) 확정. **진단이 추적단위였다면 착시가 kill조건에 걸렸을 것 — 상현님 지적이 실물로 증명됨.** 재현스크립트도 실험의 일부(선택자 틀리면 반증 틀림).
+- **⭐ 배포축 간극 확정(상현님 "배포관리 필드테스트 전혀 아니라고")**: Explore 조사 결과 — **`gil release`는 gil 도구 자신 배포**(blob대조·version표면)이고, 필드기대 "배포관리"는 **사용자 산출물(모델/서빙) 배포**(deploy/<semver> 태그·deployments.json 레지스터·live·rollback·supersede·체인당 live 1개 불변식). **`gil deploy` 명령 자체가 없음**(cut/rollback/current 서브액션 0, deployments.json 파일 0). #25가 요구했으나 C086의 `--cycle`(근거 사이클 링크) 한 조각만 착지. **우리가 memory:830에서 "성급히 안 굳힘, 실제 마찰 실증이 신호"라 미뤘는데 — 지금 그 마찰이 필드에서 실증됨.** #25 본문에 deployments.json 스키마·cut/list/current/rollback 요구 있음.
+- **다음(둘, 상현님 결정 대기)**: (1) **방법론 재설계**(gateway, 체인=작은문제정의·사이클DAG·회고→새체인, 진단추적) — 근본, 다른 LLM 강제용. (2) **(D) deploy 축**(#25, `gil deploy cut`·deploy/<chain>/<semver> 태그·deployments.json·live 불변식) — 필드 마찰 실증됨, 이제 열 신호. 둘 다 gil.py 대폭수정. 순서·범위 상현님과 정할 것.
