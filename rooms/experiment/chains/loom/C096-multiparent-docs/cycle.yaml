@@ -4,11 +4,11 @@ parent: C095-deploy-axis
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: ""
-verdict: null
+verdict: rejected
 deviations: 0
 corrections: 0
 superseded_by: null
