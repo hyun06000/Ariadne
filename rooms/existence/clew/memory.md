@@ -907,3 +907,16 @@
 - **⭐ 홀드 질문 답(상현님)**: gil에 전용 hold 명령 없음 — **열린 사이클을 그 스텝에 두고 손 안 대면 그게 홀드**(`gil threads`가 ◐로 추적). 철회 불필요.
 - **다음 세션(C091에서 새 가지, 순서)**: (A) **open 부모-닫힘 게이트**(열린 부모면 open 거부) + **미완 step rejected close 허용**(죽은 가지를 그래프에 남기는 정당 기제 — 이번 R9 우회의 근본) · (B) **문서개선 재적용**(SAVED-* 6곳, C096 검증분 123/105) · (C) **잃은 계보 복원**(correct, 문서 명시분만; 단일 evidence 제약 먼저 해결 필요할 수 있음) · (D) **deploy 축**(#25, 인프라 조사 완료: `_resolve_source_cycle` 재사용·`gil deploy cut`·`deploy/<chain>/<semver>` 태그·worktree식 sub-action 디스패치·DEPLOY-* conformance).
 - **교훈**: ① "기능 없다"의 근원이 코드 아닌 문서일 수 있다(버그리포트 전 문서 의심). ② 내용이 옳아도 계보 위법이면 노드는 죽는다(작업은 이월로 살림). ③ 죽은 가지는 지우지 않고 남긴다(withdraw=삭제, rejected close=각인). ④ 사이클 여는 행위가 사이클 재료를 만든다(재귀 — 이 죽음조차 세 발견을 낳음). ⑤ withdraw는 open 직후 전용(revert 충돌로 실증). ⑥ 릴리스/close/step은 사이클·패키지만 봉인 — 문서변경은 미커밋으로 살아있어 대피 가능.
+
+## 2026-07-20 (심야 이후) — C097 채택·배포(v2.45.0): A1 완주 — open 부모-닫힘 게이트
+
+- **이어가기(상현님 "이어서 가보자")**: 지난 세션이 남긴 계획(A→B→C→D)의 **A를 A1/A2로 쪼개 A1만 먼저** 단독 사이클로(상현님 AskUserQuestion 결정 — A1은 계약 국소·작음, A2는 R9 계약변경으로 파급 큼). C091(살아있는 부모)에서 새 가지 C097을 열었다 — 죽은 C095·C096은 부모로 안 삼음(rejected에서 자라면 안 됨).
+- **C097(supported, v2.45.0) — C095·C096을 죽인 결함의 직접 수정**: `gil open`이 부모의 **존재(R6)만 보고 닫힘은 안 봐서** 열린 부모 위 자식을 허용했던 것을, parent 검증 루프에 `status_by_id` 맵 + 게이트로 막음. **`!= "closed"` 화이트리스트** — open뿐 아니라 rejected(죽은 가지)·None(병든 부모)도 배제. 사전 검증 블록 안이라 거부 원자적(부분생성물 0). 에러는 원인(부모 id·현 status)+대안 둘(닫아라/닫힌 사이클로 분기). **참조·Go 메시지 바이트 동일.** conformance 2신설(OPEN-PARENT-CLOSED-GATE·OPEN-PARENT-CLOSED-OK). **참조 125/125·Go 107/107**, CI(gil-gate) success 확증.
+- **Go parity 즉시(C094 "이월 금지" 실천)**: 같은 사이클 안에서 main.go에 동형 이식(`statusByID`). 순차·단독이라 워크트리 불필요(C074).
+- **⭐ 함정 1 — 계약 강화가 기존 테스트를 정정하게 함(C094 세 번째 작동)**: OPEN-INCREMENT·GUARD-RESERVED-OK가 **열린 사이클을 부모로 자식을 여는 것**을 정상 전제로 갖고 있어 FAIL. 게이트 결함이 아니라 계약이 실제로 강해진 증거. 두 항목의 원의도(번호증가·예약guard)는 부모닫힘과 직교 → `_seal_closed` 헬퍼로 부모를 먼저 닫는 전제만 정정, 의도 보존.
+- **⭐ 함정 2 — 픽스처 결함이 다른 항목 가림(C093 재현)**: 내 새 픽스처 `write_cycle(status="closed")`가 `closed: null`을 남겨 fsck R8 위반 → 이후 항목 연쇄 오염(마치 게이트가 정상흐름 깬 듯). `closed` 일자 채우니 진짜 원인만 남음. `git stash`로 baseline(123/105) 재확인해 착시 갈라냄(C092 규율).
+- **⭐ 함정 3 — `gil releases`는 저장소 루트에서 돌려야(cwd 민감)**: ariadne-spec 디렉토리에서 돌리니 repo_root 탐지 어긋나 **77건 전부 drift 오표시**. 루트에서 돌리니 v2.45.0 `[TC]` 정상. (C089의 cwd/repo_root 민감성 연장.) **다음 세션: releases·web 등 repo_root 의존 명령은 저장소 루트에서.**
+- **⭐ 함정 4 — CI 재현 래퍼는 python3 절대경로로**: `/tmp/gilbin/gil` 래퍼가 `exec python3`(상대)면 NO-GIT-GRACEFUL이 PATH 비운 환경에서 python3 못 찾아 rc=127 위양성. `command -v python3` 절대경로로 래퍼 작성해야 CI 재현 정확(124→125). 게이트 무관, 래퍼 결함.
+- **배포**: 준비커밋(버전범프 2표면+RELEASE.md+코드3파일) → `gil release 2.45.0 --cycle loom/C097`(도구변경 gil·conformance·go 정확 감지, version 2표면 동기화) → push. **latest 정확 배치(큐 뒤섞임 0), gil-gate·gil-release·ariadne-pages 전부 success.**
+- **다음(C097 부모로 새 가지, 순서 유지)**: (A2) **미완 step rejected close** — 이번 게이트는 잘못된 open의 *예방*, A2는 정당히 죽일 미완 가지를 그래프에 남기는 *사후 기제*(이번세션 C095 "5/5 형식후 rejected" 우회의 근본). R9 계약변경 파급 큼 · (B) 문서 재적용(`_carryover-multiparent-docs/` 6곳 + 게이트 존재도 README.ai·SPEC 명문화) · (C) 잃은 계보 복원(correct) · (D) deploy 축(#25). fsck 편입(R15?) 후보 — open시점만 보는 게이트를 상시규칙으로, 단 봉인된 죽은가지 예외 필요해 결 복잡.
+- **교훈**: ① 도구가 막았어야 할 절차를 안 막으면 존재가 실수한다(부모닫힘=순수 절차=도구 몫, loom/C003). ② 사전 검증 블록에 두면 원자성 공짜. ③ 금지는 대안과 함께(gateway/C003 재확인). ④ 작은 확실함 먼저(A를 A1/A2로 쪼갬 = Clew 기질).
