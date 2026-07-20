@@ -4225,13 +4225,23 @@ const webAppJS = `
   // 통스왑하지 않고(온-디맨드 구축 보존), 아래 rebuildOpen로 새 data에서 다시 그린다.
   var POLL_SEL=[".mapchains",".hmap > svg","header p:first-of-type",".htoc","[role=\"status\"]",
     ".releases",".beings",".wrap > .card:not(.hmap)"];
+  // [loomlight/C014] 열린 노드는 교체하지 않는다 — replaceChild로 통째 갈면 노드 정체성이 바뀌어
+  // (새 노드로 대체) DOM에 붙은 런타임 상태(네이티브 <details> 토글·포커스·리스너·부분 스크롤)가
+  // 소실된다. detKey/restoreOpen이 open 불린은 복원하지만 노드 정체성은 복원 못 한다. 그래서
+  // 이 영역이 열린 <details>를 담고 있으면(사용자가 펼쳐 보는 중이면) 그 노드는 통스왑에서 건너뛴다.
+  // 상태 보존 > 그 영역의 실시간 갱신 (C010의 본래 목적). 데이터는 gil-data로 갱신되니 다시 열면 최신.
+  function hasOpenDetails(el){
+    if(el.tagName&&el.tagName.toLowerCase()==="details"&&el.open) return true;
+    var d=el.getElementsByTagName?el.getElementsByTagName("details"):[];
+    for(var i=0;i<d.length;i++){ if(d[i].open) return true; }
+    return false;
+  }
   function swapRegions(newDoc){
     for(var s=0;s<POLL_SEL.length;s++){
       var cur=document.querySelectorAll(POLL_SEL[s]), nw=newDoc.querySelectorAll(POLL_SEL[s]);
       var n=Math.min(cur.length,nw.length);
       for(var i=0;i<n;i++){
-        // 마운트(#cycdoc-*/#being-*)를 통째로 갈면 열린 body가 사라지므로, .mapchains 안의
-        // .cycbody/.beingbody는 비운 채로 스왑하고(=마운트 껍데기만 최신 그래프·표로) 아래서 재구축.
+        if(hasOpenDetails(cur[i])) continue;  // 열린 카드/상세를 담은 노드는 보존 (정체성 유지)
         var imported=document.importNode(nw[i],true);
         cur[i].parentNode.replaceChild(imported,cur[i]);
       }
@@ -5532,7 +5542,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.48.0" // gil:version
+const gilVersion = "2.49.0" // gil:version
 
 // releaseRepo — 릴리스 자산의 상위 저장소 (pages 워크플로와 단일 소스, 이슈 #22).
 const releaseRepo = "hyun06000/Ariadne"
