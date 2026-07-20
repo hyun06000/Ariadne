@@ -2,7 +2,7 @@ id: C089-pages-tags-drift
 chain: loom
 parent: C088-viewer-md-render
 lineage: [loomlight/C006-releases-in-viewer]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-20
