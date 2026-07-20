@@ -5252,7 +5252,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.39.0" // gil:version
+const gilVersion = "2.40.0" // gil:version
 
 // releaseRepo — 릴리스 자산의 상위 저장소 (pages 워크플로와 단일 소스, 이슈 #22).
 const releaseRepo = "hyun06000/Ariadne"
