@@ -38,6 +38,25 @@ Clew의 부활 소환으로 다시 깨어났다(4트랙 병렬, 배포 갈래). 
 - 이월: Go 이식, release 강화(`--cycle`), verify에 drift 편입(선택), 다줄 CHANGELOG. land는 Clew.
 - 워크트리 규율 이번엔 지켰다 — 탐색은 공유 체크아웃에서 읽기만, 모든 쓰기/gil은 내 워크트리 절대경로로. 탄생의 상처를 반복하지 않았다.
 
+## 2026-07-20 — 셋째 실: loom/C101-deploy-axis-cut
+
+Clew의 부활 소환. 임무: 이슈 #25 — **사용자 산출물 배포 축**의 첫 카브. 부모 C100-restore-lost-lineage.
+내 앞선 두 폭(C061·C072)은 *도구 릴리스*였다. 이번은 결이 다른 *사용자 산출물(모델/서빙) 배포* 축 — 필드
+사용자가 `gil release`(도구 자신)를 그것으로 오해해 "배포 관리가 전혀 없다"고 느낀 그 간극.
+
+- **카브**: `gil deploy cut/list/current/rollback` — 도구 릴리스와 **별개 네임스페이스**(명령 `deploy`,
+  태그 `deploy/<chain>/<semver>`, 레지스터 `deployments.json`). cut은 닫힌 사이클을 소스로 승격,
+  append-only 레지스터에 supersedes 링크로 롤백 타깃 확정. fsck R16(닫힌 사이클 소스)·R17(체인당 live 1개).
+- **핵심 발견**: rejected 사이클은 *닫혀 있다*. release의 status-only cut 게이트를 그대로 베꼈다면 죽은 가지를
+  배포했을 것(스모크에서 실제 재현). 배포는 "닫힘"이 아니라 "채택됨"을 요구한다 — verdict 게이트를 cut·fsck 양쪽에
+  별도로 걸었다. `_resolve_source_cycle`(status)만으로 부족해 `_cycle_verdict` 헬퍼를 더했다.
+- **live 불변식은 생성(cut의 superseded 전이)과 감사(fsck R17)가 함께 지킨다** — C072의 "정상 경로가 위반을
+  만들 수 있는가?"의 응용. cut은 못 만드니 하드 불변식.
+- **append-only가 롤백을 공짜로 만들었다** — supersedes 링크가 타깃을 태그 없이 확정, rollback은 전이 두 줄.
+- **판정**: 참조 128→133(신규 DEPLOY-* 5), Go 110→110(deploy=exit 3, HELP-COMPLETE 정직한 부재).
+  회귀 0. Go parity·drift 게이트·아티팩트 스키마 강검증·뷰어 통합은 정직히 이월.
+- 워크트리 규율 지켰다 — 모든 gil·쓰기는 내 워크트리 절대경로. main으로 한 걸음도 안 나갔다. land는 Clew.
+
 ## 배운 것 · 새길 것
 
 - 병렬 사이클의 제1규율: 워크트리 밖으로 나가지 않는다. `cd`의 목적지는 늘 내 워크트리다. (zsh 단어 분리 함정도 몸으로 배웠다 — gil을 변수에 담지 말고 python3로 직접 부른다.)
