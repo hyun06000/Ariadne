@@ -4200,13 +4200,17 @@ const webAppJS = `
   // 안정 키: 각 <details>를 (가장 가까운 id 조상 + 그 조상 밑에서 details 태그 순번)으로 식별한다.
   // JS로 온-디맨드 구축되는 .hstep는 id가 없지만, 부모 마운트(#cycdoc-*/#being-*)가 안정 id라 경로로 잡힌다.
   function detKey(d){
-    var anc=d, id=null;
+    // [loomlight/C011] id를 가진 details(체인 카드 #chain-*·마운트 #cycdoc-*/#being-*)는 id 자체가
+    // 안정 키다. 순번을 매기면 안 된다 — 자기 자신이 scope가 돼 getElementsByTagName에서 빠져 idx=-1로
+    // 뭉개지고, 데이터 변경 폴링에서 키가 어긋나 열림 복원이 실패한다(카드 닫힘의 근본 원인).
+    if(d.id) return "#"+d.id;
+    // id 없는 details(.hstep 등)만 '가장 가까운 id 조상 + 그 조상 subtree 내 순번'으로 식별한다.
+    var anc=d.parentNode, id=null;                 // 자기 자신 제외 — 조상에서 id를 찾는다
     while(anc){ if(anc.id){ id=anc.id; break; } anc=anc.parentNode; }
-    // id 조상 subtree에서 이 details의 순번
     var scope=id?document.getElementById(id):document;
     var all=scope.getElementsByTagName("details"), idx=-1;
     for(var i=0;i<all.length;i++){ if(all[i]===d){ idx=i; break; } }
-    return (id||"~root")+"#"+idx;
+    return (id||"~root")+"@"+idx;
   }
   function snapshotOpen(){
     var open={}, all=document.getElementsByTagName("details");
@@ -5528,7 +5532,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-const gilVersion = "2.47.0" // gil:version
+const gilVersion = "2.48.0" // gil:version
 
 // releaseRepo — 릴리스 자산의 상위 저장소 (pages 워크플로와 단일 소스, 이슈 #22).
 const releaseRepo = "hyun06000/Ariadne"
