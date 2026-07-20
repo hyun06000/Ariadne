@@ -2,7 +2,7 @@ id: C013-polling-bisect-refresh-off
 chain: loomlight
 parent: C012-polling-card-closes-live
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-20
