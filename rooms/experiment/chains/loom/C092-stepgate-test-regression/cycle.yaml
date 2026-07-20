@@ -2,7 +2,7 @@ id: C092-stepgate-test-regression
 chain: loom
 parent: C090-step-gate-sequential
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-20
