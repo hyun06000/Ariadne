@@ -3723,8 +3723,8 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy b
 	if only != "" {
 		chainVal = jsonStr(only)
 	}
-	bakeExtra := "" // v0.5 (loom/C049): refresh는 있을 때만 (C043) — 무리프레시 바이트 동일
-	if refresh > 0 {
+	bakeExtra := "" // [loom/C094 ← C085] "명시적 끔(0)"과 "말 안 함(-1)"을 구별: 0 이상이면 기록(재굽기가 옵트아웃 보존)
+	if refresh >= 0 {
 		bakeExtra = `, "refresh": ` + strconv.Itoa(refresh)
 	}
 	// v2.16 (loomlight/C003): hierarchy — 있을 때만, refresh 뒤에 (참조 dict 순서와 동일). 무옵션 바이트 동일.
@@ -4984,6 +4984,7 @@ func cmdPages(root, output string, force, dryRun bool) error {
 }
 
 const webDefaultTitle = "Ariadne — 사이클 체인" // 뷰어 기본 제목 (단일 소스)
+const webDefaultRefresh = 5                      // [loom/C094 ← C085] 실시간 자동 리로드 기본 주기(초), 옵트아웃 --refresh 0
 
 // bakeViewer: 뷰어 하나를 굽는다 (cmdWeb과 자동 갱신의 단일 소스).
 func bakeViewer(chainsRoot, output, title, only string, refresh int, hierarchy bool) (int, error) {
@@ -5114,6 +5115,7 @@ func findViewers(root string) [][2]string {
 // refresh(loom/C049)도 함께 읽어 자동 재굽기가 자동 리로드를 보존하게 한다.
 func bakeMeta(text string) (title, only string, refresh int, hierarchy bool) {
 	title = webDefaultTitle
+	refresh = webDefaultRefresh // [loom/C094 ← C085] 데이터 없으면 실시간 기본 (구버전/무데이터 뷰어도 자동 리로드)
 	m := regexp.MustCompile(`(?s)id="gil-data">(.*?)</script>`).FindStringSubmatch(text)
 	if m == nil {
 		return
@@ -5122,7 +5124,7 @@ func bakeMeta(text string) (title, only string, refresh int, hierarchy bool) {
 		Bake struct {
 			Title     string  `json:"title"`
 			Chain     *string `json:"chain"`
-			Refresh   int     `json:"refresh"`
+			Refresh   *int    `json:"refresh"` // [loom/C094 ← C085] 포인터: 키 부재(nil=구버전 뷰어) vs 명시적 0(끔) 구별
 			Hierarchy bool    `json:"hierarchy"` // loomlight/C003: 자동 재굽기가 위계 드릴다운을 잃지 않게 한다
 		} `json:"bake"`
 	}
@@ -5135,7 +5137,12 @@ func bakeMeta(text string) (title, only string, refresh int, hierarchy bool) {
 	if payload.Bake.Chain != nil {
 		only = *payload.Bake.Chain
 	}
-	refresh = payload.Bake.Refresh
+	// [loom/C094 ← C085] refresh 키가 없으면(구버전 뷰어) 기본값으로 실시간을 준다. 명시적 0은 그 0을 존중.
+	if payload.Bake.Refresh == nil {
+		refresh = webDefaultRefresh
+	} else {
+		refresh = *payload.Bake.Refresh
+	}
 	hierarchy = payload.Bake.Hierarchy
 	return
 }
@@ -5898,7 +5905,12 @@ func main() {
 		if len(pos) == 1 {
 			root = pos[0]
 		}
-		refresh, _ := strconv.Atoi(flagVal(flags, "refresh", "0"))
+		// [loom/C094 ← C085] 실시간 자동 리로드를 기본값으로. 미지정 → 5초, --refresh 0으로 옵트아웃.
+		// "명시적 끔(0)"과 "말 안 함"을 구별해야 재굽기가 옵트아웃을 되돌리지 않는다(bake에 0도 기록).
+		refresh := webDefaultRefresh
+		if len(flags["refresh"]) > 0 {
+			refresh, _ = strconv.Atoi(flagVal(flags, "refresh", "0"))
+		}
 		interval, _ := strconv.Atoi(flagVal(flags, "interval", "0"))
 		if err := cmdWeb(webArgs{
 			root:     root,
