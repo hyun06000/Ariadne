@@ -849,3 +849,12 @@
 - **배포 v2.39.0**: C087+C088 gil.py 변경을 한 릴리스로(마이너), `--cycle` 둘 명시(dogfooding — releases에 근거 2개 판독). 회귀 0(무이미지 저장소 images 키 부재).
 - **헤드리스 검증 재현 커맨드(다음 세션 유용)**: 실제 뷰어 굽고 `</body>` 앞에 드라이버 주입(load→hash로 cycdoc 열기→.mdtoggle click→결과를 document.title에 encodeURIComponent) → `chrome --headless --virtual-time-budget=3000 --dump-dom`. 함수만 추출해 테스트하면 renderMd 중첩 `}` 때문에 정규식 추출이 깨짐 → 실제 뷰어 통째로 여는 게 확실.
 - **다음 분기 후보**: (A) **뷰어 Go parity** — C087·C088 모두 참조전용, Go 이월(3연작 C063 이후 뷰어 Go 이식 밀림) · (B) MD 파서 강건화(중첩리스트·`<`/`&` 인라인·펜스 언어힌트) · (C) 토글 상태 기억. #25·C003 파생·이월분 유지.
+
+## 2026-07-20 — C089: github.io 뷰어 "CHANGELOG만" 오표시 수정, v2.40.0
+
+- **상현님**: "길 뷰어에 모든 버전이 '⚠ CHANGELOG만'이라 적혀있다." 진단: **CLI `gil releases`·로컬 `gil web`은 전부 `[TC]` 정상**(태그 71개)인데 **github.io만** 오표시 → CI 원인. `actions/checkout@v4`는 기본 shallow·태그 미포함 → CI 빌드가 태그 0 → 전 릴리스 in_tag=False.
+- **C089(supported, v2.40.0)**: 두 층. ① `_PAGES_WORKFLOW`에 `fetch-depth: 0`(근본) ② `_build_releases_data`가 `tags_readable`(tags None or {} → False)를 담고 `_render_releases_panel`이 False면 drift 배지 억제(방어선, CLI cmd_releases의 git_absent를 뷰어에 이식). 진짜 drift(태그 읽힘+특정버전 없음)는 유지. 세 시나리오(태그있음/CI모사/진짜drift) 통과.
+- **⭐ 배포 후 중대 발견(다음 세션 필수)**: **이 저장소의 실제 pages 워크플로는 `.github/workflows/ariadne-pages.yml`(손수 작성)이지 gil pages 템플릿(`_PAGES_WORKFLOW`)이 아니다.** C089가 템플릿만 고쳤어서 실제 github.io는 안 고쳐질 뻔 → `ariadne-pages.yml`에도 fetch-depth:0 직접 추가·커밋(f0a5c44). **교훈: "gil이 만드는 워크플로 템플릿"과 "이 저장소가 실제 쓰는 워크플로 파일"은 다르다 — 인프라 수정은 실제 파일을 확인해야.** (.github/workflows/: ariadne-pages·gil-gate·gil-release 3개 손수 작성.)
+- **미완(다음 세션 확인)**: fetch-depth 커밋(f0a5c44)의 ariadne-pages 빌드가 세션 종료 시 queued였다(GitHub 러너 대기 + API 503 일시). **빌드 완료 후 github.io에서 drift 오표시가 실제로 사라졌는지 눈으로 확인 필요.** 안 됐으면 재조사.
+- **헤드리스 Chrome 검증 자산**: 이번에도 뷰어 렌더/데이터 확인에 `gil web`으로 굽고 gil-data JSON 파싱(`data["releases"]["entries"]`의 in_tag). 순수 Python 헬퍼(`_build_releases_data`·`_render_releases_panel`) 직접 호출로 세 시나리오 단위검증 가능(브라우저 불필요했음).
+- **다음 분기 후보**: C089 (A)Go parity·(B)배포후 github.io drift 스모크 + 위 미완 확인. 뷰어 Go parity 누적(C087·C088·C089 전부 참조전용).
