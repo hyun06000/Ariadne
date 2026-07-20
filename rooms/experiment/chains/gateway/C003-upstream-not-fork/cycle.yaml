@@ -4,11 +4,11 @@ parent: C002-user-facing-onboarding
 lineage: [loom/C086-release-cycle-source]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-20
 title: "필드 LLM에게 gil 우회(포크·래퍼) 대신 이슈를 못 박는다 — 온보딩 철칙"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
