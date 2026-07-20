@@ -1,0 +1,11 @@
+--- README.ai.md	2026-07-20 14:53:03
++++ /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/f2258afc-6558-4e98-933e-b40b134bd8fc/scratchpad/SAVED-README.ai.md	2026-07-20 14:53:03
+@@ -99,7 +99,7 @@
+ ./gil close <problem-area> C001-<slug> --git    # commit + tag cycle/…; closed cycles are IMMUTABLE
+ ```
+ 
+-The report is the parent of the next cycle. Open the next with `--parent C001-<slug>` — **this is required, not optional**: once a chain is non-empty, `gil open` refuses to guess a parent (add `--lineage <otherchain>/<id>` for a cross-chain lesson). This is how the chain grows.
++The report is the parent of the next cycle. Open the next with `--parent C001-<slug>` — **this is required, not optional**: once a chain is non-empty, `gil open` refuses to guess a parent. For a **merge** (a cycle descending from two or more prior cycles *in the same chain*), repeat the flag: `--parent A --parent B` → stored as `parent: [A, B]`. Use `--lineage <otherchain>/<id>` **only** for a lesson from a *different* chain — a same-chain second parent goes in `--parent`, not `--lineage` (R3 rejects same-chain lineage). This is how the chain grows and how branches merge.
+ 
+ ## Step C.1 — Explain to the human what just happened (and how they can follow along)
+ 

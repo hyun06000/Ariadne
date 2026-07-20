@@ -1,0 +1,11 @@
+--- rooms/deployment/ariadne-spec/go/main.go	2026-07-20 14:53:03
++++ /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/f2258afc-6558-4e98-933e-b40b134bd8fc/scratchpad/SAVED-main.go	2026-07-20 14:53:03
+@@ -949,7 +949,7 @@
+ 			tip = tips[len(tips)-1]
+ 		}
+ 		return cerr("체인 '%s'에 이미 사이클이 있다 (tip: %s) — 부모를 알 수 없다 (§3.2 P2).\n"+
+-			"      부모를 명시하라:  --parent %s   (분기면 여러 번)\n"+
++			"      부모를 명시하라:  --parent %s   (분기·병합이면 여러 번; 같은 체인의 둘째 부모도 --parent)\n"+
+ 			"      정말 새 루트라면:  --new-root", a.chain, tip, tip)
+ 	}
+ 	for _, p := range a.parents {
