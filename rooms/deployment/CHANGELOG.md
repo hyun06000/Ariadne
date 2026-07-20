@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.39.0] — 2026-07-20
+
+- 뷰어: 헤더에 gil 버전 표시 + 스텝 문서 마크다운 렌더 토글(이미지 base64 임베드, 기본 원문) — WEB-MD-RENDER (loom/C087·C088)
+- 도구 변경: gil·conformance (마이너 이상 승격)
+- 근거 사이클: loom/C087-viewer-gil-version, loom/C088-viewer-md-render
+
+
 ## [2.38.0] — 2026-07-20
 
 - 온보딩 철칙: gil을 포크·래핑하지 말고 이슈로 (README.ai.md Iron rules + QUICKSTART, 문서 릴리스)
