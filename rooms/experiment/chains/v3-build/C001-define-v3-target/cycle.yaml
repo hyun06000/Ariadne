@@ -1,0 +1,14 @@
+id: C001-define-v3-target
+chain: v3-build
+parent: null
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "gil v3의 목표를 기술하고 첫 문제를 정한다 — v2로 v3를 짓는다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
