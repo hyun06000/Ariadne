@@ -4553,21 +4553,26 @@ func renderCycleGraphH(name string, ch *webChain) string {
 		if len(meta.lineage) > 0 {
 			tip += "  ⇠ " + strings.Join(meta.lineage, ", ")
 		}
-		linTxt := ""
-		if len(meta.lineage) > 0 {
-			first := meta.lineage[0]
-			if i := strings.IndexByte(first, '/'); i >= 0 {
-				first = first[i+1:]
-			}
-			more := ""
-			if len(meta.lineage) > 1 {
-				more = fmt.Sprintf(" +%d", len(meta.lineage)-1)
-			}
-			linTxt = fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="9.5" fill="var(--lineage)">⇠ %s%s</text>`,
-				x, y+hR+28, htmlEscape(first), more)
+		// [loom/C091] 노드 입출력 마커 — lineage=위로 들어오는 초록 화살표, 배포=아래로 나가는 파랑 화살표.
+		markers := ""
+		if len(meta.lineage) > 0 { // 노드 위: 점 → 관통 → 화살촉 팁이 노드 상단(y-hR)
+			linTip := htmlEscape("⇠ lineage: " + strings.Join(meta.lineage, ", "))
+			dotY, tailY, headTop := y-hR-13, y-hR-10, y-hR-4
+			markers += fmt.Sprintf(`<g class="niom lin"><title>%s</title><circle cx="%d" cy="%d" r="2.6" fill="var(--lineage)"/><path d="M%d,%d V%d" stroke="var(--lineage)" stroke-width="1.6"/><path d="M%d,%d l3,4 l3,-4" fill="none" stroke="var(--lineage)" stroke-width="1.6" stroke-linejoin="round"/></g>`,
+				linTip, x, dotY, x, tailY, y-hR, x-3, headTop)
 		}
-		p.WriteString(fmt.Sprintf(`<a href="#cycdoc-%s" class="gnode"><title>%s</title>%s<text x="%d" y="%d" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--ink-2)">%s</text>%s</a>`,
-			htmlEscape(name+"-"+cid), htmlEscape(tip), shape, x, y+hR+14, htmlEscape(num), linTxt))
+		if meta.releasedIn != nil { // 노드 아래: 노드 하단(y+hR) → 관통 → 화살촉 → 점
+			relTip := htmlEscape("⚑ 배포: v" + *meta.releasedIn)
+			headTop, dotY := y+hR+4, y+hR+13
+			markers += fmt.Sprintf(`<g class="niom rel"><title>%s</title><path d="M%d,%d V%d" stroke="var(--node)" stroke-width="1.6"/><path d="M%d,%d l3,4 l3,-4" fill="none" stroke="var(--node)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="%d" cy="%d" r="2.6" fill="var(--node)"/></g>`,
+				relTip, x, y+hR, dotY, x-3, headTop, x, dotY)
+		}
+		numY := y + hR + 20
+		if meta.releasedIn != nil {
+			numY = y + hR + 28
+		}
+		p.WriteString(fmt.Sprintf(`<a href="#cycdoc-%s" class="gnode"><title>%s</title>%s%s<text x="%d" y="%d" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--ink-2)">%s</text></a>`,
+			htmlEscape(name+"-"+cid), htmlEscape(tip), shape, markers, x, numY, htmlEscape(num)))
 	}
 	p.WriteString("</svg>")
 	return p.String()

@@ -848,6 +848,17 @@ def main():
           cr_ok and rcr.returncode == 0 and rel_ok and badge_ok,
           f"rel_ok={rel_ok} badge={badge_ok} rc={rcr.returncode} C1={cyc.get('C001-early',{}).get('released_in')} C2={cyc.get('C002-late',{}).get('released_in')}")
 
+    # WEB-NODE-IO (loom/C091): 가로 그래프 노드에 배포(released_in)는 아래로 나가는 파랑 화살표(niom rel),
+    # lineage는 위로 들어오는 초록 화살표(niom lin)로 표시한다 — 방향이 의미(나감/들어옴). 배포된 사이클이
+    # 있는 croot이므로 배포 마커가 존재해야 하고, 옛 초록 긴 글자(⇠ 이름)는 그래프에서 사라져야 한다.
+    node_io_ok = ('class="niom rel"' in pagecr          # 배포 화살표 존재
+                  and 'class="niom lin"' not in pagecr  # 이 저장소엔 lineage 없음 → lin 마커 없음(지어냄 0)
+                  and "⚑ 배포: v1.0.0" in pagecr)        # 호버 툴팁에 배포 버전
+    check("WEB-NODE-IO",
+          "노드 입출력 마커: 배포=아래로 나가는 화살표(released_in) + 호버 툴팁 · lineage 없으면 마커도 없음(지어냄 0)",
+          rcr.returncode == 0 and node_io_ok,
+          f"node_io_ok={node_io_ok}")
+
     # WEB-REFRESH (loom/C049): --refresh N → meta refresh(브라우저 자동 리로드) + bake 기록, 자기완결 유지.
     # 새로고침 없는 실시간 관찰의 계약면. --refresh 없으면 meta 없음(하위호환은 WEB-JSON이 커버).
     outr = os.path.join(work, "chains-refresh.html")

@@ -1263,6 +1263,8 @@ def _build_releases_data(chains_root):
             "note": cl[v]["note"] if in_cl else (tags[v]["subject"] if in_tag else ""),
             "tools": cl[v]["tools"] if in_cl else "",
             "in_tag": in_tag, "in_changelog": in_cl,
+            # [loom/C091 ← C086] 근거 사이클(이 배포를 낳은 끝단 사이클) — 배포 패널에서 그 사이클로 링크.
+            "cycles": (cl[v].get("cycles") or "") if in_cl else "",
         })
     # tags_readable=False면 뷰어가 drift 배지를 억제한다(태그 대조 불가 → 오탐 방지).
     return {"current": _GIL_VERSION, "entries": entries, "tags_readable": tags_readable}
@@ -1647,6 +1649,9 @@ _WEB_HIER_CSS = """
 .gil .rdate{color:var(--muted);font-size:12px;min-width:82px}
 .gil .rnote{flex:1 1 240px}
 .gil .rtools{color:var(--muted);font-size:11px;flex-basis:100%}
+.gil .rcycs{font-size:11px;flex-basis:100%;color:var(--muted)}
+.gil a.rcyc{color:var(--node);text-decoration:none;font-weight:600;margin-right:8px;white-space:nowrap}
+.gil a.rcyc:hover{text-decoration:underline}
 .gil .rdrift{color:var(--supersede);font-size:11px;font-weight:600}
 .gil .relempty{color:var(--muted);font-size:13px}
 .gil .relmore{margin-top:8px}
@@ -1843,16 +1848,32 @@ def _render_cycle_graph_h(name, chain):
         st = meta.get("status") or "?"  # statusText 의미 — Go(statusText)와 비트 동일
         tip = html.escape(f"{cid} [{st}{vtip}] {meta.get('title') or ''}"
                           + (f"  ⇠ {', '.join(lin)}" if lin else ""))
-        lin_txt = ""
-        if lin:
-            first = lin[0].split("/", 1)[1] if "/" in lin[0] else lin[0]
-            more = f" +{len(lin) - 1}" if len(lin) > 1 else ""
-            lin_txt = (f'<text x="{x}" y="{y + _H_R + 28}" text-anchor="middle" font-size="9.5" '
-                       f'fill="var(--lineage)">⇠ {html.escape(first)}{more}</text>')
+        # [loom/C091] 노드 입출력 마커 — lineage=위로 들어오는 초록 화살표, 배포=아래로 나가는 파랑 화살표.
+        # 방향이 의미(교훈이 들어옴 / 프로덕션으로 나감). 이름 대신 호버 <title>·클릭 상세로 전체 정보.
+        markers = ""
+        if lin:  # 노드 위: 점 → 아래로 관통 → 화살촉 팁이 노드 상단(y-_H_R)에 붙음
+            lin_tip = html.escape("⇠ lineage: " + ", ".join(lin))
+            dot_y, tail_y, head_top = y - _H_R - 13, y - _H_R - 10, y - _H_R - 4
+            markers += (f'<g class="niom lin"><title>{lin_tip}</title>'
+                        f'<circle cx="{x}" cy="{dot_y}" r="2.6" fill="var(--lineage)"/>'
+                        f'<path d="M{x},{tail_y} V{y - _H_R}" stroke="var(--lineage)" stroke-width="1.6"/>'
+                        f'<path d="M{x - 3},{head_top} l3,4 l3,-4" fill="none" stroke="var(--lineage)" '
+                        f'stroke-width="1.6" stroke-linejoin="round"/></g>')
+        rel = meta.get("released_in")
+        if rel:  # 노드 아래: 노드 하단(y+_H_R) → 관통 → 화살촉 → 점
+            rel_tip = html.escape(f"⚑ 배포: v{rel}")
+            head_top, dot_y = y + _H_R + 4, y + _H_R + 13
+            markers += (f'<g class="niom rel"><title>{rel_tip}</title>'
+                        f'<path d="M{x},{y + _H_R} V{dot_y}" stroke="var(--node)" stroke-width="1.6"/>'
+                        f'<path d="M{x - 3},{head_top} l3,4 l3,-4" fill="none" stroke="var(--node)" '
+                        f'stroke-width="1.6" stroke-linejoin="round"/>'
+                        f'<circle cx="{x}" cy="{dot_y}" r="2.6" fill="var(--node)"/></g>')
+        # 노드 번호는 마커 아래로 (배포 화살표가 아래를 쓰므로 항상 그 밑에 — 위치 일관).
+        num_y = y + _H_R + (28 if rel else 20)
         p.append(f'<a href="#cycdoc-{html.escape(name + "-" + cid)}" class="gnode">'
-                 f'<title>{tip}</title>{shape}'
-                 f'<text x="{x}" y="{y + _H_R + 14}" text-anchor="middle" font-size="10.5" '
-                 f'font-weight="600" fill="var(--ink-2)">{num}</text>{lin_txt}</a>')
+                 f'<title>{tip}</title>{shape}{markers}'
+                 f'<text x="{x}" y="{num_y}" text-anchor="middle" font-size="10.5" '
+                 f'font-weight="600" fill="var(--ink-2)">{num}</text></a>')
     p.append("</svg>")
     return "".join(p)
 
@@ -2223,9 +2244,17 @@ def _render_releases_panel(releases):
             drift = f'<span class="rdrift">⚠ {which}</span>'
         tools = html.escape(e.get("tools") or "")
         tools_html = f'<span class="rtools">도구: {tools}</span>' if tools else ""
+        # [loom/C091 ← C086] 근거 사이클 링크 — 이 배포를 낳은 끝단 사이클로 점프(#cycdoc-<chain>-<id>).
+        cycles_html = ""
+        cyc_refs = [c.strip() for c in (e.get("cycles") or "").split(",") if c.strip()]
+        if cyc_refs:
+            chips = "".join(
+                f'<a class="rcyc" href="#cycdoc-{html.escape(ref.replace("/", "-"))}">⚑ {html.escape(ref)}</a>'
+                for ref in cyc_refs)
+            cycles_html = f'<span class="rcycs">근거: {chips}</span>'
         return (f'<li class="rel"><span class="rver">v{v}</span>'
                 f'<span class="rdate">{html.escape(e.get("date") or "")}</span>{drift}'
-                f'<span class="rnote">{html.escape(e.get("note") or "")}</span>{tools_html}</li>')
+                f'<span class="rnote">{html.escape(e.get("note") or "")}</span>{tools_html}{cycles_html}</li>')
 
     # [loomlight/C008] 최신 N개만 항상 표시, 나머지는 <details>로 접는다 (상현님 피드백: 65개가 무겁다).
     # ≤N이면 details 없이 전부 (소수 저장소 기존과 동일). JS 0 — 네이티브 details.
