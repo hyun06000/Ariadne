@@ -1,0 +1,7 @@
+[
+  {"sleep_ms": 3500},
+  {"eval": "(function(){var r=performance.getEntriesByType('resource');window.__base=r.length;return 'baseline resources: '+r.length;})()"},
+  {"eval": "(function(){var gd=document.getElementById('gil-data');var d=JSON.parse(gd.textContent);return 'bake.refresh='+(d.bake?d.bake.refresh:'NONE');})()"},
+  {"sleep_ms": 7000},
+  {"eval": "(function(){var r=performance.getEntriesByType('resource');var fetches=r.filter(function(e){return e.name.indexOf(location.pathname)>=0||e.name===location.href;});return JSON.stringify({totalResourcesNow:r.length, base:window.__base, newSincePoll:r.length-window.__base, selfFetches:fetches.length});})()"}
+]

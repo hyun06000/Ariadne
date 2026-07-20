@@ -1,0 +1,9 @@
+[
+  {"sleep_ms": 3500},
+  {"eval": "(function(){var s=document.querySelector('#chain-loom > summary');if(!s)return 'NO SUMMARY';s.click();var t=document.getElementById('chain-loom');return JSON.stringify({method:'real-click',opened:t.open});})()"},
+  {"eval": "JSON.stringify({PRE_loomOpen:document.getElementById('chain-loom').open, PRE_openCount:document.querySelectorAll('details.hchain[open]').length})"},
+  {"sleep_ms": 6500},
+  {"eval": "JSON.stringify({AFTER_1poll_loomOpen:document.getElementById('chain-loom').open, AFTER_1poll_openCount:document.querySelectorAll('details.hchain[open]').length})"},
+  {"sleep_ms": 6000},
+  {"eval": "JSON.stringify({AFTER_2poll_loomOpen:document.getElementById('chain-loom').open})"}
+]

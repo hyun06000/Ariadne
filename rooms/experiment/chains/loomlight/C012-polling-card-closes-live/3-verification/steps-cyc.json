@@ -1,0 +1,12 @@
+[
+  {"sleep_ms": 3500},
+  {"eval": "(function(){document.querySelector('#chain-loom > summary').click();return 'chain opened';})()"},
+  {"sleep_ms": 300},
+  {"eval": "(function(){var a=document.querySelector('#chainbody-loom a.gnode, #chainbody-loom a.mnode, #chain-loom a.gnode, #chain-loom a.mnode');if(!a)return 'NO NODE LINK in loom';a.click();return 'clicked node: '+a.getAttribute('href');})()"},
+  {"sleep_ms": 400},
+  {"eval": "(function(){var oc=document.querySelectorAll('.cycdoc[open]');var cb=document.querySelector('.cycdoc[open] .cycbody');return JSON.stringify({openCycdocs:oc.length, firstOpenId:oc[0]?oc[0].id:'none', cycbodyFilled:cb?cb.children.length>0:'n/a'});})()"},
+  {"eval": "(function(){var s=document.querySelector('.cycdoc[open] .cycbody details.hstep > summary');if(s){s.click();}return 'step click: '+!!s;})()"},
+  {"eval": "JSON.stringify({PRE_openCycdocs:document.querySelectorAll('.cycdoc[open]').length, PRE_openSteps:document.querySelectorAll('.cycdoc[open] .cycbody details.hstep[open]').length})"},
+  {"sleep_ms": 6500},
+  {"eval": "JSON.stringify({POST_openCycdocs:document.querySelectorAll('.cycdoc[open]').length, POST_openSteps:document.querySelectorAll('.cycdoc[open] .cycbody details.hstep[open]').length, POST_cycbodyFilled:(document.querySelector('.cycdoc[open] .cycbody')||{children:[]}).children.length>0})"}
+]

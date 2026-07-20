@@ -1,0 +1,11 @@
+[
+  {"sleep_ms": 3500},
+  {"eval": "(function(){document.querySelector('#chain-loom > summary').click();return 'chain opened';})()"},
+  {"sleep_ms": 300},
+  {"eval": "(function(){location.hash='#cycdoc-loom-C050-worktree-land';return 'nav to cycdoc';})()"},
+  {"sleep_ms": 400},
+  {"eval": "(function(){var el=document.getElementById('cycdoc-loom-C050-worktree-land');var cb=el?el.querySelector('.cycbody'):null;return JSON.stringify({cycdocExists:!!el, cycbodyFilled:cb?cb.children.length>0:'no cb', chainLoomOpen:document.getElementById('chain-loom').open});})()"},
+  {"eval": "JSON.stringify({PRE_cycbodyFilled:(document.querySelector('#cycdoc-loom-C050-worktree-land .cycbody')||{children:[]}).children.length>0, PRE_chainOpen:document.getElementById('chain-loom').open})"},
+  {"sleep_ms": 6500},
+  {"eval": "JSON.stringify({POST_cycdocExists:!!document.getElementById('cycdoc-loom-C050-worktree-land'), POST_cycbodyFilled:(document.querySelector('#cycdoc-loom-C050-worktree-land .cycbody')||{children:[]}).children.length>0, POST_chainOpen:(document.getElementById('chain-loom')||{}).open})"}
+]

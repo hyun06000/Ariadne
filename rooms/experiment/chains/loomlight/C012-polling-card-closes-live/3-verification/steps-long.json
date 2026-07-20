@@ -1,0 +1,13 @@
+[
+  {"sleep_ms": 3500},
+  {"eval": "(function(){location.hash='#cycdoc-loom-C050-go-reserve-port';return 'nav';})()"},
+  {"sleep_ms": 500},
+  {"eval": "(function(){document.querySelector('#chain-loom > summary').click();return 'chain kept open';})()"},
+  {"eval": "JSON.stringify({t0_cycFilled:(document.querySelector('#cycdoc-loom-C050-go-reserve-port .cycbody')||{children:[]}).children.length>0, t0_chainOpen:document.getElementById('chain-loom').open})"},
+  {"sleep_ms": 6000},
+  {"eval": "JSON.stringify({t6_cycFilled:(document.querySelector('#cycdoc-loom-C050-go-reserve-port .cycbody')||{children:[]}).children.length>0, t6_chainOpen:(document.getElementById('chain-loom')||{}).open})"},
+  {"sleep_ms": 6000},
+  {"eval": "JSON.stringify({t12_cycFilled:(document.querySelector('#cycdoc-loom-C050-go-reserve-port .cycbody')||{children:[]}).children.length>0, t12_chainOpen:(document.getElementById('chain-loom')||{}).open})"},
+  {"sleep_ms": 6000},
+  {"eval": "JSON.stringify({t18_cycFilled:(document.querySelector('#cycdoc-loom-C050-go-reserve-port .cycbody')||{children:[]}).children.length>0, t18_chainOpen:(document.getElementById('chain-loom')||{}).open})"}
+]
