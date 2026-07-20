@@ -2870,6 +2870,25 @@ margin:0;padding:32px 24px;min-height:100vh;box-sizing:border-box}
 .gil .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 .gil header h1{font-size:20px;font-weight:650;margin:0;text-wrap:balance}
 .gil header p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
+.gil .gilver{font-variant-numeric:tabular-nums;font-weight:600;color:var(--node);white-space:nowrap}
+.gil .mdtoggle{font:inherit;font-size:12px;font-weight:600;color:var(--node);background:var(--surface);border:1px solid var(--ring);border-radius:999px;padding:1px 10px;cursor:pointer;white-space:nowrap}
+.gil .mdtoggle[aria-pressed="true"]{background:var(--node);color:var(--surface);border-color:var(--node)}
+.gil .mdbody{font-size:13px;line-height:1.6;color:var(--ink);padding:12px;overflow-x:auto}
+.gil .mdbody .mdh{font-weight:650;margin:12px 0 6px;line-height:1.3}
+.gil .mdbody h1.mdh{font-size:18px} .gil .mdbody h2.mdh{font-size:16px} .gil .mdbody h3.mdh{font-size:14px}
+.gil .mdbody h4.mdh,.gil .mdbody h5.mdh,.gil .mdbody h6.mdh{font-size:13px;color:var(--ink-2)}
+.gil .mdbody .mdp{margin:6px 0} .gil .mdbody .mdul,.gil .mdbody .mdol{margin:6px 0;padding-left:22px}
+.gil .mdbody li{margin:2px 0}
+.gil .mdbody code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:0 4px;font-size:12px}
+.gil .mdbody pre.mdcode{background:var(--surface);border:1px solid var(--hairline);border-radius:6px;padding:10px;overflow-x:auto;font-size:12px;line-height:1.5}
+.gil .mdbody pre.mdcode code{background:none;border:none;padding:0}
+.gil .mdbody blockquote.mdq{border-left:3px solid var(--edge);margin:6px 0;padding:2px 0 2px 12px;color:var(--ink-2)}
+.gil .mdbody .mdhr{border:none;border-top:1px solid var(--hairline);margin:12px 0}
+.gil .mdbody a{color:var(--node)}
+.gil .mdbody img.mdimg{max-width:100%;height:auto;border-radius:6px;margin:6px 0;display:block}
+.gil .mdbody a.mdimglink{display:inline-block;color:var(--muted);font-size:12px}
+.gil .mdbody table.mdtable{border-collapse:collapse;margin:8px 0;font-size:12px}
+.gil .mdbody table.mdtable td{border:1px solid var(--hairline);padding:4px 8px;vertical-align:top}
 .gil .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);align-items:center}
 .gil .legend span{display:inline-flex;align-items:center;gap:6px}
 .gil .card{background:var(--surface);border:1px solid var(--ring);border-radius:8px;padding:20px;overflow-x:auto}
@@ -4021,7 +4040,52 @@ const webAppJS = `
   try{ data=JSON.parse(document.getElementById("gil-data").textContent); }catch(e){ return; }
   var STEP_LABELS=["1 · 가설","2 · 설계","3 · 검증","4 · 분석","5 · 보고"];
   var done={};  // anchor -> true, 이미 그린 문서는 다시 안 그린다
+  var rendered=false;  // [loom/C088] 마크다운 렌더 토글 — 기본은 원문 <pre>. 전역 1비트(자기완결).
   function esc(s){ var d=document.createElement("div"); d.textContent=(s==null?"":s); return d.innerHTML; }
+  // [loom/C088] 경량 인라인 마크다운 렌더러 — 외부 CDN 0, esc 기반이라 XSS 안전(원문은 항상 이스케이프 후 태그 승격).
+  function safeUrl(u){ u=(u||"").trim(); return /^(https?:|mailto:|#|\/|\.\/|\.\.\/|[^:]*$)/i.test(u)&&!/^javascript:/i.test(u)?u:"#"; }
+  function inlineMd(s,images){
+    s=s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,function(m,alt,path){
+      path=path.trim(); var d=images&&images[path];
+      if(d) return '<img alt="'+alt+'" src="'+d+'" class="mdimg">';
+      return '<a href="'+safeUrl(path)+'" class="mdimglink">🖼 '+(alt||path)+'</a>';
+    });
+    s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,function(m,t,u){ return '<a href="'+safeUrl(u)+'">'+t+'</a>'; });
+    s=s.replace(/` + "`" + `([^` + "`" + `]+)` + "`" + `/g,'<code>$1</code>');
+    s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    s=s.replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>');
+    return s;
+  }
+  function renderMd(src,images,emptyMsg){
+    if(src==null) return '<pre class="empty">'+(emptyMsg||"(없음)")+'</pre>';
+    var lines=esc(src).split("\n"), out=[], i=0, inCode=false, code=[], list=null;
+    function closeList(){ if(list){ out.push("</"+list+">"); list=null; } }
+    for(i=0;i<lines.length;i++){
+      var ln=lines[i];
+      var fence=ln.match(/^` + "```" + `(.*)$/);
+      if(fence){ if(inCode){ out.push("<pre class=\"mdcode\"><code>"+code.join("\n")+"</code></pre>"); code=[]; inCode=false; } else { closeList(); inCode=true; } continue; }
+      if(inCode){ code.push(ln); continue; }
+      var h=ln.match(/^(#{1,6})\s+(.*)$/);
+      if(h){ closeList(); out.push("<h"+h[1].length+" class=\"mdh\">"+inlineMd(h[2],images)+"</h"+h[1].length+">"); continue; }
+      if(/^\s*([-*])\s+/.test(ln)){ if(list!=="ul"){ closeList(); out.push("<ul class=\"mdul\">"); list="ul"; } out.push("<li>"+inlineMd(ln.replace(/^\s*[-*]\s+/,""),images)+"</li>"); continue; }
+      if(/^\s*\d+\.\s+/.test(ln)){ if(list!=="ol"){ closeList(); out.push("<ol class=\"mdol\">"); list="ol"; } out.push("<li>"+inlineMd(ln.replace(/^\s*\d+\.\s+/,""),images)+"</li>"); continue; }
+      if(/^\s*(>|&gt;)\s?/.test(ln)){ closeList(); out.push("<blockquote class=\"mdq\">"+inlineMd(ln.replace(/^\s*(>|&gt;)\s?/,""),images)+"</blockquote>"); continue; }
+      if(/^\s*(---|\*\*\*)\s*$/.test(ln)){ closeList(); out.push("<hr class=\"mdhr\">"); continue; }
+      if(/^\s*\|(.+)\|\s*$/.test(ln)){
+        if(/^\s*\|[\s:|-]+\|\s*$/.test(ln)){ continue; }
+        closeList(); var cells=ln.replace(/^\s*\||\|\s*$/g,"").split("|");
+        var row=""; for(var c=0;c<cells.length;c++){ row+="<td>"+inlineMd(cells[c].trim(),images)+"</td>"; }
+        if(!out.length||out[out.length-1].indexOf("<table")!==0){ out.push("<table class=\"mdtable\">"+ "<tr>"+row+"</tr>"); } else { out[out.length-1]+="<tr>"+row+"</tr>"; }
+        continue;
+      }
+      if(/^\s*$/.test(ln)){ closeList(); out.push(""); continue; }
+      closeList(); out.push("<p class=\"mdp\">"+inlineMd(ln,images)+"</p>");
+    }
+    closeList(); if(inCode){ out.push("<pre class=\"mdcode\"><code>"+code.join("\n")+"</code></pre>"); }
+    var html2=out.join("\n").replace(/(<table class="mdtable">(?:(?!<\/table>)[\s\S])*?)(?=\n\n|\n<h|\n<p|\n<ul|\n<ol|$)/g,"$1</table>");
+    return '<div class="mdbody">'+html2+'</div>';
+  }
+  function stepHtml(content,images,emptyMsg){ emptyMsg=emptyMsg||"(없음)"; return rendered?renderMd(content,images,emptyMsg):((content==null)?'<pre class="empty">'+emptyMsg+'</pre>':'<pre>'+esc(content)+'</pre>'); }
   function metaRows(m){
     var f=[["status",m.status||"?"],["verdict",m.verdict||"—"],["step",m.step||"—"],
       ["parent",(m.parents&&m.parents.length?m.parents.join(", "):"(root)")],
@@ -4045,8 +4109,8 @@ const webAppJS = `
     var h='<table class="hmeta"><tbody>'+metaRows(meta)+'</tbody></table>';
     for(var i=0;i<STEP_LABELS.length;i++){
       var content=(steps[i]&&steps[i].content!=null)?steps[i].content:null;
-      var pre=(content==null)?'<pre class="empty">(없음)</pre>':'<pre>'+esc(content)+'</pre>';
-      h+='<details class="hstep"><summary>'+esc(STEP_LABELS[i])+'</summary>'+pre+'</details>';
+      var imgs=(steps[i]&&steps[i].images)?steps[i].images:null;
+      h+='<details class="hstep"><summary>'+esc(STEP_LABELS[i])+'</summary>'+stepHtml(content,imgs,"아직 — 이전 스텝을 완수·커밋해야 이 스텝으로 나아간다")+'</details>';
     }
     body.innerHTML=h;
   }
@@ -4059,11 +4123,11 @@ const webAppJS = `
     if(!b) return;
     var body=el.querySelector(".beingbody"); if(!body) return;
     var docs=b.docs||{};
+    var bimgs=b.images||null;
     var h='<h3 class="bdetailname">'+esc(b.name)+'</h3><p class="bdetailrole">'+esc(b.role)+'</p>';
     for(var j=0;j<BEING_LABELS.length;j++){
       var key=BEING_LABELS[j][0], content=(docs[key]!=null)?docs[key]:null;
-      var pre=(content==null)?'<pre class="empty">(없음)</pre>':'<pre>'+esc(content)+'</pre>';
-      h+='<details class="hstep"><summary>'+esc(BEING_LABELS[j][1])+'</summary>'+pre+'</details>';
+      h+='<details class="hstep"><summary>'+esc(BEING_LABELS[j][1])+'</summary>'+stepHtml(content,bimgs)+'</details>';
     }
     body.innerHTML=h;
   }
@@ -4086,6 +4150,16 @@ const webAppJS = `
       if(href.indexOf("#cycdoc-")===0||href.indexOf("#being-")===0){ setTimeout(activate,0); } }
   });
   window.addEventListener("hashchange",activate);
+  // [loom/C088] 마크다운 렌더 토글 — 열린 문서를 다시 그린다(원문 ↔ 렌더). 기본 원문.
+  function rebuildOpen(){
+    for(var k in done){ if(done.hasOwnProperty(k)){ var el=document.getElementById(k); if(el){ (k.indexOf("being-")===0?buildBeing:build)(el); } } }
+  }
+  document.addEventListener("click",function(ev){
+    var t=ev.target; if(t&&t.classList&&t.classList.contains("mdtoggle")){
+      rendered=!rendered; t.textContent=rendered?"원문 보기":"렌더 보기";
+      t.setAttribute("aria-pressed",rendered?"true":"false"); rebuildOpen();
+    }
+  });
   if(document.readyState!=="loading") activate();
   else document.addEventListener("DOMContentLoaded",activate);
 })();
@@ -4908,8 +4982,8 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 	}
 	return fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
-<p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p>
-<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다.</p></header>
+<p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s · <span class="gilver">gil v`+gilVersion+`</span></p>
+<p class="hhint">체인 지도의 원(=체인, 크기 ∝ 사이클 수)을 누르면 그 자리 카드 안에서 사이클 노드가 아래로 주르륵 펼쳐진다. 점선 화살표는 체인 간 lineage(교훈의 흐름). 노드를 누르면 그 자리에 5스텝 문서가 열린다. <button type="button" class="mdtoggle" aria-pressed="false">렌더 보기</button></p></header>
 %s
 <div class="card hmap">%s
 <div class="mapchains">%s</div></div>
@@ -4946,7 +5020,7 @@ func renderWebPage(d *webData, pageTitle, generated, only string, refresh int, h
 	} else {
 		body = fmt.Sprintf(`<div class="gil"><style>%s</style><div class="wrap">
 <header><h1>%s</h1>
-<p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s</p></header>
+<p>체인 %d개 · 사이클 %d개 · 체인 간 lineage %d건 · 생성 %s · <span class="gilver">gil v`+gilVersion+`</span> · <button type="button" class="mdtoggle" aria-pressed="false">렌더 보기</button></p></header>
 %s
 <div class="legend"><span><svg width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="var(--node)"/></svg>닫힌 사이클</span>
 <span><svg width="16" height="16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="var(--node)" stroke-width="2"/></svg>열린 사이클</span>
