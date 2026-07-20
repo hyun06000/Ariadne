@@ -1,0 +1,14 @@
+id: C099-multiparent-and-death-docs
+chain: loom
+parent: C098-rejected-close-incomplete
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-20
+closed: null
+title: "다중부모 how-to 문서 재적용 + C097·C098 새 계약 명문화 (게이트·rejected close·withdraw 경계)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
