@@ -2,7 +2,7 @@ id: C097-open-parent-closed-gate
 chain: loom
 parent: C091-node-io-markers
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-20
