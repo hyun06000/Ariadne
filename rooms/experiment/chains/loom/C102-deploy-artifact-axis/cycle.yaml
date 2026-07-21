@@ -2,7 +2,7 @@ id: C102-deploy-artifact-axis
 chain: loom
 parent: C101-deploy-axis-cut
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-21
