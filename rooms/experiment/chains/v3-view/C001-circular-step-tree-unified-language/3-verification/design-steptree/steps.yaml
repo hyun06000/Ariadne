@@ -1,10 +1,12 @@
-# v3 스텝 트리 — gilv3 생성. 트리는 parent/backtrack 포인터로만 담긴다.
+# 뷰어 디자인 티키타카 — 결과 잎 강제 형태 (분석 다음엔 반드시 실패/문제정의/성공).
+# 상현님 규칙: analyze 다음 결과 잎이 없으면 그 가지는 안 닫힌 것.
 - id: s1
   kind: define
   parent: null
   outcome: null
   backtrack: null
   body: steps/s1.md
+# 가지 1: 원형 방향 → 세로로 그림 → 되돌아감(문제정의)
 - id: s2
   kind: hypothesis
   parent: s1
@@ -20,36 +22,62 @@
 - id: s4
   kind: analyze
   parent: s3
-  outcome: backtrack
-  backtrack: s1
-  body: steps/s4.md
-- id: s5
-  kind: hypothesis
-  parent: s1
   outcome: null
   backtrack: null
+  body: steps/s4.md
+- id: s5
+  kind: redefine
+  parent: s4
+  outcome: redefine
+  backtrack: s1
   body: steps/s5.md
+# 가지 2: 가로 흐름 → 캡쳐 → 되돌아감(문제정의)
 - id: s6
-  kind: verify
-  parent: s5
+  kind: hypothesis
+  parent: s1
   outcome: null
   backtrack: null
   body: steps/s6.md
 - id: s7
-  kind: analyze
+  kind: verify
   parent: s6
-  outcome: backtrack
-  backtrack: s1
+  outcome: null
+  backtrack: null
   body: steps/s7.md
 - id: s8
-  kind: hypothesis
-  parent: s1
+  kind: analyze
+  parent: s7
   outcome: null
   backtrack: null
   body: steps/s8.md
 - id: s9
-  kind: verify
+  kind: redefine
   parent: s8
+  outcome: redefine
+  backtrack: s1
+  body: steps/s9.md
+# 가지 3: 결과잎 방향(R2) → 캡쳐 → 성공
+- id: s10
+  kind: hypothesis
+  parent: s1
   outcome: null
   backtrack: null
-  body: steps/s9.md
+  body: steps/s10.md
+- id: s11
+  kind: verify
+  parent: s10
+  outcome: null
+  backtrack: null
+  body: steps/s11.md
+- id: s12
+  kind: analyze
+  parent: s11
+  outcome: null
+  backtrack: null
+  body: steps/s12.md
+- id: s13
+  kind: success
+  parent: s12
+  outcome: success
+  backtrack: null
+  body: steps/s13.md
