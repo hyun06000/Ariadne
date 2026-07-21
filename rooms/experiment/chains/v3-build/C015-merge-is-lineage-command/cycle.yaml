@@ -1,0 +1,14 @@
+id: C015-merge-is-lineage-command
+chain: v3-build
+parent: C014-gil-command-automation
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "gilv3 close --lineage A,B 가 git merge --no-ff 다중부모 커밋을 각인하면 lineage(C012)가 도구가 된다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
