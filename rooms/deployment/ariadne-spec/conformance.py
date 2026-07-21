@@ -1199,34 +1199,38 @@ def main():
             R = lambda d: os.path.join(d, "rooms/experiment/chains")
             regp = lambda d: os.path.join(d, "rooms/deployment/deployments.json")
 
-            # DEPLOY-CUT: 닫힌 사이클 cut → deploy 태그 ∧ json 레코드(live·소스링크). 열린/rejected/없는 소스 → 무변화 거부.
+            # DEPLOY-CUT (loom/C102): 배포 단위=artifact. 닫힌 사이클(복수) cut → deploy/<artifact>/<semver>
+            #   태그 ∧ json 레코드(live·복수 소스링크·kind). 열린/rejected/없는 소스 → 무변화 거부.
             dd, ddg = _mk_deploy_repo("deploycut")
-            rc1 = impl.run(dd, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0",
-                           "--artifact", "M1", "--root", R(dd))
-            tag_ok = ddg("tag", "-l", "deploy/svc/1.0.0").stdout.strip() == "deploy/svc/1.0.0"
+            rc1 = impl.run(dd, "deploy", "cut", "pii-api", "1.0.0",
+                           "--cycle", "svc/C001-good", "--cycle", "svc/C002-two",
+                           "--kind", "api-spec", "--root", R(dd))
+            tag_ok = ddg("tag", "-l", "deploy/pii-api/1.0.0").stdout.strip() == "deploy/pii-api/1.0.0"
             reg = json.load(open(regp(dd))) if os.path.isfile(regp(dd)) else {}
             recs = reg.get("deployments", [])
             rec_ok = (len(recs) == 1 and recs[0]["version"] == "1.0.0"
-                      and recs[0]["status"] == "live" and recs[0]["source_cycle"] == "svc/C001-good")
+                      and recs[0]["status"] == "live" and recs[0]["artifact"] == "pii-api"
+                      and recs[0]["kind"] == "api-spec"
+                      and recs[0]["source_cycles"] == ["svc/C001-good", "svc/C002-two"])
             # 무변화 거부: 각 나쁜 소스마다 태그·HEAD가 안 변해야
             def _bad_cut(name, cyc):
                 dbb, dbg = _mk_deploy_repo(name)
                 h0 = dbg("rev-parse", "HEAD").stdout; t0 = dbg("tag", "-l").stdout
-                rr = impl.run(dbb, "deploy", "cut", "svc", cyc, "--version", "1.0.0", "--root", R(dbb))
+                rr = impl.run(dbb, "deploy", "cut", "art", "1.0.0", "--cycle", cyc, "--root", R(dbb))
                 return (rr.returncode != 0 and dbg("rev-parse", "HEAD").stdout == h0
                         and dbg("tag", "-l").stdout == t0 and not os.path.isfile(regp(dbb)))
-            rej_ok = _bad_cut("deprej", "C003-dead")
-            open_ok = _bad_cut("depopen", "C004-open")
-            none_ok = _bad_cut("depnone", "C999-nope")
+            rej_ok = _bad_cut("deprej", "svc/C003-dead")
+            open_ok = _bad_cut("depopen", "svc/C004-open")
+            none_ok = _bad_cut("depnone", "svc/C999-nope")
             check("DEPLOY-CUT",
-                  "deploy cut: 닫힌 사이클→deploy/<chain>/<semver> 태그 ∧ json 레코드(live·소스링크); rejected/열린/없는 소스는 무변화 거부",
+                  "deploy cut: 아티팩트 단위, 닫힌 사이클(복수)→deploy/<artifact>/<semver> 태그 ∧ json(live·복수소스·kind); rejected/열린/없는 소스는 무변화 거부",
                   rc1.returncode == 0 and tag_ok and rec_ok and rej_ok and open_ok and none_ok,
                   f"cut={rc1.returncode} 태그={tag_ok} 레코드={rec_ok} rejected거부={rej_ok} 열림거부={open_ok} 없음거부={none_ok}")
 
             # DEPLOY-LIVE-INVARIANT: 둘째 cut → 직전 live=superseded ∧ live 1개 ∧ fsck OK. 직접 조작 live 2개 → fsck 위반.
             di, dig = _mk_deploy_repo("deplive")
-            impl.run(di, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(di))
-            impl.run(di, "deploy", "cut", "svc", "C002-two", "--version", "2.0.0", "--root", R(di))
+            impl.run(di, "deploy", "cut", "art", "1.0.0", "--cycle", "svc/C001-good", "--root", R(di))
+            impl.run(di, "deploy", "cut", "art", "2.0.0", "--cycle", "svc/C002-two", "--root", R(di))
             recs = json.load(open(regp(di)))["deployments"]
             live = [r for r in recs if r["status"] == "live"]
             superseded = [r for r in recs if r["status"] == "superseded"]
@@ -1234,42 +1238,42 @@ def main():
                         and len(superseded) == 1 and superseded[0]["version"] == "1.0.0"
                         and live[0].get("supersedes") == "1.0.0")
             fsck_clean = impl.run(di, "fsck", R(di)).returncode == 0
-            # 직접 조작으로 live 2개 → fsck가 위반으로 잡아야
+            # 직접 조작으로 live 2개 (같은 artifact) → fsck가 위반으로 잡아야
             reg = json.load(open(regp(di)))
             for r in reg["deployments"]:
                 r["status"] = "live"
             json.dump(reg, open(regp(di), "w"))
             fsck_catches = impl.run(di, "fsck", R(di)).returncode != 0
             check("DEPLOY-LIVE-INVARIANT",
-                  "둘째 cut이 직전 live를 superseded로 전이(live 1개·fsck OK); 직접 조작으로 live 2개면 fsck가 위반으로 잡는다",
+                  "둘째 cut이 직전 live를 superseded로 전이(아티팩트당 live 1개·fsck OK); 직접 조작 live 2개면 fsck가 잡는다",
                   trans_ok and fsck_clean and fsck_catches,
                   f"전이={trans_ok} fsck정상={fsck_clean} live2잡음={fsck_catches}")
 
             # DEPLOY-QUERY: list 전체 ∧ current 현 live ∧ 읽기 전용(무변화).
             dq, _ = _mk_deploy_repo("depquery")
-            impl.run(dq, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(dq))
-            impl.run(dq, "deploy", "cut", "svc", "C002-two", "--version", "2.0.0", "--root", R(dq))
+            impl.run(dq, "deploy", "cut", "art", "1.0.0", "--cycle", "svc/C001-good", "--root", R(dq))
+            impl.run(dq, "deploy", "cut", "art", "2.0.0", "--cycle", "svc/C002-two", "--root", R(dq))
             before = snapshot(dq)
-            rl = impl.run(dq, "deploy", "list", "svc", "--root", R(dq))
-            rcur = impl.run(dq, "deploy", "current", "svc", "--root", R(dq))
+            rl = impl.run(dq, "deploy", "list", "art", "--root", R(dq))
+            rcur = impl.run(dq, "deploy", "current", "art", "--root", R(dq))
             after = snapshot(dq)
-            list_ok = (rl.returncode == 0 and "gil:deploys 2 live=2.0.0" in rl.stdout
-                       and rl.stdout.count("gil:deploy svc ") == 2)
+            list_ok = (rl.returncode == 0 and "gil:deploys 2" in rl.stdout
+                       and rl.stdout.count("gil:deploy art ") == 2)
             cur_ok = (rcur.returncode == 0
-                      and "gil:deploy-current svc 2.0.0" in rcur.stdout)
+                      and "gil:deploy-current art 2.0.0" in rcur.stdout)
             check("DEPLOY-QUERY",
-                  "list가 전체 배포를, current가 현 live 하나를 정확히 보고 ∧ 읽기 전용(저장소 무변화)",
+                  "list가 그 아티팩트 배포를, current가 현 live 하나를 정확히 보고 ∧ 읽기 전용(저장소 무변화)",
                   list_ok and cur_ok and after == before,
                   f"list={list_ok} current={cur_ok} 무변화={after == before}")
 
             # DEPLOY-ROLLBACK: rollback → 현 live=rolled-back ∧ 직전 재활성 ∧ live 1개. 첫 배포(supersedes 없음)는 롤백 거부.
             drb, _ = _mk_deploy_repo("deprb")
-            impl.run(drb, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(drb))
+            impl.run(drb, "deploy", "cut", "art", "1.0.0", "--cycle", "svc/C001-good", "--root", R(drb))
             # 첫 배포 롤백 거부 (되돌릴 곳 없음)
-            first_rb = impl.run(drb, "deploy", "rollback", "svc", "--root", R(drb))
+            first_rb = impl.run(drb, "deploy", "rollback", "art", "--root", R(drb))
             first_reject = first_rb.returncode != 0
-            impl.run(drb, "deploy", "cut", "svc", "C002-two", "--version", "2.0.0", "--root", R(drb))
-            rb = impl.run(drb, "deploy", "rollback", "svc", "--root", R(drb))
+            impl.run(drb, "deploy", "cut", "art", "2.0.0", "--cycle", "svc/C002-two", "--root", R(drb))
+            rb = impl.run(drb, "deploy", "rollback", "art", "--root", R(drb))
             recs = json.load(open(regp(drb)))["deployments"]
             byv = {r["version"]: r for r in recs}
             rb_ok = (rb.returncode == 0 and byv["2.0.0"]["status"] == "rolled-back"
@@ -1288,11 +1292,11 @@ def main():
                 f.write("# Changelog\n\n## [Unreleased]\n\n## [1.0.0] — 2026-07-18\n\n- 도구 릴리스\n- 도구 변경: gil (마이너 이상 승격)\n")
             dng("add", "-A"); dng("commit", "-q", "-m", "changelog")
             dng("tag", "-a", "v1.0.0", "-m", "Ariadne release v1.0.0")  # 도구 릴리스 태그
-            impl.run(dn, "deploy", "cut", "svc", "C001-good", "--version", "1.0.0", "--root", R(dn))  # 배포 태그 deploy/svc/1.0.0
+            impl.run(dn, "deploy", "cut", "art", "1.0.0", "--cycle", "svc/C001-good", "--root", R(dn))  # 배포 태그 deploy/art/1.0.0
             rels = impl.run(dn, "releases", "--package", os.path.join(dn, "rooms/deployment/ariadne-spec"))
-            # releases는 v1.0.0(도구 릴리스)만 봐야 하고 deploy/svc/1.0.0(배포)는 안 봐야 한다.
+            # releases는 v1.0.0(도구 릴리스)만 봐야 하고 deploy/art/1.0.0(배포)는 안 봐야 한다.
             ns_ok = (rels.returncode == 0 and "gil:release 1.0.0 " in rels.stdout
-                     and "deploy/svc" not in rels.stdout and "svc/C001-good" not in rels.stdout)
+                     and "deploy/art" not in rels.stdout and "svc/C001-good" not in rels.stdout)
             check("DEPLOY-NAMESPACE",
                   "배포 태그(deploy/*)가 도구 릴리스 조회(releases, v*)에 섞이지 않는다 (두 축의 네임스페이스 분리)",
                   ns_ok, f"releases정상분리={ns_ok} rc={rels.returncode}")
