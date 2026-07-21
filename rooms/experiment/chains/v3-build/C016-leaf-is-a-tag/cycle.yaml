@@ -1,0 +1,14 @@
+id: C016-leaf-is-a-tag
+chain: v3-build
+parent: C015-merge-is-lineage-command
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "gilv3 의 잎 못을 브랜치에서 태그로 정식화하면 C011 결론(잎=불변시점=태그, push 생존)이 도구가 된다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
