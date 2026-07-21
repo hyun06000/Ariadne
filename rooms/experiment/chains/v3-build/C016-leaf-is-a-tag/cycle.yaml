@@ -4,11 +4,11 @@ parent: C015-merge-is-lineage-command
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "gilv3 의 잎 못을 브랜치에서 태그로 정식화하면 C011 결론(잎=불변시점=태그, push 생존)이 도구가 된다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
