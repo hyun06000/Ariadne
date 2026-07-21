@@ -2,7 +2,7 @@ id: C003-first-commands-on-step-tree
 chain: v3-build
 parent: C002-design-v3-data-model
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-21
