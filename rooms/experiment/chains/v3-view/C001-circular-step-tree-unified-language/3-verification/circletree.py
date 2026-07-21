@@ -13,11 +13,11 @@ C004 = os.path.normpath(os.path.join(
 sys.path.insert(0, C004)
 from steptree import parse_steps_yaml, build_tree, assign_columns  # noqa: E402
 
-# 레이아웃 (원형에 맞게 살짝 조정)
-COL_W = 160
-ROW_H = 130
-PAD_X = 70
-PAD_Y = 150
+# 레이아웃 — 가로 흐름 (사이클 DAG처럼 왼→오른). depth=가로축, 형제(col)=세로축.
+STEP_W = 150   # depth 한 칸당 가로 간격
+LANE_H = 120   # 형제 가지 한 칸당 세로 간격
+PAD_X = 80
+PAD_Y = 170
 R = 26  # 원 반경
 
 KIND_COLOR = {
@@ -30,7 +30,8 @@ LIVE = "#16a34a"  # 산 잎 초록
 
 
 def node_xy(nid, col, depth):
-    return PAD_X + col[nid] * COL_W + R, PAD_Y + depth[nid] * ROW_H + R
+    # 가로: depth가 x를 밀고(왼→오른), 세로: col(형제)이 y를 쌓는다.
+    return PAD_X + depth[nid] * STEP_W + R, PAD_Y + col[nid] * LANE_H + R
 
 
 CSS = """
@@ -63,8 +64,9 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
     col = assign_columns(children, root)
     max_col = max(col.values())
     max_depth = max(depth.values())
-    width = int(PAD_X * 2 + max_col * COL_W + R * 2)
-    height = int(PAD_Y + (max_depth + 1) * ROW_H + 40)
+    # 가로 흐름: 너비는 depth가, 높이는 형제(col)가 정한다.
+    width = int(PAD_X * 2 + max_depth * STEP_W + R * 2 + 60)
+    height = int(PAD_Y + max_col * LANE_H + R * 2 + 40)
 
     p_edges, bt_edges, node_svg = [], [], []
     live, dead = [], []
@@ -73,13 +75,16 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
         nid, kind, outcome = n["id"], n["kind"], n.get("outcome")
         cx, cy = node_xy(nid, col, depth)
 
-        # parent 엣지 = 실선 (부모 원 하단 → 자식 원 상단)
+        # parent 엣지 = 실선 (부모 원 우측 → 자식 원 좌측, 왼→오른 흐름)
         p = n.get("parent")
         if p is not None:
             px, py = node_xy(p, col, depth)
+            # 부드러운 수평 베지어 (같은 lane이면 직선, 다른 lane이면 S자)
+            mx = (px + cx) / 2
             p_edges.append(
-                f'<line class="edge-parent" x1="{px:.0f}" y1="{py + R:.0f}" '
-                f'x2="{cx:.0f}" y2="{cy - R:.0f}" data-from="{p}" data-to="{nid}" />')
+                f'<path class="edge-parent" d="M {px + R:.0f} {py:.0f} '
+                f'C {mx:.0f} {py:.0f}, {mx:.0f} {cy:.0f}, {cx - R:.0f} {cy:.0f}" '
+                f'data-from="{p}" data-to="{nid}" />')
 
         classes = ["node", f"kind-{kind}"]
         color = KIND_COLOR[kind]
@@ -93,15 +98,15 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
             bt = n.get("backtrack")
             badge = (f'<text class="badge badge-dead" x="{cx:.0f}" y="{cy + R + 30:.0f}" '
                      f'text-anchor="middle">✕ 벽의 지도 →{html.escape(bt or "?")}</text>')
-            # backtrack 엣지 = 파선 곡선 (잎 왼쪽 → 조상 define 왼쪽)
+            # backtrack 엣지 = 파선 곡선 (잎 위 → 조상 define 위로 되돌아감, 상단 우회)
             if bt in by_id:
                 tx, ty = node_xy(bt, col, depth)
-                sx, sy = cx - R, cy
-                dx, dy = tx - R, ty
-                bulge = PAD_X - 40
+                sx, sy = cx, cy - R
+                dx, dy = tx, ty - R
+                arch = min(sy, dy) - 46  # 노드들 위로 아치를 그려 겹침 회피
                 bt_edges.append(
                     f'<path class="edge-backtrack" marker-end="url(#bt-arrow)" '
-                    f'd="M {sx:.0f} {sy:.0f} C {bulge:.0f} {sy:.0f}, {bulge:.0f} {dy:.0f}, '
+                    f'd="M {sx:.0f} {sy:.0f} C {sx:.0f} {arch:.0f}, {dx:.0f} {arch:.0f}, '
                     f'{dx:.0f} {dy:.0f}" data-from="{nid}" data-to="{bt}" />')
 
         node_svg.append(
