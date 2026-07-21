@@ -1,0 +1,14 @@
+id: C001-circular-step-tree-unified-language
+chain: v3-view
+parent: null
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-21
+closed: null
+title: "스텝 트리를 사이클 DAG와 같은 원형 노드+실선 시각 언어로 통일한다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
