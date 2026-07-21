@@ -1,0 +1,6 @@
+[PASS] M1-commit-immutable: 원장SHA 각인전후동일=True 유령커밋SHA불변=True → git notes가 커밋 안 바꿈 (append-only 준수, amend/rebase 아님)
+[PASS] M2-notes-equals-trailer: L1·L2·L3 노드편입=True 지문값정확=True → notes를 trailer와 동등하게 읽음 (같은 파서, 재구현 0)
+[PASS] M3-ghost-reduced: 소급후유령수=1(=1, close만) close가그유령=True → pre-gil 3개 소급되어 유령 4→1 (전부 소급하면 close만 남음)
+[PASS] M4-pregil-close-split: pre-gil3개notes有=True close커밋notes無=True → 소급각인이 pre-gil만 대상, close(이미 v3) 안 건드림
+
+=== ALL PASS — supported (4/4) ===

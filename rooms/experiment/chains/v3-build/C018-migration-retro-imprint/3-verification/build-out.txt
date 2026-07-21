@@ -1,0 +1,27 @@
+open: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c018-retro/repo — 루트 define s1 생성
+step: s2 [hypothesis] parent=s1
+step: s3 [verify] parent=s2
+step: s4 [analyze/success] parent=s3
+close: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c018-retro/repo — state=solved, 산 잎 ['s4'], cycle.yaml 봉인
+SCRATCH=/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c018-retro
+
+=== 소급각인 전 재구성 (--report) ===
+유령(지문 없음) 4개 건너뜀 (v3 스텝 4개 복원)
+
+=== 소급각인 실행 ===
+소급각인 완료: c7443ce6 (Step-Id=L1, Kind=define, Parent=null)
+소급각인 완료: aee13129 (Step-Id=L2, Kind=hypothesis, Parent=L1)
+소급각인 완료: ed19f90a (Step-Id=L3, Kind=verify, Parent=L2)
+
+=== close 커밋 소급각인 시도 (건너뛰어야) ===
+소급각인 건너뜀(이미 v3): a82919f9 (대상 아님)
+
+=== 소급각인 후 재구성 (--report) ===
+유령(지문 없음) 1개 건너뜀 (v3 스텝 7개 복원)
+L1 define parent=None
+L2 hypothesis parent=L1
+L3 verify parent=L2
+s1 define parent=None
+s2 hypothesis parent=s1
+s3 verify parent=s2
+s4 analyze parent=s3 outcome=success
