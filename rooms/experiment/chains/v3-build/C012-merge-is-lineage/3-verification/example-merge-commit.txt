@@ -1,0 +1,16 @@
+=== 머지 커밋 C036 (git cat-file -p) — 다중 부모 담김의 실물 ===
+tree 396b9047f383abcd320f67fe78f51a863035cc6d
+parent 1b95026689dbc54e7cb82fa0e3140787dca06312
+parent da4a0dcfffe483bcde88546c300b303debe76385
+author clew <clew@ariadne.local> 1784623656 +0900
+committer clew <clew@ariadne.local> 1784623656 +0900
+
+merge: C036 ← lineage [C020, C016] 지식 통합
+
+Step-Id: C036-merge
+Kind: merge
+Parent: C020, C016
+Chain: v3-demo
+Cycle: C036
+Merge: lineage
+Note: go-web-port(C020)과 number-ledger(C016) 두 계보의 통합

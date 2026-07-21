@@ -1,0 +1,10 @@
+* 2299af9 (HEAD -> lane-C020, tag: gil/leaf/2299af9, tag: cycle/C036/solved) step: s2 analyze/success
+* 03bd08c step: s1 define
+*   cb05164 merge: C036 ← lineage [C020, C016] 지식 통합
+|\  
+| * da4a0dc (lane-C016) step: s2 verify/success
+| * 3007231 step: s1 define
+* | 1b95026 step: s2 verify/success
+* | 2c4b4ed step: s1 define
+|/  
+* bfe1f08 (main) root: chain v3-demo 시작

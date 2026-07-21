@@ -1,0 +1,6 @@
+[PASS] M1-multiparent: 부모수=2(=2 기대) 부모집합일치=True trailer='C020, C016'(='C020, C016') 첫부모=C020=True → gil [C020,C016] ≅ git parents
+[PASS] M2-graph-confluence: 머지노드 in-degree=2=True 전체머지노드수=1(=1 기대) → git log --graph가 병합 노드로 그림 (뷰어 재구현 0)
+[PASS] M3-reconstruct-from-parents: 부모지문만복원 머지노드=1(=1) 머지사이클=C036 부모사이클=['C016', 'C020'](=['C016','C020']) → cycle.yaml 안 보고 lineage DAG 복원 (C009 합류판)
+[PASS] M4-real-integration: 공통조상=s0=True 두기여모두존재=True 진짜머지(부모2)=True 음성대조:squash가lineage잃음=True(부모수=1) → 다중부모여야 지식통합 보존
+
+=== ALL PASS — supported (4/4) ===
