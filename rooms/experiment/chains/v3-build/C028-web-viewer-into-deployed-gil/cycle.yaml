@@ -1,0 +1,14 @@
+id: C028-web-viewer-into-deployed-gil
+chain: v3-build
+parent: C027-migrate-into-deployed-gil
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "v3 눈의 읽기 축을 배포판으로 — Sheen 통합 뷰어(gil web v3)를 배포판 gil.py에 통합"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
