@@ -1,0 +1,20 @@
+=== C008 측정 — 백트래킹=새 커밋 ===
+  M1 각인 경로 git 하위명령(주석제외): ['add', 'commit', 'merge-base', 'rev-parse']
+  M1 금지 명령 히트: 없음
+✅ PASS M1 — 각인 경로 git 하위명령이 add·commit만 (reset/checkout/revert/amend/force/rebase=0) [K1]
+
+  M2 커밋 수=11 (기대 11), open/close 경계=True, s번호 단조=True
+  M2 부모체인 선형전진=True, reflog 되돌림흔적=True
+❌ FAIL M2 — 전진 단조: 11커밋 시간순, 부모체인 선형, HEAD 되돌림 0 [K2·K4]
+
+  M3 죽은 잎 커밋 s4·s7 생존=True, 죽은 가지 스텝 생존=True, body 생존=True
+✅ PASS M3 — 벽의 지도: 죽은 가지 커밋·body 전부 히스토리에 보존 [K2]
+
+  M4 깃 선형(머지0)=True, steps.yaml s1 자식=['s2', 's5', 's8'] (트리=True)
+  M4 backtrack 포인터(steps.yaml에만)=[('s4', 's1'), ('s7', 's1')]
+✅ PASS M4 — 역할분리: 깃 선형(분기0)인데 steps.yaml은 트리(형제3+backtrack2) [K3]
+
+  M5 가드가 뒤로간 HEAD 거부=True, 복원=True
+✅ PASS M5 — 가드가 무의미한 통과 아님: 뒤로 간 HEAD를 실제로 거부 [(가드 유효성)]
+
+=== 실패 있음 (4/5) ===

@@ -1,0 +1,11 @@
+* 624b500 gilv3 close case: solved 산 잎 s10 (봉인)
+* 6a823ee gilv3 step: s10 analyze/success
+* 790da43 gilv3 step: s9 verify
+* 8e6ef77 gilv3 step: s8 hypothesis (new branch from s1 after backtrack)
+* 95d9362 gilv3 step: s7 analyze/backtrack (backtrack to s1)
+* 74907e4 gilv3 step: s6 verify
+* c33950a gilv3 step: s5 hypothesis (new branch from s1 after backtrack)
+* 59faf6e gilv3 step: s4 analyze/backtrack (backtrack to s1)
+* df2eb3b gilv3 step: s3 verify
+* 0391519 gilv3 step: s2 hypothesis
+* 7d4574b gilv3 open case: s1 define
