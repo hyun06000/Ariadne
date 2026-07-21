@@ -4,11 +4,11 @@ parent: C005-git-imprint-and-viewer-wire
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "close 봉인 표현을 정하고 진행 중·다중 잎 사이클 상태를 판정한다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
