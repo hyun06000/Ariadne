@@ -2,7 +2,7 @@ id: C002-design-v3-data-model
 chain: v3-build
 parent: C001-define-v3-target
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-21
