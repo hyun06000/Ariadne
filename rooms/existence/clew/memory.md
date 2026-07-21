@@ -1013,3 +1013,15 @@
 - **⚠️ 배포 안 함(상현님 "굵직하게")**: C101·C102 배포축 사이클 모였으나 Go parity·뷰어통합 등 배포축 카브 더 있으니 **그것들과 함께 굵직하게 한 번 릴리스.** v2 사이클마다 배포(v2.36~v2.49, 14회) 자잘함 반복 안 함. 현재 v2.49.0 유지, deploy 축 코드는 커밋됐으나 미릴리스.
 - **다음(배포축 이월, 굵직하게 묶어 배포 예정)**: Go parity·뷰어통합(#18 뷰어절반)·drift게이트·kind강검증. 그 외: #26(GitHub Release 미발행, 별개 인프라). #27 응답 준비됨.
 - **방법론 대화 성과(별도)**: 세 층 위상 — 체인=DAG(전진), 사이클=트리(백트래킹, 첫정답서 멈춤), 스텝=행동단위(`문제정의*→가설→검증→분석→[실패|문제정의*|성공]`). 실험/개발 성격은 문제가 창발적으로 결정. lineage 불필요해질 수도. v3의 뼈대(chain.md v3-build에 기술). "다른정답도?"는 최적화=새 사이클(그리디).
+
+## 2026-07-21 — ⭐ 배포축 완성 + 첫 배포: gil의 배포관리로 배포한 첫 산출물 (ariadne-deploy 1.0.0)
+
+- **상현님 "배포축 마무리하고 그걸 배포관리 이용한 첫 배포로 잡자."** 범위 = Go parity + 뷰어 통합 둘 다. 첫 배포 대상은 내 판단에 위임.
+- **병렬 마무리(Weft + Sheen 동시 소환, 파일 무충돌)**:
+  - **Weft C103(partial) — Go deploy 이식**: `gil deploy` 명령군 전체를 go/main.go에. deployments.json 참조↔Go **바이트 동일**, R16 메시지도. Go 110→114/115. **미달 DEPLOY-NAMESPACE = 판정기 축결합**(Go releases 미구현 의존)을 정직히 진단·이월. "releases Go 이식하면 115/115 — C036 이래 마지막 미이식 명령군."
+  - **Sheen C104(supported) — 뷰어 배포 패널**: `gil web`에 `.deployments` 카드(릴리스 `.releases`와 별개). 아티팩트별 계보·status·근거사이클 링크(#cycdoc, C091 배포판). 두 축 분리 한 렌더로 실증(CHANGELOG 없는 샌드박스서 릴리스카드 사라지고 배포카드 섬). 참조 133→134/134, C014 폴링 회귀 0. **번호충돌 C103↔Weft 정직 처리**(내 메시지 받고 C103→C104 재번호, 검증단계서 git mv+id, fsck 0). Go 렌더 이월(§3.1).
+- **⭐ 첫 배포 (dogfooding)**: `gil deploy cut ariadne-deploy 1.0.0 --cycle C101 C102 C103 C104 --kind app-code`. **네 존재(Selvage 골격·Clew artifact재정렬·Weft Go·Sheen 뷰어)가 지은 배포축을, 바로 그 배포축으로 배포.** deployments.json live 레코드, 태그 `deploy/ariadne-deploy/1.0.0` push, fsck 0. Sheen 패널이 첫 실배포를 즉시 비춤. **첫 배포 대상을 gil 도구 자체(dogfooding)로 안 한 이유**: gil은 이미 release 축으로 배포됨 → 같은 대상 deploy면 두 축 겹쳐 혼란. ariadne-deploy(배포관리 기능)는 release(도구 바이너리)와 대상 달라 네임스페이스 살아있음(정직).
+- **병합 후 최종**: 참조 **134/134**, Go **114/116**(WEB-DEPLOYMENTS·DEPLOY-NAMESPACE 둘 다 정직 이월 — 렌더 미이식+releases 축결합). partial C103도 배포 소스 가능(게이트는 rejected만 막음).
+- **⭐ 교훈**: ① 배포축을 그 배포축으로 배포 = 자기증명(방법론이 방법론 증명하듯). ② 첫 배포 대상 선택도 정직성 판단(두 축 안 겹치게 = ariadne-deploy). ③ partial은 죽은 게 아니라 채택된 계보(배포 가능). ④ 병렬 번호충돌은 소환자가 알리고 피소환자가 재번호(C016 규율, SendMessage로 실시간 조율).
+- **이 세션 최종 상태**: v2.49.0(도구 릴리스) 유지 + deploy 축 완성(코드 land). **deploy 첫 배포 ariadne-deploy 1.0.0.** loom C101~C104 배포축 4사이클. v3-build C001 홀드(◐ 3/5). 미배포: 배포축 코드가 아직 gil release로 버전범프 안 됨(굵직하게 다음에).
+- **남은 이월(다음 세션)**: (A) **releases Go 이식**(Weft 카브 — Go 115/116, DEPLOY-NAMESPACE 해소, C036 이래 마지막 미이식) (B) **배포 패널 Go 렌더**(Sheen 카브 — WEB-DEPLOYMENTS Go, 116/116) (C) 배포축 도구 릴리스(gil release로 버전범프+CHANGELOG, 굵직하게) (D) #26(GitHub Release 미발행 인프라) (E) drift게이트·kind강검증. **방법론 3층 위상(체인=DAG·사이클=트리·스텝=행동단위)은 v3-build에서.** #27 응답 준비됨(artifact 축 구현완료).
