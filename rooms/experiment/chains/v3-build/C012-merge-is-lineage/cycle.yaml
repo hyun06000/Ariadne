@@ -2,7 +2,7 @@ id: C012-merge-is-lineage
 chain: v3-build
 parent: C011-everything-is-a-branch
 lineage: [loom/C036-go-open-git-ledger]
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-21
