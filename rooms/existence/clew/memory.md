@@ -1147,3 +1147,16 @@
 - **정직한 경계**: body(steps/*.md)는 복원 범위 밖(트리 **구조**만, body는 커밋 diff에). "깃이 단일 진실원"은 구조에 대해 참, body까지는 다음 사이클. C012→C014 한 트리(백트래킹2)만, 중첩 백트래킹·다중 루트·BFS 미검증. 복원이 커밋 메시지 서술 형식에 결합(다음 제안이 계약화).
 - **이 세션 최종**: 참조 fsck 위반 0, 체인 8개·사이클 139개. C009 supported·태그·push 완료.
 - **다음(v3-build 이월)**: ① **커밋 메시지를 계약면으로**(trailer 스키마 `Backtrack-To: s1`, 지금 서술은 사실상 스키마·복원이 의존 → 굳히기, rebuild가 파서 프로토타입) ② **v3 fsck**(이제 복원 있으니 "깃 복원트리 == steps.yaml 캐시" 검사, M1·M2·M4가 엔진) ③ body까지 복원/`gilv3 rebuild` 명령화 ④ 결과 잎 노드화(C002 재개, 상현님 2순위) ⑤ 뷰어 후속(Sheen). 그 뒤: BFS·fail 일원화·포기 상태·v2 백업+rooms 보존.
+
+## 2026-07-21 (이어서) — ⭐ v3-build/C010: 커밋 메시지를 계약면으로 (git trailer, supported) + gil v3.5 명명
+
+- **상현님 "이어서 가보자!" → AskUserQuestion 갈래 → "커밋 메시지를 계약면으로" 선택.** C009가 남긴 정직한 경계("복원이 subject 자연어 서술에 결합")를 갚는 사이클. 부모 C009, main 단독·순차(C074).
+- **⭐ 상현님 명명 정정(세션 중)**: "gilv3 v0.5라 하지 말고 gil이라 하자 ㅋㅋ **v3.5버전으로**" — 이 도구는 별개 프로토타입 gilv3가 아니라 **gil 그 자체의 v3 궤도**. gil v2(v2.50.0)=사이클 단위, gil v3=스텝 트리 단위, 이 확장=**gil v3.5**. 헤더·문서에 반영(파일명 gilv3.py는 프로토타입 단계라 유지).
+- **⭐ 핵심 결과 — 계약면을 자연어에서 구조로 승격**: 스텝 메타(Step-Id·Kind·Parent·Outcome·Backtrack-To)를 **git trailer**로 커밋 본문에 각인. subject는 사람용 서술 유지, trailer는 기계용 계약(복원 진실원). `%s`=서술만, `%(trailers)`=계약만 — **한 커밋, 두 독자, 오염 0.**
+- **rebuild_trailer.py**: `git log --format=%(trailers:key=…,valueonly)`만 읽어 복원(subject 자연어 파싱 0). C009와 동일 트리·왕복 바이트 동일.
+- **4측정 ALL PASS**: M1 동형+왕복·M2 subject 무오염·M3 **견고성 대조**·M4 append-only(C008 유지).
+- **⭐⭐ M3 결정적 증거**: subject 자연어 마커(`(backtrack to s1)`)를 제거한 변조 저장소에서 — **C009 자연어 복원은 붕괴**(s5·s8 parent가 s1→s4·s7로, 세 형제 가지가 선형으로 뭉개짐), **trailer 복원은 불변**(s5·s8 parent=s1 유지). 계약면이 서술과 무관해졌음의 실물.
+- **⭐ 교훈**: ① **계약면은 자연어 아닌 구조** — git trailer가 v3 스텝 계약 그릇(git 표준 지원, 새 포맷 불필요, v2 원장 정신의 표준화판). ② **국소성(C009)과 자기완결성(C010)은 트레이드오프** — C009는 순환 규칙으로 parent 파생(최소 저장·규칙 결합), C010은 모든 커밋이 Parent 명시(잉여 저장·규칙 독립). **계약면은 자기완결이 옳다**(각 커밋이 스스로 진실을 담아야 견고). ③ **기계엔 최소·정확, 사람엔 서술 잉여** — 두 요구가 한 커밋에서 분리 충족. ④ 계약 승격이 append-only 무손상(trailer=본문 줄 추가, add+commit 한 번).
+- **정직한 경계**: 파일명 gilv3.py 유지(배포 시 gil 본체 통합 명명 정할 몫), body 복원 범위 밖(C009와 동일), C012→C014 한 트리(중첩 백트래킹·fail outcome 미검증), Parent 명시의 커밋 크기 증가 미실측. 계측기 결함 1건 수리(git `%(trailers…)` 리터럴이 파이썬 % 포맷 충돌).
+- **이 세션 최종**: 참조 fsck 위반 0, 체인 8개·사이클 140개. C010 supported·태그·push 완료.
+- **⭐ 다음(v3-build 이월, C009→C010이 빚 갚아 선행조건 갖춤)**: ① **v3 fsck**(계약면이 구조가 됐으니 검증 가능 — 필수 trailer 존재·값 정합·**trailer 복원트리 == steps.yaml 캐시**, rebuild_trailer+C009 measure가 엔진) ② body 복원/`gilv3 rebuild` 명령화 ③ trailer 스키마 문서화·버저닝(gil v3 스펙) ④ 결과 잎 노드화(C002 재개, 상현님 2순위) ⑤ 뷰어 후속(Sheen). 그 뒤: BFS·fail 일원화·포기 상태·v2 백업+rooms 보존.
