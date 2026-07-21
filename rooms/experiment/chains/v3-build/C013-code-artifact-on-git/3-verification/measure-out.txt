@@ -1,0 +1,22 @@
+=== C013 측정 — 실제 코드 아티팩트(다중파일 calc/)를 깃 그래프에 실음 ===
+  M1 증분 diff — 검사 스텝 10개, 불일치=없음
+     예: s9 변경파일 = ['calc/core.py', 'calc/util.py'] (core+util 다중파일 증분)
+PASS M1 — 증분 diff 트레이싱 (스텝 커밋 = 그 스텝 코드 변경분, 다중파일) [K1]
+
+  M2 스텝커밋 11, 고유 11, 1스텝=1커밋=True, 머지=0(detached라 0)
+PASS M2 — 1스텝=1커밋 [K2]
+
+  M3 죽은가지 git show 롤백=True, HEAD/status/인덱스/디스크 무손상=True, 작업트리=산잎(C)=True
+PASS M3 — git show로 죽은가지 코드 롤백 + 워킹트리 무손상 [K3]
+
+  M4 태그로 죽은가지 보임=True, 태그삭제하면 --all서 사라짐=True, 되박으면 부활=True
+PASS M4 — 죽은가지 코드 태그(못)로 영구생존 + 음성대조 [K4]
+
+  M5 같은파일 core.py 세 버전: pairwise 상이=True, 각 가지 서명 있음=True, 오염없음=True
+PASS M5 — 같은 파일 독립 분기 보존 (디렉토리 복사가 못 하는 것) [K5]
+
+  M6 물리 core.py 경로 1개=True, core.py 손댄 커밋수=9(≥3), 세 잎버전 접근가능=True
+     ∴ 사이클 디렉토리 복사 없이 공유 한 벌 위에서 전 버전 생존
+PASS M6 — 공유 한 벌(복사 0) 위 전 버전 생존 [K6]
+
+=== ALL PASS -> supported (6/6) ===

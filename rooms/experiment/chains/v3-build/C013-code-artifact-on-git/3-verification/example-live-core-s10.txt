@@ -1,0 +1,8 @@
+"""calc.core — arithmetic. BRANCH-C: the obvious correct approach."""
+from calc.util import validate
+
+
+def add(a, b):
+    # BRANCH-C-SIGNATURE: just use the language operator
+    validate(a); validate(b)
+    return a + b  # s9 branch-C 검증

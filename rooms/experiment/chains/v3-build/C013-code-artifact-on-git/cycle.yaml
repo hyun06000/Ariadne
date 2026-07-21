@@ -1,0 +1,14 @@
+id: C013-code-artifact-on-git
+chain: v3-build
+parent: C011-everything-is-a-branch
+lineage: []
+step: 5
+author: Bobbin
+status: closed
+opened: 2026-07-21
+closed: 2026-07-21
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null
