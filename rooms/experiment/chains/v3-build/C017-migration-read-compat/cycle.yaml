@@ -4,11 +4,11 @@ parent: C016-leaf-is-a-tag
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "v3 재구성기가 지문 없는 v2(pre-gil) 커밋을 유령으로 건너뛰면 v3의 눈이 과거를 파괴 없이 덜 읽는다 (마이그레이션 첫 카브)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
