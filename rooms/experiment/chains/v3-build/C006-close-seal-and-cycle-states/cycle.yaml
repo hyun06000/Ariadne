@@ -1,0 +1,14 @@
+id: C006-close-seal-and-cycle-states
+chain: v3-build
+parent: C005-git-imprint-and-viewer-wire
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-21
+closed: null
+title: "close 봉인 표현을 정하고 진행 중·다중 잎 사이클 상태를 판정한다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
