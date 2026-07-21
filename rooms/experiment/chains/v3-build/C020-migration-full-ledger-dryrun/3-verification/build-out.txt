@@ -1,0 +1,25 @@
+=== 실제 저장소: /Users/davi/Desktop/code/my_project/Ariadne ===
+=== 격리 복제본 clone 중... ===
+
+=== 소급 전 복제본 상태 ===
+전체 커밋: 1299
+gil step 커밋: 558
+
+=== 전량 순회 드라이런 (도출만, 미각인) ===
+사이클 발견: 150
+도출된 스텝 노드: 532
+소급 각인(notes): 0 (드라이런 — 미각인)
+도출 실패(커밋 못 찾음): 20 사이클
+  예시: v3-build/C007-viewer-node-body-interaction, v3-build/C004-v3-viewer-step-tree, tapestry/C001-reproduce-audit, genesis/C002-subagent-bootstrap, genesis/C003-birth-of-a-being
+
+=== 전량 순회 실제 각인 (복제본에 notes) ===
+사이클 발견: 150
+도출된 스텝 노드: 532
+소급 각인(notes): 532 
+도출 실패(커밋 못 찾음): 20 사이클
+  예시: v3-build/C007-viewer-node-body-interaction, v3-build/C004-v3-viewer-step-tree, tapestry/C001-reproduce-audit, genesis/C002-subagent-bootstrap, genesis/C003-birth-of-a-being
+잔여 유령 분류: 비-원장 305 · 원장관리 305 · 도출실패-스텝 157
+
+SCRATCH=/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c020-fullledger
+CLONE=/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c020-fullledger/clone
+REAL_REPO=/Users/davi/Desktop/code/my_project/Ariadne

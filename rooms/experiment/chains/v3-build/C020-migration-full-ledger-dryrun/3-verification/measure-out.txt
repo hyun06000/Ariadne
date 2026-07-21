@@ -1,0 +1,7 @@
+[PASS] M1-full-sweep-safe: 복제본 커밋 SHA == 원장 SHA=True 커밋수=1299 → notes 각인이 커밋 하나도 안 바꿈 (전량 순회 무사고)
+[PASS] M2-ghost-reduced: C015 step커밋=5 notes받음=5 (전부=True) → 소급된 사이클의 스텝이 지문 받음 (유령→노드)
+[PASS] M3-derive-robust: →파싱=True —파싱=True release는step아님=True release는관리로분류=True → 이질 형식 견고, 오각인 0
+[PASS] M4-residual-transparent: 3종분류합=767(비원장305·관리305·도출실패157) 독립계산유령=767 일치=True → 잔여 정체 투명(침묵 0)
+[PASS] M5-real-repo-untouched: 우리원장 HEAD불변=True notes불변=True → 격리 철칙 준수 (복제본만 각인, 우리 저장소 무손상)
+
+=== ALL PASS — supported (5/5) ===
