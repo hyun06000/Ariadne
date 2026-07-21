@@ -1326,7 +1326,7 @@ def _build_releases_data(chains_root):
 
 
 def _build_deployments_data(chains_root):
-    """[loom/C103, 이슈 #18] 사용자 산출물 배포(deployments.json)를 뷰어 데이터로 굽는다.
+    """[loom/C104, 이슈 #18] 사용자 산출물 배포(deployments.json)를 뷰어 데이터로 굽는다.
     **도구 릴리스(_build_releases_data)와 별개 축이다** — 별 파일(deployments.json), 별 태그
     (deploy/<artifact>/<semver>), 별 gil-data 키(deployments). 두 축 절대 안 섞임(C102 DEPLOY-NAMESPACE).
     deployments.json이 없으면 None(배포 안 쓰는 저장소 → 뷰어에 deployments 키 부재 → 바이트 동일).
@@ -2479,7 +2479,7 @@ _DEPLOY_STAT_MARK = {"live": "●", "superseded": "·", "rolled-back": "↩"}  #
 
 
 def _render_deployments_panel(deployments):
-    """[loom/C103, 이슈 #18] 배포 계보 패널 — 사용자 산출물 배포(deployments.json)를 사람 눈에.
+    """[loom/C104, 이슈 #18] 배포 계보 패널 — 사용자 산출물 배포(deployments.json)를 사람 눈에.
     **도구 릴리스 패널(_render_releases_panel)과 별개 카드다** — 별 데이터(deployments), 별 클래스
     (.deployments). 두 축 절대 안 섞임(C102 DEPLOY-NAMESPACE). deployments 데이터 없으면(None) 빈 문자열
     → 배포 안 쓰는 저장소는 이 카드가 아예 안 뜬다(하위호환). 아티팩트별 계보·status·근거사이클 링크·supersedes."""
@@ -2498,7 +2498,7 @@ def _render_deployments_panel(deployments):
         note_html = f'<span class="depnote">{note}</span>' if note else ""
         sup = r.get("supersedes") or ""
         sup_html = f'<span class="depsup">⇞ v{html.escape(sup)}</span>' if sup else ""
-        # [loom/C103 ← C091] 근거 사이클(복수) 링크 — 이 배포를 낳은 닫힌 사이클로 점프(#cycdoc-<chain>-<id>).
+        # [loom/C104 ← C091] 근거 사이클(복수) 링크 — 이 배포를 낳은 닫힌 사이클로 점프(#cycdoc-<chain>-<id>).
         cycs = [c.strip() for c in (r.get("cycles") or []) if c.strip()]
         cycs_html = ""
         if cycs:
@@ -2598,7 +2598,7 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
         if chains_root:
             beings = _parse_beings(chains_root)
     releases = _build_releases_data(chains_root) if (hierarchy and chains_root) else None
-    # [loom/C103, 이슈 #18] 사용자 산출물 배포 축 — 도구 릴리스와 별개. 파일 없으면 None(키 부재 → 바이트 동일).
+    # [loom/C104, 이슈 #18] 사용자 산출물 배포 축 — 도구 릴리스와 별개. 파일 없으면 None(키 부재 → 바이트 동일).
     deployments = _build_deployments_data(chains_root) if (hierarchy and chains_root) else None
     json_payload = {
         # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
@@ -2626,7 +2626,7 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
         **({"beings": beings} if beings else {}),
         # [loomlight/C006] 배포 계보(current·entries). CHANGELOG 있을 때만. 무배포/flat은 키 부재 → 바이트 동일.
         **({"releases": releases} if releases else {}),
-        # [loom/C103, 이슈 #18] 사용자 산출물 배포(groups). deployments.json 있을 때만. 무배포/flat은 키 부재 → 바이트 동일.
+        # [loom/C104, 이슈 #18] 사용자 산출물 배포(groups). deployments.json 있을 때만. 무배포/flat은 키 부재 → 바이트 동일.
         # 도구 릴리스(releases 키)와 별 키 — 두 축 절대 안 섞임(C102 DEPLOY-NAMESPACE).
         **({"deployments": deployments} if deployments else {}),
     }

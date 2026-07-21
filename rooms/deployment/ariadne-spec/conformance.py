@@ -894,7 +894,7 @@ def main():
           releases_absent and rr6.returncode == 0 and cur_ok and entries_ok and note_ok and panel_ok,
           f"absent={releases_absent} cur={cur_ok} entries={entries_ok}({rel_versions}) note={note_ok} panel={panel_ok}")
 
-    # WEB-DEPLOYMENTS (loom/C103, 이슈 #18): 사용자 산출물 배포(deployments.json)를 뷰어에.
+    # WEB-DEPLOYMENTS (loom/C104, 이슈 #18): 사용자 산출물 배포(deployments.json)를 뷰어에.
     # **도구 릴리스(WEB-RELEASES)와 별개 축이다** — 별 파일·별 gil-data 키(deployments)·별 카드(.deployments).
     # 계약면: gil-data top-level deployments.groups 자기보고(아티팩트별·status·근거사이클). 지어냄 0 —
     # deployments.json이 실재 닫힌 사이클만 소스로 담는다(deploy cut이 강제). 무deployments.json이면 키 부재.
