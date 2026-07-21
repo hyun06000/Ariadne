@@ -4,11 +4,11 @@ parent: C101-deploy-axis-cut
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "배포 축을 artifact 단위로 재정렬 — 필드 #27 실증(pii-extract-api): gil deploy <artifact> <semver> --cycle 복수·kind·artifact당 live 1"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
