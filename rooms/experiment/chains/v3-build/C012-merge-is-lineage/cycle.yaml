@@ -1,0 +1,14 @@
+id: C012-merge-is-lineage
+chain: v3-build
+parent: C011-everything-is-a-branch
+lineage: [loom/C036-go-open-git-ledger]
+step: 1
+author: clew
+status: open
+opened: 2026-07-21
+closed: null
+title: "머지 = lineage = 지식 통합 (깃 머지 커밋 다중부모 ≅ gil lineage)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
