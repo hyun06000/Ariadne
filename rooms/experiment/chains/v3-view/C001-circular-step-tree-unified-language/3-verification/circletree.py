@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""circletree — v3 스텝 트리를 사이클 DAG와 같은 원형 노드+실선 언어로 렌더 (V1 목업).
+
+C004 steptree의 파서·트리·컬럼 배치를 재사용하고(닫힌 사이클 코드 import),
+**노드 렌더만 박스→원으로** 교체한다. 변화를 노드 표현에 국소화 — 원형이 유일 변수.
+순수 stdlib, 자기완결 SVG(외부 리소스 0).
+"""
+import os, sys, html
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+C004 = os.path.normpath(os.path.join(
+    HERE, "..", "..", "..", "v3-build", "C004-v3-viewer-step-tree", "3-verification"))
+sys.path.insert(0, C004)
+from steptree import parse_steps_yaml, build_tree, assign_columns  # noqa: E402
+
+# 레이아웃 (원형에 맞게 살짝 조정)
+COL_W = 160
+ROW_H = 130
+PAD_X = 70
+PAD_Y = 150
+R = 26  # 원 반경
+
+KIND_COLOR = {
+    "define": "#2563eb",      # 파랑
+    "hypothesis": "#7c3aed",  # 보라
+    "verify": "#0d9488",      # 청록
+    "analyze": "#64748b",     # 회색
+}
+LIVE = "#16a34a"  # 산 잎 초록
+
+
+def node_xy(nid, col, depth):
+    return PAD_X + col[nid] * COL_W + R, PAD_Y + depth[nid] * ROW_H + R
+
+
+CSS = """
+:root{color-scheme:light dark}
+body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:#fff;color:#0f172a}
+@media (prefers-color-scheme:dark){body{background:#0b1120;color:#e2e8f0}}
+.head{padding:20px 24px 6px}.head h1{margin:0;font-size:19px}
+.meta{color:#64748b;font-size:13px;margin-top:4px}
+.legend{display:flex;flex-wrap:wrap;gap:14px 20px;padding:12px 24px;margin:8px 24px;
+  background:#f8fafc;border-radius:10px;font-size:12.5px}
+@media (prefers-color-scheme:dark){.legend{background:#111a2e}}
+.lg{display:flex;align-items:center;gap:6px}
+.sw{width:16px;height:16px;border-radius:50%;display:inline-block;border:2px solid}
+.wrap{overflow-x:auto;padding:8px 24px 32px}
+.edge-parent{stroke:#94a3b8;stroke-width:2;fill:none}
+.edge-backtrack{stroke:#f59e0b;stroke-width:2;stroke-dasharray:6 5;fill:none}
+.n-circle{stroke-width:2.5}
+.leaf-dead .n-circle{stroke-dasharray:4 4;opacity:.55}
+.leaf-live .n-circle{stroke-width:4}
+.n-id{font-weight:700;font-size:14px;fill:#fff}
+.n-kind{font-size:12px;fill:#475569}
+@media (prefers-color-scheme:dark){.n-kind{fill:#94a3b8}}
+.badge{font-size:11px}.badge-live{fill:#16a34a;font-weight:600}.badge-dead{fill:#94a3b8}
+"""
+
+
+def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
+    by_id, children, root, depth = build_tree(nodes)
+    col = assign_columns(children, root)
+    max_col = max(col.values())
+    max_depth = max(depth.values())
+    width = int(PAD_X * 2 + max_col * COL_W + R * 2)
+    height = int(PAD_Y + (max_depth + 1) * ROW_H + 40)
+
+    p_edges, bt_edges, node_svg = [], [], []
+    live, dead = [], []
+
+    for n in nodes:
+        nid, kind, outcome = n["id"], n["kind"], n.get("outcome")
+        cx, cy = node_xy(nid, col, depth)
+
+        # parent 엣지 = 실선 (부모 원 하단 → 자식 원 상단)
+        p = n.get("parent")
+        if p is not None:
+            px, py = node_xy(p, col, depth)
+            p_edges.append(
+                f'<line class="edge-parent" x1="{px:.0f}" y1="{py + R:.0f}" '
+                f'x2="{cx:.0f}" y2="{cy - R:.0f}" data-from="{p}" data-to="{nid}" />')
+
+        classes = ["node", f"kind-{kind}"]
+        color = KIND_COLOR[kind]
+        badge = ""
+        if kind == "analyze" and outcome == "success":
+            classes.append("leaf-live"); live.append(nid); color = LIVE
+            badge = (f'<text class="badge badge-live" x="{cx:.0f}" y="{cy + R + 30:.0f}" '
+                     f'text-anchor="middle">✓ 산 잎</text>')
+        elif kind == "analyze" and outcome == "backtrack":
+            classes.append("leaf-dead"); dead.append(nid)
+            bt = n.get("backtrack")
+            badge = (f'<text class="badge badge-dead" x="{cx:.0f}" y="{cy + R + 30:.0f}" '
+                     f'text-anchor="middle">✕ 벽의 지도 →{html.escape(bt or "?")}</text>')
+            # backtrack 엣지 = 파선 곡선 (잎 왼쪽 → 조상 define 왼쪽)
+            if bt in by_id:
+                tx, ty = node_xy(bt, col, depth)
+                sx, sy = cx - R, cy
+                dx, dy = tx - R, ty
+                bulge = PAD_X - 40
+                bt_edges.append(
+                    f'<path class="edge-backtrack" marker-end="url(#bt-arrow)" '
+                    f'd="M {sx:.0f} {sy:.0f} C {bulge:.0f} {sy:.0f}, {bulge:.0f} {dy:.0f}, '
+                    f'{dx:.0f} {dy:.0f}" data-from="{nid}" data-to="{bt}" />')
+
+        node_svg.append(
+            f'<g class="{" ".join(classes)}" data-id="{nid}" data-kind="{kind}" '
+            f'data-outcome="{outcome or ""}">'
+            f'<circle class="n-circle" cx="{cx:.0f}" cy="{cy:.0f}" r="{R}" '
+            f'fill="{color}" stroke="{color}" />'
+            f'<text class="n-id" x="{cx:.0f}" y="{cy + 5:.0f}" text-anchor="middle">{nid}</text>'
+            f'<text class="n-kind" x="{cx:.0f}" y="{cy + R + 15:.0f}" '
+            f'text-anchor="middle">{kind}</text>'
+            f'{badge}</g>')
+
+    legend = "".join(
+        f'<span class="lg"><span class="sw" style="background:{c};border-color:{c}"></span>{k}</span>'
+        for k, c in KIND_COLOR.items())
+    legend += (f'<span class="lg"><span class="sw" style="background:{LIVE};border-color:{LIVE}">'
+               f'</span>산 잎(success)</span>'
+               '<span class="lg"><span class="sw" style="border-color:#94a3b8;border-style:dashed;'
+               'background:transparent"></span>죽은 잎(backtrack)</span>'
+               '<span class="lg"><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" '
+               'stroke="#94a3b8" stroke-width="2"/></svg>parent 실선</span>'
+               '<span class="lg"><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" '
+               'stroke="#f59e0b" stroke-width="2" stroke-dasharray="6 5"/></svg>backtrack 파선</span>')
+
+    svg = (f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+           f'xmlns="http://www.w3.org/2000/svg">'
+           '<defs><marker id="bt-arrow" viewBox="0 0 10 10" refX="8" refY="5" '
+           'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+           '<path d="M0 0 L10 5 L0 10 z" fill="#f59e0b"/></marker></defs>'
+           + "".join(p_edges) + "".join(bt_edges) + "".join(node_svg) + '</svg>')
+
+    return (f'<!doctype html><meta charset="utf-8"><style>{CSS}</style>'
+            f'<div class="head"><h1>v3 스텝 트리 — 원형 노드 (사이클 DAG 시각 언어 통일)</h1>'
+            f'<div class="meta">chain: <b>{chain}</b> · cycle: <b>{cycle}</b> · '
+            f'노드 {len(nodes)} · 산 잎 {len(live)} · 죽은 잎 {len(dead)}</div></div>'
+            f'<div class="legend">{legend}</div><div class="wrap">{svg}</div>'
+            f'<div class="head"><div class="meta">v3-view/C001 목업 · Clew · 자기완결</div></div>')
+
+
+def html_from_yaml_text(text, chain="v3-view", cycle="case-c012-c014"):
+    return render_html(parse_steps_yaml(text), chain, cycle)
+
+
+if __name__ == "__main__":
+    src = sys.argv[1] if len(sys.argv) > 1 else os.path.normpath(os.path.join(
+        HERE, "..", "..", "..", "v3-build", "C002-design-v3-data-model",
+        "3-verification", "case-c012-c014", "steps.yaml"))
+    dst = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "out.html")
+    doc = html_from_yaml_text(open(src, encoding="utf-8").read())
+    open(dst, "w", encoding="utf-8").write(doc)
+    print(f"wrote {dst} ({len(doc)} bytes)")
