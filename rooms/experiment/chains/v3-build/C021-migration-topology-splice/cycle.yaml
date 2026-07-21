@@ -1,0 +1,14 @@
+id: C021-migration-topology-splice
+chain: v3-build
+parent: C020-migration-full-ledger-dryrun
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "cycle.yaml parent를 사이클 간 v3 지문 엣지로 소급하면 C020의 150개 섬(사이클 내 노드)이 한 v3 체인 DAG로 이어진다 (마이그레이션 위상 접합)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
