@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [2.50.0] — 2026-07-21
+
+- 배포 축 완성: 실험과 별개인 배포 관리(gil deploy), 참조·Go 두 몸 한 계약 (참조 134/134·Go 117/117)
+- 도구 변경: gil·conformance·go (마이너 이상 승격)
+- 근거 사이클: loom/C101-deploy-axis-cut, loom/C102-deploy-artifact-axis, loom/C103-deploy-go-parity, loom/C104-deploy-viewer-panel, loom/C105-go-releases-parity, loom/C106-go-deploy-panel-render
+
+
 ## [2.49.0] — 2026-07-20
 
 - 폴링 통스왑이 열린 카드 노드를 교체하던 아키텍처 근원 제거 (hasOpenDetails 가드) — 노드 정체성 보존 (loomlight/C014)
