@@ -3695,7 +3695,7 @@ type releasesData struct {
 var changelogHeaderRe = regexp.MustCompile(`^## \[(\d+\.\d+\.\d+)\]\s+—\s+(\S+)`)
 var relSemverRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
-type clEntry struct{ date, note, tools string }
+type clEntry struct{ date, note, tools, cycles string }
 
 // parseChangelogReleases: 참조 _parse_changelog_releases — '## [X.Y.Z] — 날짜' 엔트리 파싱.
 func parseChangelogReleases(path string) map[string]clEntry {
@@ -3711,7 +3711,7 @@ func parseChangelogReleases(path string) map[string]clEntry {
 			continue
 		}
 		version, date := m[1], m[2]
-		note, tools := "", ""
+		note, tools, cycles := "", "", ""
 		for _, body := range lines[i+1:] {
 			if strings.HasPrefix(body, "## ") {
 				break
@@ -3719,11 +3719,13 @@ func parseChangelogReleases(path string) map[string]clEntry {
 			s := strings.TrimSpace(body)
 			if strings.HasPrefix(s, "- 도구 변경:") || strings.HasPrefix(s, "- 도구 동기화:") {
 				tools = strings.TrimSpace(strings.SplitN(s, ":", 2)[1])
+			} else if strings.HasPrefix(s, "- 근거 사이클:") { // loom/C086: 릴리스→근거사이클 계보
+				cycles = strings.TrimSpace(strings.SplitN(s, ":", 2)[1])
 			} else if strings.HasPrefix(s, "- ") && note == "" {
 				note = strings.TrimSpace(s[2:])
 			}
 		}
-		out[version] = clEntry{date: date, note: note, tools: tools}
+		out[version] = clEntry{date: date, note: note, tools: tools, cycles: cycles}
 	}
 	return out
 }
@@ -3853,6 +3855,127 @@ func parseSemverTriple(v string) [3]int {
 		t[i] = n
 	}
 	return t
+}
+
+// cmdReleases — 참조 cmd_releases (loom/C061 #3 배포 계보 조회). 읽기 전용, 저장소 무변화.
+// 깃 태그 v<semver>(깃의 진실)와 CHANGELOG '## [X.Y.Z] — 날짜'(사람의 원장)를 대조해 릴리스 이력을 보고.
+// 한쪽에만 있는 릴리스(drift)를 드러낸다. 배포 태그(deploy/*)는 v* 글롭 + SemVer 필터로 자동 배제된다.
+func cmdReleases(pkg string) int {
+	changelog := filepath.Clean(filepath.Join(pkg, "..", "CHANGELOG.md"))
+	cl := parseChangelogReleases(changelog)
+	// 저장소는 패키지를 기준으로 유추한다 — 패키지는 CHANGELOG를 담으므로 존재한다. 없으면 cwd로 강등.
+	anchor := pkg
+	if fi, err := os.Stat(pkg); err != nil || !fi.IsDir() {
+		anchor = "."
+	}
+	tags := gitReleaseTags(repoRoot(anchor))
+	gitAbsent := tags == nil
+	if gitAbsent { // git 부재 또는 비저장소 — 태그를 알 수 없으니 CHANGELOG만 (읽기 전용, 크래시 없이)
+		fmt.Fprintln(os.Stderr, "ℹ 깃 저장소가 아니거나 git이 없어 태그 대조를 생략한다 — CHANGELOG만 보고한다.")
+		tags = map[string]tagEntry{}
+	}
+
+	seen := map[string]bool{}
+	var ordered []string
+	for v := range cl {
+		if !seen[v] {
+			seen[v] = true
+			ordered = append(ordered, v)
+		}
+	}
+	for v := range tags {
+		if !seen[v] {
+			seen[v] = true
+			ordered = append(ordered, v)
+		}
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		return semverGreater(parseSemverTriple(ordered[i]), parseSemverTriple(ordered[j]))
+	})
+
+	var hooks []string
+	drift := 0
+	header := fmt.Sprintf("배포 계보 — %d개 릴리스", len(ordered))
+	if gitAbsent {
+		header += " (git 부재: 태그 대조 생략)"
+	} else {
+		header += "  [T=태그 C=CHANGELOG]"
+	}
+	fmt.Println(header)
+	for _, v := range ordered {
+		clE, inCl := cl[v]
+		tgE, inTag := tags[v]
+		date, note, tools, cycles := "", "", "", ""
+		if inCl {
+			date, note, tools, cycles = clE.date, clE.note, clE.tools, clE.cycles
+		} else {
+			date = tgE.date
+			if inTag {
+				note = tgE.subject
+			}
+		}
+		marks := "·"
+		if inTag {
+			marks = "T"
+		}
+		if inCl {
+			marks += "C"
+		} else {
+			marks += "·"
+		}
+		drifted := !gitAbsent && !(inTag && inCl)
+		if drifted {
+			drift++
+		}
+		dateShown := date
+		if dateShown == "" {
+			dateShown = "?"
+		}
+		line := fmt.Sprintf("  v%-9s %-10s [%s]", v, dateShown, marks)
+		if drifted {
+			line += " ⚠drift"
+		}
+		if note != "" {
+			line += "  " + note
+		}
+		if tools != "" && !strings.HasPrefix(tools, "없음") {
+			line += "  · 도구: " + tools
+		}
+		if cycles != "" {
+			line += "  · 근거: " + cycles
+		}
+		fmt.Println(line)
+		nCycles := 0
+		if cycles != "" {
+			for _, c := range strings.Split(cycles, ",") {
+				if strings.TrimSpace(c) != "" {
+					nCycles++
+				}
+			}
+		}
+		hookDate := date
+		if hookDate == "" {
+			hookDate = "-"
+		}
+		hooks = append(hooks, fmt.Sprintf("gil:release %s %s tags=%d changelog=%d cycles=%d",
+			v, hookDate, b2i(inTag), b2i(inCl), nCycles))
+	}
+	for _, h := range hooks { // 사람 렌더 뒤에 기계 훅 블록 (§7.2 정신)
+		fmt.Println(h)
+	}
+	fmt.Printf("gil:releases %d drift=%d\n", len(ordered), drift)
+	if drift > 0 {
+		fmt.Fprintf(os.Stderr, "⚠ drift %d건: 태그와 CHANGELOG가 어긋난 릴리스가 있다 "+
+			"(한쪽 기록에만 존재). 봉인의 두 기록은 일치해야 한다.\n", drift)
+	}
+	return 0
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy bool, chainsRoot string) string {
@@ -4007,6 +4130,36 @@ func webJSONPayload(d *webData, pageTitle, only string, refresh int, hierarchy b
 			b.WriteString(`]}`)
 		}
 	}
+	// [loom/C104→C105, 이슈 #18] 사용자 산출물 배포 top-level deployments 키 — 도구 릴리스(releases)와 별 키.
+	// 무deployments.json/flat은 키 부재 → 바이트 동일(C102 DEPLOY-NAMESPACE). 참조 dict 순서:
+	// groups → group{artifact·kind·live(None→null)·records[]} → record{version·kind·status·deployed_at·supersedes·notes·cycles}.
+	if hierarchy {
+		if dep := buildDeploymentsData(chainsRoot); dep != nil {
+			b.WriteString(`, "deployments": {"groups": [`)
+			for gi, g := range dep.groups {
+				if gi > 0 {
+					b.WriteString(", ")
+				}
+				liveJSON := "null"
+				if g.hasLive {
+					liveJSON = jsonStr(g.live)
+				}
+				b.WriteString(`{"artifact": ` + jsonStr(g.artifact) + `, "kind": ` + jsonStr(g.kind) +
+					`, "live": ` + liveJSON + `, "records": [`)
+				for ri, r := range g.records {
+					if ri > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(`{"version": ` + jsonStr(r.version) + `, "kind": ` + jsonStr(r.kind) +
+						`, "status": ` + jsonStr(r.status) + `, "deployed_at": ` + jsonStr(r.deployedAt) +
+						`, "supersedes": ` + jsonStr(r.supersedes) + `, "notes": ` + jsonStr(r.notes) +
+						`, "cycles": ` + jsonStrList(r.cycles) + `}`)
+				}
+				b.WriteString(`]}`)
+			}
+			b.WriteString(`]}`)
+		}
+	}
 	b.WriteString("}") // 최상위 객체 닫기
 	return b.String()
 }
@@ -4049,6 +4202,30 @@ const webHierCSS = `.gil .card.beings{padding:16px 20px}
 .gil .relmore>summary{cursor:pointer;font-size:12px;color:var(--node);font-weight:600;padding:4px 0}
 .gil .relmore>summary:hover{text-decoration:underline}
 .gil .relmore>.rellist{margin-top:6px}
+.gil .card.deployments{padding:16px 20px}
+.gil .deployments h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.gil .deployshint{color:var(--muted);font-size:12px;margin:0 0 14px}
+.gil .artgroup{margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--ring)}
+.gil .artgroup:last-child{border-bottom:none;padding-bottom:0;margin-bottom:0}
+.gil .arthead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.gil .artname{font-weight:650;font-size:14px;color:var(--ink)}
+.gil .artkind{font-size:11px;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);padding:1px 7px;border-radius:10px}
+.gil .artlive{font-size:11px;font-weight:600;color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent);padding:1px 8px;border-radius:10px}
+.gil .artdead{font-size:11px;color:var(--muted)}
+.gil .deplist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.gil li.dep{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px;padding-bottom:6px;border-bottom:1px solid var(--ring)}
+.gil li.dep:last-child{border-bottom:none;padding-bottom:0}
+.gil .depstat{font-weight:600;min-width:14px;text-align:center}
+.gil .depstat.live{color:var(--node)}
+.gil .depstat.superseded{color:var(--muted)}
+.gil .depstat.rolled-back{color:var(--supersede)}
+.gil .depver{font-weight:650;color:var(--node);min-width:60px}
+.gil .depdate{color:var(--muted);font-size:12px;min-width:82px}
+.gil .depnote{flex:1 1 200px}
+.gil .depsup{font-size:11px;color:var(--supersede);font-weight:600}
+.gil .depcycs{font-size:11px;flex-basis:100%;color:var(--muted)}
+.gil a.depcyc{color:var(--node);text-decoration:none;font-weight:600;margin-right:8px;white-space:nowrap}
+.gil a.depcyc:hover{text-decoration:underline}
 .gil .cyrel{font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
 .gil .cyrel.shipped{color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent)}
 .gil .cyrel.unshipped{color:var(--muted);background:color-mix(in srgb,var(--muted) 14%,transparent)}
@@ -4293,7 +4470,7 @@ const webAppJS = `
   // 폴링으로 갱신할 서버 렌더 동적 영역(구조/집계). JS 마운트 body(.cycbody/.beingbody)는 여기서
   // 통스왑하지 않고(온-디맨드 구축 보존), 아래 rebuildOpen로 새 data에서 다시 그린다.
   var POLL_SEL=[".mapchains",".hmap > svg","header p:first-of-type",".htoc","[role=\"status\"]",
-    ".releases",".beings",".wrap > .card:not(.hmap)"];
+    ".releases",".deployments",".beings",".wrap > .card:not(.hmap)"];
   // [loomlight/C014] 열린 노드는 교체하지 않는다 — replaceChild로 통째 갈면 노드 정체성이 바뀌어
   // (새 노드로 대체) DOM에 붙은 런타임 상태(네이티브 <details> 토글·포커스·리스너·부분 스크롤)가
   // 소실된다. detKey/restoreOpen이 open 불린은 복원하지만 노드 정체성은 복원 못 한다. 그래서
@@ -5138,6 +5315,173 @@ func renderReleasesPanel(rel *releasesData) string {
 		listing + `</section>`
 }
 
+// ---------- 배포 계보 패널 (loom/C104→C105, 이슈 #18) — 참조 gil.py의 web 배포 패널 동형 이식 ----------
+//
+// 도구 릴리스(buildReleasesData/renderReleasesPanel)와 **별개 축**이다: 별 파일(deployments.json),
+// 별 gil-data 키(deployments), 별 카드(.deployments). 두 축 절대 안 섞임(C102 DEPLOY-NAMESPACE).
+// 렌더는 §3.1 계약 아님 → 정확성은 참조↔Go 바이트 동일 + WEB-DEPLOYMENTS로 증명한다.
+
+type depRecordView struct {
+	version, kind, status, deployedAt, supersedes, notes string
+	cycles                                               []string
+}
+type depGroupView struct {
+	artifact, kind, live string // live: "" 이면 없음(참조 None)
+	hasLive              bool
+	records              []depRecordView
+}
+type deploymentsData struct{ groups []depGroupView }
+
+// buildDeploymentsData: 참조 _build_deployments_data. deployments.json 없으면 nil(무배포 → deployments 키 부재).
+// 파일 있으나 배포 0이면 groups 빈 슬라이스. 아티팩트별로 첫 등장 순서 보존, records는 최신 우선(reversed).
+func buildDeploymentsData(chainsRoot string) *deploymentsData {
+	regPath := deploymentsPath(chainsRoot)
+	if _, err := os.Stat(regPath); err != nil {
+		return nil // 파일 부재 → nil
+	}
+	deployments := loadDeployments(regPath)
+	if len(deployments) == 0 { // 파일은 있으나 배포 0 — 렌더러가 빈 상태를 정직히 표현
+		return &deploymentsData{groups: []depGroupView{}}
+	}
+	var order []string
+	byArt := map[string][]depRecordView{}
+	for _, d := range deployments {
+		art := d.Artifact
+		if art == "" {
+			art = "?"
+		}
+		if _, ok := byArt[art]; !ok {
+			order = append(order, art)
+		}
+		// 참조: source_cycles or ([source_cycle] if source_cycle else []). Go 구조체는 SourceCycles만.
+		srcs := append([]string(nil), d.SourceCycles...)
+		sup := ""
+		if d.Supersedes != nil {
+			sup = *d.Supersedes
+		}
+		byArt[art] = append(byArt[art], depRecordView{
+			version: orDefault(d.Version, "?"), kind: d.Kind, status: orDefault(d.Status, "?"),
+			deployedAt: d.DeployedAt, supersedes: sup, notes: d.Notes, cycles: srcs,
+		})
+	}
+	var groups []depGroupView
+	for _, art := range order {
+		recs := byArt[art]
+		// 최신 배포 우선(레지스터는 append-only 시간순) — reversed.
+		rev := make([]depRecordView, len(recs))
+		for i, r := range recs {
+			rev[len(recs)-1-i] = r
+		}
+		live, hasLive := "", false
+		for _, r := range rev {
+			if r.status == "live" {
+				live, hasLive = r.version, true
+				break
+			}
+		}
+		kind := ""
+		for _, r := range rev {
+			if r.kind != "" {
+				kind = r.kind
+				break
+			}
+		}
+		groups = append(groups, depGroupView{artifact: art, kind: kind, live: live, hasLive: hasLive, records: rev})
+	}
+	return &deploymentsData{groups: groups}
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+// depStatMark: 참조 _DEPLOY_STAT_MARK — live→● superseded→· rolled-back→↩, 기타→?.
+func depStatMark(status string) string {
+	switch status {
+	case "live":
+		return "●"
+	case "superseded":
+		return "·"
+	case "rolled-back":
+		return "↩"
+	}
+	return "?"
+}
+
+// renderDeploymentsPanel: 참조 _render_deployments_panel. nil→"" (배포 안 쓰는 저장소는 카드 부재).
+// 아티팩트별 계보·status·근거사이클(#cycdoc-*) 링크·supersedes. 도구 릴리스와 별 카드(.deployments).
+func renderDeploymentsPanel(dep *deploymentsData) string {
+	if dep == nil {
+		return ""
+	}
+	if len(dep.groups) == 0 {
+		return `<section class="card deployments"><h2>배포 계보</h2>` +
+			`<p class="deployshint">아직 배포된 산출물이 없다.</p></section>`
+	}
+	depRow := func(r depRecordView) string {
+		mark := depStatMark(r.status)
+		v := htmlEscape(r.version)
+		noteHTML := ""
+		if r.notes != "" {
+			noteHTML = `<span class="depnote">` + htmlEscape(r.notes) + `</span>`
+		}
+		supHTML := ""
+		if r.supersedes != "" {
+			supHTML = `<span class="depsup">⇞ v` + htmlEscape(r.supersedes) + `</span>`
+		}
+		// [loom/C104 ← C091] 근거 사이클(복수) 링크 — 닫힌 사이클로 점프(#cycdoc-<chain>-<id>).
+		var cycsHTML string
+		var chips strings.Builder
+		nchip := 0
+		for _, c := range r.cycles {
+			ref := strings.TrimSpace(c)
+			if ref == "" {
+				continue
+			}
+			chips.WriteString(`<a class="depcyc" href="#cycdoc-` +
+				htmlEscape(strings.ReplaceAll(ref, "/", "-")) + `">⚑ ` + htmlEscape(ref) + `</a>`)
+			nchip++
+		}
+		if nchip > 0 {
+			cycsHTML = `<span class="depcycs">근거: ` + chips.String() + `</span>`
+		}
+		return `<li class="dep"><span class="depstat ` + htmlEscape(r.status) + `">` + mark + `</span>` +
+			`<span class="depver">v` + v + `</span>` +
+			`<span class="depdate">` + htmlEscape(r.deployedAt) + `</span>` +
+			noteHTML + supHTML + cycsHTML + `</li>`
+	}
+	group := func(g depGroupView) string {
+		art := htmlEscape(g.artifact)
+		kindHTML := ""
+		if g.kind != "" {
+			kindHTML = `<span class="artkind">` + htmlEscape(g.kind) + `</span>`
+		}
+		liveHTML := `<span class="artdead">live 없음</span>`
+		if g.hasLive {
+			liveHTML = `<span class="artlive">● live v` + htmlEscape(g.live) + `</span>`
+		}
+		var rows strings.Builder
+		for _, r := range g.records {
+			rows.WriteString(depRow(r))
+		}
+		return `<div class="artgroup"><div class="arthead">` +
+			`<span class="artname">` + art + `</span>` + kindHTML + liveHTML + `</div>` +
+			`<ul class="deplist">` + rows.String() + `</ul></div>`
+	}
+	var body strings.Builder
+	for _, g := range dep.groups {
+		body.WriteString(group(g))
+	}
+	return `<section class="card deployments"><h2>배포 계보</h2>` +
+		`<p class="deployshint">사용자 산출물 배포 이력(deployments.json) — 도구 릴리스와 별개 축이다. ` +
+		`● live · · superseded · ↩ rolled-back. 아티팩트당 live는 하나. ` +
+		`“근거”는 이 배포를 낳은 닫힌 사이클(들)로 점프한다.</p>` +
+		body.String() + `</section>`
+}
+
 func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLineage int, chainsRoot, gilDataJSON string) string {
 	style := webCSS + "\n" + webHierCSS
 	var toc, chainsHTML strings.Builder
@@ -5176,13 +5520,14 @@ func renderHierarchyBody(d *webData, pageTitle, generated string, nCycles, nLine
 <div class="mapchains">%s</div></div>
 %s
 %s
+%s
 <nav class="htoc"><h2>체인 목록</h2><ul>%s</ul></nav>
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
 </div></div>
 <script type="application/json" id="gil-data">%s</script>
 <script>%s</script>`,
 		style, htmlEscape(pageTitle), len(d.names), nCycles, nLineage, htmlEscape(generated),
-		renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), renderReleasesPanel(buildReleasesData(chainsRoot)), renderBeingsPanel(parseBeings(chainsRoot)), toc.String(), gilDataJSON, webAppJS)
+		renderParallelBanner(d), renderChainMap(d), chainsHTML.String(), renderReleasesPanel(buildReleasesData(chainsRoot)), renderDeploymentsPanel(buildDeploymentsData(chainsRoot)), renderBeingsPanel(parseBeings(chainsRoot)), toc.String(), gilDataJSON, webAppJS)
 }
 
 // renderWebPage: 참조 구현 render_web_page — 자기완결적 정적 페이지 (외부 리소스 0).
@@ -6345,6 +6690,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"web", "gil web [chains-root] -o <출력> [--title …] [--chain …]", "자기완결적 정적 HTML 뷰어"},
 	{"pages", "gil pages [-o <path>|-] [--force] [--dry-run]", "GitHub Pages 배포 워크플로 생성"},
 	{"deploy", "gil deploy cut <artifact> <semver> --cycle <chain>/<id>… [--kind …] [--target …] [--params …] [--perf …] [--notes …] | list [artifact] | current <artifact> | rollback <artifact>", "사용자 산출물(앱/모델) 배포 축 — 배포 단위=아티팩트: cut·list·current·rollback (loom/C102, #27). 도구 릴리스(release)와 별개"},
+	{"releases", "gil releases [--package <경로>]", "배포 계보 조회: 깃 태그(v*)와 CHANGELOG를 대조해 릴리스 이력을 보고 (읽기 전용, loom/C061)"},
 	{"goto", "gil goto <chain>/<id> [--checkout]", "타임머신: 사이클 시점 역행 조회·체크아웃"},
 	{"handoff", "gil handoff [chains-root]", "세션의 매듭: 현황·부활 경로·다음 실"},
 	{"supersede", "gil supersede <old-ref> <new-ref>", "전방 무효화: 닫힌 사이클에 superseded_by 각인"},
@@ -6808,6 +7154,13 @@ func main() {
 		}); err != nil {
 			fail(err)
 		}
+	case "releases":
+		_, flags, err := parseCLI(os.Args[2:], map[string]bool{"package": true})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		os.Exit(cmdReleases(flagVal(flags, "package", "rooms/deployment/ariadne-spec")))
 	default:
 		notImplemented(os.Args[1])
 	}
