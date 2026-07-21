@@ -1,0 +1,13 @@
+* 79f8de3 (main, gil/dead/s4) gilv3 step: s4 analyze/backtrack (backtrack to s1)
+* ff937de gilv3 step: s3 verify
+* f0e1d84 gilv3 step: s2 hypothesis
+| * 92c7e36 (gil/dead/s7) gilv3 step: s7 analyze/backtrack (backtrack to s1)
+| * 9249751 gilv3 step: s6 verify
+| * b8f15d3 gilv3 step: s5 hypothesis (new branch from s1 after checkout-backtrack)
+|/  
+| * fdcd66a (HEAD, gil/sealed/repo) gilv3 close repo: solved 산 잎 s10 (봉인)
+| * acd5a7c (gil/live/s10) gilv3 step: s10 analyze/success
+| * d6f4d82 gilv3 step: s9 verify
+| * ca4c04e gilv3 step: s8 hypothesis (new branch from s1 after checkout-backtrack)
+|/  
+* b087cb0 gilv3 open repo: s1 define

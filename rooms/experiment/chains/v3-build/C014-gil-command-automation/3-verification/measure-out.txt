@@ -1,0 +1,7 @@
+[PASS] M1-graph-branches: 루트 s1 커밋의 자식 수=3(=3 기대: 세 형제 가지) → 도구가 선형 아닌 실제 분기 생성 (C011 build_branches.sh 위상)
+[PASS] M2-yaml-git-isomorphic: 불일치 0건  → steps.yaml parent/backtrack 포인터 == 깃 커밋 부모 그래프
+[PASS] M3-trailer-rebuild-intact: 복원노드집합일치=True parent/backtrack/outcome일치=True → checkout 도입이 C010 trailer 복원을 안 깸 (자기완결 trailer)
+[PASS] M4-append-only: 죽은가지생존(못)=True checkout통과=True reset거부(음성대조)=True → append-only 진짜계약=커밋불소멸. checkout 허용, 재작성 거부
+[PASS] M5-no-regression: 선형 open→step→close rc0=True 분기없음=True trailer각인=True cycle.yaml봉인=True → 기존 C010 동작 회귀 0
+
+=== ALL PASS — supported (5/5) ===
