@@ -1,0 +1,14 @@
+id: C022-migration-freeze-and-apply
+chain: v3-build
+parent: C021-migration-topology-splice
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "마이그레이션 동결백업 + 실제 원장 적용 (①동결백업, 실전화)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
