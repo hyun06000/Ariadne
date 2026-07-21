@@ -23,3 +23,9 @@
 
 정직한 경계: 로컬 fresh clone 실측까지. 실제 GitHub Pages 배포 URL 확인은 push 후 상현님과.
   Pages 워크플로 트리거는 main push이므로, 이 커밋이 push되면 실제 배포된다.
+
+=== 후속 — 실제 GitHub Pages 배포 확인 (push 후) ===
+워크플로 ariadne-pages 실행 29861530681: build ✓ + deploy ✓ (success).
+https://hyun06000.github.io/Ariadne/       → HTTP 200 (v2 index, v3 배너 링크 포함)
+https://hyun06000.github.io/Ariadne/v3.html → HTTP 200 (409792 bytes, 두 층: 상위 계보 DAG + 하위 스텝 트리)
+⭐ v3 통합 계보 뷰어가 실제로 공개됐다 — 상현님 "깃헙io에 보이게" 우선순위 달성.
