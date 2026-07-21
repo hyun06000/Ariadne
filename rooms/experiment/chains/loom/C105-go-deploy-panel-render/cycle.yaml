@@ -2,7 +2,7 @@ id: C105-go-deploy-panel-render
 chain: loom
 parent: C104-deploy-viewer-panel
 lineage: []
-step: 1
+step: 2
 author: sheen
 status: open
 opened: 2026-07-21
