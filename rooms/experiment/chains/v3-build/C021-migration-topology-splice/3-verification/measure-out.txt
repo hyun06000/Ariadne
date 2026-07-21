@@ -1,0 +1,6 @@
+[PASS] M1-edge-spliced: DAG노드=131 사이클간엣지=130 → 섬들이 Cycle-Parent로 이어짐(notes 복원)
+[PASS] M2-three-shapes: 단일 C015→['C014'](=['C014']) 머지 C036→['C020', 'C016'](={C020,C016}) 루트수=5 → 단일·머지(다중부모=C015 lineage)·루트 각각 정확
+[PASS] M3-commit-immutable: 복제본SHA==원장SHA=True cycle.yaml불변=True → Cycle-Parent 소급이 커밋·파일 안 바꿈 (notes append, C018 계약)
+[PASS] M4-dag-consistent: 머지 DAG=4==cycle.yaml=4 | 총계 DAG=131 cy=151 gap=20==도출실패=20 → 접합 DAG가 실제 계보와 정합(잔여=도출실패, 정직)
+
+=== ALL PASS — supported (4/4) ===
