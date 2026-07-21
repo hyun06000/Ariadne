@@ -4,11 +4,11 @@ parent: C022-migration-freeze-and-apply
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "마이그레이션의 gil 명령화 (apply/rollback 실증 절차를 도구 강제로 승격)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
