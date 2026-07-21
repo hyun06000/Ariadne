@@ -2,7 +2,7 @@ id: C016-leaf-is-a-tag
 chain: v3-build
 parent: C015-merge-is-lineage-command
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-22
