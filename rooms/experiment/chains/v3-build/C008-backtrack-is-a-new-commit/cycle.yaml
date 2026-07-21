@@ -4,11 +4,11 @@ parent: C006-close-seal-and-cycle-states
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "백트래킹=새 커밋: 깃=append-only 전진기록, gil=백트래킹·분기 지능을 코드로 각인"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
