@@ -1,0 +1,13 @@
+* 8343d09 (tag: gil/leaf/8343d09, main) step: s4 analyze/backtrack
+* fd6ceeb step: s3 verify
+* aaf649e step: s2 hypothesis
+| * f60789a (HEAD, tag: gil/leaf/f60789a, tag: cycle/C-demo/solved) step: s10 analyze/success
+| * 3455000 step: s9 verify
+| * 90f5dc4 step: s8 hypothesis
+|/  
+| * 1a54fbf (tag: gil/leaf/1a54fbf) step: s7 analyze/backtrack
+| * 02109a3 step: s6 verify
+| * 94332a1 step: s5 hypothesis
+|/  
+* c19641b step: s1 define
+* 1589022 root: chain v3-demo 시작

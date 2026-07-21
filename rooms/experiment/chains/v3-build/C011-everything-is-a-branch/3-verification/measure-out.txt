@@ -1,0 +1,16 @@
+=== C011 측정 — 백트래킹=checkout, 위계=커밋 지문 ===
+  M1 스텝커밋 11개, 지문누락=없음, 백트래킹 Backtrack-To=완전
+✅ PASS M1 — 위계 지문 완전 (Chain·Cycle·Step-Id·Parent·Backtrack-To) [K1]
+
+  M2 스텝커밋 11, 고유 11, 1스텝=1커밋=True, 머지커밋=0(detached라 0)
+✅ PASS M2 — 1스텝=1커밋 (0/2커밋 스텝 0) [K2]
+
+  M3 죽은잎 그래프생존(해시ref)=True, git show 롤백=True, 워킹트리무손상=True
+     음성대조: ref 지우면 사라짐=True, 복원하면 다시 보임=True (∴ref 필요)
+     s4 죽은잎 코드: def solve(): return detkey_fix()  # s4 죽음(되돌아감→s1)
+✅ PASS M3 — 죽은가지 생존(해시ref)+git show 롤백(워킹트리무손상), ref 필요성 실증 [K3]
+
+  M4 체인={'v3-demo'}, 사이클={'C-demo'}, s1의 세 자식=['s2', 's5', 's8'], 죽은잎=['s4', 's7'], 산잎=['s10']
+✅ PASS M4 — 커밋 지문만으로 위계 복원 (체인⊃사이클⊃스텝, 죽은/산 잎) [K4]
+
+=== ALL PASS → supported (4/4) ===
