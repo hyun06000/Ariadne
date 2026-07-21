@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "deployments": [
+    {
+      "artifact": "ariadne-deploy",
+      "kind": "app-code",
+      "version": "1.0.0",
+      "source_cycles": [
+        "loom/C101-deploy-axis-cut",
+        "loom/C102-deploy-artifact-axis",
+        "loom/C103-deploy-go-parity",
+        "loom/C104-deploy-viewer-panel"
+      ],
+      "target": "Ariadne 프레임워크 (rooms/deployment)",
+      "params": "",
+      "performance": "",
+      "deployed_at": "2026-07-21",
+      "supersedes": null,
+      "status": "live",
+      "notes": "배포 관리 기능 — Selvage 골격(C101)·artifact 재정렬(C102)·Go parity(C103)·뷰어 계보(C104). 네 존재가 지은 배포축을 그 배포축으로 배포한 첫 산출물(dogfooding)."
+    }
+  ]
+}
