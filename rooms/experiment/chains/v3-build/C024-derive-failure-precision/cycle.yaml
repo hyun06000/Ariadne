@@ -4,11 +4,11 @@ parent: C023-migration-as-gil-command
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "도출실패 섬 정밀화 — 재번호 사이클의 provenance 추적으로 옛 번호 커밋 회수"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
