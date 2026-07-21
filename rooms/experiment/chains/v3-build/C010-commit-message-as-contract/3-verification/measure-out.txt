@@ -1,0 +1,14 @@
+=== C010 측정 — 커밋 메시지를 계약면으로 (git trailer) ===
+  M1 노드=True parent=True backtrack=True outcome=True 왕복=True
+✅ PASS M1 — trailer 복원 동형 + 왕복 무손실 [K1]
+
+  M2 trailer 누출=False, subject 형태온전=True, 사람용 서술 유지=True
+✅ PASS M2 — subject 무오염 (trailer 미누출, 사람 서술 온전) [K2]
+
+  M3 변조 subject에서 — trailer 복원 불변=True, 자연어 복원 깨짐=True
+✅ PASS M3 — 견고성: 서술 변조에도 trailer 불변, 자연어는 붕괴 [K3]
+
+  M4 git 하위명령=['add', 'commit', 'merge-base', 'rev-parse'], 금지=없음, amend/force=False
+✅ PASS M4 — append-only 유지 (add·commit만) [K4]
+
+=== ALL PASS → supported (4/4) ===

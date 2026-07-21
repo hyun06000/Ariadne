@@ -1,0 +1,22 @@
+=== 변조 저장소: C009 자연어 복원 (붕괴) ===
+s1 define parent=None
+s2 hypothesis parent=s1
+s3 verify parent=s2
+s4 analyze parent=s3 outcome=backtrack
+s5 hypothesis parent=s4
+s6 verify parent=s5
+s7 analyze parent=s6 outcome=backtrack
+s8 hypothesis parent=s7
+s9 verify parent=s8
+s10 analyze parent=s9 outcome=success
+=== 변조 저장소: trailer 복원 (불변) ===
+s1 define parent=None
+s2 hypothesis parent=s1
+s3 verify parent=s2
+s4 analyze parent=s3 outcome=backtrack backtrack=s1
+s5 hypothesis parent=s1
+s6 verify parent=s5
+s7 analyze parent=s6 outcome=backtrack backtrack=s1
+s8 hypothesis parent=s1
+s9 verify parent=s8
+s10 analyze parent=s9 outcome=success

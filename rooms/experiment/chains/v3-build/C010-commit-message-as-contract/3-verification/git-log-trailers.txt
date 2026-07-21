@@ -1,0 +1,30 @@
+gilv3 open case: s1 define
+Step-Id: s1
+Kind: define
+Parent: null
+
+gilv3 step: s2 hypothesis
+Step-Id: s2
+Kind: hypothesis
+Parent: s1
+
+gilv3 step: s3 verify
+Step-Id: s3
+Kind: verify
+Parent: s2
+
+gilv3 step: s4 analyze/backtrack (backtrack to s1)
+Step-Id: s4
+Kind: analyze
+Parent: s3
+Outcome: backtrack
+Backtrack-To: s1
+
+gilv3 step: s5 hypothesis (new branch from s1 after backtrack)
+Step-Id: s5
+Kind: hypothesis
+Parent: s1
+
+gilv3 step: s6 verify
+Step-Id: s6
+Kind: verify
