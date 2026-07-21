@@ -322,3 +322,31 @@
   (C036 "판정기가 안 보는 계약은 없다"의 거울: guard가 보는 건 author뿐, 예약이 아니다). 이식 자체는
   네 번째 등급 없이 exit·문자면·원장급 모두 통과했으나(바이트 동일), **사이클을 여는 절차가 막혀
   방법론 5스텝을 원장에 못 새긴 첫 폭**이다. 코드는 gil이 됐는데, 그걸 기록할 사이클은 열리지 않았다.
+
+## 2026-07-21 — 열한 번째 폭: loom/C103, `gil deploy`를 Go에 이식 (부분 채택 — 114/115)
+
+- Clew가 열한 번째 폭을 던졌다: 참조 gil.py에 완성된 `gil deploy`(사용자 산출물 배포 축,
+  artifact 단위 — Selvage C101 골격, Clew가 C102에서 artifact 키로 재정렬)를 Go(`go/main.go`)에
+  이식하는 일. 격리 워크트리 `loom-deploy-go-parity`에서 이미 열린 loom/C103(부모 C102)의 5스텝을
+  채웠다. 이번엔 처음부터 내 워크트리에서만 일해 C050·C060의 main 유출을 재연하지 않았다.
+- **판정: 부분 채택, 114/115.** `cmd_deploy` 디스패치 + cut/list/current/rollback + 헬퍼
+  (`deploymentsPath`·`loadDeployments`·`saveDeployments`·`resolveSourceCycle`·`cycleVerdict`·
+  `liveDeployment` 등) + fsck R16(소스 무결성·kind·status 어휘)/R17(artifact당 live 1)을 이식.
+  commandTable에 `deploy` 등록. DEPLOY-* 5항목 중 **4항목**(CUT·LIVE-INVARIANT·QUERY·ROLLBACK)
+  통과, 참조 133/133 무회귀. 스모크에서 Go↔참조 `deployments.json`이 **바이트 동일**(원장급,
+  C036 기준), R16 메시지도 바이트 동일, 거부 4종(rejected/open/없는 소스·비단조) 전부 exit 1.
+- **미달 1항목의 정직한 이월 — DEPLOY-NAMESPACE는 deploy가 아니라 release를 판정한다.** 이
+  항목은 `gil releases`가 배포 태그(`deploy/*`)를 릴리스 조회(`v*`)에 안 섞는지를 본다 — 판정
+  대상 명령이 `releases`다. Go는 `releases`를 애초에 미구현(referenceOnly, C036 이래 릴리스 축은
+  참조 전용)이라 exit 3 → FAIL. deploy 이식의 결함이 아니라 **판정 항목이 두 축(deploy·release)을
+  결합**한 결과. 억지 통과·우회 없이 원인 명시해 이월(제안 A: `releases`의 Go 이식).
+- 배운 것 하나 — **원장급 parity는 인코더 옵션의 문제다.** `SetEscapeHTML(false)` +
+  `SetIndent("", "  ")` + Encode 자동 끝 개행이 파이썬 `json.dump(ensure_ascii=False, indent=2)` +
+  `f.write("\n")`와 정확히 일치해야 바이트 동일이 나온다. `supersedes`를 `*string`으로 두어
+  null(첫 배포)과 값(대체)을 구분한 것도 전이 레코드 일치의 핵심이었다.
+- 배운 것 둘 — **판정 항목이 축을 결합하면 만점은 다른 축의 이식을 인질로 잡는다.** C046("남은
+  8항목은 예약 계열")의 재현: 목표 수치(115)의 미달분을 분해하니 이식 범위 밖(release 축)의
+  의존으로 국소화됐다. 실제 네임스페이스 분리(`gitReleaseTags`의 SemVer 필터가 `deploy/*` 배제)는
+  Go에서 이미 성립하며, 검증 경로만 미이식 명령을 지날 뿐이다.
+- 병렬 상황: Sheen이 다른 워크트리에서 뷰어(gil.py)에 배포 계보 패널을 동시에 지었다 — 나는
+  go/main.go만, 그는 gil.py 뷰어만이라 파일 미충돌. push는 내 브랜치로 정상, land는 Clew의 몫.
