@@ -1,0 +1,4 @@
+state: multi_solution
+verdict: supported
+live_leaves: [s4, s7]
+closed: 2026-07-21
