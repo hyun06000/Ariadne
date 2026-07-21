@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "deployments": [
+    {
+      "artifact": "churn-model",
+      "kind": "model",
+      "version": "1.9.0",
+      "source_cycles": [
+        "alpha/C001-first-thing"
+      ],
+      "target": "",
+      "params": "",
+      "performance": "",
+      "deployed_at": "2026-07-02",
+      "supersedes": null,
+      "status": "live",
+      "notes": "초기 모델"
+    },
+    {
+      "artifact": "churn-model",
+      "kind": "model",
+      "version": "2.0.0",
+      "source_cycles": [
+        "alpha/C001-first-thing",
+        "alpha/C002-second-thing"
+      ],
+      "target": "",
+      "params": "",
+      "performance": "",
+      "deployed_at": "2026-07-10",
+      "supersedes": "1.9.0",
+      "status": "rolled-back",
+      "notes": "피처 리팩터 (다중 근거)"
+    },
+    {
+      "artifact": "landing-page",
+      "kind": "app-code",
+      "version": "1.0.0",
+      "source_cycles": [
+        "alpha/C002-second-thing"
+      ],
+      "target": "",
+      "params": "",
+      "performance": "",
+      "deployed_at": "2026-07-19",
+      "supersedes": null,
+      "status": "superseded",
+      "notes": "최초 배포"
+    },
+    {
+      "artifact": "landing-page",
+      "kind": "app-code",
+      "version": "1.1.0",
+      "source_cycles": [
+        "alpha/C002-second-thing"
+      ],
+      "target": "",
+      "params": "",
+      "performance": "",
+      "deployed_at": "2026-07-20",
+      "supersedes": "1.0.0",
+      "status": "live",
+      "notes": "카피 개선"
+    }
+  ]
+}

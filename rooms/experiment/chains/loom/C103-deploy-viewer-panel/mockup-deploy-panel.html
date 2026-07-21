@@ -1,0 +1,51 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>배포 패널 목업</title>
+<style>
+:root{--ink:#1a1a1a;--muted:#6b7280;--node:#2563eb;--surface:#f7f8fa;--page:#fff;--ring:#e5e7eb;
+--supersede:#b45309;--live:#16a34a;--rollback:#b45309}
+body{font-family:-apple-system,system-ui,sans-serif;background:#fff;color:var(--ink);margin:0;padding:24px;max-width:900px}
+.card{background:var(--page);border:1px solid var(--ring);border-radius:10px;margin-bottom:16px}
+.card.deployments{padding:16px 20px}
+.deployments h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.deployshint{color:var(--muted);font-size:12px;margin:0 0 14px}
+.artgroup{margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--ring)}
+.artgroup:last-child{border-bottom:none;padding-bottom:0;margin-bottom:0}
+.arthead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.artname{font-weight:650;font-size:14px;color:var(--ink)}
+.artkind{font-size:11px;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);padding:1px 7px;border-radius:10px}
+.artlive{font-size:11px;font-weight:600;color:var(--live);background:color-mix(in srgb,var(--live) 14%,transparent);padding:1px 8px;border-radius:10px}
+.deplist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+li.dep{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px;padding-bottom:6px;border-bottom:1px solid var(--ring)}
+li.dep:last-child{border-bottom:none;padding-bottom:0}
+.depstat{font-weight:600;min-width:18px;text-align:center}
+.depstat.live{color:var(--live)}
+.depstat.superseded{color:var(--muted)}
+.depstat.rolled-back{color:var(--rollback)}
+.depver{font-weight:650;color:var(--node);min-width:64px}
+.depdate{color:var(--muted);font-size:12px;min-width:82px}
+.depnote{flex:1 1 200px}
+.depsup{font-size:11px;color:var(--supersede);font-weight:600}
+.depcycs{font-size:11px;flex-basis:100%;color:var(--muted)}
+a.depcyc{color:var(--node);text-decoration:none;font-weight:600;margin-right:8px;white-space:nowrap}
+a.depcyc:hover{text-decoration:underline}
+</style></head><body>
+<section class="card deployments"><h2>배포 계보</h2>
+<p class="deployshint">사용자 산출물 배포 이력(deployments.json). 도구 릴리스와 별개 축이다. ● live · · superseded · ↩ rolled-back. 아티팩트당 live는 하나다. "근거"는 이 배포를 낳은 닫힌 사이클(들)로 점프한다.</p>
+
+<div class="artgroup">
+<div class="arthead"><span class="artname">churn-model</span><span class="artkind">ml-model</span><span class="artlive">● live v2.1.0</span></div>
+<ul class="deplist">
+<li class="dep"><span class="depstat live">●</span><span class="depver">v2.1.0</span><span class="depdate">2026-07-18</span><span class="depnote">AUC 0.91, recall +4pt</span><span class="depsup">↞ v2.0.0</span><span class="depcycs">근거: <a class="depcyc" href="#cycdoc-loom-C098">⚑ loom/C098</a><a class="depcyc" href="#cycdoc-tapestry-C012">⚑ tapestry/C012</a></span></li>
+<li class="dep"><span class="depstat superseded">·</span><span class="depver">v2.0.0</span><span class="depdate">2026-07-10</span><span class="depnote">피처 리팩터</span><span class="depcycs">근거: <a class="depcyc" href="#cycdoc-loom-C090">⚑ loom/C090</a></span></li>
+<li class="dep"><span class="depstat rolled-back">↩</span><span class="depver">v1.9.0</span><span class="depdate">2026-07-02</span><span class="depnote">데이터 드리프트로 롤백</span><span class="depcycs">근거: <a class="depcyc" href="#cycdoc-loom-C085">⚑ loom/C085</a></span></li>
+</ul>
+</div>
+
+<div class="artgroup">
+<div class="arthead"><span class="artname">landing-page</span><span class="artkind">site</span><span class="artlive">● live v1.0.0</span></div>
+<ul class="deplist">
+<li class="dep"><span class="depstat live">●</span><span class="depver">v1.0.0</span><span class="depdate">2026-07-19</span><span class="depnote">최초 배포</span><span class="depcycs">근거: <a class="depcyc" href="#cycdoc-graft-C003">⚑ graft/C003</a></span></li>
+</ul>
+</div>
+
+</section>
+</body></html>
