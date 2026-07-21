@@ -4,11 +4,11 @@ parent: C102-deploy-artifact-axis
 lineage: []
 step: 5
 author: weft
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: ""
-verdict: null
+verdict: partial
 deviations: 0
 corrections: 0
 superseded_by: null
