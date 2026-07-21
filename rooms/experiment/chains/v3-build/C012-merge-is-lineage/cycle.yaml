@@ -4,11 +4,11 @@ parent: C011-everything-is-a-branch
 lineage: [loom/C036-go-open-git-ledger]
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "머지 = lineage = 지식 통합 (깃 머지 커밋 다중부모 ≅ gil lineage)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
