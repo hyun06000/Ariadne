@@ -1,0 +1,14 @@
+id: C105-go-deploy-panel-render
+chain: loom
+parent: C104-deploy-viewer-panel
+lineage: []
+step: 5
+author: sheen
+status: closed
+opened: 2026-07-21
+closed: 2026-07-21
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null
