@@ -2,7 +2,7 @@ id: C009-reconstruct-tree-from-git-log
 chain: v3-build
 parent: C008-backtrack-is-a-new-commit
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-21
