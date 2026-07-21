@@ -433,6 +433,75 @@ func collectFsck(root string) (violations []string, warnings []string, nChains, 
 			add("R14", ch, "chain.md가 없다 — 체인의 문제 정의 문서가 커밋되지 않았다")
 		}
 	}
+
+	// R16·R17 (loom/C101·C102, 이슈 #25·#27): 사용자 산출물 배포 무결성 (deployments.json).
+	// 배포 축은 도구 릴리스와 별개다. deployments.json이 없으면 규칙 불발(하위호환 — 배포 안 쓰는 저장소 무영향).
+	// 신규 규칙이라 유예할 과거 없고, cut/rollback이 항상 불변식을 지켜 정당한 탈출구가 없다(R13·R14 선례).
+	{
+		deployments := loadDeployments(deploymentsPath(root))
+		if len(deployments) > 0 {
+			liveCount := map[string]int{}
+			for _, d := range deployments {
+				art := d.Artifact
+				artLoc := art
+				if artLoc == "" {
+					artLoc = "?"
+				}
+				ver := d.Version
+				if ver == "" {
+					ver = "?"
+				}
+				loc := fmt.Sprintf("%s/deploy:v%s", artLoc, ver)
+				// R16 소스 무결성: 배포는 실재하는 닫힌·비rejected 사이클을 소스로만 (§3.2). 복수 소스 각각 검증.
+				if len(d.SourceCycles) == 0 {
+					add("R16", loc, "source_cycles가 비었다 (배포는 닫힌 사이클을 소스로만)")
+				} else {
+					for _, src := range d.SourceCycles {
+						if src == "" || strings.Count(src, "/") != 1 {
+							add("R16", loc, "source_cycle '"+src+"'는 전역 표기 <chain>/<id>여야 한다")
+							continue
+						}
+						sp := strings.SplitN(src, "/", 2)
+						var srec *cycle
+						for i := range chains[sp[0]] {
+							if chains[sp[0]][i].fields["id"] == sp[1] {
+								srec = &chains[sp[0]][i]
+								break
+							}
+						}
+						if srec == nil {
+							add("R16", loc, "source_cycle '"+src+"'가 존재하지 않는다 (배포는 실재하는 닫힌 사이클을 소스로만)")
+						} else if srec.fields["status"] != "closed" {
+							add("R16", loc, "source_cycle '"+src+"'가 닫히지 않았다 (배포는 닫힌 사이클을 소스로만)")
+						} else if srec.fields["verdict"] == "rejected" {
+							add("R16", loc, "source_cycle '"+src+"'는 rejected(죽은 가지)라 배포 소스가 될 수 없다")
+						}
+					}
+				}
+				if d.Kind != "" && !contains(deployKinds, d.Kind) { // kind는 선택이나, 있으면 어휘 안
+					add("R16", loc, "kind '"+d.Kind+"'는 "+strings.Join(deployKinds, "|")+" 중 하나여야 한다")
+				}
+				if d.Status != "" && !contains(deployStatuses, d.Status) {
+					add("R16", loc, "status '"+d.Status+"'는 "+strings.Join(deployStatuses, "|")+" 중 하나여야 한다")
+				}
+				if d.Status == "live" && art != "" {
+					liveCount[art]++
+				}
+			}
+			// R17 live 불변식: 아티팩트당 live는 최대 1개 (loom/C102).
+			liveArts := make([]string, 0, len(liveCount))
+			for art := range liveCount {
+				liveArts = append(liveArts, art)
+			}
+			sort.Strings(liveArts)
+			for _, art := range liveArts {
+				if n := liveCount[art]; n > 1 {
+					add("R17", art, fmt.Sprintf("live 배포가 %d개 — 아티팩트당 live는 1개여야 한다 (배포 불변식)", n))
+				}
+			}
+		}
+	}
+
 	sort.Strings(violations)
 	sort.Strings(warnings)
 	return violations, warnings, len(chains), total, nil
@@ -5794,6 +5863,471 @@ func cmdVersion(args []string) int {
 	return 0
 }
 
+// ---------- deploy (사용자 산출물 배포 축 — loom/C101·C102, 이슈 #25·#27) ----------
+// 도구 릴리스(release, v<semver> 태그, CHANGELOG)와 결이 다른 별개의 축이다:
+// 사용자 산출물(모델/서빙)이 무엇으로 언제 라이브가 됐고, 무엇으로 롤백하는가.
+// 별 명령(deploy)·별 태그(deploy/<artifact>/<semver>)·별 레지스터(deployments.json)로 릴리스와 분리한다.
+// 출처를 지어내지 않는다(§3.2): cut은 실재하는 닫힌·비rejected 사이클을 소스로만 승격한다.
+
+var deployStatuses = []string{"live", "superseded", "rolled-back"}
+var deployKinds = []string{"api-spec", "app-code", "model"} // loom/C102, #27
+
+type deployRecord struct {
+	Artifact     string   `json:"artifact"`
+	Kind         string   `json:"kind"`
+	Version      string   `json:"version"`
+	SourceCycles []string `json:"source_cycles"`
+	Target       string   `json:"target"`
+	Params       string   `json:"params"`
+	Performance  string   `json:"performance"`
+	DeployedAt   string   `json:"deployed_at"`
+	Supersedes   *string  `json:"supersedes"`
+	Status       string   `json:"status"`
+	Notes        string   `json:"notes"`
+}
+
+type deployArgs struct {
+	action, artifact, version                    string
+	cycles                                       []string
+	kind, target, params, perf, notes, date, root string
+}
+
+// deploymentsPath — deployments.json 위치를 chains_root에서 유추한다 (참조 _deployments_path).
+// rooms/experiment/chains → rooms/deployment/deployments.json (배포의 방; CHANGELOG와 별 파일).
+func deploymentsPath(chainsRoot string) string {
+	return filepath.Clean(filepath.Join(chainsRoot, "..", "..", "deployment", "deployments.json"))
+}
+
+// loadDeployments — 레지스터를 읽어 레코드 리스트를 돌려준다. 파일 없으면 []. append-only라 관대히 읽는다.
+func loadDeployments(path string) []deployRecord {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		Deployments []deployRecord `json:"deployments"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return nil
+	}
+	return doc.Deployments
+}
+
+// saveDeployments — 레지스터를 쓴다 (참조 _save_deployments: version=1, indent=2, ensure_ascii=False, 끝 개행).
+func saveDeployments(path string, deployments []deployRecord) error {
+	if deployments == nil {
+		deployments = []deployRecord{}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	doc := struct {
+		Version     int            `json:"version"`
+		Deployments []deployRecord `json:"deployments"`
+	}{1, deployments}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil { // Encode는 끝 개행을 붙인다 (참조 f.write("\n"))
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
+func deployTag(artifact, version string) string { return "deploy/" + artifact + "/" + version }
+
+// artifactDeployments — 그 아티팩트의 배포 레코드만, 파일 순서(=시간순) 그대로 (인덱스 반환 — in-place 전이용).
+func artifactDeployments(deployments []deployRecord, artifact string) []int {
+	var idx []int
+	for i := range deployments {
+		if deployments[i].Artifact == artifact {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
+// liveDeployment — 그 아티팩트의 현 live 레코드 인덱스(불변식상 최대 1개). 없으면 -1.
+func liveDeployment(deployments []deployRecord, artifact string) int {
+	live := -1
+	for _, i := range artifactDeployments(deployments, artifact) {
+		if deployments[i].Status == "live" {
+			live = i
+		}
+	}
+	return live
+}
+
+// resolveSourceCycle — 근거 사이클 <chain>/<id>를 chains_root에서 찾아 (정규표기, 상태) 반환 (참조 _resolve_source_cycle).
+// <id>는 디렉토리명 전체 또는 번호 접두(C084) 둘 다 받는다. 못 찾으면 ("", "").
+func resolveSourceCycle(chainsRoot, ref string) (canon, status string, err error) {
+	if strings.Count(ref, "/") != 1 {
+		return "", "", cerr("근거 사이클 '%s'는 전역 표기 <chain>/<id>여야 한다", ref)
+	}
+	parts := strings.SplitN(ref, "/", 2)
+	chain, cid := parts[0], parts[1]
+	chainDir := filepath.Join(chainsRoot, chain)
+	if fi, e := os.Stat(chainDir); e != nil || !fi.IsDir() {
+		return "", "", nil
+	}
+	recs, e := loadChain(chainDir)
+	if e != nil {
+		return "", "", nil
+	}
+	for _, r := range recs {
+		d := r.dir
+		if d == cid || strings.SplitN(d, "-", 2)[0] == cid {
+			return chain + "/" + d, r.fields["status"], nil
+		}
+	}
+	return "", "", nil
+}
+
+// cycleVerdict — 정규표기 <chain>/<id> 사이클의 verdict (없으면 "") — rejected 게이트용 (참조 _cycle_verdict).
+func cycleVerdict(chainsRoot, canon string) string {
+	parts := strings.SplitN(canon, "/", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	recs, e := loadChain(filepath.Join(chainsRoot, parts[0]))
+	if e != nil {
+		return ""
+	}
+	for _, r := range recs {
+		if r.dir == parts[1] {
+			return r.fields["verdict"]
+		}
+	}
+	return ""
+}
+
+func srcStr(d deployRecord) string {
+	if len(d.SourceCycles) == 0 {
+		return "?"
+	}
+	return strings.Join(d.SourceCycles, " ")
+}
+
+func cmdDeploy(a deployArgs) error {
+	switch a.action {
+	case "cut":
+		return deployCut(a)
+	case "list":
+		return deployList(a)
+	case "current":
+		return deployCurrent(a)
+	case "rollback":
+		return deployRollback(a)
+	}
+	return cerr("알 수 없는 deploy 하위명령: %s", a.action)
+}
+
+func deployCut(a deployArgs) error {
+	chainsRoot := a.root
+	artifact := a.artifact
+	repo := repoRoot(chainsRoot)
+	// ---- 사전 검증: 저장소를 건드리기 전에 전부 확인한다 (release 패턴) ----
+	if artifact == "" {
+		return cerr("deploy cut <artifact> <semver> --cycle <chain>/<id>... — 아티팩트 이름이 필요하다")
+	}
+	if a.version == "" {
+		return cerr("deploy cut <artifact> <semver> — 배포 SemVer가 필요하다")
+	}
+	if len(a.cycles) == 0 {
+		return cerr("deploy cut ... --cycle <chain>/<id> — 소스 사이클이 최소 하나 필요하다 (닫힌 사이클, 복수면 반복)")
+	}
+	if a.kind != "" && !contains(deployKinds, a.kind) {
+		return cerr("--kind '%s'는 %s 중 하나여야 한다", a.kind, strings.Join(deployKinds, "|"))
+	}
+	if repo == "" {
+		return cerr("깃 저장소가 아니다: %s", chainsRoot)
+	}
+	newV, ok := parseSemver(a.version)
+	if !ok {
+		return cerr("버전 '%s'은 SemVer(X.Y.Z)가 아니다", a.version)
+	}
+	// 출처 계약(§3.2): 각 소스는 실재하는 닫힌·비rejected 사이클이어야 한다 — 지어내지 않는다.
+	var canonSources []string
+	for _, spec := range a.cycles {
+		if strings.Count(spec, "/") != 1 {
+			return cerr("소스 '%s'는 전역 표기 <chain>/<id>여야 한다 (복수 체인 배포 가능)", spec)
+		}
+		canon, status, err := resolveSourceCycle(chainsRoot, spec)
+		if err != nil {
+			return err
+		}
+		if canon == "" {
+			return cerr("소스 사이클 '%s'가 존재하지 않는다 — 배포는 실재하는 닫힌 사이클을 소스로만 승격한다(#27)", spec)
+		}
+		if status != "closed" {
+			st := status
+			if st == "" {
+				st = "?"
+			}
+			return cerr("소스 사이클 '%s'가 닫히지 않았다(status: %s) — 배포는 닫힌 사이클을 소스로만 각인한다(#27). 사이클을 닫은 뒤 다시 cut할 것", canon, st)
+		}
+		if cycleVerdict(chainsRoot, canon) == "rejected" {
+			return cerr("소스 사이클 '%s'는 rejected(죽은 가지)라 배포할 수 없다 — 배포는 채택된 계보만 승격한다(#27)", canon)
+		}
+		canonSources = append(canonSources, canon)
+	}
+	tag := deployTag(artifact, a.version)
+	if tagExists(repo, tag) {
+		return cerr("배포 태그 '%s'가 이미 존재한다", tag)
+	}
+	regPath := deploymentsPath(chainsRoot)
+	deployments := loadDeployments(regPath)
+	// 그 아티팩트의 마지막 배포보다 커야 한다 (단조 증가 — release의 정신).
+	var maxV [3]int
+	haveMax := false
+	for _, i := range artifactDeployments(deployments, artifact) {
+		if v, ok := parseSemver(deployments[i].Version); ok {
+			if !haveMax || semverGreater(v, maxV) {
+				maxV, haveMax = v, true
+			}
+		}
+	}
+	if haveMax && !semverGreater(newV, maxV) {
+		last := fmt.Sprintf("%d.%d.%d", maxV[0], maxV[1], maxV[2])
+		return cerr("버전 %s은 아티팩트 '%s'의 마지막 배포 %s보다 커야 한다", a.version, artifact, last)
+	}
+	if err := fsckOrReport(chainsRoot); err != nil { // 깨진 저장소 위에는 배포하지 않는다
+		return err
+	}
+
+	// ---- 실행: live 전이 → append → json 커밋 → 태그 ----
+	var supersedes *string
+	if prev := liveDeployment(deployments, artifact); prev >= 0 {
+		v := deployments[prev].Version
+		supersedes = &v
+		deployments[prev].Status = "superseded" // live 불변식: 아티팩트당 1개
+	}
+	deployments = append(deployments, deployRecord{
+		Artifact:     artifact,
+		Kind:         a.kind,
+		Version:      a.version,
+		SourceCycles: canonSources,
+		Target:       a.target,
+		Params:       a.params,
+		Performance:  a.perf,
+		DeployedAt:   a.date,
+		Supersedes:   supersedes,
+		Status:       "live",
+		Notes:        a.notes,
+	})
+	if err := saveDeployments(regPath, deployments); err != nil {
+		return cerr("%v", err)
+	}
+	regRel, rerr := relToRepo(repo, regPath)
+	if rerr != nil {
+		return cerr("%v", rerr)
+	}
+	srcs := strings.Join(canonSources, " ")
+	if _, err := gitChecked(repo, "add", "-A", "--", regRel); err == nil {
+		msg := fmt.Sprintf("deploy: cut %s (소스 %s)\n\n배포 %s %s — %s", tag, srcs, artifact, a.version, srcs)
+		_, err = gitChecked(repo, "commit", "-m", msg, "--", regRel)
+		if err == nil {
+			tagMsg := fmt.Sprintf("Ariadne deploy %s\n\n아티팩트: %s\n소스 사이클: %s", tag, artifact, srcs)
+			if a.kind != "" {
+				tagMsg += "\n종류: " + a.kind
+			}
+			_, err = gitChecked(repo, "tag", "-a", tag, "-m", tagMsg)
+		}
+		if err != nil {
+			gitRun(repo, "reset", "-q", "--", regRel)
+			gitRun(repo, "checkout", "-q", "--", regRel)
+			return err
+		}
+	} else {
+		gitRun(repo, "reset", "-q", "--", regRel)
+		gitRun(repo, "checkout", "-q", "--", regRel)
+		return err
+	}
+	supStr := "-"
+	if supersedes != nil {
+		supStr = *supersedes
+	}
+	fmt.Printf("배포: %s (소스: %s", tag, srcs)
+	if supersedes != nil {
+		fmt.Printf(", 대체: %s", *supersedes)
+	}
+	fmt.Println(")")
+	kindStr := a.kind
+	if kindStr == "" {
+		kindStr = "-"
+	}
+	fmt.Printf("gil:deploy-cut %s %s kind=%s sources=%s supersedes=%s status=live\n",
+		artifact, a.version, kindStr, strings.ReplaceAll(srcs, " ", ","), supStr)
+	return nil
+}
+
+func deployList(a deployArgs) error {
+	regPath := deploymentsPath(a.root)
+	deployments := loadDeployments(regPath)
+	var idx []int
+	if a.artifact != "" {
+		idx = artifactDeployments(deployments, a.artifact)
+		if live := liveDeployment(deployments, a.artifact); live >= 0 {
+			fmt.Printf("배포 계보 [%s] — %d개 배포  (live: v%s)\n", a.artifact, len(idx), deployments[live].Version)
+		} else {
+			fmt.Printf("배포 계보 [%s] — %d개 배포  (live 없음)\n", a.artifact, len(idx))
+		}
+	} else {
+		for i := range deployments {
+			idx = append(idx, i)
+		}
+		arts := map[string]bool{}
+		for _, i := range idx {
+			arts[deployments[i].Artifact] = true
+		}
+		fmt.Printf("배포 계보 [전체] — %d개 배포, %d개 아티팩트\n", len(idx), len(arts))
+	}
+	marks := map[string]string{"live": "●", "superseded": "·", "rolled-back": "↩"}
+	for j := len(idx) - 1; j >= 0; j-- { // 최신 우선
+		d := deployments[idx[j]]
+		mark := marks[d.Status]
+		if mark == "" {
+			mark = "?"
+		}
+		line := fmt.Sprintf("  %s %s@v%-9s %-10s [%s]", mark, d.Artifact, d.Version, d.DeployedAt, d.Status)
+		if d.Kind != "" {
+			line += " (" + d.Kind + ")"
+		}
+		line += "  소스: " + srcStr(d)
+		if d.Supersedes != nil {
+			line += "  ↞" + *d.Supersedes
+		}
+		fmt.Println(line)
+	}
+	for j := len(idx) - 1; j >= 0; j-- { // 기계 훅 (§7.2) — 사람 렌더 뒤
+		d := deployments[idx[j]]
+		kindStr := d.Kind
+		if kindStr == "" {
+			kindStr = "-"
+		}
+		sup := "-"
+		if d.Supersedes != nil {
+			sup = *d.Supersedes
+		}
+		fmt.Printf("gil:deploy %s %s %s kind=%s sources=%s supersedes=%s\n",
+			d.Artifact, d.Version, d.Status, kindStr, strings.ReplaceAll(srcStr(d), " ", ","), sup)
+	}
+	fmt.Printf("gil:deploys %d\n", len(idx))
+	return nil
+}
+
+func deployCurrent(a deployArgs) error {
+	if a.artifact == "" {
+		return cerr("deploy current <artifact> — 아티팩트 이름이 필요하다")
+	}
+	regPath := deploymentsPath(a.root)
+	deployments := loadDeployments(regPath)
+	live := liveDeployment(deployments, a.artifact)
+	if live < 0 {
+		fmt.Printf("현 배포 [%s] — (없음)\n", a.artifact)
+		fmt.Printf("gil:deploy-current %s -\n", a.artifact)
+		return nil
+	}
+	d := deployments[live]
+	fmt.Printf("현 배포 [%s] — v%s  (%s)\n", a.artifact, d.Version, d.DeployedAt)
+	if d.Kind != "" {
+		fmt.Printf("  종류: %s\n", d.Kind)
+	}
+	fmt.Printf("  소스: %s\n", srcStr(d))
+	if d.Target != "" {
+		fmt.Printf("  대상: %s\n", d.Target)
+	}
+	if d.Params != "" {
+		fmt.Printf("  파라미터: %s\n", d.Params)
+	}
+	if d.Performance != "" {
+		fmt.Printf("  성능: %s\n", d.Performance)
+	}
+	if d.Supersedes != nil {
+		fmt.Printf("  롤백 타깃: v%s\n", *d.Supersedes)
+	}
+	kindStr := d.Kind
+	if kindStr == "" {
+		kindStr = "-"
+	}
+	rb := "-"
+	if d.Supersedes != nil {
+		rb = *d.Supersedes
+	}
+	fmt.Printf("gil:deploy-current %s %s kind=%s sources=%s rollback=%s\n",
+		a.artifact, d.Version, kindStr, strings.ReplaceAll(srcStr(d), " ", ","), rb)
+	return nil
+}
+
+func deployRollback(a deployArgs) error {
+	chainsRoot := a.root
+	artifact := a.artifact
+	repo := repoRoot(chainsRoot)
+	if artifact == "" {
+		return cerr("deploy rollback <artifact> — 아티팩트 이름이 필요하다")
+	}
+	if repo == "" {
+		return cerr("깃 저장소가 아니다: %s", chainsRoot)
+	}
+	regPath := deploymentsPath(chainsRoot)
+	deployments := loadDeployments(regPath)
+	live := liveDeployment(deployments, artifact)
+	if live < 0 {
+		return cerr("아티팩트 '%s'에 live 배포가 없다 — 되돌릴 것이 없다", artifact)
+	}
+	targetVer := ""
+	if deployments[live].Supersedes != nil {
+		targetVer = *deployments[live].Supersedes
+	}
+	if targetVer == "" {
+		return cerr("현 live v%s에 직전 배포(supersedes)가 없다 — 되돌릴 곳이 없다 (첫 배포는 롤백 대상이 없다)", deployments[live].Version)
+	}
+	target := -1
+	for _, i := range artifactDeployments(deployments, artifact) {
+		if deployments[i].Version == targetVer {
+			target = i
+		}
+	}
+	if target < 0 {
+		return cerr("롤백 타깃 v%s가 레지스터에 없다 (계보 손상)", targetVer)
+	}
+	fromVer := deployments[live].Version
+	deployments[live].Status = "rolled-back"
+	deployments[target].Status = "live"
+	if err := saveDeployments(regPath, deployments); err != nil {
+		return cerr("%v", err)
+	}
+	regRel, rerr := relToRepo(repo, regPath)
+	if rerr != nil {
+		return cerr("%v", rerr)
+	}
+	if _, err := gitChecked(repo, "add", "-A", "--", regRel); err == nil {
+		msg := fmt.Sprintf("deploy: rollback %s v%s → v%s", artifact, fromVer, targetVer)
+		if _, err := gitChecked(repo, "commit", "-m", msg, "--", regRel); err != nil {
+			gitRun(repo, "reset", "-q", "--", regRel)
+			gitRun(repo, "checkout", "-q", "--", regRel)
+			return err
+		}
+	} else {
+		gitRun(repo, "reset", "-q", "--", regRel)
+		gitRun(repo, "checkout", "-q", "--", regRel)
+		return err
+	}
+	fmt.Printf("롤백: [%s] v%s (rolled-back) → v%s (live)\n", artifact, fromVer, targetVer)
+	fmt.Printf("gil:deploy-rollback %s from=%s to=%s\n", artifact, fromVer, targetVer)
+	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
 // commandTable — SPEC §7.2-2의 단일 소스.
 // help 목록·기계 훅(gil:commands)·미구현 메시지·능력 탐침(help <명령>)이 전부 이 테이블 하나에서 파생된다.
 // 목록을 두 번 적지 않는다: 여기에 없는 것은 이 바이너리에 없다.
@@ -5810,6 +6344,7 @@ var commandTable = []struct{ name, usage, desc string }{
 	{"verify", "gil verify [chains-root] [--chain <이름>]", "닫힌 사이클의 태그↔작업 트리 대조"},
 	{"web", "gil web [chains-root] -o <출력> [--title …] [--chain …]", "자기완결적 정적 HTML 뷰어"},
 	{"pages", "gil pages [-o <path>|-] [--force] [--dry-run]", "GitHub Pages 배포 워크플로 생성"},
+	{"deploy", "gil deploy cut <artifact> <semver> --cycle <chain>/<id>… [--kind …] [--target …] [--params …] [--perf …] [--notes …] | list [artifact] | current <artifact> | rollback <artifact>", "사용자 산출물(앱/모델) 배포 축 — 배포 단위=아티팩트: cut·list·current·rollback (loom/C102, #27). 도구 릴리스(release)와 별개"},
 	{"goto", "gil goto <chain>/<id> [--checkout]", "타임머신: 사이클 시점 역행 조회·체크아웃"},
 	{"handoff", "gil handoff [chains-root]", "세션의 매듭: 현황·부활 경로·다음 실"},
 	{"supersede", "gil supersede <old-ref> <new-ref>", "전방 무효화: 닫힌 사이클에 superseded_by 각인"},
@@ -6237,6 +6772,40 @@ func main() {
 			os.Exit(2)
 		}
 		if err := cmdPages(flagVal(flags, "root", defaultRoot), flagVal(flags, "output", ""), len(flags["force"]) > 0, len(flags["dry-run"]) > 0); err != nil {
+			fail(err)
+		}
+	case "deploy":
+		pos, flags, err := parseCLI(os.Args[2:], map[string]bool{
+			"cycle": true, "kind": true, "target": true, "params": true,
+			"perf": true, "notes": true, "date": true, "root": true,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "오류: %v\n", err)
+			os.Exit(2)
+		}
+		if len(pos) < 1 || (pos[0] != "cut" && pos[0] != "list" && pos[0] != "current" && pos[0] != "rollback") {
+			fmt.Fprintln(os.Stderr, "사용: gil deploy cut <artifact> <semver> --cycle <chain>/<id>… [--kind …] [--target …] [--params …] [--perf …] [--notes …]")
+			fmt.Fprintln(os.Stderr, "      gil deploy list [artifact] | current <artifact> | rollback <artifact> [--root r]")
+			os.Exit(2)
+		}
+		artifact, version := "", ""
+		if len(pos) >= 2 {
+			artifact = pos[1]
+		}
+		if len(pos) >= 3 {
+			version = pos[2]
+		}
+		if err := cmdDeploy(deployArgs{
+			action: pos[0], artifact: artifact, version: version,
+			cycles: flags["cycle"],
+			kind:   flagVal(flags, "kind", ""),
+			target: flagVal(flags, "target", ""),
+			params: flagVal(flags, "params", ""),
+			perf:   flagVal(flags, "perf", ""),
+			notes:  flagVal(flags, "notes", ""),
+			date:   flagVal(flags, "date", today),
+			root:   flagVal(flags, "root", defaultRoot),
+		}); err != nil {
 			fail(err)
 		}
 	default:
