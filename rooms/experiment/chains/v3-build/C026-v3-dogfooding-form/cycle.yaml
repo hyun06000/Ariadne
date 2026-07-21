@@ -2,7 +2,7 @@ id: C026-v3-dogfooding-form
 chain: v3-build
 parent: C023-migration-as-gil-command
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-22
