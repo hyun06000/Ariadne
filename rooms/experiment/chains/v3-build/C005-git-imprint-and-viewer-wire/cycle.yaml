@@ -2,7 +2,7 @@ id: C005-git-imprint-and-viewer-wire
 chain: v3-build
 parent: [C003-first-commands-on-step-tree, C004-v3-viewer-step-tree]
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-21
