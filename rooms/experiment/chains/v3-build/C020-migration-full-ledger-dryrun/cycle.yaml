@@ -2,7 +2,7 @@ id: C020-migration-full-ledger-dryrun
 chain: v3-build
 parent: C019-migration-derive-fingerprint
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-22
