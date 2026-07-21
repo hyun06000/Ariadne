@@ -1,0 +1,14 @@
+id: C029-v3-viewer-on-pages
+chain: v3-build
+parent: C028-web-viewer-into-deployed-gil
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "v3 뷰어를 GitHub Pages에 — CI가 migrate 후 web --v3로 v3 계보를 배포·공개"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
