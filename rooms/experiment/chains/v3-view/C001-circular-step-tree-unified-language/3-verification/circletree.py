@@ -97,14 +97,15 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
         classes = ["node", f"kind-{kind}"]
         color = KIND_COLOR[kind]
         badge = ""
-        # 결과 잎 노드 (fail/success/redefine) — analyze 다음의 별도 노드
-        if kind in RESULT_KINDS:
-            classes.append(f"result-{kind}")
-            if kind == "success":
-                live.append(nid)
-            else:
-                dead.append(nid)
-            # fail·redefine은 조상 define으로 되돌아가는 backtrack 파선
+        # 분석 다음 세 결과 노드 — 의미가 다르다:
+        #   success  = 산 잎 (끝).
+        #   fail     = 죽은 잎 + 백트래킹 파선(조상 문제정의로 되돌아감).
+        #   redefine = 잎 아님! 새 문제정의로서 앞으로 새 가지를 뻗는 분기점(자식을 낳음).
+        if kind == "success":
+            classes.append("result-success"); live.append(nid)
+        elif kind == "fail":
+            classes.append("result-fail"); dead.append(nid)
+            # 실패만이 백트래킹과 연결된다 (파선으로 조상 define 복귀).
             bt = n.get("backtrack")
             if bt and bt in by_id:
                 tx, ty = node_xy(bt, col, depth)
@@ -115,6 +116,9 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
                     f'<path class="edge-backtrack" marker-end="url(#bt-arrow)" '
                     f'd="M {sx:.0f} {sy:.0f} C {sx:.0f} {arch:.0f}, {dx:.0f} {arch:.0f}, '
                     f'{dx:.0f} {dy:.0f}" data-from="{nid}" data-to="{bt}" />')
+        elif kind == "redefine":
+            # 문제정의는 앞으로 뻗는 노드 — 백트래킹 없음. define처럼 자식(가설)을 낳는다.
+            classes.append("result-redefine")
 
         # 원 안엔 아무 것도 안 넣고(작은 원), 이름(kind 라벨)을 원 아래에 — 사이클 DAG처럼.
         label = KIND_LABEL.get(kind, kind)
