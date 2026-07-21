@@ -1,0 +1,8 @@
+배포 계보 — 3개 릴리스  [T=태그 C=CHANGELOG]
+  v1.2.0     2026-07-20 [·C] ⚠drift  문서만 릴리스 (태그 없음)  · 근거: loom/C061, loom/C086
+  v1.1.0     2026-07-21 [T·] ⚠drift  Ariadne release v1.1.0 — 태그만 drift
+  v1.0.0     2026-07-18 [TC]  첫 릴리스  · 도구: gil (마이너 이상 승격)
+gil:release 1.2.0 2026-07-20 tags=0 changelog=1 cycles=2
+gil:release 1.1.0 2026-07-21 tags=1 changelog=0 cycles=0
+gil:release 1.0.0 2026-07-18 tags=1 changelog=1 cycles=0
+gil:releases 3 drift=2

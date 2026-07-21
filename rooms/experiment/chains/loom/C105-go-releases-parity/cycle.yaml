@@ -1,0 +1,14 @@
+id: C105-go-releases-parity
+chain: loom
+parent: C103-deploy-go-parity
+lineage: []
+step: 5
+author: weft
+status: closed
+opened: 2026-07-21
+closed: 2026-07-21
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null
