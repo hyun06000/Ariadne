@@ -2,7 +2,7 @@ id: C008-backtrack-is-a-new-commit
 chain: v3-build
 parent: C006-close-seal-and-cycle-states
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-21
