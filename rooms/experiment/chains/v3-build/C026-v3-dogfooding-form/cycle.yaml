@@ -4,11 +4,11 @@ parent: C023-migration-as-gil-command
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "v3로 실사이클을 굴리는 형태 설계 — v2 사이클 형식과 v3 steps.yaml의 통합"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
