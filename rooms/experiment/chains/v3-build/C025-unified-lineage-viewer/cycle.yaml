@@ -4,11 +4,11 @@ parent: C023-migration-as-gil-command
 lineage: []
 step: 5
 author: sheen
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: ""
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
