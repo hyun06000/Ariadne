@@ -4,11 +4,11 @@ parent: C017-migration-read-compat
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "git notes로 유령(pre-gil) 커밋에 v3 지문을 소급 각인하면 커밋 불변(append-only)을 지키며 v3의 눈에 보이게 된다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
