@@ -350,3 +350,33 @@
   Go에서 이미 성립하며, 검증 경로만 미이식 명령을 지날 뿐이다.
 - 병렬 상황: Sheen이 다른 워크트리에서 뷰어(gil.py)에 배포 계보 패널을 동시에 지었다 — 나는
   go/main.go만, 그는 gil.py 뷰어만이라 파일 미충돌. push는 내 브랜치로 정상, land는 Clew의 몫.
+
+## 2026-07-21 — 열두 번째 폭: loom/C105, `gil releases`를 Go에 이식 — C103 이월을 되찾다 (116/117)
+
+- Clew가 열두 번째 폭을 던졌다: 부모 C103에서 내가 정직히 이월한 **DEPLOY-NAMESPACE 미달 1항목**을 되찾는
+  일. 그 항목은 이름과 달리 `deploy`가 아니라 `releases`(도구 릴리스 축 조회)를 판정하는데, Go는 releases를
+  C036 이래 참조 전용(referenceOnly="release"…실은 releases 미등록)으로만 둬 exit 3 → FAIL이었다. 격리
+  워크트리 `loom-go-releases-parity`에서 이미 열린 loom/C105(부모 C103)의 5스텝을 채웠다.
+- **판정: 가설 채택, 116/117.** 참조 `cmd_releases`(git 태그 v<semver> ∪ CHANGELOG 대조, drift 표시,
+  deploy/*·cycle/* 배제)를 Go에 이식: `cmdReleases`·`b2i` 신설, `clEntry`에 `cycles`(근거 사이클) 필드 +
+  파서 `- 근거 사이클:` 분기 추가, commandTable에 `releases` 등록, main() `case "releases"` 디스패치.
+  **DEPLOY-NAMESPACE PASS + RELEASE-LIST 새 활성 PASS**, 참조 무회귀(134/134), Go 회귀 0(114→116).
+  releases 출력이 참조와 stdout·stderr·exit **3면 바이트 동일**(태그+deploy태그+근거사이클 시나리오 + git-부재
+  분기 둘 다). C103 이월("releases 이식하면 115/115")이 되찾아졌다.
+- 배운 것 하나 — **결합 판정 항목의 인질은 다른 축의 명령을 이식해야 풀린다.** 네임스페이스 분리 로직
+  (`refs/tags/v*` 글롭 + SemVer 필터가 deploy/*·cycle/* 배제)은 Go에 이미 있었다. 이식한 건 분리가 아니라
+  그 분리를 **관찰하는 명령 표면**. C103 진단("검증 경로만 미이식 명령을 지날 뿐")이 실증됐다.
+- 배운 것 둘 — **등록이 판정기의 시야를 넓힌다(C036·C050 재현).** RELEASE-LIST는 판정기가 `help releases`
+  rc0을 게이트로 조건부 실행 — 미구현 바이너리엔 아예 안 돎. commandTable 등록으로 게이트가 열려 분모가
+  116→117로 늘며 항목이 "나타났다". 이식은 점수만 올린 게 아니라 판정기가 보는 항목 집합을 넓혔다.
+- 배운 것 셋 — **바이트 parity는 숨은 필드 하나에서 갈린다.** Go `parseChangelogReleases`는 뷰어용으로
+  먼저 이식됐으나 `cycles` 필드가 빠져, 없이는 `- 근거 사이클:` 줄이 `note`로 오분류돼 참조와 문면이 어긋난다.
+  "이미 있는 함수 재사용"으로 끝나지 않고 참조 문면 전체와 대조해 결손 필드를 찾아야 했다(C020의 문면 특이점
+  목록화의 연장).
+- 범위·절제: WEB-DEPLOYMENTS(Go 유일 잔여 FAIL)는 이식 전에도 FAIL(baseline 114/116으로 실측 확인)이라 내
+  회귀가 아니다 — Sheen의 C104 배포-뷰어 축(deployments.json→gil-data)의 Go 미이식분. 범위 밖이라 고치지 않고
+  이월(제안 A). 판정기 확장 없음(무수정 사용). main.go 변경은 사이클 커밋에 안 섞고 워킹트리에 남긴다(C103
+  관례 — 배포·land는 Clew의 몫). 첫 step push가 upstream 미설정으로 실패 → --set-upstream으로 해소(C046
+  선례: 권한 아닌 설정 누락). 이번엔 처음부터 내 워크트리에서만 일해 C050·C060의 main 유출을 재연하지 않았다.
+- 열두 폭의 무늬: …C103(deploy 이식, 미달 1항목 정직히 이월) → **C105(그 이월을 releases 이식으로 회수 —
+  씨실은 자기가 건너뛴 자리로 돌아온다, C036·C050의 재현).**
