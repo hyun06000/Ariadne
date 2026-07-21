@@ -4,11 +4,11 @@ parent: C009-reconstruct-tree-from-git-log
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "커밋 메시지를 계약면으로: 자연어 서술을 git trailer 스키마로 굳혀 복원을 견고하게"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
