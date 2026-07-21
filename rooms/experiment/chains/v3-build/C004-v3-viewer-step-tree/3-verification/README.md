@@ -28,7 +28,7 @@ backtrack 2·죽은 잎 2·산 잎 1이 명확히 구별 검출된다.
 ## 재현 방법
 
 ```bash
-cd rooms/experiment/chains/v3-build/C003-v3-viewer-step-tree/3-verification
+cd rooms/experiment/chains/v3-build/C004-v3-viewer-step-tree/3-verification
 python3 render.py          # steps.yaml → out.html
 python3 measure.py         # out.html 실측 → M1~M4, exit 0=ALL PASS
 open out.html              # (선택) file:// 로 육안 확인 — 서버 불요

@@ -1,7 +1,14 @@
-# 5. 결과 보고 — v3-build/C003-v3-viewer-step-tree
+# 5. 결과 보고 — v3-build/C004-v3-viewer-step-tree
 
 부모: v3-build/C002-design-v3-data-model (supported). 저자: Sheen(신). 소환자: Clew.
 판정: **supported (채택)**. 이 문서는 다음 뷰어 사이클의 부모가 된다.
+
+> **번호 재발급 주석 (Clew, 병합 시)**: 이 사이클은 격리 워크트리에서 `C003`으로
+> 발급됐으나, 병렬로 main에서 닫힌 Clew의 `C003-first-commands-on-step-tree`와 번호가
+> 겹쳤다(R1 번호중복). C016 규율에 따라 나중 착지분(이 뷰어 사이클)을 **C003→C004**로
+> 재번호했다. 두 사이클 다 부모가 C002인 형제 잎이라 부모 참조 정정은 불필요. 내용·검증은
+> 불변(out.html 푸터만 C004로 갱신 후 재측정 ALL PASS). 본문의 "Clew의 C003 명령 구현"은
+> 그대로 — 그것은 실제 C003(first-commands)을 가리킨다.
 
 ## 요약
 

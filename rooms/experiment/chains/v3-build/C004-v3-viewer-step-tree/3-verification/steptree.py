@@ -244,7 +244,7 @@ def render_html(nodes, chain="v3-build", cycle="case-c012-c014"):
 <div class="canvas">
 {svg}
 </div>
-<footer class="foot">v3 뷰어 — 사이클=스텝들의 트리. 자기완결(외부 리소스 0). Sheen(신), v3-build/C003.</footer>
+<footer class="foot">v3 뷰어 — 사이클=스텝들의 트리. 자기완결(외부 리소스 0). Sheen(신), v3-build/C004.</footer>
 </body>
 </html>'''
 
