@@ -4,11 +4,11 @@ parent: C010-commit-message-as-contract
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "모든 분기는 브랜치다: 체인·사이클·스텝 위계를 깃 브랜치 하나로 통일 (불변식: 1스텝 종결=1커밋)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
