@@ -1,0 +1,34 @@
+### 같은 파일 calc/core.py — 세 가지의 독립 버전 (H4 실증)
+물리 파일은 작업트리에 한 벌(산잎 C)만 존재. 죽은 A·B는 git show로만 존재.
+
+--- 죽은 가지 A (s4) ---
+"""calc.core — arithmetic. BRANCH-A: DEAD — concat is not addition."""
+from calc.util import validate
+
+
+def add(a, b):
+    # BRANCH-A-SIGNATURE: naive concat then cast (fragile) — WRONG: add(12,3)=123
+    validate(a); validate(b)
+    return int(str(a) + str(b))  # s4 branch-A 죽음(되돌아감→s1)
+
+--- 죽은 가지 B (s7) ---
+"""calc.core — arithmetic. BRANCH-B: DEAD — RecursionError on floats/large b."""
+from calc.util import validate
+
+
+def add(a, b):
+    # BRANCH-B-SIGNATURE: recursion on b — WRONG: add(1, 1e9) blows stack, floats break
+    validate(a); validate(b)
+    if b == 0:
+        return a
+    return add(a + 1, b - 1)  # s7 branch-B 죽음(되돌아감→s1)
+
+--- 산 잎 C (s10, 작업트리 물리 파일) ---
+"""calc.core — arithmetic. BRANCH-C: the obvious correct approach."""
+from calc.util import validate
+
+
+def add(a, b):
+    # BRANCH-C-SIGNATURE: just use the language operator
+    validate(a); validate(b)
+    return a + b  # s9 branch-C 검증

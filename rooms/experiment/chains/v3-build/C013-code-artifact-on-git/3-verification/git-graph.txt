@@ -1,0 +1,13 @@
+* 593e857 (HEAD, tag: gil/leaf/593e857, tag: cycle/C-demo/solved) step: s10 analyze/success
+* 2dcf2b3 step: s9 verify
+* 8b4bf4f step: s8 hypothesis
+| * 425d84e (tag: gil/leaf/425d84e) step: s7 analyze/backtrack
+| * 654cad5 step: s6 verify
+| * 8399c55 step: s5 hypothesis
+|/  
+| * eeb05aa (tag: gil/leaf/eeb05aa, main) step: s4 analyze/backtrack
+| * 59cbcd4 step: s3 verify
+| * 372f611 step: s2 hypothesis
+|/  
+* 99a1052 step: s1 define
+* 3d4cbab root: chain v3-demo 시작 (calc 골격)
