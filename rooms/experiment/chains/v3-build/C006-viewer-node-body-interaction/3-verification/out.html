@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v3 스텝 트리 뷰어 — case-c012-c014</title>
+<style>
+
+:root{
+  --bg:#0f1115; --fg:#e6e8ec; --muted:#9aa1ac; --panel:#171a21;
+  --edge:#5b6472; --bt:#f08a3c; --live:#3fbf6f; --dead:#6b7280;
+  --define:#3b82f6; --hypothesis:#a855f7; --verify:#14b8a6; --analyze:#4b5563;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f7f8fa; --fg:#1c1f26; --muted:#5b6472; --panel:#eef1f5; --edge:#9aa4b2; }
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.head h1{margin:0 0 6px;font-size:19px}
+.head .meta{display:flex;flex-wrap:wrap;gap:14px;color:var(--muted)}
+.head .meta b{color:var(--fg)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 0;padding:10px 12px;
+  background:var(--panel);border-radius:8px;color:var(--muted)}
+.legend .lg{display:inline-flex;align-items:center;gap:6px}
+.chip{display:inline-block;width:14px;height:14px;border-radius:3px;font-size:11px;
+  line-height:14px;text-align:center;color:#fff}
+.kind-define-chip{background:var(--define)}
+.kind-hypothesis-chip{background:var(--hypothesis)}
+.kind-verify-chip{background:var(--verify)}
+.kind-analyze-chip{background:var(--analyze)}
+.leaf-live-chip{background:var(--live)}
+.leaf-dead-chip{background:transparent;color:var(--dead);border:1px dashed var(--dead)}
+.canvas{overflow-x:auto;background:var(--panel);border-radius:10px;padding:8px}
+svg.steptree{max-width:100%;height:auto;display:block}
+
+/* 엣지 — 두 종류를 명확히 가른다 */
+.edge-parent{stroke:var(--edge);stroke-width:2;fill:none}
+.edge-backtrack{stroke:var(--bt);stroke-width:2.4;stroke-dasharray:7 5;fill:none}
+.bt-arrowhead{fill:var(--bt)}
+
+/* 노드 */
+.node .node-box{fill:var(--panel);stroke:var(--edge);stroke-width:1.5}
+.node .node-id{font-weight:700;font-size:15px;fill:var(--fg)}
+.node .node-kind{font-size:11px;fill:var(--muted)}
+.kind-define .node-box{stroke:var(--define);stroke-width:2.5}
+.kind-hypothesis .node-box{stroke:var(--hypothesis);stroke-width:2}
+.kind-verify .node-box{stroke:var(--verify);stroke-width:2}
+.kind-analyze .node-box{stroke:var(--analyze);stroke-width:2}
+
+/* 잎 두 운명 */
+.leaf-live .node-box{stroke:var(--live);stroke-width:3.5;fill:rgba(63,191,111,.14)}
+.leaf-dead .node-box{stroke:var(--dead);stroke-width:2;stroke-dasharray:5 4;
+  fill:rgba(107,114,128,.10);opacity:.9}
+.leaf-dead .node-id,.leaf-dead .node-kind{opacity:.75}
+.badge{font-size:11px;font-weight:600}
+.badge-live{fill:var(--live)}
+.badge-dead{fill:var(--dead)}
+.foot{margin-top:16px;color:var(--muted);font-size:12px}
+
+/* --- C006: 클릭 가능 노드 + 열림 강조 --- */
+.node.clickable{cursor:pointer}
+.node.clickable:focus{outline:none}
+.node.clickable:focus .node-box{stroke:var(--define);stroke-width:3}
+.node.clickable:hover .node-box{filter:brightness(1.15)}
+.node.open .node-box{stroke:var(--live);stroke-width:3.5}
+.node.open .node-id::after{content:" ▾"}
+
+/* --- C006: 본문 패널 --- */
+.bodies{margin-top:22px}
+.bodies-title{font-size:15px;margin:0 0 10px}
+.bodies-hint{font-weight:400;color:var(--muted);font-size:12px}
+.stepbody{background:var(--panel);border:1px solid var(--edge);border-radius:9px;
+  padding:12px 14px;margin:0 0 12px;border-left:4px solid var(--define)}
+.stepbody[hidden]{display:none}
+.stepbody-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.sb-id{font-weight:700;font-size:14px;padding:2px 8px;border-radius:5px;color:#fff}
+.kind-define-tag{background:var(--define)}
+.kind-hypothesis-tag{background:var(--hypothesis)}
+.kind-verify-tag{background:var(--verify)}
+.kind-analyze-tag{background:var(--analyze)}
+.sb-kind{color:var(--muted);font-size:12px}
+.sb-close{margin-left:auto;background:transparent;border:1px solid var(--edge);
+  color:var(--muted);border-radius:5px;cursor:pointer;font-size:12px;padding:2px 7px}
+.sb-close:hover{color:var(--fg);border-color:var(--fg)}
+.sb-body{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.6
+  ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)}
+
+</style>
+</head>
+<body>
+<header class="head">
+  <h1>v3 스텝 트리 뷰어</h1>
+  <div class="meta">
+    <span>chain: <b>v3-build</b></span>
+    <span>cycle: <b>case-c012-c014</b></span>
+    <span>노드: <b>10</b></span>
+    <span>산 잎: <b>1</b></span>
+    <span>죽은 잎: <b>2</b></span>
+    <span>close 가능: <b>예 (산 잎 도달)</b></span>
+  </div>
+</header>
+<div class="legend">
+  <span class="lg lg-parent"><svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" class="edge-parent"/></svg> parent 엣지 (가지)</span>
+  <span class="lg lg-backtrack"><svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" class="edge-backtrack"/></svg> backtrack 엣지 (되돌아감)</span>
+  <span class="lg"><b class="chip leaf-live-chip">✓</b> 산 잎 (success)</span>
+  <span class="lg"><b class="chip leaf-dead-chip">✕</b> 죽은 잎 (backtrack · 벽의 지도)</span>
+  <span class="lg"><b class="chip kind-define-chip"></b>define</span>
+  <span class="lg"><b class="chip kind-hypothesis-chip"></b>hypothesis</span>
+  <span class="lg"><b class="chip kind-verify-chip"></b>verify</span>
+  <span class="lg"><b class="chip kind-analyze-chip"></b>analyze</span>
+</div>
+<div class="canvas">
+<svg class="steptree" viewBox="0 0 650 710" width="650" height="710"
+   xmlns="http://www.w3.org/2000/svg" role="img"
+   aria-label="v3 스텝 트리: 10노드">
+  <defs>
+    <marker id="bt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="bt-arrowhead" />
+    </marker>
+  </defs>
+  <g class="edges-parent"><line class="edge-parent" x1="325.0" y1="216.0" x2="135.0" y2="280.0" data-from="s1" data-to="s2" /><line class="edge-parent" x1="135.0" y1="346.0" x2="135.0" y2="410.0" data-from="s2" data-to="s3" /><line class="edge-parent" x1="135.0" y1="476.0" x2="135.0" y2="540.0" data-from="s3" data-to="s4" /><line class="edge-parent" x1="325.0" y1="216.0" x2="325.0" y2="280.0" data-from="s1" data-to="s5" /><line class="edge-parent" x1="325.0" y1="346.0" x2="325.0" y2="410.0" data-from="s5" data-to="s6" /><line class="edge-parent" x1="325.0" y1="476.0" x2="325.0" y2="540.0" data-from="s6" data-to="s7" /><line class="edge-parent" x1="325.0" y1="216.0" x2="515.0" y2="280.0" data-from="s1" data-to="s8" /><line class="edge-parent" x1="515.0" y1="346.0" x2="515.0" y2="410.0" data-from="s8" data-to="s9" /><line class="edge-parent" x1="515.0" y1="476.0" x2="515.0" y2="540.0" data-from="s9" data-to="s10" /></g>
+  <g class="edges-backtrack"><path class="edge-backtrack" d="M 60.0 573.0 C 30.0 573.0, 30.0 183.0, 250.0 183.0" marker-end="url(#bt-arrow)" data-from="s4" data-to="s1" data-y-from="573.0" data-y-to="183.0" /><path class="edge-backtrack" d="M 250.0 573.0 C 30.0 573.0, 30.0 183.0, 250.0 183.0" marker-end="url(#bt-arrow)" data-from="s7" data-to="s1" data-y-from="573.0" data-y-to="183.0" /></g>
+  <g class="nodes"><g class="node kind-define clickable" data-id="s1" data-kind="define" data-outcome="" data-body="body-s1" role="button" tabindex="0" aria-label="s1 define — 클릭하면 본문 펼침"><rect class="node-box" x="250.0" y="150.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="325.0" y="175.0" text-anchor="middle">s1</text><text class="node-kind" x="325.0" y="197.0" text-anchor="middle">define</text></g><g class="node kind-hypothesis clickable" data-id="s2" data-kind="hypothesis" data-outcome="" data-body="body-s2" role="button" tabindex="0" aria-label="s2 hypothesis — 클릭하면 본문 펼침"><rect class="node-box" x="60.0" y="280.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="135.0" y="305.0" text-anchor="middle">s2</text><text class="node-kind" x="135.0" y="327.0" text-anchor="middle">hypothesis</text></g><g class="node kind-verify clickable" data-id="s3" data-kind="verify" data-outcome="" data-body="body-s3" role="button" tabindex="0" aria-label="s3 verify — 클릭하면 본문 펼침"><rect class="node-box" x="60.0" y="410.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="135.0" y="435.0" text-anchor="middle">s3</text><text class="node-kind" x="135.0" y="457.0" text-anchor="middle">verify</text></g><g class="node kind-analyze leaf-dead clickable" data-id="s4" data-kind="analyze" data-outcome="backtrack" data-body="body-s4" role="button" tabindex="0" aria-label="s4 analyze — 클릭하면 본문 펼침"><rect class="node-box" x="60.0" y="540.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="135.0" y="565.0" text-anchor="middle">s4</text><text class="node-kind" x="135.0" y="587.0" text-anchor="middle">analyze</text><text class="badge badge-dead" x="135.0" y="624.0" text-anchor="middle">✕ 죽은 잎 · 벽의 지도 (backtrack→s1)</text></g><g class="node kind-hypothesis clickable" data-id="s5" data-kind="hypothesis" data-outcome="" data-body="body-s5" role="button" tabindex="0" aria-label="s5 hypothesis — 클릭하면 본문 펼침"><rect class="node-box" x="250.0" y="280.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="325.0" y="305.0" text-anchor="middle">s5</text><text class="node-kind" x="325.0" y="327.0" text-anchor="middle">hypothesis</text></g><g class="node kind-verify clickable" data-id="s6" data-kind="verify" data-outcome="" data-body="body-s6" role="button" tabindex="0" aria-label="s6 verify — 클릭하면 본문 펼침"><rect class="node-box" x="250.0" y="410.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="325.0" y="435.0" text-anchor="middle">s6</text><text class="node-kind" x="325.0" y="457.0" text-anchor="middle">verify</text></g><g class="node kind-analyze leaf-dead clickable" data-id="s7" data-kind="analyze" data-outcome="backtrack" data-body="body-s7" role="button" tabindex="0" aria-label="s7 analyze — 클릭하면 본문 펼침"><rect class="node-box" x="250.0" y="540.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="325.0" y="565.0" text-anchor="middle">s7</text><text class="node-kind" x="325.0" y="587.0" text-anchor="middle">analyze</text><text class="badge badge-dead" x="325.0" y="624.0" text-anchor="middle">✕ 죽은 잎 · 벽의 지도 (backtrack→s1)</text></g><g class="node kind-hypothesis clickable" data-id="s8" data-kind="hypothesis" data-outcome="" data-body="body-s8" role="button" tabindex="0" aria-label="s8 hypothesis — 클릭하면 본문 펼침"><rect class="node-box" x="440.0" y="280.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="515.0" y="305.0" text-anchor="middle">s8</text><text class="node-kind" x="515.0" y="327.0" text-anchor="middle">hypothesis</text></g><g class="node kind-verify clickable" data-id="s9" data-kind="verify" data-outcome="" data-body="body-s9" role="button" tabindex="0" aria-label="s9 verify — 클릭하면 본문 펼침"><rect class="node-box" x="440.0" y="410.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="515.0" y="435.0" text-anchor="middle">s9</text><text class="node-kind" x="515.0" y="457.0" text-anchor="middle">verify</text></g><g class="node kind-analyze leaf-live clickable" data-id="s10" data-kind="analyze" data-outcome="success" data-body="body-s10" role="button" tabindex="0" aria-label="s10 analyze — 클릭하면 본문 펼침"><rect class="node-box" x="440.0" y="540.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="515.0" y="565.0" text-anchor="middle">s10</text><text class="node-kind" x="515.0" y="587.0" text-anchor="middle">analyze</text><text class="badge badge-live" x="515.0" y="624.0" text-anchor="middle">✓ 산 잎 (success)</text></g></g>
+</svg>
+</div>
+<section class="bodies" aria-label="스텝 본문"><h2 class="bodies-title">스텝 본문 <span class="bodies-hint">(위 트리에서 노드를 클릭하면 여기 펼쳐진다 · 여러 개 동시 열림 유지)</span></h2><article class="stepbody" id="body-s1" data-id="s1" hidden><div class="stepbody-head"><span class="sb-id kind-define-tag">s1</span><span class="sb-kind">define</span><button class="sb-close" type="button" data-close="body-s1" aria-label="닫기">✕</button></div><pre class="sb-body"># s1 · define (P0, 루트)
+
+**문제**: github.io 뷰어에서 열어둔 체인 카드/상세가 폴링(5초)마다 닫힌 초기상태로
+돌아간다. 왜 닫히나 — 무엇이 열린 상태를 파괴하는가.
+
+체인 목표 직속의 첫 문제정의. 이 사이클의 뿌리이자 모든 백트래킹의 되돌아갈 갈림길.
+</pre></article><article class="stepbody" id="body-s2" data-id="s2" hidden><div class="stepbody-head"><span class="sb-id kind-hypothesis-tag">s2</span><span class="sb-kind">hypothesis</span><button class="sb-close" type="button" data-close="body-s2" aria-label="닫기">✕</button></div><pre class="sb-body"># s2 · hypothesis (C012)
+
+**가설**: 카드 닫힘의 원인은 &quot;실제 클릭 vs JS 토글 / name 아코디언 / detKey 차이&quot;다.
+이 상호작용 차이를 헤드리스로 재현하면 원인을 특정할 수 있다.
+</pre></article><article class="stepbody" id="body-s3" data-id="s3" hidden><div class="stepbody-head"><span class="sb-id kind-verify-tag">s3</span><span class="sb-kind">verify</span><button class="sb-close" type="button" data-close="body-s3" aria-label="닫기">✕</button></div><pre class="sb-body"># s3 · verify (C012)
+
+github.io를 헤드리스 CDP로 재현 시도. 실제 클릭·hash·장시간(3주기)·실폴링(fetch 확인)
+모든 조건에서 카드·상세가 **유지됨** — 재현 실패.
+</pre></article><article class="stepbody" id="body-s4" data-id="s4" hidden><div class="stepbody-head"><span class="sb-id kind-analyze-tag">s4</span><span class="sb-kind">analyze</span><button class="sb-close" type="button" data-close="body-s4" aria-label="닫기">✕</button></div><pre class="sb-body"># s4 · analyze (C012) → backtrack s1
+
+폴링은 실제로 돌고 최신 뷰어는 헤드리스에서 안 닫힌다. 결함은 **헤드리스가 재현 못 하는
+환경 의존적인 것**임을 배제로 확정. 상호작용·아코디언·detKey는 원인이 아니다(죽은 잎).
+되돌아감: 뿌리 s1의 문제로 복귀해 다른 가지를 찾는다.
+
+*이 잎이 후대에게 남기는 벽의 지도: &quot;이 세 길은 이미 배제됨.&quot;*
+</pre></article><article class="stepbody" id="body-s5" data-id="s5" hidden><div class="stepbody-head"><span class="sb-id kind-hypothesis-tag">s5</span><span class="sb-kind">hypothesis</span><button class="sb-close" type="button" data-close="body-s5" aria-label="닫기">✕</button></div><pre class="sb-body"># s5 · hypothesis (C013)
+
+**가설** (s1에서 자란 두 번째 형제 가지): 폴링 이분 — `--refresh 0`(폴링 끔)이면 닫힘이
+멈추나? 멈추면 폴링이 유일 범인, 안 멈추면 폴링 무관.
+</pre></article><article class="stepbody" id="body-s6" data-id="s6" hidden><div class="stepbody-head"><span class="sb-id kind-verify-tag">s6</span><span class="sb-kind">verify</span><button class="sb-close" type="button" data-close="body-s6" aria-label="닫기">✕</button></div><pre class="sb-body"># s6 · verify (C013)
+
+층 (a): `--refresh 0`이 폴링을 실제로 끔(fetch 0) 확정. 그러나 이분의 **실판정은
+상현님 실브라우저(내 손 밖 계측기)**를 요구 — 헤드리스로 원래 닫힘을 재현 못 하므로
+(s3의 결론) 내 손 안에서 완결 불가.
+</pre></article><article class="stepbody" id="body-s7" data-id="s7" hidden><div class="stepbody-head"><span class="sb-id kind-analyze-tag">s7</span><span class="sb-kind">analyze</span><button class="sb-close" type="button" data-close="body-s7" aria-label="닫기">✕</button></div><pre class="sb-body"># s7 · analyze (C013) → backtrack s1
+
+검증자가 스스로 판정 못 하는 가설이었다(계측기가 상현님 손에). 상현님: &quot;유일해에
+매달리지 말고 되돌아가라.&quot; 되돌아감: 뿌리 s1로 복귀 — **내 손 안 계측기로 검증
+가능한** 가지를 찾는다(죽은 잎).
+
+*벽의 지도: &quot;폴링 이분은 실브라우저 계측기 필요 — 이 길도 막힘.&quot;*
+</pre></article><article class="stepbody" id="body-s8" data-id="s8" hidden><div class="stepbody-head"><span class="sb-id kind-hypothesis-tag">s8</span><span class="sb-kind">hypothesis</span><button class="sb-close" type="button" data-close="body-s8" aria-label="닫기">✕</button></div><pre class="sb-body"># s8 · hypothesis (C014)
+
+**가설** (s1에서 자란 세 번째 형제 가지): 폴링 `swapRegions`의 통스왑(`replaceChild`)이
+열린 카드 노드를 통째 교체해 런타임 상태(네이티브 토글·포커스·리스너·부분 스크롤)를
+파괴한다. 열린 노드를 통스왑에서 건너뛰면 보존+실시간이 동시 성립할 것이다.
+**JS 마커로 노드 정체성을 헤드리스 관찰** — 내 손 안 계측기로 검증 가능.
+</pre></article><article class="stepbody" id="body-s9" data-id="s9" hidden><div class="stepbody-head"><span class="sb-id kind-verify-tag">s9</span><span class="sb-kind">verify</span><button class="sb-close" type="button" data-close="body-s9" aria-label="닫기">✕</button></div><pre class="sb-body"># s9 · verify (C014)
+
+`hasOpenDetails` 가드로 열린 노드를 통스왑에서 건너뛰게 최소변경. JS 마커로 관찰:
+열린 카드는 정체성 보존, 닫힌 영역은 실시간 갱신 — 동시 성립. 참조 133·Go 110
+무회귀, 바이트 동일.
+</pre></article><article class="stepbody" id="body-s10" data-id="s10" hidden><div class="stepbody-head"><span class="sb-id kind-analyze-tag">s10</span><span class="sb-kind">analyze</span><button class="sb-close" type="button" data-close="body-s10" aria-label="닫기">✕</button></div><pre class="sb-body"># s10 · analyze (C014) → success (산 잎)
+
+상태 보존의 진짜 단위는 &quot;불린(open)&quot;이 아니라 &quot;노드(정체성)&quot;였다. detKey(C011)는 불린만
+복원해 안 나았고, 노드를 건너뛰니 나았다. 최소변경이 &quot;보존 vs 실시간&quot; 트레이드오프를
+없앴다. **채택 — 산 잎.** 리젝트 체인(s4·s7)이 이 조준의 계단이었다.
+</pre></article></section>
+<footer class="foot">v3 뷰어 — 사이클=스텝들의 트리. 노드 클릭 → 본문 펼침(상태보존). 자기완결(외부 리소스 0). Sheen(신), v3-build/C006.</footer>
+<script>
+
+(function(){
+  function panelOf(id){ return document.getElementById(id); }
+  function nodeOf(bodyId){
+    return document.querySelector('.node.clickable[data-body="'+bodyId+'"]');
+  }
+  function toggle(g){
+    var bodyId = g.getAttribute('data-body');
+    var panel = panelOf(bodyId);
+    if(!panel) return;
+    var willOpen = panel.hasAttribute('hidden');
+    if(willOpen){ panel.removeAttribute('hidden'); g.classList.add('open'); }
+    else { panel.setAttribute('hidden',''); g.classList.remove('open'); }
+    // 상태보존: 다른 패널·노드는 전혀 건드리지 않는다 (통스왑 없음).
+  }
+  document.querySelectorAll('.node.clickable').forEach(function(g){
+    g.addEventListener('click', function(){ toggle(g); });
+    g.addEventListener('keydown', function(e){
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(g); }
+    });
+  });
+  document.querySelectorAll('.sb-close').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var bodyId = btn.getAttribute('data-close');
+      var panel = panelOf(bodyId);
+      if(panel){ panel.setAttribute('hidden',''); }
+      var g = nodeOf(bodyId);
+      if(g){ g.classList.remove('open'); }
+    });
+  });
+})();
+
+</script>
+</body>
+</html>
