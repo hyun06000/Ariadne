@@ -221,8 +221,8 @@
   backtrack: null
   body: steps/s36.md
 - id: s37
-  kind: pending
+  kind: success
   parent: s36
-  outcome: pending
+  outcome: success
   backtrack: null
   body: steps/s37.md
