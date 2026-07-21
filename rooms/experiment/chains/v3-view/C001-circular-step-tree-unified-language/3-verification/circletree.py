@@ -14,19 +14,26 @@ sys.path.insert(0, C004)
 from steptree import parse_steps_yaml, build_tree, assign_columns  # noqa: E402
 
 # 레이아웃 — 가로 흐름 (사이클 DAG처럼 왼→오른). depth=가로축, 형제(col)=세로축.
-STEP_W = 150   # depth 한 칸당 가로 간격
-LANE_H = 120   # 형제 가지 한 칸당 세로 간격
-PAD_X = 80
+STEP_W = 128   # depth 한 칸당 가로 간격
+LANE_H = 108   # 형제 가지 한 칸당 세로 간격
+PAD_X = 70
 PAD_Y = 170
-R = 26  # 원 반경
+R = 18  # 원 반경 (사이클 DAG처럼 작게)
 
 KIND_COLOR = {
-    "define": "#2563eb",      # 파랑
-    "hypothesis": "#7c3aed",  # 보라
-    "verify": "#0d9488",      # 청록
-    "analyze": "#64748b",     # 회색
+    "define": "#2563eb",      # 파랑 — 문제정의
+    "hypothesis": "#7c3aed",  # 보라 — 가설
+    "verify": "#0d9488",      # 청록 — 검증
+    "analyze": "#64748b",     # 회색 — 분석
+    # 결과 잎 (analyze 다음, 별도 노드) — 목업 샘플
+    "fail": "#dc2626",        # 빨강 — 실패
+    "success": "#16a34a",     # 초록 — 성공
+    "redefine": "#f59e0b",    # 주황 — 문제정의(되돌아가 새 가지)
 }
-LIVE = "#16a34a"  # 산 잎 초록
+KIND_LABEL = {"fail": "실패", "success": "성공", "redefine": "문제정의",
+              "define": "문제정의", "hypothesis": "가설", "verify": "검증",
+              "analyze": "분석"}
+RESULT_KINDS = {"fail", "success", "redefine"}
 
 
 def node_xy(nid, col, depth):
@@ -47,15 +54,16 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
 .lg{display:flex;align-items:center;gap:6px}
 .sw{width:16px;height:16px;border-radius:50%;display:inline-block;border:2px solid}
 .wrap{overflow-x:auto;padding:8px 24px 32px}
-.edge-parent{stroke:#94a3b8;stroke-width:2;fill:none}
-.edge-backtrack{stroke:#f59e0b;stroke-width:2;stroke-dasharray:6 5;fill:none}
-.n-circle{stroke-width:2.5}
-.leaf-dead .n-circle{stroke-dasharray:4 4;opacity:.55}
-.leaf-live .n-circle{stroke-width:4}
-.n-id{font-weight:700;font-size:14px;fill:#fff}
-.n-kind{font-size:12px;fill:#475569}
-@media (prefers-color-scheme:dark){.n-kind{fill:#94a3b8}}
-.badge{font-size:11px}.badge-live{fill:#16a34a;font-weight:600}.badge-dead{fill:#94a3b8}
+.edge-parent{stroke:#94a3b8;stroke-width:1.8;fill:none}
+.edge-backtrack{stroke:#f59e0b;stroke-width:1.8;stroke-dasharray:6 5;fill:none}
+.n-circle{stroke-width:2}
+.n-name{font-size:12.5px;font-weight:600;fill:#334155}
+.n-sub{font-size:10.5px;fill:#94a3b8}
+@media (prefers-color-scheme:dark){.n-name{fill:#cbd5e1}.n-sub{fill:#64748b}}
+.result-success .n-circle{stroke-width:3}
+.result-fail .n-name{fill:#dc2626}
+.result-success .n-name{fill:#16a34a}
+.result-redefine .n-name{fill:#d97706}
 """
 
 
@@ -89,47 +97,48 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
         classes = ["node", f"kind-{kind}"]
         color = KIND_COLOR[kind]
         badge = ""
-        if kind == "analyze" and outcome == "success":
-            classes.append("leaf-live"); live.append(nid); color = LIVE
-            badge = (f'<text class="badge badge-live" x="{cx:.0f}" y="{cy + R + 30:.0f}" '
-                     f'text-anchor="middle">✓ 산 잎</text>')
-        elif kind == "analyze" and outcome == "backtrack":
-            classes.append("leaf-dead"); dead.append(nid)
+        # 결과 잎 노드 (fail/success/redefine) — analyze 다음의 별도 노드
+        if kind in RESULT_KINDS:
+            classes.append(f"result-{kind}")
+            if kind == "success":
+                live.append(nid)
+            else:
+                dead.append(nid)
+            # fail·redefine은 조상 define으로 되돌아가는 backtrack 파선
             bt = n.get("backtrack")
-            badge = (f'<text class="badge badge-dead" x="{cx:.0f}" y="{cy + R + 30:.0f}" '
-                     f'text-anchor="middle">✕ 벽의 지도 →{html.escape(bt or "?")}</text>')
-            # backtrack 엣지 = 파선 곡선 (잎 위 → 조상 define 위로 되돌아감, 상단 우회)
-            if bt in by_id:
+            if bt and bt in by_id:
                 tx, ty = node_xy(bt, col, depth)
                 sx, sy = cx, cy - R
                 dx, dy = tx, ty - R
-                arch = min(sy, dy) - 46  # 노드들 위로 아치를 그려 겹침 회피
+                arch = min(sy, dy) - 42
                 bt_edges.append(
                     f'<path class="edge-backtrack" marker-end="url(#bt-arrow)" '
                     f'd="M {sx:.0f} {sy:.0f} C {sx:.0f} {arch:.0f}, {dx:.0f} {arch:.0f}, '
                     f'{dx:.0f} {dy:.0f}" data-from="{nid}" data-to="{bt}" />')
 
+        # 원 안엔 아무 것도 안 넣고(작은 원), 이름(kind 라벨)을 원 아래에 — 사이클 DAG처럼.
+        label = KIND_LABEL.get(kind, kind)
         node_svg.append(
             f'<g class="{" ".join(classes)}" data-id="{nid}" data-kind="{kind}" '
             f'data-outcome="{outcome or ""}">'
             f'<circle class="n-circle" cx="{cx:.0f}" cy="{cy:.0f}" r="{R}" '
             f'fill="{color}" stroke="{color}" />'
-            f'<text class="n-id" x="{cx:.0f}" y="{cy + 5:.0f}" text-anchor="middle">{nid}</text>'
-            f'<text class="n-kind" x="{cx:.0f}" y="{cy + R + 15:.0f}" '
-            f'text-anchor="middle">{kind}</text>'
+            f'<text class="n-name" x="{cx:.0f}" y="{cy + R + 16:.0f}" '
+            f'text-anchor="middle">{label}</text>'
+            f'<text class="n-sub" x="{cx:.0f}" y="{cy + R + 31:.0f}" '
+            f'text-anchor="middle">{nid}</text>'
             f'{badge}</g>')
 
+    # 범례 — 스텝 종류 + 결과 잎 + 엣지
+    order = ["define", "hypothesis", "verify", "analyze", "fail", "success", "redefine"]
     legend = "".join(
-        f'<span class="lg"><span class="sw" style="background:{c};border-color:{c}"></span>{k}</span>'
-        for k, c in KIND_COLOR.items())
-    legend += (f'<span class="lg"><span class="sw" style="background:{LIVE};border-color:{LIVE}">'
-               f'</span>산 잎(success)</span>'
-               '<span class="lg"><span class="sw" style="border-color:#94a3b8;border-style:dashed;'
-               'background:transparent"></span>죽은 잎(backtrack)</span>'
+        f'<span class="lg"><span class="sw" style="background:{KIND_COLOR[k]};'
+        f'border-color:{KIND_COLOR[k]}"></span>{KIND_LABEL[k]}</span>'
+        for k in order)
+    legend += ('<span class="lg"><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" '
+               'stroke="#94a3b8" stroke-width="2"/></svg>스텝 실선</span>'
                '<span class="lg"><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" '
-               'stroke="#94a3b8" stroke-width="2"/></svg>parent 실선</span>'
-               '<span class="lg"><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" '
-               'stroke="#f59e0b" stroke-width="2" stroke-dasharray="6 5"/></svg>backtrack 파선</span>')
+               'stroke="#f59e0b" stroke-width="2" stroke-dasharray="6 5"/></svg>되돌아감 파선</span>')
 
     svg = (f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
            f'xmlns="http://www.w3.org/2000/svg">'
