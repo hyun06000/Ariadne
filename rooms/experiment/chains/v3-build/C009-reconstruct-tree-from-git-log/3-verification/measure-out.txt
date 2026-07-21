@@ -1,0 +1,14 @@
+=== C009 측정 — 깃 로그로 트리 재구성 ===
+  M1 노드집합 동일=True (복원 10 / 원본 10), parent 엣지 동일=True
+✅ PASS M1 — 노드·parent 엣지 동형 [K1]
+
+  M2 backtrack 엣지 동일=True [('s4', 's1'), ('s7', 's1')], outcome 동일=True [('s10', 'success'), ('s4', 'backtrack'), ('s7', 'backtrack')]
+✅ PASS M2 — backtrack·outcome 동형 [K2]
+
+  M3 git 하위명령(주석제외)=['log'], steps.yaml 읽기=False, show/diff=False
+✅ PASS M3 — 깃 로그 단독 (steps.yaml·show·diff 접근 0) [K3]
+
+  M4 파싱 배타적=True, 왕복 무손실(복원→yaml == 원본)=True
+✅ PASS M4 — 유일 결정성 + 왕복 무손실 [K4]
+
+=== ALL PASS → supported (4/4) ===
