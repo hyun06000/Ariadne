@@ -1,0 +1,36 @@
+open: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c017-migrate/mix — 루트 define s1 생성
+step: s2 [hypothesis] parent=s1
+step: s3 [verify] parent=s2
+step: s4 [analyze/success] parent=s3
+close: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c017-migrate/mix — state=solved, 산 잎 ['s4'], cycle.yaml 봉인
+open: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c017-migrate/pure — 루트 define s1 생성
+step: s2 [hypothesis] parent=s1
+step: s3 [verify] parent=s2
+step: s4 [analyze/success] parent=s3
+close: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c017-migrate/pure — state=solved, 산 잎 ['s4'], cycle.yaml 봉인
+SCRATCH=/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c017-migrate
+GHOST_COUNT=3 (MIX의 pre-gil 유령 수)
+
+=== MIX 재구성 (rebuild_migrate --report) ===
+유령(지문 없음) 4개 건너뜀 (v3 스텝 4개 복원)
+s1 define parent=None
+s2 hypothesis parent=s1
+s3 verify parent=s2
+s4 analyze parent=s3 outcome=success
+
+=== MIX 그래프 (유령 + v3) ===
+c6023a3 gilv3 close mix: solved 산 잎 s4 (봉인)
+310d834 gilv3 step: s4 analyze/success
+8af4226 gilv3 step: s3 verify
+319ffce gilv3 step: s2 hypothesis
+67dea1a gilv3 open mix: s1 define
+8b59949 docs: add readme (마지막 유령)
+accf17e fix: bug in app (여전히 pre-gil)
+fedfbaf feat: initial app (v2 시절, gil 이전)
+
+=== PURE 재구성 (--report) ===
+유령(지문 없음) 1개 건너뜀 (v3 스텝 4개 복원)
+s1 define parent=None
+s2 hypothesis parent=s1
+s3 verify parent=s2
+s4 analyze parent=s3 outcome=success

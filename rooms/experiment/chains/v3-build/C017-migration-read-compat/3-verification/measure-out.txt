@@ -1,0 +1,6 @@
+[PASS] M1-ghost-harmless: 혼합원장 v3스텝수=4(=4) 혼합트리==순수트리=True → 유령 섞여도 안 죽고 v3 트리 온전 (유령이 트리 안 오염)
+[PASS] M2-boundary-preserved: 재구성전후 rev-list동일=True pre-gil유령3개생존=True → 유령 삭제·변조 0, 그래프 불변 (재구성기 읽기 전용)
+[PASS] M3-pure-no-regression: rebuild_migrate == C010 rebuild_trailer (순수 원장)=True → 유령 스킵이 C010 복원 안 깸 (회귀 0)
+[PASS] M4-ghost-visible: MIX유령=4(=4) PURE유령=1(=1) pre-gil격리=3(=3) report='유령 4개'=True → 침묵 아닌 가시적 스킵 (사용자가 규모 앎)
+
+=== ALL PASS — supported (4/4) ===
