@@ -28,9 +28,9 @@
   backtrack: null
   body: steps/s4.md
 - id: s5
-  kind: redefine
+  kind: define
   parent: s4
-  outcome: redefine
+  outcome: null
   backtrack: null
   body: steps/s5.md
 - id: s6
@@ -52,9 +52,9 @@
   backtrack: null
   body: steps/s8.md
 - id: s9
-  kind: redefine
+  kind: define
   parent: s8
-  outcome: redefine
+  outcome: null
   backtrack: null
   body: steps/s9.md
 - id: s10
@@ -76,9 +76,9 @@
   backtrack: null
   body: steps/s12.md
 - id: s13
-  kind: redefine
+  kind: define
   parent: s12
-  outcome: redefine
+  outcome: null
   backtrack: null
   body: steps/s13.md
 - id: s14
@@ -100,8 +100,33 @@
   backtrack: null
   body: steps/s16.md
 - id: s17
-  kind: pending
+  kind: fail
   parent: s16
+  outcome: fail
+  backtrack: s13
+  body: steps/s17.md
+# 되돌아간 s13(문제정의)에서 새 가지: define/redefine 통합
+- id: s18
+  kind: hypothesis
+  parent: s13
+  outcome: null
+  backtrack: null
+  body: steps/s18.md
+- id: s19
+  kind: verify
+  parent: s18
+  outcome: null
+  backtrack: null
+  body: steps/s19.md
+- id: s20
+  kind: analyze
+  parent: s19
+  outcome: null
+  backtrack: null
+  body: steps/s20.md
+- id: s21
+  kind: pending
+  parent: s20
   outcome: pending
   backtrack: null
-  body: steps/s17.md
+  body: steps/s21.md

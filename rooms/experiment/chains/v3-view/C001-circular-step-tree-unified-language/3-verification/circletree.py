@@ -22,21 +22,21 @@ PAD_Y = 150
 R = 11  # 원 반경 (DAG r=9에 근접, 작고 귀엽게)
 
 KIND_COLOR = {
-    "define": "#2563eb",      # 파랑 — 문제정의
+    "define": "#2563eb",      # 파랑 — 문제정의 (루트든 분석 다음이든 하나로 통합)
     "hypothesis": "#7c3aed",  # 보라 — 가설
     "verify": "#0d9488",      # 청록 — 검증
     "analyze": "#64748b",     # 회색 — 분석
-    # 분석 다음 결과 (별도 노드) — 네 종류
+    # 분석 다음 결과 — 문제정의(define)/실패/성공/대기
     "fail": "#dc2626",        # 빨강 — 실패 (백트래킹)
-    "redefine": "#f59e0b",    # 주황 — 문제정의 (앞으로 새 가지)
     "success": "#16a34a",     # 초록 — 성공 (산 잎, 끝)
     "pending": "#e879f9",     # 분홍 — 대기 (사람에게 묻는 중, 아직 미결정)
 }
-KIND_LABEL = {"fail": "실패", "success": "성공", "redefine": "문제정의",
-              "pending": "대기", "define": "문제정의", "hypothesis": "가설",
+KIND_LABEL = {"fail": "실패", "success": "성공", "pending": "대기",
+              "define": "문제정의", "hypothesis": "가설",
               "verify": "검증", "analyze": "분석"}
-# 분석 다음에 올 수 있는 네 결과. pending은 "아직 미결정"이라 잎도 분기도 아니다.
-RESULT_KINDS = {"fail", "success", "redefine", "pending"}
+# 분석 다음에 올 수 있는 것: 문제정의(define, 앞으로)·실패·성공·대기.
+# define/redefine 구별 폐지 — 문제정의는 그냥 문제정의(상현님).
+RESULT_KINDS = {"fail", "success", "pending"}
 
 
 def node_xy(nid, col, depth):
@@ -66,14 +66,14 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
 .result-success .n-circle{stroke-width:3}
 .result-fail .n-name{fill:#dc2626}
 .result-success .n-name{fill:#16a34a}
-.result-redefine .n-name{fill:#d97706}
 /* 대기 — 아직 미결정. 채움 흐리게 + 파선 테두리로 "기다리는 중" 표시. */
 .result-pending .n-circle{fill-opacity:.35;stroke-dasharray:3 3}
 .result-pending .n-name{fill:#c026d3;font-weight:700}
 """
 
 
-def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
+def render_html(nodes, chain="v3-view", cycle="case-c012-c014", bodies=None):
+    bodies = bodies or {}
     by_id, children, root, depth = build_tree(nodes)
     col = assign_columns(children, root)
     max_col = max(col.values())
@@ -103,18 +103,18 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
         classes = ["node", f"kind-{kind}"]
         color = KIND_COLOR[kind]
         badge = ""
-        # 분석 다음 네 결과 노드 — 의미가 다르다:
-        #   success  = 산 잎 (끝).
-        #   fail     = 죽은 잎 + 백트래킹 파선(조상 문제정의로 되돌아감).
-        #   redefine = 잎 아님! 새 문제정의로서 앞으로 새 가지를 뻗는 분기점(자식을 낳음).
-        #   pending  = 사람에게 묻는 중. 아직 미결정 — 잎도 분기도 아니다(파선 테두리로 표시).
+        # 분석 다음: 문제정의(define)·실패·성공·대기.
+        #   define(문제정의) = 루트든 분석 다음이든 하나. 앞으로 새 가지를 뻗는다(백트래킹 없음).
+        #   success = 산 잎 (끝).
+        #   fail    = 죽은 잎 + 백트래킹 파선(조상 문제정의로 되돌아감).
+        #   pending = 사람에게 묻는 중. 아직 미결정 — 잎도 분기도 아니다(파선 테두리).
         if kind == "pending":
-            classes.append("result-pending")  # 산/죽은 잎 어느 쪽도 아님
+            classes.append("result-pending")
         elif kind == "success":
             classes.append("result-success"); live.append(nid)
         elif kind == "fail":
             classes.append("result-fail"); dead.append(nid)
-            # 실패만이 백트래킹과 연결된다 (파선으로 조상 define 복귀).
+            # 실패만이 백트래킹과 연결된다 (파선으로 조상 문제정의 복귀).
             bt = n.get("backtrack")
             if bt and bt in by_id:
                 tx, ty = node_xy(bt, col, depth)
@@ -125,15 +125,17 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
                     f'<path class="edge-backtrack" marker-end="url(#bt-arrow)" '
                     f'd="M {sx:.0f} {sy:.0f} C {sx:.0f} {arch:.0f}, {dx:.0f} {arch:.0f}, '
                     f'{dx:.0f} {dy:.0f}" data-from="{nid}" data-to="{bt}" />')
-        elif kind == "redefine":
-            # 문제정의는 앞으로 뻗는 노드 — 백트래킹 없음. define처럼 자식(가설)을 낳는다.
-            classes.append("result-redefine")
 
         # 원 안엔 아무 것도 안 넣고(작은 원), 이름(kind 라벨)을 원 아래에 — 사이클 DAG처럼.
+        # clickable + data-body: 클릭하면 그 스텝의 본문 카드가 아래에 펼쳐진다(C007 패턴).
         label = KIND_LABEL.get(kind, kind)
+        classes.append("clickable")
         node_svg.append(
             f'<g class="{" ".join(classes)}" data-id="{nid}" data-kind="{kind}" '
-            f'data-outcome="{outcome or ""}">'
+            f'data-outcome="{outcome or ""}" data-body="body-{nid}" '
+            f'tabindex="0" role="button" aria-label="스텝 {nid} 본문 열기">'
+            f'<circle class="n-hit" cx="{cx:.0f}" cy="{cy:.0f}" r="{R + 8}" '
+            f'fill="transparent" />'
             f'<circle class="n-circle" cx="{cx:.0f}" cy="{cy:.0f}" r="{R}" '
             f'fill="{color}" stroke="{color}" />'
             f'<text class="n-name" x="{cx:.0f}" y="{cy + R + 16:.0f}" '
@@ -144,7 +146,7 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
 
     # 범례 — 스텝 종류 + 결과 잎 + 엣지
     order = ["define", "hypothesis", "verify", "analyze",
-             "fail", "redefine", "success", "pending"]
+             "fail", "success", "pending"]
     legend = "".join(
         f'<span class="lg"><span class="sw" style="background:{KIND_COLOR[k]};'
         f'border-color:{KIND_COLOR[k]}"></span>{KIND_LABEL[k]}</span>'
@@ -161,16 +163,90 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
            '<path d="M0 0 L10 5 L0 10 z" fill="#f59e0b"/></marker></defs>'
            + "".join(p_edges) + "".join(bt_edges) + "".join(node_svg) + '</svg>')
 
-    return (f'<!doctype html><meta charset="utf-8"><style>{CSS}</style>'
+    # 본문 카드 — 각 스텝의 md를 인라인 임베드(fetch 없음, 자기완결). 기본 hidden.
+    panels = []
+    for n in nodes:
+        nid, kind = n["id"], n["kind"]
+        raw = bodies.get(nid, "(본문 없음)")
+        panels.append(
+            f'<article class="stepbody" id="body-{nid}" hidden>'
+            f'<div class="sb-head"><span class="sb-dot" style="background:{KIND_COLOR[kind]}">'
+            f'</span><span class="sb-name">{html.escape(KIND_LABEL.get(kind, kind))}</span>'
+            f'<span class="sb-id">{nid}</span>'
+            f'<button class="sb-close" type="button" data-close="body-{nid}" '
+            f'aria-label="닫기">✕</button></div>'
+            f'<pre class="sb-body">{html.escape(raw)}</pre></article>')
+    bodies_section = (
+        '<div class="bodies"><div class="bodies-title">스텝 본문 '
+        '<span class="bodies-hint">(위 노드를 클릭하면 여기 펼쳐진다 · 여러 개 동시 열림 유지)'
+        '</span></div>' + "".join(panels) + '</div>')
+
+    return (f'<!doctype html><meta charset="utf-8"><style>{CSS}{INTERACT_CSS}</style>'
             f'<div class="head"><h1>v3 스텝 트리 — 원형 노드 (사이클 DAG 시각 언어 통일)</h1>'
             f'<div class="meta">chain: <b>{chain}</b> · cycle: <b>{cycle}</b> · '
             f'노드 {len(nodes)} · 산 잎 {len(live)} · 죽은 잎 {len(dead)}</div></div>'
             f'<div class="legend">{legend}</div><div class="wrap">{svg}</div>'
-            f'<div class="head"><div class="meta">v3-view/C001 목업 · Clew · 자기완결</div></div>')
+            f'{bodies_section}'
+            f'<div class="head"><div class="meta">v3-view/C001 목업 · Clew · 자기완결</div></div>'
+            f'<script>{JS}</script>')
 
 
-def html_from_yaml_text(text, chain="v3-view", cycle="case-c012-c014"):
-    return render_html(parse_steps_yaml(text), chain, cycle)
+INTERACT_CSS = """
+.node.clickable{cursor:pointer}
+.node.clickable:hover .n-circle{stroke:#0f172a;stroke-width:3}
+.node.open .n-circle{stroke:#0f172a;stroke-width:3.5}
+.bodies{padding:8px 24px 40px;max-width:820px}
+.bodies-title{font-size:14px;font-weight:700;margin:6px 0 10px}
+.bodies-hint{font-weight:400;color:#94a3b8;font-size:12px}
+.stepbody{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin:8px 0}
+@media (prefers-color-scheme:dark){.stepbody{background:#111a2e;border-color:#1e293b}}
+.stepbody[hidden]{display:none}
+.sb-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sb-dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+.sb-name{font-weight:700;font-size:13px}
+.sb-id{color:#94a3b8;font-size:11px}
+.sb-close{margin-left:auto;border:none;background:transparent;cursor:pointer;color:#94a3b8;font-size:14px}
+.sb-body{white-space:pre-wrap;font:12.5px/1.55 -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:#334155}
+@media (prefers-color-scheme:dark){.sb-body{color:#cbd5e1}}
+"""
+
+# 노드 클릭 → 그 스텝 본문 hidden 토글. 각 패널 독립(통스왑 없음) → 상태보존(C007/C010/C014).
+JS = """
+(function(){
+  function toggle(g){
+    var id=g.getAttribute('data-body'), p=document.getElementById(id);
+    if(!p) return;
+    if(p.hasAttribute('hidden')){ p.removeAttribute('hidden'); g.classList.add('open'); p.scrollIntoView({block:'nearest'}); }
+    else { p.setAttribute('hidden',''); g.classList.remove('open'); }
+  }
+  document.querySelectorAll('.node.clickable').forEach(function(g){
+    g.addEventListener('click', function(){ toggle(g); });
+    g.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(g); } });
+  });
+  document.querySelectorAll('.sb-close').forEach(function(b){
+    b.addEventListener('click', function(){
+      var id=b.getAttribute('data-close'), p=document.getElementById(id);
+      if(p) p.setAttribute('hidden','');
+      var g=document.querySelector('.node.clickable[data-body="'+id+'"]');
+      if(g) g.classList.remove('open');
+    });
+  });
+})();
+"""
+
+
+def _load_bodies(nodes, steps_dir):
+    """steps/<id>.md 본문을 읽어 {id: text}. 없으면 건너뜀."""
+    out = {}
+    for n in nodes:
+        p = os.path.join(steps_dir, n["id"] + ".md")
+        if os.path.exists(p):
+            out[n["id"]] = open(p, encoding="utf-8").read()
+    return out
+
+
+def html_from_yaml_text(text, chain="v3-view", cycle="case-c012-c014", bodies=None):
+    return render_html(parse_steps_yaml(text), chain, cycle, bodies)
 
 
 if __name__ == "__main__":
@@ -178,6 +254,9 @@ if __name__ == "__main__":
         HERE, "..", "..", "..", "v3-build", "C002-design-v3-data-model",
         "3-verification", "case-c012-c014", "steps.yaml"))
     dst = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "out.html")
-    doc = html_from_yaml_text(open(src, encoding="utf-8").read())
+    nodes = parse_steps_yaml(open(src, encoding="utf-8").read())
+    steps_dir = os.path.join(os.path.dirname(os.path.abspath(src)), "steps")
+    bodies = _load_bodies(nodes, steps_dir)
+    doc = render_html(nodes, bodies=bodies)
     open(dst, "w", encoding="utf-8").write(doc)
-    print(f"wrote {dst} ({len(doc)} bytes)")
+    print(f"wrote {dst} ({len(doc)} bytes, 본문 {len(bodies)}개)")
