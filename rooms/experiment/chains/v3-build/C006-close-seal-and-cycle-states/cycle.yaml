@@ -2,7 +2,7 @@ id: C006-close-seal-and-cycle-states
 chain: v3-build
 parent: C005-git-imprint-and-viewer-wire
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-21
