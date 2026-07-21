@@ -1,0 +1,14 @@
+id: C103-deploy-viewer-panel
+chain: loom
+parent: C102-deploy-artifact-axis
+lineage: []
+step: 1
+author: sheen
+status: open
+opened: 2026-07-21
+closed: null
+title: ""
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
