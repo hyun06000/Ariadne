@@ -82,8 +82,37 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014", bodies=None):
     width = int(PAD_X * 2 + max_depth * STEP_W + R * 2 + 60)
     height = int(PAD_Y + max_col * LANE_H + R * 2 + 40)
 
-    p_edges, bt_edges, node_svg = [], [], []
+    p_edges, bt_edges, node_svg, region_svg = [], [], [], []
     live, dead = [], []
+    by = {n["id"]: n for n in nodes}
+
+    # --- 문제 영역 리본 (상현님: "백트래킹을 문제 단위로") ---
+    # 각 문제정의(define)는 자기 하위 시도(다음 define 전까지)를 하나의 문제로 소유한다.
+    # 그 소유 노드들의 bbox를 연한 배경 리본으로 그려 "이 시도들은 이 문제에 속한다"를 보인다.
+    def owned(root_id):
+        """root_id(define)가 소유하는 노드 id들 — 자식으로 내려가되 다른 define에서 멈춘다."""
+        acc, stack = [root_id], list(children.get(root_id, []))
+        while stack:
+            cid = stack.pop()
+            if by[cid]["kind"] == "define":   # 다른 문제의 시작 — 소유 밖
+                continue
+            acc.append(cid)
+            stack.extend(children.get(cid, []))
+        return acc
+    RIB_PAL = ["#3b82f6", "#8b5cf6", "#14b8a6", "#f59e0b", "#ec4899", "#64748b"]
+    define_ids = [n["id"] for n in nodes if n["kind"] == "define"]
+    for i, did in enumerate(define_ids):
+        ids = owned(did)
+        xs = [node_xy(x, col, depth)[0] for x in ids]
+        ys = [node_xy(x, col, depth)[1] for x in ids]
+        x0, x1 = min(xs) - R - 12, max(xs) + R + 12
+        y0, y1 = min(ys) - R - 10, max(ys) + R + 34  # 아래 라벨 공간
+        c = RIB_PAL[i % len(RIB_PAL)]
+        region_svg.append(
+            f'<rect class="region" x="{x0:.0f}" y="{y0:.0f}" '
+            f'width="{x1 - x0:.0f}" height="{y1 - y0:.0f}" rx="16" '
+            f'fill="{c}" fill-opacity="0.06" stroke="{c}" stroke-opacity="0.22" '
+            f'data-problem="{did}" />')
 
     for n in nodes:
         nid, kind, outcome = n["id"], n["kind"], n.get("outcome")
@@ -161,6 +190,7 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014", bodies=None):
            '<defs><marker id="bt-arrow" viewBox="0 0 10 10" refX="8" refY="5" '
            'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
            '<path d="M0 0 L10 5 L0 10 z" fill="#f59e0b"/></marker></defs>'
+           + "".join(region_svg)  # 리본은 맨 뒤(엣지·노드 아래)
            + "".join(p_edges) + "".join(bt_edges) + "".join(node_svg) + '</svg>')
 
     # 본문 카드 — 각 스텝의 md를 인라인 임베드(fetch 없음, 자기완결). 기본 hidden.
