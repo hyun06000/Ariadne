@@ -1,0 +1,14 @@
+id: C027-migrate-into-deployed-gil
+chain: v3-build
+parent: C026-v3-dogfooding-form
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "v3 눈의 뿌리를 배포판으로 — gil migrate를 배포판 gil.py에 통합 (하나의 gil, 첫 카브)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
