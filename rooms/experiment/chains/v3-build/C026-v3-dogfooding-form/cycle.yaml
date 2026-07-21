@@ -1,0 +1,14 @@
+id: C026-v3-dogfooding-form
+chain: v3-build
+parent: C023-migration-as-gil-command
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "v3로 실사이클을 굴리는 형태 설계 — v2 사이클 형식과 v3 steps.yaml의 통합"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
