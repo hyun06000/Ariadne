@@ -1,0 +1,14 @@
+id: C003-v3-viewer-step-tree
+chain: v3-build
+parent: C002-design-v3-data-model
+lineage: []
+step: 1
+author: sheen
+status: open
+opened: 2026-07-21
+closed: null
+title: ""
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
