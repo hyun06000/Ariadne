@@ -1,0 +1,15 @@
+=== C023 measure — gil migrate vs C022 오라클 대조 ===
+
+
+[PASS] M1 오라클 대조 (적용)
+      명령 DAG {'nodes': 133, 'roots': 5, 'merges': 4, 'edges': 132} == 오라클 DAG {'nodes': 133, 'roots': 5, 'merges': 4, 'edges': 132}
+[PASS] M2 notes 내용 동일
+      명령·오라클 notes 본문 동일 (길이 49908==49908)
+[PASS] M3 안전 계약
+      명령 적용 후 커밋 1323==1323·cycle.yaml 동일
+[PASS] M4 되돌림 명령
+      migrate --rollback 후 notes=없음(잔재0)
+[PASS] M5 드라이런 계약
+      migrate --dry 후 notes=없음(각인0), 수 보고=있음
+
+=== ALL PASS → supported ===

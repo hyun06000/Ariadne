@@ -2,7 +2,7 @@ id: C023-migration-as-gil-command
 chain: v3-build
 parent: C022-migration-freeze-and-apply
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-22
