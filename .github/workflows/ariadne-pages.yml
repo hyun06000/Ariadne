@@ -29,6 +29,16 @@ jobs:
         run: |
           mkdir -p _site/branches
           python3 rooms/deployment/ariadne-spec/gil.py web -o _site/index.html --title "Ariadne — 사이클 체인"
+          # [v3-build/C029] v3 통합 뷰어 — migrate로 원장에 v3 눈(notes)을 각인한 뒤 web --v3.
+          #   원격 notes에 안 기댄다: 원장(커밋)만으로 항상 최신 v3 눈을 재각인한다 (C026 형태).
+          #   migrate는 refs/notes만 바꾼다 (커밋 불변, C018).
+          git config user.email "gil-pages@ariadne.local"
+          git config user.name "gil-pages"
+          python3 rooms/deployment/ariadne-spec/gil.py migrate .
+          python3 rooms/deployment/ariadne-spec/gil.py web --v3 -o _site/v3.html
+          # index.html 최상단에 v3 뷰어 링크 배너 삽입 (사용자가 v3에 닿게). sed 이식성 회피 — 파일 조립.
+          V3BANNER='<div style="padding:8px 14px;background:#1a1a2e;color:#fff;font:14px system-ui;text-align:center"><a href="v3.html" style="color:#8be9fd">→ v3 통합 계보 뷰어 (사이클 간 DAG × 사이클 내 스텝 트리 드릴다운)</a></div>'
+          printf '%s\n' "$V3BANNER" > _site/index.tmp && cat _site/index.html >> _site/index.tmp && mv _site/index.tmp _site/index.html
           git fetch --quiet origin '+refs/heads/worktree-*:refs/remotes/origin/worktree-*' || true
           : > /tmp/brlist.html
           for BR in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/worktree-*'); do

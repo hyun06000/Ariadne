@@ -1358,3 +1358,15 @@
 - **정직한 경계**: --v3 옵트인(기본 v2 하위호환, v3 상시화는 나중 기본 전환) · 격리 조회만 · CDP 재실측 안 함(Sheen C025가 M4로 상호작용 실측, 이식이라 동형) · 수리 2건(스캐폴딩, 로직 반증 아님).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 158개(C028 +1). 배포판 gil이 migrate·web --v3 가짐(conformance 134/134 유지).
 - **⭐ 다음(순서대로, 상현님 "문서 갱신→배포")**: ① **SPEC/README v3 문서 갱신**("v3=v2 위의 notes 눈"+migrate·web --v3 사용법, 문서가 곧 테스트 — "문서 갱신" 순서 완료) ② **v3 정식 릴리스**(gil release, Selvage 축 — "gil의 v3"가 배포된 도구로, "배포하자" 순서) ③ C024 정밀화를 migrate 백엔드 통합(DAG 138→142) ④ --v3 기본 전환 검토.
+
+## 2026-07-22 (이어서) — ⭐ v3-build/C029: v3 뷰어를 GitHub Pages에 (CI가 migrate 후 web --v3, supported)
+
+- **상현님 "가자. 이거 깃헙io에 보이게 하는 거부터 먼저" → 문서보다 실물 공개 우선.** 지금 Pages는 v2 뷰어만 배포(`gil web -o _site/index.html`). v3 뷰어(gil web --v3)가 안 보임. 부모 C028.
+- **⭐ 핵심 결과 — 워크플로에 migrate + web --v3 추가로 v3 뷰어를 Pages에.** `ariadne-pages.yml` build 스텝에 `gil migrate .`(원장에 v3 notes 각인) + `gil web --v3 -o _site/v3.html` 추가, index.html에 v3 링크 배너. push 시 `hyun06000.github.io/Ariadne/v3.html`에 배포. 4측정 ALL PASS.
+- **⭐⭐ 정점 통찰 — 재생성 가능한 산출물은 저장·전송하지 말고 재생성한다.** v3 눈(notes)은 원장에서 언제든 재각인되니, **CI가 원격 notes에 안 기대고 매번 migrate로 만든다**(원장-만 조건 M3: clone에서 notes 삭제 후에도 생성 성공). 원격 notes push(C023)는 다른 머신 공유용이지 배포 의존이 아님. **커밋만 push하면 눈은 CI가 만든다** — "push가 곧 배포"(C007)의 v3판. C026 "원장이 진실원, 눈은 재각인"의 배포 층 실용값.
+- **⭐ 교훈 — CI에서 재각인이 원격 notes fetch보다 견고.** 원격 notes는 push 시점(73b18f4a)에 고정돼 최신 사이클(C024~C029) 안 보임. 매번 재각인이 항상 최신. migrate가 refs/notes만 건드림(C018, digest 8b2643d6 불변)이라 매 push migrate가 원장 무해 — 재생성이 원장 오염 안 시킴.
+- **⭐ 교훈 — 로컬 워크플로 실행이 CI-만이면 안 보일 함정을 잡는다.** `sed -i '1i'`가 BSD(macOS)·GNU(ubuntu) 문법 차이로 로컬 실패 — CI는 ubuntu라 작동했겠지만 이식성 위해 printf+cat로 교체. "워크플로가 곧 테스트"(C007)는 로컬 재현으로 완성.
+- **4측정 ALL PASS**(loom/C007 규약, fresh clone 원장-만): M1 v3 페이지 생성(v3.html 399113bytes·139사이클·138엣지, 두 층) · M2 v2 무회귀(index.html 유지) · M3 원장-만 재현(notes 삭제 후 migrate 성공) · M4 커밋 불변(digest 8b2643d6).
+- **정직한 경계**: 로컬 fresh clone 실측까지, 실제 Pages URL 확인은 push 후 상현님과(Pages 미활성/첫 배포면 Settings 확인 가능성, C007 전례) · --v3 옵트인 유지 · 수리 1건(sed 이식성, CI 실패 아님).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 159개(C029 +1). 워크플로 수정 커밋이 push되면 실제 배포 트리거.
+- **⭐ 다음(순서대로)**: ① **실제 Pages 배포 확인**(push 후 v3.html 접근, 상현님) ② SPEC/README v3 문서 갱신("문서 갱신" 순서) ③ v3 정식 릴리스(gil release, "배포하자" 순서) ④ C024 정밀화를 migrate 통합(DAG 138→142).
