@@ -125,8 +125,32 @@
   backtrack: null
   body: steps/s20.md
 - id: s21
-  kind: pending
+  kind: define
   parent: s20
-  outcome: pending
+  outcome: null
   backtrack: null
   body: steps/s21.md
+- id: s22
+  kind: hypothesis
+  parent: s21
+  outcome: null
+  backtrack: null
+  body: steps/s22.md
+- id: s23
+  kind: verify
+  parent: s22
+  outcome: null
+  backtrack: null
+  body: steps/s23.md
+- id: s24
+  kind: analyze
+  parent: s23
+  outcome: null
+  backtrack: null
+  body: steps/s24.md
+- id: s25
+  kind: pending
+  parent: s24
+  outcome: pending
+  backtrack: null
+  body: steps/s25.md

@@ -178,7 +178,7 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014", bodies=None):
             f'<pre class="sb-body">{html.escape(raw)}</pre></article>')
     bodies_section = (
         '<div class="bodies"><div class="bodies-title">스텝 본문 '
-        '<span class="bodies-hint">(위 노드를 클릭하면 여기 펼쳐진다 · 여러 개 동시 열림 유지)'
+        '<span class="bodies-hint">(위 노드를 클릭하면 그 스텝 본문만 여기 펼쳐진다)'
         '</span></div>' + "".join(panels) + '</div>')
 
     return (f'<!doctype html><meta charset="utf-8"><style>{CSS}{INTERACT_CSS}</style>'
@@ -210,14 +210,21 @@ INTERACT_CSS = """
 @media (prefers-color-scheme:dark){.sb-body{color:#cbd5e1}}
 """
 
-# 노드 클릭 → 그 스텝 본문 hidden 토글. 각 패널 독립(통스왑 없음) → 상태보존(C007/C010/C014).
+# 노드 클릭 → 그 스텝 본문만 보인다. 다른 열린 본문은 닫는다(한 번에 하나, 상현님).
 JS = """
 (function(){
+  function closeAll(){
+    document.querySelectorAll('.stepbody').forEach(function(p){ p.setAttribute('hidden',''); });
+    document.querySelectorAll('.node.clickable.open').forEach(function(g){ g.classList.remove('open'); });
+  }
   function toggle(g){
     var id=g.getAttribute('data-body'), p=document.getElementById(id);
     if(!p) return;
-    if(p.hasAttribute('hidden')){ p.removeAttribute('hidden'); g.classList.add('open'); p.scrollIntoView({block:'nearest'}); }
-    else { p.setAttribute('hidden',''); g.classList.remove('open'); }
+    var wasOpen = !p.hasAttribute('hidden');
+    closeAll();                         // 먼저 전부 닫고
+    if(!wasOpen){                       // 닫혀 있던 걸 클릭했으면 그것만 연다
+      p.removeAttribute('hidden'); g.classList.add('open'); p.scrollIntoView({block:'nearest'});
+    }                                   // 이미 열린 걸 다시 클릭하면 닫힌 채로 (토글)
   }
   document.querySelectorAll('.node.clickable').forEach(function(g){
     g.addEventListener('click', function(){ toggle(g); });
