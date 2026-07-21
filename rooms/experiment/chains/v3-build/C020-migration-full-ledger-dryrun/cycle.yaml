@@ -1,0 +1,14 @@
+id: C020-migration-full-ledger-dryrun
+chain: v3-build
+parent: C019-migration-derive-fingerprint
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "실제 v2 원장 전량(1296커밋)을 격리 복제본에서 순회 소급하면 도출 견고성·유령 감소·정합성이 대규모로 실측된다 (우리 자신을 v3로, 드라이런)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
