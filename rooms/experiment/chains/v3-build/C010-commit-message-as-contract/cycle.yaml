@@ -1,0 +1,14 @@
+id: C010-commit-message-as-contract
+chain: v3-build
+parent: C009-reconstruct-tree-from-git-log
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-21
+closed: null
+title: "커밋 메시지를 계약면으로: 자연어 서술을 git trailer 스키마로 굳혀 복원을 견고하게"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
