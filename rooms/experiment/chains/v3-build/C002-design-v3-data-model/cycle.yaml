@@ -4,11 +4,11 @@ parent: C001-define-v3-target
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "v3 스텝 트리 데이터 모델을 실제 스키마로 완전 설계한다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
