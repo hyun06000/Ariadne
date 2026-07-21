@@ -2,7 +2,7 @@ id: C103-deploy-go-parity
 chain: loom
 parent: C102-deploy-artifact-axis
 lineage: []
-step: 2
+step: 3
 author: weft
 status: open
 opened: 2026-07-21
