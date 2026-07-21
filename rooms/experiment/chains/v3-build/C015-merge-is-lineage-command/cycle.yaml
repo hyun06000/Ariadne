@@ -4,11 +4,11 @@ parent: C014-gil-command-automation
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "gilv3 close --lineage A,B 가 git merge --no-ff 다중부모 커밋을 각인하면 lineage(C012)가 도구가 된다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
