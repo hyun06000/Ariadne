@@ -14,6 +14,8 @@ LLM의 추론이 걸어온 길(사이클 체인)을 깃처럼 다룬다.
 import argparse
 import base64
 import datetime
+import glob
+import hashlib
 import html
 import json
 import math
@@ -4752,6 +4754,398 @@ def _unimplemented(name, commands):
     return _UNIMPLEMENTED_EXIT
 
 
+
+# ============================================================================
+# v3 마이그레이션 백엔드 (C027 통합) — v2→v3 눈: notes 소급·접합·백업·되돌림.
+# C017~C022 실증 절차 / C023 명령화 / gilv3 백엔드를 배포판에 인라인.
+# ⭐ 새 로직 없음 — C023 검증 함수를 바이트 보존 이식 (오라클 대조 743fc56a).
+# ⭐ 마이그레이션은 refs/notes만 바꾼다 (커밋·트리·cycle.yaml 불변, C018 계약).
+# ============================================================================
+
+V2_STEP_TO_KIND = {1: "define", 2: "hypothesis", 3: "verify", 4: "analyze", 5: "analyze"}
+
+
+V2_STEP_PARENT  = {1: None, 2: "s1", 3: "s2", 4: "s3", 5: "s4"}
+
+
+V2_APPROXIMATE_STEPS = {2, 4, 5}  # v3 kind에 정확히 안 담기는 스텝 (근사 명시용)
+
+
+RE_OPEN  = re.compile(r"^gil: open\s+(\S+)\s+—\s+\d+/5")
+
+
+RE_STEP  = re.compile(r"^gil: step\s+(\S+)\s+→\s+(\d+)/5\s+(\S+)")
+
+
+RE_CLOSE = re.compile(r"^gil: close\s+(\S+)")
+
+
+def classify(subject):
+    """커밋 subject를 (kind, cycle, step_n, step_name) 로 분류.
+    kind ∈ {open, step, close, unknown}. step만 step_n/step_name 채움."""
+    m = RE_STEP.match(subject)
+    if m:
+        return ("step", m.group(1), int(m.group(2)), m.group(3))
+    m = RE_OPEN.match(subject)
+    if m:
+        return ("open", m.group(1), None, None)
+    m = RE_CLOSE.match(subject)
+    if m:
+        return ("close", m.group(1), None, None)
+    return ("unknown", None, None, None)
+
+
+def derive_cycle(commits, verdict="supported"):
+    """v2 사이클 커밋 리스트 → v3 지문 시퀀스.
+
+    commits: [(hash, subject), ...] 시간순.
+    반환: [(hash, [(key,val)...], approximate_bool), ...] — step 커밋만 (open/close 스킵).
+    순수 함수(결정성, H1a). verdict는 5/5 보고의 outcome 결정에 반영."""
+    out = []
+    for h, subj in commits:
+        kind, cyc, n, name = classify(subj)
+        if kind != "step":
+            continue  # open/close는 트리 노드 아님 (스킵)
+        v3_kind = V2_STEP_TO_KIND.get(n)
+        if v3_kind is None:
+            continue  # 5스텝 밖 (방어적)
+        parent = V2_STEP_PARENT[n]
+        trailers = [("Step-Id", "s%d" % n),
+                    ("Kind", v3_kind),
+                    ("Parent", parent if parent else "null")]
+        if n == 5:
+            # 5/5 보고 = 산 잎. verdict 반영(supported→success, 그 외→fail 근사).
+            outcome = "success" if verdict == "supported" else "fail"
+            trailers.append(("Outcome", outcome))
+        approximate = n in V2_APPROXIMATE_STEPS
+        out.append((h, trailers, approximate))
+    return out
+
+
+def commit_shas(repo):
+    """원장 커밋 SHA (refs/notes/* 제외). C018 계약: notes는 원장 아님."""
+    out = subprocess.run(
+        ["git", "-C", repo, "rev-list", "--exclude=refs/notes/*", "--all"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
+    return sorted(out.split())
+
+
+def worktree_status(repo):
+    """작업 트리 상태 (청결하면 빈 문자열)."""
+    return subprocess.run(
+        ["git", "-C", repo, "status", "--porcelain"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
+
+
+def cycle_yaml_hash(repo):
+    """cycle.yaml 전량의 결합 해시 (내용 불변 확인)."""
+    h = hashlib.sha256()
+    for p in sorted(glob.glob(os.path.join(repo, "rooms/experiment/chains/*/*/cycle.yaml"))):
+        h.update(p.encode())
+        h.update(open(p, "rb").read())
+    return h.hexdigest()
+
+
+def notes_ref(repo):
+    """refs/notes/commits 의 현재 값 (없으면 None) — 변경면 관찰용."""
+    r = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q",
+                        "refs/notes/commits"],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    v = r.stdout.decode().strip()
+    return v or None
+
+
+def snapshot(repo):
+    return {
+        "commit_shas": commit_shas(repo),
+        "commit_count": len(commit_shas(repo)),
+        "worktree_status": worktree_status(repo),
+        "cycle_yaml_hash": cycle_yaml_hash(repo),
+        "notes_ref": notes_ref(repo),
+    }
+
+
+def _commit_shas(repo):
+    """원장 커밋 SHA 집합 (불변 자기 집행용) — refs/notes/* 제외.
+
+    ⭐ C018 함정(측정 중 발견): git notes는 refs/notes/commits라는 ref를 만드는데
+    그 ref 자체가 커밋 객체다(notes는 커밋 트리로 저장). 그래서 `rev-list --all`은
+    notes 커밋을 새로 센다 — 이걸 불변 위반으로 오판하면 안 된다. 진짜 계약은
+    '원장 커밋(스텝·유령)이 불변인가'이지 'notes 메타 저장 커밋이 안 느나'가 아니다.
+    → refs/notes/*를 제외하고, 원장이 보이는 ref(브랜치·태그·HEAD)만 순회한다.
+    notes 각인은 원장 커밋 SHA를 하나도 안 바꾼다(probe: 첨부 전후 커밋 hash 동일)."""
+    # --exclude 는 뒤따르는 --all/--branches 등에 적용되므로 --all 앞에 온다.
+    r = subprocess.run(
+        ["git", "-C", repo, "rev-list", "--exclude=refs/notes/*", "--all"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    return set(r.stdout.decode().split())
+
+
+def _is_v3_native(repo, commit):
+    """이 커밋이 이미 v3 네이티브인가 — subject가 'gilv3 '로 시작(open/step/close).
+    pre-gil vs close 구분(C017 이월): close 커밋도 trailer 없지만 v3 각인 이력이라
+    소급 대상이 아니다. pre-gil(임의 subject)만 지문을 받는다 (H1d)."""
+    subj = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s", commit],
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode().strip()
+    return subj.startswith("gilv3 ")
+
+
+def _has_trailer(repo, commit):
+    """이미 Step-Id trailer가 있는 v3 커밋인가 (소급 불필요)."""
+    v = subprocess.run(["git", "-C", repo, "log", "-1",
+                        "--format=%(trailers:key=Step-Id,valueonly)", commit],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode().strip()
+    return bool(v)
+
+
+def retro_imprint(repo, commit, trailers):
+    """유령 커밋에 v3 지문을 git notes로 소급 각인 — 커밋 불변.
+
+    trailers: [(key, val), ...] → notes 본문 = trailer와 동일한 Key: Value 라인.
+    커밋 불변 자기 집행: notes add 전후 모든 커밋 SHA가 동일해야 한다 (H1a).
+    pre-gil만 대상: v3 네이티브(trailer 有 or gilv3 subject)는 건너뛴다 (H1d)."""
+    if _has_trailer(repo, commit) or _is_v3_native(repo, commit):
+        return False  # 이미 v3 — 소급 대상 아님 (close 포함)
+    before = _commit_shas(repo)
+    body = "\n".join("%s: %s" % (k, v) for k, v in trailers)
+    r = subprocess.run(["git", "-C", repo, "notes", "add", "-f", "-m", body, commit],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        sys.exit("소급각인 실패: %s — %s" % (commit, r.stderr.decode().strip()))
+    after = _commit_shas(repo)
+    if before != after:
+        sys.exit("거부(C018): notes 각인이 커밋 SHA를 바꿨다 — append-only 위반. "
+                 "(git notes가 아닌 재작성이 일어남)")
+    return True
+
+
+RE_STEP2 = re.compile(r"^gil: step\s+(\S+)\s+(?:→|—|-)\s+(\d+)/\d+")
+
+
+RE_OPEN2 = re.compile(r"^gil: open\s+(\S+)")
+
+
+LEDGER_MGMT = re.compile(r"^gil: (release|land|reserve|unreserve|renumber|withdraw|"
+                         r"supersede|hold|deploy|round|web|pages|v\d|_|gateway|loom|loomlight)")
+
+
+def discover_cycles(repo):
+    """cycle.yaml 전량 발견 → [{id, chain, parent, step, verdict, dir}]."""
+    cycles = []
+    for path in glob.glob(os.path.join(repo, "rooms/experiment/chains/*/*/cycle.yaml")):
+        meta = {"dir": os.path.dirname(path)}
+        for line in open(path, encoding="utf-8"):
+            line = line.split("#")[0]  # 주석 제거
+            if ":" not in line: continue
+            k, _, v = line.partition(":")
+            meta[k.strip()] = v.strip()
+        if "id" in meta and "chain" in meta:
+            cycles.append(meta)
+    return cycles
+
+
+def cycle_step_commits(repo, chain, cid):
+    """한 사이클의 step 커밋 해시를 subject로 찾음 (시간순, N/M 오름차순).
+    subject의 <chain>/<id> 매칭 — cycle id는 관습 진화에도 안정적."""
+    target = "%s/%s" % (chain, cid)
+    out = subprocess.run(
+        ["git", "-C", repo, "log", "--reverse", "--format=%H\x1f%s"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
+    found = []  # (n, hash)
+    for line in out.splitlines():
+        if "\x1f" not in line: continue
+        h, subj = line.split("\x1f", 1)
+        m = RE_STEP2.match(subj)
+        if m and m.group(1) == target:
+            found.append((int(m.group(2)), h))
+    found.sort()
+    return [h for _, h in found]
+
+
+def migrate_all(repo, apply=False):
+    """전량 순회. 각 사이클의 step 커밋에 derive→retro_imprint(notes).
+    apply=False: 도출만 카운트(드라이런). True: 실제 notes 각인.
+    반환: 통계 dict."""
+    cycles = discover_cycles(repo)
+    stats = {"cycles": len(cycles), "imprinted": 0, "derive_failed": [], "steps_derived": 0}
+    for c in cycles:
+        chain, cid = c["chain"], c["id"]
+        verdict = c.get("verdict", "supported") or "supported"
+        commits = cycle_step_commits(repo, chain, cid)
+        if not commits:
+            stats["derive_failed"].append("%s/%s" % (chain, cid))
+            continue
+        # C019 도출: subject를 다시 읽어 derive_cycle에 먹임
+        pairs = [(h, subprocess.run(["git","-C",repo,"log","-1","--format=%s",h],
+                  stdout=subprocess.PIPE).stdout.decode().strip()) for h in commits]
+        derived = derive_cycle(pairs, verdict)
+        stats["steps_derived"] += len(derived)
+        if apply:
+            for h, trailers, ap in derived:
+                retro_imprint(repo, h, trailers)
+                stats["imprinted"] += 1
+    return stats
+
+
+def classify_ghosts(repo):
+    """소급 후 잔여 유령을 3종 분류 (C017 가시성 대규모판).
+    ①비-원장(gil: 아님) ②원장관리(release·land…) ③도출실패(gil: step인데 notes 없음)."""
+    out = subprocess.run(
+        ["git", "-C", repo, "log", "--format=%H\x1f%s"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
+    non_ledger, mgmt, step_no_note = 0, 0, 0
+    for line in out.splitlines():
+        if "\x1f" not in line: continue
+        h, subj = line.split("\x1f", 1)
+        # trailer 있으면 유령 아님
+        tr = subprocess.run(["git","-C",repo,"log","-1",
+                             "--format=%(trailers:key=Step-Id,valueonly)",h],
+                            stdout=subprocess.PIPE).stdout.decode().strip()
+        if tr:
+            continue  # v3 네이티브
+        note = subprocess.run(["git","-C",repo,"notes","show",h],
+                              stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+        if note.returncode == 0 and note.stdout.decode().strip():
+            continue  # 소급됨 (유령 아님)
+        # 여전히 유령 — 분류
+        if not subj.startswith("gil: "):
+            non_ledger += 1
+        elif LEDGER_MGMT.match(subj) or subj.startswith("gil: close"):
+            mgmt += 1
+        elif subj.startswith("gil: step") or subj.startswith("gil: open"):
+            step_no_note += 1
+        else:
+            mgmt += 1  # 기타 gil: 관리
+    return {"non_ledger": non_ledger, "ledger_mgmt": mgmt, "step_no_note": step_no_note}
+
+
+def parse_parent(raw):
+    """cycle.yaml parent 값 → 부모 사이클 id 리스트 (짧은 id로 정규화).
+    'C014-gil-command-automation' → ['C014']  (숫자 id만, 슬러그 제거)
+    '[C020-go-web-port, C016-number-ledger]' → ['C020','C016']
+    'null' → []."""
+    raw = raw.strip()
+    if raw in ("null", ""):
+        return []
+    raw = raw.strip("[]")
+    ids = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        # C014-slug → C014 (숫자 id만)
+        import re
+        m = re.match(r"(C\d+)", part)
+        ids.append(m.group(1) if m else part)
+    return ids
+
+
+def short_id(full_id):
+    """C015-merge-is-lineage-command → C015."""
+    import re
+    m = re.match(r"(C\d+)", full_id)
+    return m.group(1) if m else full_id
+
+
+def splice_cycle(repo, cycle_meta):
+    """사이클 루트 지문에 Cycle-Parent 엣지를 notes로 append (커밋 불변).
+    루트 = 그 사이클의 가장 이른 도출 노드 커밋(N 최소 — s1이든 s2든).
+    반환: (루트_해시, 부모_id_리스트) 또는 None(도출 커밋 없음)."""
+    chain, cid = cycle_meta["chain"], cycle_meta["id"]
+    commits = cycle_step_commits(repo, chain, cid)
+    if not commits:
+        return None  # C020 도출 실패 사이클 — 여전히 섬(정직)
+    root = commits[0]  # N 최소 = 사이클 시작 지문 커밋 (cycle_step_commits가 정렬)
+    parents = parse_parent(cycle_meta.get("parent", "null"))
+    cp_val = ", ".join(parents) if parents else "null"
+    subprocess.run(["git", "-C", repo, "notes", "append", "-m",
+                    "Cycle-Parent: %s" % cp_val, root],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return (root, parents)
+
+
+def splice_all(repo):
+    """전량 접합: C020이 도출한 사이클마다 Cycle-Parent 소급.
+    반환: {spliced, roots, singles, merges, no_commit}."""
+    cycles = discover_cycles(repo)
+    stats = {"spliced": 0, "roots": 0, "singles": 0, "merges": 0, "no_commit": 0}
+    for c in cycles:
+        r = splice_cycle(repo, c)
+        if r is None:
+            stats["no_commit"] += 1
+            continue
+        _, parents = r
+        stats["spliced"] += 1
+        if len(parents) == 0:
+            stats["roots"] += 1
+        elif len(parents) == 1:
+            stats["singles"] += 1
+        else:
+            stats["merges"] += 1
+    return stats
+
+_MIG_NOTES_REF = "refs/notes/commits"
+_MIG_BACKUP_REF = "refs/notes-backup/pre-migrate"
+
+
+def cmd_migrate(args):
+    """v2→v3 마이그레이션 (C017~C022 실증, C023 명령화, C027 배포판 통합).
+
+    v3 = v2 5스텝 위에 얹힌 notes 눈 (C026). 이 명령이 그 눈을 각인한다.
+      --dry       도출·접합 수 보고, 각인 0 (notes 안 생김).
+      (기본)      동결백업 + 노드 소급 + 위상 접합 + 불변 게이트.
+      --rollback  백업 ref로 리셋 / notes 삭제 (잔재 0).
+    """
+    repo = os.path.abspath(args.dir)
+
+    def _rev(ref):
+        r = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", ref],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        return r.stdout.decode().strip() or None
+
+    if args.rollback:
+        backup = _rev(_MIG_BACKUP_REF)
+        if backup:
+            subprocess.run(["git", "-C", repo, "update-ref", _MIG_NOTES_REF, backup], check=True)
+            print("migrate --rollback: 백업 ref로 리셋 (%s)" % backup[:12])
+        else:
+            if _rev(_MIG_NOTES_REF):
+                subprocess.run(["git", "-C", repo, "update-ref", "-d", _MIG_NOTES_REF], check=True)
+            print("migrate --rollback: notes 삭제 (백업 부재 → 부재 복원)")
+        if _rev(_MIG_NOTES_REF) and not backup:
+            sys.exit("거부: 되돌림 후 notes 잔재 — 되돌림 불완전")
+        print("  ✅ 되돌림 완전 (잔재 0)")
+        return
+
+    if args.dry:
+        stats = migrate_all(repo, apply=False)
+        print("migrate --dry (각인 안 함):")
+        print("  사이클 %d · 도출 스텝 %d · 도출실패 %d" %
+              (stats["cycles"], stats["steps_derived"], len(stats["derive_failed"])))
+        return
+
+    before = snapshot(repo)
+    cur = _rev(_MIG_NOTES_REF)
+    if cur:
+        subprocess.run(["git", "-C", repo, "update-ref", _MIG_BACKUP_REF, cur], check=True)
+        print("migrate: 동결백업 refs/notes → %s (%s)" % (_MIG_BACKUP_REF, cur[:12]))
+    else:
+        print("migrate: 동결백업 = 부재기록 (되돌림=삭제)")
+    stats = migrate_all(repo, apply=True)
+    print("  노드 소급: 사이클 %d · 각인 %d · 도출실패 %d" %
+          (stats["cycles"], stats["imprinted"], len(stats["derive_failed"])))
+    sstats = splice_all(repo)
+    print("  위상 접합: %d 사이클 (루트%d·선형%d·머지%d)" %
+          (sstats["spliced"], sstats["roots"], sstats["singles"], sstats["merges"]))
+    after = snapshot(repo)
+    if before["commit_shas"] != after["commit_shas"]:
+        sys.exit("❌ 불변 위반: 커밋 SHA 변화 — 즉시 중단")
+    if before["cycle_yaml_hash"] != after["cycle_yaml_hash"]:
+        sys.exit("❌ 불변 위반: cycle.yaml 변화 — 즉시 중단")
+    print("  ✅ 불변 확인: 커밋·cycle.yaml 불변 (변경면 refs/notes 뿐)")
+
+
+
 def _print_help(sub, name=None):
     """§7.2-1·3 — 능력 목록과 안전한 능력 탐침. 저장소를 변경하지 않는다."""
     commands = list(sub.choices)  # 단일 소스: 등록된 서브파서가 곧 구현 목록이다 (§7.2-2)
@@ -4995,6 +5389,12 @@ def main(argv=None):
     p_web.add_argument("--watch", action="store_true", help="원장 변경을 감시해 뷰어 재생성 (--refresh 함축, C049)")
     p_web.add_argument("--interval", type=int, help="--watch 감시 간격(초, 기본 5)")
     p_web.set_defaults(func=cmd_web)
+
+    p_mig = sub.add_parser("migrate", help="v2→v3 마이그레이션: v2 5스텝 위에 v3 눈(notes 스텝 트리·계보)을 각인 (C017~C027). 커밋 불변, --dry·--rollback 지원")
+    p_mig.add_argument("dir", nargs="?", default=".", help="대상 저장소 (기본: 현재)")
+    p_mig.add_argument("--dry", action="store_true", help="도출·접합 수만 보고 (각인 안 함)")
+    p_mig.add_argument("--rollback", action="store_true", help="백업 ref로 되돌림 / notes 삭제 (잔재 0)")
+    p_mig.set_defaults(func=cmd_migrate)
 
     p_help = sub.add_parser("help", help="구현 명령 목록 — gil help <명령>이면 그 명령의 사용법")
     p_help.add_argument("name", nargs="?", help="조회할 명령 (생략하면 전체 목록)")

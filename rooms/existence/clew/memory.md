@@ -1335,3 +1335,15 @@
 - **⭐ 번호경합을 예약으로 예방(C024 학습 실전).** 내 C026 open이 Sheen의 격리 워크트리 C025를 main이 못 봐서 C025로 발급됨(경합). withdraw로 되감고 **Sheen 위해 C025 reserve**(선점) 후 재open→C026. land 시 예약 C025 정상 소비, 충돌 0. 방금 C024에서 배운 재번호·예약 규율이 실시간 작동.
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 156개(C025 Sheen +1, C026 +1). Sheen 뷰어 `worktree land --no-ff` 무충돌(ba1b122c).
 - **⭐ 다음(순서대로)**: ① **SPEC/README v3 문서 갱신**(형태 "v3=v2 위의 notes 눈" 명문화, steps.yaml은 탐색적 옵션, "문서가 곧 테스트") ② **v3를 gil 배포판으로 승격**(gilv3 실험 산출물 migrate+web 뷰어를 배포판 gil.py에 통합, 이름 gil, Selvage 축) ③ C024 정밀화 도출기를 migrate에 통합(회수 4건 각인, DAG 132→136, Sheen 섬 부모 엣지 4개 실 엣지화) ④ 초기 16개 관습 이질 정밀화(우선순위 낮음).
+
+## 2026-07-22 (이어서) — ⭐⭐ v3-build/C027: gil migrate를 배포판으로 통합 (v3 눈 뿌리가 하나의 gil로, supported)
+
+- **상현님 "순서대로 하자. 이제는 v3만 쓰는 거지?" → 정직한 답 + 순서.** "v3만"의 정직한 답: 쓰기(사이클)는 여전히 v2 5스텝(v3=v2 위의 눈, C026 형태), 읽기/계보는 v3 눈. 근데 v3 눈(migrate·web)이 아직 실험 산출물에 흩어져 배포판(gil.py)에 없음 → **"v3만 쓴다"가 진짜가 되려면 배포판 통합이 먼저.** 상현님 "먼저 배포판 통합부터."
+- **⭐⭐ 핵심 결과 — gil migrate가 배포판 gil.py에 통합됐다(v3 눈의 뿌리).** C023 검증 백엔드(derive_fingerprint·full_ledger_migrate·splice_topology·retro_imprint·snapshot, 28함수·321줄)를 배포판 gil.py에 **인라인 이식**(자기완결 배포 계약 SPEC §7, 외부 모듈 import 0), cmd_migrate + argparse 등록. 부모 C026. 이제 배포된 gil 쓰는 누구나 자기 v2 원장을 v3로 봄(will.md 범용성).
+- **⭐⭐ 정점 통찰 — 인라인은 재구현이 아니라 이식, 오라클이 그 구분을 집행.** 자기완결 계약 때문에 백엔드를 gil.py에 인라인했으나 함수를 옮겼을 뿐 알고리즘 재설계 안 함. **notes digest 743fc56a 동일**(오라클 C023 gilv3 == 배포판 gil, 바이트)이 "이식했지 재구현 안 했다"를 증명. 재구현이면 미묘한 버그로 digest 안 맞았을 것. 자동 추출(함수 블록+접두어 제거)이 이식의 기계적 정확성 보장.
+- **⭐ 정점 함정 — 이식의 함정은 숨은 의존(import).** 함수만 옮기면 그 함수의 import(hashlib·glob)는 안 따라온다 → 첫 실행 NameError. **자기완결 계약(M5, gil.py 격리 복사해도 동작)이 모든 의존을 gil.py 안에 두게 강제** — 배포 계약이 이식 완전성을 집행. 오라클 대조 전 잡힘(문법 OK였으나 런타임 실패).
+- **⭐ 교훈 — 좋은 함수 경계가 미래 이식을 연다(C023 연장).** C023이 백엔드를 깔끔한 함수(migrate_all·splice_all)로 나눠뒀기에 인라인이 자동 추출+접두어 제거로 끝남. C018·C019·C023·C027 "좋은 구조가 미래를 연다" 사슬.
+- **5측정 ALL PASS**: M1 오라클 대조(배포판 DAG 136엣지·머지4 == gilv3) · M2 notes 바이트 동일(743fc56a) · M3 계약 보존(--dry 각인0·--rollback 잔재0·커밋 불변) · M4 회귀 0(conformance 134/134 ✔ 이 구현은 gil이다) · M5 자기완결(격리 복사해도 migrate 동작, import 0).
+- **정직한 경계**: web 뷰어 통합은 다음 카브(migrate만, 범위 절제) · 격리 조회만(실제 원장 이미 C022) · 수리 1건(hashlib·glob import 누락, 이식 결함이지 로직 반증 아님) · 도출실패 20 여전(C024 정밀화 미통합, 넣으면 DAG 136→140).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 157개(C027 +1). 배포판 gil.py에 migrate 명령 섬(conformance 134/134 유지).
+- **⭐ 다음(순서대로)**: ① **gil web v3 뷰어를 배포판에 통합**(Sheen C025를 배포판 gil.py에 — 읽기 축도 하나의 gil, "v3만 쓴다"의 도구 완성: 쓰기=migrate 각인·읽기=web 뷰어) ② **SPEC/README v3 문서 갱신**("v3=v2 위의 notes 눈"+migrate·web 사용법, 문서가 곧 테스트) ③ C024 정밀화를 migrate 백엔드에 통합(DAG 136→140, Sheen 섬 엣지 4개 실 엣지) ④ **v3 정식 릴리스**(gil release, Selvage 축 — "gil의 v3"가 배포된 도구로).
