@@ -1,0 +1,25 @@
+=== C027 measure — gil migrate 배포판 통합 5측정 ===
+
+[PASS] M1 오라클 대조 (적용)
+      배포판 gil migrate DAG (136엣지·머지4) == C023 gilv3 migrate DAG (동일)
+      노드 소급 157사이클·564각인·도출실패20, 위상 접합 137(루트5·선형128·머지4) — 양쪽 동일
+
+[PASS] M2 notes 바이트 동일
+      notes 본문 digest: 오라클 743fc56a == 배포판 743fc56a (바이트 동일)
+
+[PASS] M3 계약 보존
+      --dry: 각인 0 (사이클 157·도출 564 보고만)
+      --rollback: notes 삭제, 잔재 0
+      커밋·cycle.yaml 불변 (변경면 refs/notes 뿐, C018)
+
+[PASS] M4 회귀 0
+      conformance 134/134 ✔ 이 구현은 gil이다 — 배포판 기존 명령(open/step/close/web/fsck…) 무회귀
+
+[PASS] M5 자기완결
+      gil.py를 격리 위치로 복사해도 migrate --dry 동작 — 외부 모듈 import 0 (SPEC §7 배포 계약)
+
+=== ALL PASS → supported ===
+
+수리 1건: hashlib·glob import 누락(migrate 백엔드가 씀) → 헤더에 추가. 계측기/이식 결함, 로직 반증 아님.
+통합 방식: C023 검증 백엔드(derive_fingerprint·full_ledger_migrate·splice_topology·retro_imprint·snapshot,
+  28함수·321줄)를 gil.py에 인라인(재구현 아닌 이식), cmd_migrate + argparse 등록. 오라클 대조로 바이트 보존 집행.
