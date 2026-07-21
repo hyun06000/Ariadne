@@ -4,11 +4,11 @@ parent: C002-design-v3-data-model
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "v3 스텝 트리 위에서 open/step/close 첫 명령을 구현한다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
