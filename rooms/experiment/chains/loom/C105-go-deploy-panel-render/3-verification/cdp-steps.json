@@ -1,0 +1,6 @@
+[
+  {"eval": "JSON.stringify({card: !!document.querySelector('.card.deployments'), artname: (document.querySelector('.deployments .artname')||{}).textContent||null, live: (document.querySelector('.deployments .artlive')||{}).textContent||null, depcyc_count: document.querySelectorAll('.deployments a.depcyc').length, first_href: (document.querySelector('.deployments a.depcyc')||{}).getAttribute?document.querySelector('.deployments a.depcyc').getAttribute('href'):null})"},
+  {"eval": "(function(){var a=document.querySelector('.deployments a.depcyc'); if(!a) return 'NO_LINK'; var href=a.getAttribute('href'); var id=href.slice(1); var target=document.getElementById(id); a.click(); return JSON.stringify({href:href, target_exists:!!target, target_tag:target?target.tagName:null});})()"},
+  {"sleep_ms": 3000},
+  {"eval": "JSON.stringify({card_still_present_after_poll: !!document.querySelector('.card.deployments'), artname_after: (document.querySelector('.deployments .artname')||{}).textContent||null})"}
+]
