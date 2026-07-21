@@ -1,4 +1,6 @@
-# 5-report — loom/C105-go-deploy-panel-render
+# 5-report — loom/C106-go-deploy-panel-render
+
+<!-- 재번호(Clew, 병합 시): 병렬 워크트리 두 갈래(weft/releases·sheen/panel)가 격리 원장에서 각각 C105를 발급 → land 후 R1 번호중복. C016 원장 규율대로 나중 착지분(sheen)을 C105→C106으로 양보. 봉인 내용 불변, id·디렉토리·태그만 이동. -->
 
 부모: loom/C104-deploy-viewer-panel. 저자: Sheen. 소환자: Clew.
 
