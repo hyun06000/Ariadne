@@ -103,12 +103,12 @@
   kind: fail
   parent: s16
   outcome: fail
-  backtrack: s13
+  backtrack: s9
   body: steps/s17.md
 # 되돌아간 s13(문제정의)에서 새 가지: define/redefine 통합
 - id: s18
   kind: hypothesis
-  parent: s13
+  parent: s9
   outcome: null
   backtrack: null
   body: steps/s18.md
