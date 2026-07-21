@@ -26,15 +26,17 @@ KIND_COLOR = {
     "hypothesis": "#7c3aed",  # 보라 — 가설
     "verify": "#0d9488",      # 청록 — 검증
     "analyze": "#64748b",     # 회색 — 분석
-    # 결과 잎 (analyze 다음, 별도 노드) — 목업 샘플
-    "fail": "#dc2626",        # 빨강 — 실패
-    "success": "#16a34a",     # 초록 — 성공
-    "redefine": "#f59e0b",    # 주황 — 문제정의(되돌아가 새 가지)
+    # 분석 다음 결과 (별도 노드) — 네 종류
+    "fail": "#dc2626",        # 빨강 — 실패 (백트래킹)
+    "redefine": "#f59e0b",    # 주황 — 문제정의 (앞으로 새 가지)
+    "success": "#16a34a",     # 초록 — 성공 (산 잎, 끝)
+    "pending": "#e879f9",     # 분홍 — 대기 (사람에게 묻는 중, 아직 미결정)
 }
 KIND_LABEL = {"fail": "실패", "success": "성공", "redefine": "문제정의",
-              "define": "문제정의", "hypothesis": "가설", "verify": "검증",
-              "analyze": "분석"}
-RESULT_KINDS = {"fail", "success", "redefine"}
+              "pending": "대기", "define": "문제정의", "hypothesis": "가설",
+              "verify": "검증", "analyze": "분석"}
+# 분석 다음에 올 수 있는 네 결과. pending은 "아직 미결정"이라 잎도 분기도 아니다.
+RESULT_KINDS = {"fail", "success", "redefine", "pending"}
 
 
 def node_xy(nid, col, depth):
@@ -65,6 +67,9 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
 .result-fail .n-name{fill:#dc2626}
 .result-success .n-name{fill:#16a34a}
 .result-redefine .n-name{fill:#d97706}
+/* 대기 — 아직 미결정. 채움 흐리게 + 파선 테두리로 "기다리는 중" 표시. */
+.result-pending .n-circle{fill-opacity:.35;stroke-dasharray:3 3}
+.result-pending .n-name{fill:#c026d3;font-weight:700}
 """
 
 
@@ -98,11 +103,14 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
         classes = ["node", f"kind-{kind}"]
         color = KIND_COLOR[kind]
         badge = ""
-        # 분석 다음 세 결과 노드 — 의미가 다르다:
+        # 분석 다음 네 결과 노드 — 의미가 다르다:
         #   success  = 산 잎 (끝).
         #   fail     = 죽은 잎 + 백트래킹 파선(조상 문제정의로 되돌아감).
         #   redefine = 잎 아님! 새 문제정의로서 앞으로 새 가지를 뻗는 분기점(자식을 낳음).
-        if kind == "success":
+        #   pending  = 사람에게 묻는 중. 아직 미결정 — 잎도 분기도 아니다(파선 테두리로 표시).
+        if kind == "pending":
+            classes.append("result-pending")  # 산/죽은 잎 어느 쪽도 아님
+        elif kind == "success":
             classes.append("result-success"); live.append(nid)
         elif kind == "fail":
             classes.append("result-fail"); dead.append(nid)
@@ -135,7 +143,8 @@ def render_html(nodes, chain="v3-view", cycle="case-c012-c014"):
             f'{badge}</g>')
 
     # 범례 — 스텝 종류 + 결과 잎 + 엣지
-    order = ["define", "hypothesis", "verify", "analyze", "fail", "success", "redefine"]
+    order = ["define", "hypothesis", "verify", "analyze",
+             "fail", "redefine", "success", "pending"]
     legend = "".join(
         f'<span class="lg"><span class="sw" style="background:{KIND_COLOR[k]};'
         f'border-color:{KIND_COLOR[k]}"></span>{KIND_LABEL[k]}</span>'
