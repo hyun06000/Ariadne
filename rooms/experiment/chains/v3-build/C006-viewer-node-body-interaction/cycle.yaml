@@ -1,0 +1,14 @@
+id: C006-viewer-node-body-interaction
+chain: v3-build
+parent: C005-git-imprint-and-viewer-wire
+lineage: []
+step: 5
+author: sheen
+status: closed
+opened: 2026-07-21
+closed: 2026-07-21
+title: ""
+verdict: supported
+deviations: 0
+corrections: 0
+superseded_by: null
