@@ -4,11 +4,11 @@ parent: [C003-first-commands-on-step-tree, C004-v3-viewer-step-tree]
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-21
-closed: null
+closed: 2026-07-21
 title: "gilv3에 스텝=커밋 각인을 붙이고 뷰어를 실 명령으로 배선한다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
