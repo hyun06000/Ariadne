@@ -1,0 +1,14 @@
+id: C008-backtrack-is-a-new-commit
+chain: v3-build
+parent: C006-close-seal-and-cycle-states
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-21
+closed: null
+title: "백트래킹=새 커밋: 깃=append-only 전진기록, gil=백트래킹·분기 지능을 코드로 각인"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
