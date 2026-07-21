@@ -4,11 +4,11 @@ parent: C012-merge-is-lineage
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "gilv3 명령이 백트래킹=checkout·잎=태그·lineage=머지를 강제하면 원리(C011·C012)가 도구가 된다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
