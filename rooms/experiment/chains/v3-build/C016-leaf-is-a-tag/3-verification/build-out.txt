@@ -1,0 +1,51 @@
+open: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c016-leaf-tag/merge — 루트 define s1 생성
+step: s2 [hypothesis] parent=s1
+step: s3 [verify] parent=s2
+step: s4 [analyze/success] parent=s3
+step: s5 [hypothesis] parent=s1
+step: s6 [verify] parent=s5
+step: s7 [analyze/success] parent=s6
+경고: multi_solution — 산 잎 ['s4', 's7']. 여러 정답 중 선택은 새 사이클(최적화, chain.md 그리디).
+close: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c016-leaf-tag/merge — state=multi_solution, 산 잎 ['s4', 's7'], cycle.yaml 봉인
+open: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c016-leaf-tag/backtrack — 루트 define s1 생성
+step: s2 [hypothesis] parent=s1
+step: s3 [verify] parent=s2
+step: s4 [analyze/backtrack] parent=s3 backtrack=s1
+step: s5 [hypothesis] parent=s1
+step: s6 [verify] parent=s5
+step: s7 [analyze/backtrack] parent=s6 backtrack=s1
+step: s8 [hypothesis] parent=s1
+step: s9 [verify] parent=s8
+step: s10 [analyze/success] parent=s9
+close: /private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c016-leaf-tag/backtrack — state=solved, 산 잎 ['s10'], cycle.yaml 봉인
+SCRATCH=/private/tmp/claude-501/-Users-davi-Desktop-code-my-project-Ariadne/930cf6a0-6608-412b-9001-1786d9caf97a/scratchpad/c016-leaf-tag
+
+=== caseM 태그·브랜치 ===
+태그:
+  cycle/merge/solved
+  gil/leaf/6f4a46a
+  gil/leaf/c304233
+브랜치(gil/*):
+
+=== caseB 태그·브랜치 ===
+태그:
+  cycle/backtrack/solved
+  gil/leaf/4007dc5
+  gil/leaf/504cd89
+  gil/leaf/c77dd4e
+브랜치(gil/*):
+
+=== caseB 그래프 (태그 데코레이션) ===
+* 38b24ce (HEAD, tag: cycle/backtrack/solved) gilv3 close backtrack: solved 산 잎 s10 (봉인)
+* c77dd4e (tag: gil/leaf/c77dd4e) gilv3 step: s10 analyze/success
+* db0520f gilv3 step: s9 verify
+* e7d3847 gilv3 step: s8 hypothesis (new branch from s1 after checkout-backtrack)
+| * 4007dc5 (tag: gil/leaf/4007dc5) gilv3 step: s7 analyze/backtrack (backtrack to s1)
+| * ee9051b gilv3 step: s6 verify
+| * 4f8fc7f gilv3 step: s5 hypothesis (new branch from s1 after checkout-backtrack)
+|/  
+| * 504cd89 (tag: gil/leaf/504cd89, main) gilv3 step: s4 analyze/backtrack (backtrack to s1)
+| * 3f95eb1 gilv3 step: s3 verify
+| * 31ad344 gilv3 step: s2 hypothesis
+|/  
+* 63bca34 gilv3 open backtrack: s1 define

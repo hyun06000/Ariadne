@@ -1,0 +1,13 @@
+* 38b24ce (HEAD, tag: cycle/backtrack/solved) gilv3 close backtrack: solved 산 잎 s10 (봉인)
+* c77dd4e (tag: gil/leaf/c77dd4e) gilv3 step: s10 analyze/success
+* db0520f gilv3 step: s9 verify
+* e7d3847 gilv3 step: s8 hypothesis (new branch from s1 after checkout-backtrack)
+| * 4007dc5 (tag: gil/leaf/4007dc5) gilv3 step: s7 analyze/backtrack (backtrack to s1)
+| * ee9051b gilv3 step: s6 verify
+| * 4f8fc7f gilv3 step: s5 hypothesis (new branch from s1 after checkout-backtrack)
+|/  
+| * 504cd89 (tag: gil/leaf/504cd89, main) gilv3 step: s4 analyze/backtrack (backtrack to s1)
+| * 3f95eb1 gilv3 step: s3 verify
+| * 31ad344 gilv3 step: s2 hypothesis
+|/  
+* 63bca34 gilv3 open backtrack: s1 define

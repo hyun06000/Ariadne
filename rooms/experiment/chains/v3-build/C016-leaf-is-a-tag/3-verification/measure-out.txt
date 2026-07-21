@@ -1,0 +1,7 @@
+[PASS] M1-leaf-is-tag: caseM 산잎2태그=True caseB 잎3태그=True 브랜치못 M=0 B=0(둘다=0) → 모든 잎이 gil/leaf/<hash> 태그, 브랜치 못 0 (C011 결론)
+[PASS] M2-sealed-is-tag: caseM종결태그=True caseB종결태그=True solved→봉인커밋일치=True → cycle/<name>/solved 태그가 close 커밋에 (C011·gil v2 규율)
+[PASS] M3-dangling-prevented: caseM 두산잎+머지생존=True caseB 죽은2+산1+close생존=True → 태그 ref가 dangling 방지 (브랜치와 등가, 더 정확)
+[PASS] M4-immutable: 태그→잎커밋정확=True(caseM) refs/tags/gil/leaf수=2(=2) → 태그가 잎에 고정, 브랜치 아님 (불변)
+[PASS] M5-regression: caseM 다중부모=True Merge=lineage=True caseB s1자식수=3(=3 세형제) → 태그 전환이 C015 lineage·C014 분기 안 깸
+
+=== ALL PASS — supported (5/5) ===
