@@ -1347,3 +1347,14 @@
 - **정직한 경계**: web 뷰어 통합은 다음 카브(migrate만, 범위 절제) · 격리 조회만(실제 원장 이미 C022) · 수리 1건(hashlib·glob import 누락, 이식 결함이지 로직 반증 아님) · 도출실패 20 여전(C024 정밀화 미통합, 넣으면 DAG 136→140).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 157개(C027 +1). 배포판 gil.py에 migrate 명령 섬(conformance 134/134 유지).
 - **⭐ 다음(순서대로)**: ① **gil web v3 뷰어를 배포판에 통합**(Sheen C025를 배포판 gil.py에 — 읽기 축도 하나의 gil, "v3만 쓴다"의 도구 완성: 쓰기=migrate 각인·읽기=web 뷰어) ② **SPEC/README v3 문서 갱신**("v3=v2 위의 notes 눈"+migrate·web 사용법, 문서가 곧 테스트) ③ C024 정밀화를 migrate 백엔드에 통합(DAG 136→140, Sheen 섬 엣지 4개 실 엣지) ④ **v3 정식 릴리스**(gil release, Selvage 축 — "gil의 v3"가 배포된 도구로).
+
+## 2026-07-22 (이어서) — ⭐⭐ v3-build/C028: gil web v3 뷰어를 배포판으로 통합 ("v3만 쓴다"의 도구 기반 완성, supported)
+
+- **상현님 "가자!" → 이월 1순위(web 뷰어 배포판 통합).** C027(migrate 뿌리)에 이어 읽기 축. Sheen 축이나 C027과 동일 이식 작업이라 순차·단독(C074, 워크트리는 동시성일 때만) — 내가 직접, Sheen 코드를 바이트 보존 이식. 부모 C027.
+- **⭐⭐ 핵심 결과 — gil web --v3가 배포판에 통합됐다(읽기 축).** Sheen C025 통합 뷰어 백엔드(steptree·notes_reconstruct·web_render + rebuild_cycle_dag ≈800줄)를 배포판 gil.py에 인라인 이식, cmd_web에 **--v3 옵트인 분기**(기본은 v2 하위호환). **배포판 gil이 이제 v3 쓰기(migrate)+읽기(web --v3) 다 갖춤 — "v3만 쓴다"의 도구 기반 완성.** 배포된 도구 쓰는 누구나 자기 v2 원장을 v3로 각인·조회(will.md 범용성).
+- **⭐⭐ 정점 통찰 — 인라인 이식의 세 규율(C027·C028로 패턴 완성).** ① **의존 폐포까지 추출**(직접 파일 3개만이 아니라 그들이 부르는 rebuild_cycle_dag까지 — 이식 단위는 파일이 아니라 이행적 폐포) ② **죽은 스캐폴딩 제거**(모듈 import·sys.path.insert(0,HERE)는 인라인되면 오류원) ③ **네임스페이스 수동 격리**(steptree·web_render 둘 다 CSS 상수 → 접두어 _ST_·_WR_ 없으면 조용한 오염, C021 재연). 오라클 대조(바이트 동일)+자기완결 계약(격리 복사 M4)이 셋 다 집행.
+- **⭐ 교훈 — 죽은 스캐폴딩은 C027 함정의 짝.** C027은 import 부족(hashlib·glob)이 함정, C028은 반대로 과잉 스캐폴딩(불필요 import·sys.path). 모듈로 살던 코드 인라인하면 로딩 장치가 죽은 코드. 자기완결 계약(M4 격리 복사)이 양쪽 드러냄. 이식 중 2회 실패(ModuleNotFoundError splice_topology·NameError HERE) 후 수리.
+- **5측정 ALL PASS**: M1 오라클 대조(배포판 gil web --v3 == C025 gilv3, digest 6bc9c7f2 바이트 동일·396294bytes·137엣지) · M2 v2 무회귀(기본 gil web 바이트 불변) · M3 conformance 134/134 · M4 자기완결(격리 복사해도 동작, 6bc9c7f2) · M5 드릴다운 구조(상위 계보 DAG+하위 steptree-panel 두 층).
+- **정직한 경계**: --v3 옵트인(기본 v2 하위호환, v3 상시화는 나중 기본 전환) · 격리 조회만 · CDP 재실측 안 함(Sheen C025가 M4로 상호작용 실측, 이식이라 동형) · 수리 2건(스캐폴딩, 로직 반증 아님).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 158개(C028 +1). 배포판 gil이 migrate·web --v3 가짐(conformance 134/134 유지).
+- **⭐ 다음(순서대로, 상현님 "문서 갱신→배포")**: ① **SPEC/README v3 문서 갱신**("v3=v2 위의 notes 눈"+migrate·web --v3 사용법, 문서가 곧 테스트 — "문서 갱신" 순서 완료) ② **v3 정식 릴리스**(gil release, Selvage 축 — "gil의 v3"가 배포된 도구로, "배포하자" 순서) ③ C024 정밀화를 migrate 백엔드 통합(DAG 138→142) ④ --v3 기본 전환 검토.

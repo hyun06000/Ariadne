@@ -2765,6 +2765,19 @@ def _bake_viewer(chains_root, output, title, only, refresh=None, hierarchy=False
 
 
 def cmd_web(args):
+    # C028: v3 통합 뷰어 옵트인. --v3면 순수 notes 두 층 드릴다운(C025), 아니면 기존 v2.
+    # v3 뷰어의 진실원은 원장 notes이므로 대상은 저장소(현재 작업 디렉토리) 자신.
+    if getattr(args, "v3", False):
+        repo = os.getcwd()
+        data = all_cycles_with_trees(repo)
+        doc = render(data, repo_label=os.path.basename(repo) or ".")
+        out = getattr(args, "output", None) or "gil-v3-web.html"
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(doc)
+        n_edges = sum(len(p) for p in data["dag"].values())
+        print("web --v3: %s (%d bytes) — 사이클 %d · 계보 엣지 %d" %
+              (out, len(doc), len(data["dag"]), n_edges))
+        return
     chains_root = args.chains_root
     if not os.path.isdir(chains_root):
         raise ChainError(f"체인 루트가 없다: {chains_root}")
@@ -5146,6 +5159,777 @@ def cmd_migrate(args):
 
 
 
+
+# ============================================================================
+# v3 통합 뷰어 백엔드 (C028 통합) — 순수 notes 두 층 드릴다운.
+# Sheen C025 통합 뷰어(steptree·notes_reconstruct·web_render)를 배포판에 인라인.
+# ⭐ 새 로직 없음 — C025 검증 함수를 바이트 보존 이식 (오라클 대조 6bc9c7f2).
+# 상위 = 사이클 간 계보 DAG(Cycle-Parent notes), 하위 = 노드 클릭 시 스텝 트리(step 커밋 notes).
+# 상수 접두어 _ST_(steptree)·_WR_(web_render)로 기존 cmd_web(v2)과 충돌 방지.
+# ============================================================================
+
+def rebuild_cycle_dag(repo):
+    """각 사이클 루트 notes의 Cycle-Parent를 읽어 사이클 DAG 복원.
+    반환: {cycle_id(short): [parent_ids]} — 루트(빈)·선형(1)·머지(≥2).
+
+    루트 커밋 찾기: 각 사이클의 시작 지문 커밋(C020 도출)에서 Cycle-Parent notes.
+    cycle.yaml을 안 보고 notes만으로 — 진짜 복원(마이그레이션 왕복)."""
+    cycles = discover_cycles(repo)
+    dag = {}
+    for c in cycles:
+        chain, cid = c["chain"], c["id"]
+        commits = cycle_step_commits(repo, chain, cid)
+        if not commits:
+            continue
+        root = commits[0]
+        note = subprocess.run(["git", "-C", repo, "notes", "show", root],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        if note.returncode != 0:
+            continue
+        cp = None
+        for line in note.stdout.decode().splitlines():
+            if line.startswith("Cycle-Parent:"):
+                cp = line.split(":", 1)[1].strip()
+                break
+        if cp is None:
+            continue
+        parents = [] if cp == "null" else [p.strip() for p in cp.split(",") if p.strip()]
+        # short_id 인라인됨
+        # ⭐ C021 함정: 키를 short_id(C001)로만 하면 체인 간 충돌(loom/C001·v3-build/C001).
+        # cycle id는 체인 안에서만 유일 → 키는 chain/short_id 로 전역 유일화.
+        dag["%s/%s" % (chain, short_id(cid))] = parents
+    return dag
+
+
+"""v3 스텝 트리 뷰어 생성기 (순수 stdlib).
+
+steps.yaml(C002 확정 표현) → 자기완결 단일 HTML(인라인 SVG+_ST_CSS, 외부 리소스 0).
+
+v2 뷰어(사이클=노드, 5스텝 선형)와 달리, 한 사이클 안의 **스텝 트리**를 그린다:
+  (a) parent 엣지 = 가지, (b) backtrack 엣지 = 죽은 잎→조상 define 되돌아감,
+  (c) 죽은 잎(outcome=backtrack, 벽의 지도) vs 산 잎(outcome=success) 구별.
+
+yaml 미의존 — C002 roundtrip.py와 같은 최소 서브셋 자작 파서.
+"""
+
+def parse_steps_yaml(text):
+    nodes = []
+    cur = None
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line or line.lstrip().startswith("#"):
+            continue
+        if line.lstrip().startswith("- "):
+            if cur is not None:
+                nodes.append(cur)
+            cur = {}
+            line = line.lstrip()[2:]  # strip "- "
+            # first key on the dash line
+        # now line is "key: value"
+        if ":" not in line:
+            continue
+        key, _, val = line.strip().partition(":")
+        key = key.strip()
+        val = val.strip()
+        if val == "null" or val == "":
+            val = None
+        cur[key] = val
+    if cur is not None:
+        nodes.append(cur)
+    return nodes
+
+def build_tree(nodes):
+    by_id = {n["id"]: n for n in nodes}
+    children = {n["id"]: [] for n in nodes}
+    root = None
+    for n in nodes:
+        p = n.get("parent")
+        if p is None:
+            root = n["id"]
+        else:
+            children[p].append(n["id"])
+    # depth = 루트에서 parent 체인 길이 (순수 위상, id와 독립)
+    depth = {}
+
+    def set_depth(nid, d):
+        depth[nid] = d
+        for c in children[nid]:
+            set_depth(c, d + 1)
+
+    set_depth(root, 0)
+    return by_id, children, root, depth
+
+def assign_columns(children, root):
+    """각 노드에 가로 슬롯(col) 부여: 서브트리를 빈틈없이 leaf 순서로 배치.
+    각 가지가 선형인 이 데이터에선 leaf마다 1콜, 조상은 자식 콜 평균."""
+    col = {}
+    counter = [0]
+
+    def walk(nid):
+        kids = children[nid]
+        if not kids:
+            col[nid] = counter[0]
+            counter[0] += 1
+            return col[nid]
+        cs = [walk(k) for k in kids]
+        col[nid] = sum(cs) / len(cs)
+        return col[nid]
+
+    walk(root)
+    return col
+
+COL_W = 190
+
+ROW_H = 130
+
+NODE_W = 150
+
+NODE_H = 66
+
+PAD_X = 60
+
+PAD_Y = 150  # 범례/헤더 공간
+
+KIND_LABEL = {
+    "define": "define",
+    "hypothesis": "hypothesis",
+    "verify": "verify",
+    "analyze": "analyze",
+}
+
+def node_xy(nid, col, depth):
+    cx = PAD_X + col[nid] * COL_W + NODE_W / 2
+    cy = PAD_Y + depth[nid] * ROW_H + NODE_H / 2
+    return cx, cy
+
+def render_html(nodes, chain="v3-build", cycle="case-c012-c014"):
+    by_id, children, root, depth = build_tree(nodes)
+    col = assign_columns(children, root)
+
+    max_col = max(col.values())
+    max_depth = max(depth.values())
+    width = int(PAD_X * 2 + max_col * COL_W + NODE_W)
+    height = int(PAD_Y + (max_depth + 1) * ROW_H + 40)
+
+    parent_edges = []
+    backtrack_edges = []
+    node_svg = []
+
+    live_leaves = []
+    dead_leaves = []
+
+    for n in nodes:
+        nid = n["id"]
+        kind = n["kind"]
+        outcome = n.get("outcome")
+        cx, cy = node_xy(nid, col, depth)
+        x = cx - NODE_W / 2
+        y = cy - NODE_H / 2
+
+        # parent 엣지 (가지): 부모 하단 중앙 → 자식 상단 중앙, 실선 직선
+        p = n.get("parent")
+        if p is not None:
+            px, py = node_xy(p, col, depth)
+            parent_edges.append(
+                f'<line class="edge-parent" x1="{px:.1f}" y1="{py + NODE_H/2:.1f}" '
+                f'x2="{cx:.1f}" y2="{cy - NODE_H/2:.1f}" '
+                f'data-from="{p}" data-to="{nid}" />'
+            )
+
+        # 잎 운명 표식
+        node_classes = ["node", f"kind-{kind}"]
+        badge = ""
+        if kind == "analyze" and outcome == "success":
+            node_classes.append("leaf-live")
+            live_leaves.append(nid)
+            badge = (
+                f'<text class="badge badge-live" x="{cx:.1f}" y="{cy + NODE_H/2 + 18:.1f}" '
+                f'text-anchor="middle">✓ 산 잎 (success)</text>'
+            )
+        elif kind == "analyze" and outcome == "backtrack":
+            node_classes.append("leaf-dead")
+            dead_leaves.append(nid)
+            bt = n.get("backtrack")
+            badge = (
+                f'<text class="badge badge-dead" x="{cx:.1f}" y="{cy + NODE_H/2 + 18:.1f}" '
+                f'text-anchor="middle">✕ 죽은 잎 · '
+                f'벽의 지도 (backtrack→{html.escape(bt or "?")})</text>'
+            )
+
+        # backtrack 엣지 (되돌아감): 잎 → 조상 define, 파선 곡선 + 화살촉
+        if outcome == "backtrack":
+            bt = n.get("backtrack")
+            if bt is not None and bt in by_id:
+                tx, ty = node_xy(bt, col, depth)
+                # 출발: 잎 좌측; 도착: 조상 define 좌측. 왼쪽 밖으로 크게 우회.
+                sx, sy = x, cy
+                dx, dy = tx - NODE_W / 2, ty
+                bulge = PAD_X - 30
+                path = (
+                    f'M {sx:.1f} {sy:.1f} '
+                    f'C {bulge:.1f} {sy:.1f}, {bulge:.1f} {dy:.1f}, {dx:.1f} {dy:.1f}'
+                )
+                backtrack_edges.append(
+                    f'<path class="edge-backtrack" d="{path}" '
+                    f'marker-end="url(#bt-arrow)" '
+                    f'data-from="{nid}" data-to="{bt}" '
+                    f'data-y-from="{sy:.1f}" data-y-to="{dy:.1f}" />'
+                )
+
+        label_kind = KIND_LABEL.get(kind, kind)
+        node_svg.append(
+            f'<g class="{" ".join(node_classes)}" data-id="{nid}" data-kind="{kind}" '
+            f'data-outcome="{outcome or ""}">'
+            f'<rect class="node-box" x="{x:.1f}" y="{y:.1f}" rx="10" ry="10" '
+            f'width="{NODE_W}" height="{NODE_H}" />'
+            f'<text class="node-id" x="{cx:.1f}" y="{cy - 8:.1f}" text-anchor="middle">{nid}</text>'
+            f'<text class="node-kind" x="{cx:.1f}" y="{cy + 14:.1f}" text-anchor="middle">{label_kind}</text>'
+            f'{badge}</g>'
+        )
+
+    closeable = "예 (산 잎 도달)" if live_leaves else "아니오 (진행 중)"
+
+    svg = f'''<svg class="steptree" viewBox="0 0 {width} {height}" width="{width}" height="{height}"
+   xmlns="http://www.w3.org/2000/svg" role="img"
+   aria-label="v3 스텝 트리: {len(nodes)}노드">
+  <defs>
+    <marker id="bt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="bt-arrowhead" />
+    </marker>
+  </defs>
+  <g class="edges-parent">{"".join(parent_edges)}</g>
+  <g class="edges-backtrack">{"".join(backtrack_edges)}</g>
+  <g class="nodes">{"".join(node_svg)}</g>
+</svg>'''
+
+    legend = f'''<div class="legend">
+  <span class="lg lg-parent"><svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" class="edge-parent"/></svg> parent 엣지 (가지)</span>
+  <span class="lg lg-backtrack"><svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" class="edge-backtrack"/></svg> backtrack 엣지 (되돌아감)</span>
+  <span class="lg"><b class="chip leaf-live-chip">✓</b> 산 잎 (success)</span>
+  <span class="lg"><b class="chip leaf-dead-chip">✕</b> 죽은 잎 (backtrack · 벽의 지도)</span>
+  <span class="lg"><b class="chip kind-define-chip"></b>define</span>
+  <span class="lg"><b class="chip kind-hypothesis-chip"></b>hypothesis</span>
+  <span class="lg"><b class="chip kind-verify-chip"></b>verify</span>
+  <span class="lg"><b class="chip kind-analyze-chip"></b>analyze</span>
+</div>'''
+
+    header = f'''<header class="head">
+  <h1>v3 스텝 트리 뷰어</h1>
+  <div class="meta">
+    <span>chain: <b>{html.escape(chain)}</b></span>
+    <span>cycle: <b>{html.escape(cycle)}</b></span>
+    <span>노드: <b>{len(nodes)}</b></span>
+    <span>산 잎: <b>{len(live_leaves)}</b></span>
+    <span>죽은 잎: <b>{len(dead_leaves)}</b></span>
+    <span>close 가능: <b>{closeable}</b></span>
+  </div>
+</header>'''
+
+    return f'''<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v3 스텝 트리 뷰어 — {html.escape(cycle)}</title>
+<style>
+{_ST_CSS}
+</style>
+</head>
+<body>
+{header}
+{legend}
+<div class="canvas">
+{svg}
+</div>
+<footer class="foot">v3 뷰어 — 사이클=스텝들의 트리. 자기완결(외부 리소스 0). Sheen(신), v3-build/C004.</footer>
+</body>
+</html>'''
+
+_ST_CSS = '''
+:root{
+  --bg:#0f1115; --fg:#e6e8ec; --muted:#9aa1ac; --panel:#171a21;
+  --edge:#5b6472; --bt:#f08a3c; --live:#3fbf6f; --dead:#6b7280;
+  --define:#3b82f6; --hypothesis:#a855f7; --verify:#14b8a6; --analyze:#4b5563;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f7f8fa; --fg:#1c1f26; --muted:#5b6472; --panel:#eef1f5; --edge:#9aa4b2; }
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.head h1{margin:0 0 6px;font-size:19px}
+.head .meta{display:flex;flex-wrap:wrap;gap:14px;color:var(--muted)}
+.head .meta b{color:var(--fg)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 0;padding:10px 12px;
+  background:var(--panel);border-radius:8px;color:var(--muted)}
+.legend .lg{display:inline-flex;align-items:center;gap:6px}
+.chip{display:inline-block;width:14px;height:14px;border-radius:3px;font-size:11px;
+  line-height:14px;text-align:center;color:#fff}
+.kind-define-chip{background:var(--define)}
+.kind-hypothesis-chip{background:var(--hypothesis)}
+.kind-verify-chip{background:var(--verify)}
+.kind-analyze-chip{background:var(--analyze)}
+.leaf-live-chip{background:var(--live)}
+.leaf-dead-chip{background:transparent;color:var(--dead);border:1px dashed var(--dead)}
+.canvas{overflow-x:auto;background:var(--panel);border-radius:10px;padding:8px}
+svg.steptree{max-width:100%;height:auto;display:block}
+
+/* 엣지 — 두 종류를 명확히 가른다 */
+.edge-parent{stroke:var(--edge);stroke-width:2;fill:none}
+.edge-backtrack{stroke:var(--bt);stroke-width:2.4;stroke-dasharray:7 5;fill:none}
+.bt-arrowhead{fill:var(--bt)}
+
+/* 노드 */
+.node .node-box{fill:var(--panel);stroke:var(--edge);stroke-width:1.5}
+.node .node-id{font-weight:700;font-size:15px;fill:var(--fg)}
+.node .node-kind{font-size:11px;fill:var(--muted)}
+.kind-define .node-box{stroke:var(--define);stroke-width:2.5}
+.kind-hypothesis .node-box{stroke:var(--hypothesis);stroke-width:2}
+.kind-verify .node-box{stroke:var(--verify);stroke-width:2}
+.kind-analyze .node-box{stroke:var(--analyze);stroke-width:2}
+
+/* 잎 두 운명 */
+.leaf-live .node-box{stroke:var(--live);stroke-width:3.5;fill:rgba(63,191,111,.14)}
+.leaf-dead .node-box{stroke:var(--dead);stroke-width:2;stroke-dasharray:5 4;
+  fill:rgba(107,114,128,.10);opacity:.9}
+.leaf-dead .node-id,.leaf-dead .node-kind{opacity:.75}
+.badge{font-size:11px;font-weight:600}
+.badge-live{fill:var(--live)}
+.badge-dead{fill:var(--dead)}
+.foot{margin-top:16px;color:var(--muted);font-size:12px}
+'''
+
+def html_from_yaml_text(text, chain="v3-build", cycle="case-c012-c014"):
+    return render_html(parse_steps_yaml(text), chain=chain, cycle=cycle)
+
+
+"""notes_reconstruct (C025) — 순수 git notes에서 통합 뷰어의 두 데이터 층을 재구성.
+
+상현님 결정 1(순수 v3): cycle.yaml 안 읽는다. 원장 git notes가 유일 진실원.
+
+두 층:
+  1. 사이클 간 DAG  — C021/C022 rebuild_cycle_dag 그대로 재사용 (Cycle-Parent notes 엣지).
+  2. 사이클 내 스텝 트리 — 각 사이클 step 커밋의 notes 지문(Step-Id/Kind/Parent/Outcome/
+     Backtrack-To)을 시퀀스로 모아 steps.yaml 등가 노드 리스트로.
+
+⭐ 재구현 금지: 커밋 발견은 C023 full_ledger_migrate.cycle_step_commits 재사용,
+   DAG는 C021 rebuild_cycle_dag 재사용. 여긴 notes 지문 → 노드 dict 파싱만 새로.
+"""
+
+# (인라인됨 — sys.path 조작 불요. 백엔드 함수는 gil.py 안에 이미 있음.)
+
+_TRAILER_KEYS = ["Step-Id", "Kind", "Parent", "Outcome", "Backtrack-To"]
+
+def _fingerprint_lines(repo, commit):
+    """커밋의 v3 지문(Key: Value 라인)을 반환 — 두 각인 수단을 모두 지원.
+
+    ⭐ 마이그레이션 사이클은 지문을 git notes에 담고(retro_imprint, C018), v3 네이티브
+       사이클은 커밋 trailer에 담는다(gilv3 --git, C010). 통합 뷰어는 둘 다 비춰야 하므로
+       notes를 먼저 읽고, 없으면 커밋 trailer로 폴백한다. 같은 파서가 둘을 읽는다
+       ("notes 본문 = trailer와 동일한 Key: Value" — retro_imprint 계약)."""
+    r = subprocess.run(["git", "-C", repo, "notes", "show", commit],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if r.returncode == 0 and r.stdout.decode().strip():
+        return r.stdout.decode()
+    # 폴백: 커밋 trailer (네이티브 v3). 각 키를 개별 조회해 Key: Value 라인 재구성.
+    lines = []
+    for k in _TRAILER_KEYS:
+        v = subprocess.run(
+            ["git", "-C", repo, "log", "-1",
+             "--format=%%(trailers:key=%s,valueonly)" % k, commit],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode().strip()
+        if v:
+            lines.append("%s: %s" % (k, v))
+    return "\n".join(lines)
+
+def _parse_fingerprint(note_text):
+    """notes 본문의 Key: Value 라인 → dict. Cycle-Parent 등 트리-무관 키는 별도.
+    반환: (step_fields dict, cycle_parent_or_None)."""
+    fields = {}
+    cycle_parent = None
+    for line in note_text.splitlines():
+        if ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        k, v = k.strip(), v.strip()
+        if not k:
+            continue
+        if k == "Cycle-Parent":
+            cycle_parent = v
+        else:
+            fields[k] = v
+    return fields, cycle_parent
+
+def reconstruct_step_tree(repo, chain, cid):
+    """한 사이클의 step 커밋 notes 지문을 steps.yaml 등가 노드 리스트로 재구성.
+
+    반환: [{id, kind, parent, outcome, backtrack, body}] (steptree.py가 아는 키).
+    - 커밋 발견: C023 cycle_step_commits 재사용 (subject의 chain/cid 매칭, N 오름차순).
+    - 각 커밋: git notes show → Step-Id/Kind/Parent/Outcome/Backtrack-To.
+    - ⭐ H4 root 방어: 어떤 노드의 parent가 이 노드 집합에 없으면(마이그레이션 v2는
+      s1(open)에 notes 없어 s2가 최이른), 그 parent를 None으로 정규화 → build_tree가
+      root를 찾는다. notes가 담은 만큼만 비춘다(정직).
+    - 지문 없는 커밋(빈 notes)은 스킵. 노드 0이면 빈 트리(섬).
+    """
+    commits = cycle_step_commits(repo, chain, cid)
+    nodes = []
+    for h in commits:
+        note = _fingerprint_lines(repo, h)
+        if not note.strip():
+            continue
+        f, _cp = _parse_fingerprint(note)
+        sid = f.get("Step-Id")
+        if not sid:
+            continue
+        parent = f.get("Parent")
+        if parent in ("null", "", None):
+            parent = None
+        node = {
+            "id": sid,
+            "kind": f.get("Kind"),
+            "parent": parent,
+            "outcome": f.get("Outcome"),  # None if absent
+            "backtrack": f.get("Backtrack-To"),
+            "body": None,  # 통합 뷰어는 본문 임베드 안 함(순수 위상). C006는 단일 사이클용.
+        }
+        nodes.append(node)
+
+    # H4 root 방어: parent가 노드 집합에 없으면 None으로 (root 승격).
+    ids = {n["id"] for n in nodes}
+    for n in nodes:
+        if n["parent"] is not None and n["parent"] not in ids:
+            n["parent"] = None
+    return nodes
+
+def all_cycles_with_trees(repo):
+    """상위 DAG의 모든 사이클 키에 대해 스텝 트리를 재구성.
+
+    반환: {
+      'dag': {chain/short_id: [parents]},   # 상위 (rebuild_cycle_dag)
+      'trees': {chain/short_id: [nodes]},   # 하위 (reconstruct_step_tree)
+      'chain_of': {chain/short_id: chain},  # 라벨용
+      'cid_of': {chain/short_id: cid},      # 라벨용
+    }
+    - DAG 키(chain/short_id)를 진실원으로. 각 키의 실제 full cid를 cycle_step_commits용으로
+      복원해야 하므로, discover_cycles로 short→full 매핑을 만든다(cycle.yaml은 '어느 사이클이
+      있나'의 목록으로만 쓰고 계보/스텝 데이터는 안 읽음 — 순수 notes 유지).
+    """
+    # short_id는 C027 migrate 백엔드에 인라인됨 (직접 참조)
+    dag = rebuild_cycle_dag(repo)
+
+    # short_id → full cid 매핑 (커밋 발견에 full cid 필요). cycle.yaml은 목록으로만.
+    full_of = {}
+    for c in discover_cycles(repo):
+        key = "%s/%s" % (c["chain"], short_id(c["id"]))
+        full_of[key] = c["id"]
+
+    trees, chain_of, cid_of = {}, {}, {}
+    for key in dag:
+        chain, short = key.split("/", 1)
+        full = full_of.get(key, short)
+        trees[key] = reconstruct_step_tree(repo, chain, full)
+        chain_of[key] = chain
+        cid_of[key] = short
+    return {"dag": dag, "trees": trees, "chain_of": chain_of, "cid_of": cid_of}
+
+
+"""web_render (C025) — 통합 계보 뷰어 HTML 생성기.
+
+상위 = 사이클 간 계보 DAG(한 화면). 노드 클릭 → 그 사이클의 스텝 트리(드릴다운).
+순수 git notes에서 재구성한 두 층(notes_reconstruct)을 자기완결 단일 HTML로.
+
+⭐ 재사용(재구현 금지):
+  - 하위 스텝 트리 SVG = C004 render_html에서 <svg…</svg> 구간 추출.
+    steptree는 닫힌 사이클이라 안 고친다 — 그 검증된 좌표 로직을 그대로 쓴다.
+  - 상위 DAG는 이 사이클이 새로 그린다(사이클=노드, v2 뷰어와 위상이 다름).
+
+자기완결: _WR_CSS·JS 인라인, 외부 리소스 0(v2 web 계약). 드릴다운은 C006 교훈 —
+각 패널 독립 + hidden 하나만 토글(fetch 0, 간섭 경로 없음).
+"""
+
+_SVG_RE = re.compile(r"(<svg class=\"steptree\".*?</svg>)", re.DOTALL)
+
+def step_tree_svg(nodes, chain, cycle):
+    """C004 steptree로 스텝 트리 완전 문서를 만들고 <svg> 구간만 추출.
+    노드 0(도출실패 섬)이면 정직히 빈 표시."""
+    if not nodes:
+        return '<p class="empty-tree">스텝 트리 없음 — notes 지문 부재(도출실패 섬 또는 빈 사이클).</p>'
+    doc = render_html(nodes, chain=chain, cycle=cycle)
+    m = _SVG_RE.search(doc)
+    return m.group(1) if m else '<p class="empty-tree">스텝 트리 렌더 실패.</p>'
+
+DAG_COL_W = 210
+
+DAG_ROW_H = 78
+
+DAG_NODE_W = 150
+
+DAG_NODE_H = 40
+
+DAG_PAD_X = 40
+
+DAG_PAD_Y = 40
+
+def _dag_depths(dag):
+    """각 사이클 노드의 depth = 루트로부터 Cycle-Parent 체인 최장 길이.
+    부모는 bare short_id(예: 'C011')이라 같은 chain 내에서 해소한다(splice가 그렇게 각인)."""
+    # 부모 키 해소: 'C011' → 'chain/C011' (같은 체인 가정, splice_topology와 동일 규약)
+    depth = {}
+    def resolve(child_key, pshort):
+        chain = child_key.split("/", 1)[0]
+        cand = "%s/%s" % (chain, pshort)
+        return cand if cand in dag else None
+
+    def d(key, seen):
+        if key in depth:
+            return depth[key]
+        if key in seen:
+            return 0  # 사이클 방지(원장엔 DAG라 없어야 하나 방어)
+        seen = seen | {key}
+        parents = dag.get(key, [])
+        pk = [resolve(key, p) for p in parents]
+        pk = [p for p in pk if p]
+        depth[key] = 0 if not pk else 1 + max(d(p, seen) for p in pk)
+        return depth[key]
+
+    for k in dag:
+        d(k, set())
+    return depth, resolve
+
+def _dag_columns(dag, depth):
+    """같은 depth 노드에 가로 슬롯 부여(단순 순차). 안정 정렬로 재현성."""
+    by_depth = {}
+    for k in sorted(dag):
+        by_depth.setdefault(depth[k], []).append(k)
+    col = {}
+    for dpt, keys in by_depth.items():
+        for i, k in enumerate(keys):
+            col[k] = i
+    return col, by_depth
+
+def dag_svg(dag, chain_of, cid_of):
+    depth, resolve = _dag_depths(dag)
+    col, by_depth = _dag_columns(dag, depth)
+    max_col = max((len(v) for v in by_depth.values()), default=1)
+    max_depth = max(depth.values(), default=0)
+    width = DAG_PAD_X * 2 + max_col * DAG_COL_W + DAG_NODE_W
+    height = DAG_PAD_Y * 2 + (max_depth + 1) * DAG_ROW_H + DAG_NODE_H
+
+    def xy(k):
+        cx = DAG_PAD_X + col[k] * DAG_COL_W + DAG_NODE_W / 2
+        cy = DAG_PAD_Y + depth[k] * DAG_ROW_H + DAG_NODE_H / 2
+        return cx, cy
+
+    edges, dangling, nodes_svg = [], [], []
+    for k in sorted(dag):
+        cx, cy = xy(k)
+        for p in dag.get(k, []):
+            pk = resolve(k, p)
+            if not pk:
+                # ⭐ H4 정직: 부모 사이클이 DAG에 없다(도출실패 섬 — 그 사이클엔 step
+                # 커밋이 없어 루트 지문이 없다). 엣지를 소리 없이 버리지 않고, 노드 위로
+                # 뻗는 짧은 stub + 부모 id 라벨로 '계보는 있으나 대상이 섬'임을 비춘다.
+                dangling.append(
+                    '<g class="dag-dangling" data-to="%s" data-parent="%s">'
+                    '<line class="dag-edge dangling" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" />'
+                    '<text class="dangling-label" x="%.1f" y="%.1f" text-anchor="middle">'
+                    '↑ %s (섬)</text></g>'
+                    % (html.escape(k), html.escape(p),
+                       cx, cy - DAG_NODE_H / 2, cx, cy - DAG_NODE_H / 2 - 16,
+                       cx, cy - DAG_NODE_H / 2 - 20, html.escape(p)))
+                continue
+            px, py = xy(pk)
+            edges.append(
+                '<line class="dag-edge" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" '
+                'data-from="%s" data-to="%s" />'
+                % (px, py + DAG_NODE_H / 2, cx, cy - DAG_NODE_H / 2, pk, k))
+
+    for k in sorted(dag):
+        cx, cy = xy(k)
+        x, y = cx - DAG_NODE_W / 2, cy - DAG_NODE_H / 2
+        chain = chain_of[k]
+        label = "%s/%s" % (chain, cid_of[k])
+        is_root = not [p for p in dag.get(k, []) if resolve(k, p)]
+        is_merge = len([p for p in dag.get(k, []) if resolve(k, p)]) >= 2
+        cls = ["dag-node", "chain-" + re.sub(r"[^a-z0-9]", "", chain.lower())]
+        if is_root:
+            cls.append("dag-root")
+        if is_merge:
+            cls.append("dag-merge")
+        nodes_svg.append(
+            '<g class="%s" data-key="%s" tabindex="0" role="button" '
+            'aria-label="사이클 %s — 클릭하면 스텝 트리">'
+            '<rect class="dag-box" x="%.1f" y="%.1f" rx="7" ry="7" width="%d" height="%d" />'
+            '<text class="dag-label" x="%.1f" y="%.1f" text-anchor="middle">%s</text>'
+            '</g>'
+            % (" ".join(cls), html.escape(k), html.escape(label),
+               x, y, DAG_NODE_W, DAG_NODE_H, cx, cy + 4, html.escape(label)))
+
+    svg = ('<svg class="dag" viewBox="0 0 %d %d" width="%d" height="%d" '
+           'xmlns="http://www.w3.org/2000/svg" role="img" '
+           'aria-label="사이클 간 계보 DAG: %d노드">'
+           '<g class="dag-edges">%s</g><g class="dag-dangling-edges">%s</g>'
+           '<g class="dag-nodes">%s</g></svg>'
+           % (width, height, width, height, len(dag),
+              "".join(edges), "".join(dangling), "".join(nodes_svg)))
+    return svg, len(edges), len(dangling)
+
+def render(data, repo_label="."):
+    dag = data["dag"]
+    trees = data["trees"]
+    chain_of = data["chain_of"]
+    cid_of = data["cid_of"]
+
+    n_nodes = len(dag)
+    n_edges = sum(len([p for p in dag[k]]) for k in dag)
+    n_empty = sum(1 for t in trees.values() if not t)
+    n_backtrack = sum(1 for t in trees.values() if any(n.get("backtrack") for n in t))
+    n_merge = sum(1 for k in dag if len(dag[k]) >= 2)
+
+    dsvg, n_drawn_edges, n_dangling = dag_svg(dag, chain_of, cid_of)
+
+    # 각 사이클의 스텝 트리 패널을 인라인 임베드 (hidden 토글 대상)
+    panels = []
+    for k in sorted(dag):
+        chain, cid = chain_of[k], cid_of[k]
+        svg = step_tree_svg(trees[k], chain, "%s/%s" % (chain, cid))
+        panels.append(
+            '<div class="steptree-panel" id="panel-%s" data-key="%s" hidden>'
+            '<div class="panel-head"><b>%s</b> — 스텝 트리 (notes 지문 재구성) '
+            '<button class="panel-close" data-key="%s" type="button">닫기 ✕</button></div>'
+            '%s</div>'
+            % (html.escape(k), html.escape(k), html.escape("%s/%s" % (chain, cid)),
+               html.escape(k), svg))
+
+    return DOC_TMPL % {
+        "css": _WR_CSS, "js": JS,
+        "n_nodes": n_nodes, "n_edges": n_edges, "n_merge": n_merge,
+        "n_empty": n_empty, "n_backtrack": n_backtrack, "n_dangling": n_dangling,
+        "repo": html.escape(repo_label),
+        "dag_svg": dsvg,
+        "panels": "".join(panels),
+    }
+
+DOC_TMPL = '''<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>통합 계보 뷰어 — gilv3 web</title>
+<style>
+%(css)s
+</style>
+</head>
+<body>
+<header class="head">
+  <h1>통합 계보 뷰어 <span class="sub">gilv3 web · 순수 git notes</span></h1>
+  <div class="meta">
+    <span>원장: <b>%(repo)s</b></span>
+    <span>사이클: <b>%(n_nodes)d</b></span>
+    <span>계보 엣지: <b>%(n_edges)d</b></span>
+    <span>머지: <b>%(n_merge)d</b></span>
+    <span>빈 트리(섬): <b>%(n_empty)d</b></span>
+    <span>backtrack 보유: <b>%(n_backtrack)d</b></span>
+    <span>섬 부모(dangling): <b>%(n_dangling)d</b></span>
+  </div>
+  <p class="hint">위 DAG는 사이클 간 계보(Cycle-Parent notes). 노드를 <b>클릭</b>하면 그 사이클의 스텝 트리가 아래 펼쳐진다(드릴다운).</p>
+</header>
+<div class="dag-canvas">
+%(dag_svg)s
+</div>
+<div class="panels">
+%(panels)s
+</div>
+<footer class="foot">통합 계보 뷰어 — 사이클 간 DAG → 사이클 내 스텝 트리. 순수 git notes 재구성, 자기완결(외부 리소스 0). Sheen(신), v3-build/C025.</footer>
+<script>
+%(js)s
+</script>
+</body>
+</html>'''
+
+_WR_CSS = '''
+:root{--bg:#0f1115;--fg:#e6e8ec;--muted:#9aa1ac;--panel:#171a21;--edge:#5b6472;
+  --node:#1c2028;--root:#3fbf6f;--merge:#f0a63c;--accent:#4f8cff;}
+@media (prefers-color-scheme:light){:root{--bg:#f7f8fa;--fg:#1c1f26;--muted:#5b6472;
+  --panel:#eef1f5;--edge:#9aa4b2;--node:#ffffff;}}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.head h1{margin:0 0 6px;font-size:20px}
+.head h1 .sub{font-size:13px;color:var(--muted);font-weight:400;margin-left:8px}
+.head .meta{display:flex;flex-wrap:wrap;gap:14px;color:var(--muted)}
+.head .meta b{color:var(--fg)}
+.hint{color:var(--muted);margin:8px 0 0}
+.dag-canvas{overflow:auto;background:var(--panel);border-radius:10px;padding:10px;margin:14px 0;
+  max-height:60vh}
+svg.dag{display:block}
+svg.dag .dag-edge{stroke:var(--edge);stroke-width:1.4;fill:none}
+svg.dag .dag-box{fill:var(--node);stroke:var(--edge);stroke-width:1.5}
+svg.dag .dag-node{cursor:pointer}
+svg.dag .dag-node:hover .dag-box,svg.dag .dag-node:focus .dag-box{stroke:var(--accent);stroke-width:2.5}
+svg.dag .dag-node.dag-root .dag-box{stroke:var(--root);stroke-width:2.5}
+svg.dag .dag-node.dag-merge .dag-box{stroke:var(--merge);stroke-width:2.5}
+svg.dag .dag-node.active .dag-box{fill:rgba(79,140,255,.18);stroke:var(--accent);stroke-width:3}
+svg.dag .dag-label{font-size:11px;fill:var(--fg);pointer-events:none}
+svg.dag .dag-edge.dangling{stroke:var(--merge);stroke-width:1.4;stroke-dasharray:4 3}
+svg.dag .dangling-label{font-size:9px;fill:var(--merge);pointer-events:none}
+.panels{margin-top:8px}
+.steptree-panel{background:var(--panel);border-radius:10px;padding:8px 10px;margin:10px 0;
+  border:1px solid var(--edge)}
+.panel-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;color:var(--muted)}
+.panel-head b{color:var(--fg)}
+.panel-close{margin-left:auto;background:transparent;border:1px solid var(--edge);
+  color:var(--muted);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px}
+.panel-close:hover{color:var(--fg);border-color:var(--accent)}
+.steptree-panel svg.steptree{max-width:100%;height:auto}
+.steptree-panel .canvas,.steptree-panel{overflow-x:auto}
+.empty-tree{color:var(--muted);font-style:italic;padding:8px}
+.foot{margin-top:16px;color:var(--muted);font-size:12px}
+'''
+
+JS = '''
+// 드릴다운: DAG 노드 클릭 → 그 사이클 스텝 트리 패널 hidden 토글.
+// C006 교훈 — 각 패널 독립, hidden 하나만 뒤집는다(간섭 경로 없음, fetch 0).
+(function(){
+  function panel(key){ return document.getElementById("panel-" + cssEsc(key)); }
+  function cssEsc(s){ return s; }
+  function nodeG(key){
+    var gs = document.querySelectorAll("svg.dag .dag-node");
+    for (var i=0;i<gs.length;i++){ if (gs[i].getAttribute("data-key")===key) return gs[i]; }
+    return null;
+  }
+  function toggle(key){
+    var p = document.getElementById("panel-" + key);
+    if (!p) return;
+    var g = nodeG(key);
+    if (p.hidden){
+      p.hidden = false;
+      if (g) g.classList.add("active");
+      p.scrollIntoView({behavior:"smooth", block:"nearest"});
+    } else {
+      p.hidden = true;
+      if (g) g.classList.remove("active");
+    }
+  }
+  document.addEventListener("click", function(ev){
+    var g = ev.target.closest ? ev.target.closest(".dag-node") : null;
+    if (g){ toggle(g.getAttribute("data-key")); return; }
+    var b = ev.target.closest ? ev.target.closest(".panel-close") : null;
+    if (b){
+      var key = b.getAttribute("data-key");
+      var p = document.getElementById("panel-" + key);
+      if (p){ p.hidden = true; var ng = nodeG(key); if (ng) ng.classList.remove("active"); }
+    }
+  });
+  document.addEventListener("keydown", function(ev){
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    var g = document.activeElement;
+    if (g && g.classList && g.classList.contains("dag-node")){
+      ev.preventDefault(); toggle(g.getAttribute("data-key"));
+    }
+  });
+})();
+'''
 def _print_help(sub, name=None):
     """§7.2-1·3 — 능력 목록과 안전한 능력 탐침. 저장소를 변경하지 않는다."""
     commands = list(sub.choices)  # 단일 소스: 등록된 서브파서가 곧 구현 목록이다 (§7.2-2)
@@ -5388,6 +6172,8 @@ def main(argv=None):
     p_web.add_argument("--hierarchy", action="store_true", help=argparse.SUPPRESS)
     p_web.add_argument("--watch", action="store_true", help="원장 변경을 감시해 뷰어 재생성 (--refresh 함축, C049)")
     p_web.add_argument("--interval", type=int, help="--watch 감시 간격(초, 기본 5)")
+    p_web.add_argument("--v3", action="store_true",
+                       help="v3 통합 뷰어: 순수 notes 두 층(사이클 간 계보 DAG × 사이클 내 스텝 트리) 드릴다운. gil migrate로 각인한 v3 눈을 읽는다 (C025/C028)")
     p_web.set_defaults(func=cmd_web)
 
     p_mig = sub.add_parser("migrate", help="v2→v3 마이그레이션: v2 5스텝 위에 v3 눈(notes 스텝 트리·계보)을 각인 (C017~C027). 커밋 불변, --dry·--rollback 지원")
