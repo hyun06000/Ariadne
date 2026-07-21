@@ -1,0 +1,6 @@
+도출 5노드 (근사 3개 — v2 5스텝→v3 4kind, 위상 보존·kind 근사)
+02ace3db  Step-Id=s1 Kind=define Parent=null
+478a9a39  Step-Id=s2 Kind=hypothesis Parent=s1 [근사]
+31b48dbd  Step-Id=s3 Kind=verify Parent=s2
+065ff4cb  Step-Id=s4 Kind=analyze Parent=s3 [근사]
+da01191c  Step-Id=s5 Kind=analyze Parent=s4 Outcome=success [근사]

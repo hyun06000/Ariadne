@@ -2,7 +2,7 @@ id: C019-migration-derive-fingerprint
 chain: v3-build
 parent: C018-migration-retro-imprint
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-22

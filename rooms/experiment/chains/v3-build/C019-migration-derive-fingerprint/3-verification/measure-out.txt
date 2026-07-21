@@ -1,0 +1,6 @@
+[PASS] M1-deterministic: 2회도출동일=True 노드수=5(=5) → 순수 함수(같은 입력 같은 지문)
+[PASS] M2-parse-accurate: open=1(=1) step=5(=5) close=1(=1) step번호=[1, 2, 3, 4, 5](=1..5) → 실제 원장 subject 분류·N/5 추출 정확
+[PASS] M3-c018-integration: 복원노드=['s1', 's2', 's3', 's4', 's5'] (s1~s5 편입=True) → 도출 지문 → retro_imprint → rebuild 왕복 (C018 재사용)
+[PASS] M4-approximation-honest: 매핑테이블존재=True 근사스텝표기=True(=3: 2·4·5) → v2 5스텝→v3 4kind 근사 명시(무손실 주장 안 함)
+
+=== ALL PASS — supported (4/4) ===
