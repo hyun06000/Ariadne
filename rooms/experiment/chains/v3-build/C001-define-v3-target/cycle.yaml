@@ -4,11 +4,11 @@ parent: null
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-20
-closed: null
+closed: 2026-07-21
 title: "gil v3의 목표를 기술하고 첫 문제를 정한다 — v2로 v3를 짓는다"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
