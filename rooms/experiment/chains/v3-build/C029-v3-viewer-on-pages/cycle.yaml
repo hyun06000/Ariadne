@@ -2,7 +2,7 @@ id: C029-v3-viewer-on-pages
 chain: v3-build
 parent: C028-web-viewer-into-deployed-gil
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-22
