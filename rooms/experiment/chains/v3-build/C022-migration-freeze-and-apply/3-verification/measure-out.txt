@@ -1,0 +1,14 @@
+=== C022 measure — 격리 복제본 독립 재현 감사 ===
+
+[PASS] M1 커밋 불변
+      적용 전후 커밋 SHA 1315==1315
+[PASS] M2 트리·cycle.yaml 불변
+      트리·cycle.yaml 해시 동일
+[PASS] M3 실제 재구성
+      DAG 132노드·131엣지·머지4 (C021 131·130·4 이상, 머지 완전일치)
+[PASS] M4 되돌림 완전성
+      되돌림 후 notes_ref=None (적용 전=None)
+[PASS] M5 되돌림 후 원장 무손상
+      되돌림·재적용 거쳐도 커밋·cycle.yaml 불변, 재적용 DAG 132노드 동일
+
+=== ALL PASS → supported ===
