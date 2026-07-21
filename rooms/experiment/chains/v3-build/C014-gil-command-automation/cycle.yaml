@@ -2,7 +2,7 @@ id: C014-gil-command-automation
 chain: v3-build
 parent: C012-merge-is-lineage
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-22
