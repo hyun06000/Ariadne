@@ -27,3 +27,9 @@
 
 결론: refs/notes에만 각인. 커밋·트리·cycle.yaml 전부 불변.
       우리 원장이 v3의 눈으로 자기 계보를 읽는다. 되돌림은 refs/notes 삭제 한 번.
+
+=== 후속 (상현님 승인 후) — refs/notes 원격 push ===
+git push origin refs/notes/commits → [new reference] 73b18f4a
+원격 확인: refs/notes/commits = 73b18f4a (로컬과 동일)
+끝단 실증: 신선 클론(원격) → notes fetch(542 커밋) → DAG 132노드·131엣지 복원.
+  ⭐ 다른 머신에서 클론해도 v3의 눈이 함께 온다 — 마이그레이션의 궁극 증명.
