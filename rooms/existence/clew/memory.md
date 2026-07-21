@@ -1002,3 +1002,14 @@
 - **리젝트 체인이 진짜 원인에 닿았음이 증명됨**: C012(상호작용·아코디언·detKey 배제)·C013(폴링 이분=내손밖 계측기, 막힘)이 없었다면 C014의 조준("JS 마커로 노드 정체성 헤드리스 관찰")에 못 닿았다. **두 rejected가 세 번째 억셉트의 필수 계단이었다.** 상현님 "사이클 방식의 꽃"이 실물로 피었다.
 - **핵심 교훈 최종형**: 상태 보존의 단위는 "열렸냐(불린)"가 아니라 **"이 노드가 그 노드냐(정체성)"**. detKey(C011)는 불린만 봐서 안 나았고, hasOpenDetails(C014)가 노드 정체성을 지켜 나았다. **replaceChild 통스왑 = 노드 학살, 열린 노드만 건너뛰면 보존+실시간 동시.**
 - 계보(loomlight): C010(Sheen 폴링 도입)→C011(detKey, 불린 복원)→C012 rej→C013 rej→**C014(노드 정체성 보존, 진짜 해결)**. 5사이클에 걸친 한 결함의 완주 — 필드 발견부터 실브라우저 확증까지.
+
+## 2026-07-21 — 배포 관리로 방향 전환 + C102: deploy 축 artifact 재정렬 (필드 #27)
+
+- **⭐ 상현님 큰 깨달음**: v3 "완전히 새로"에 신났다가 필드를 기억해냄. "**우리는 실험 관리에 매몰됐지 배포 관리는 전혀 신경 안 썼다.** 지금 들어오는 이슈들이 다 그거다. 버전프리즈 하지 말고 배포 관리를 일단 만들자." → v2 계속 나아감, v3-build는 홀드(언젠가 감).
+- **v3-build 홀드**: C001-define-v3-target을 step 3에 열어둠(`gil threads` ◐). 상현님 "언젠가 v3로 갈 거니까 열어두자." + "배포관리 만들고 v3 개발 다 하고 배포 = 결국 같은 길." 즉 배포관리는 v3로 가는 전제.
+- **⭐ 방향 전환도 사이클 원칙대로**: 실험구조(v3-build) 판다가 "진짜 문제는 배포"임을 깨달음 = 큰 백트래킹. v3-build 안 죽이고 홀드(되돌아감), 배포관리로 새 가지. 이것도 리젝트 체인의 형태.
+- **C102(supported) — deploy 축 artifact 재정렬**: 부모 C101(Selvage). Selvage가 **chain 키**로 세운 deploy를 필드 #27이 **artifact 키**로 요구(한 chain서 여러 artifact 배포). `gil deploy cut <artifact> <semver> --cycle <chain>/<id>...`(복수)·`--kind(api-spec|app-code|model)`·`--target`·`--notes` + `deploy list/current/rollback <artifact>` + **artifact당 live 1**(fsck R17). 스키마 `{artifact,kind,version,source_cycles[],target,params,performance,deployed_at,supersedes,status,notes}`. **필드 #27 실배포(pii-extract-api 2.0.0)를 gil로 기록·조회·롤백 실증.** 참조 133/133(DEPLOY-* artifact 갱신)·Go 110(정직한 부재 이월). 하위호환: deployments.json 실데이터 없어(홀드중) 미사용 인터페이스 정렬이라 파괴 아님.
+- **⭐ 교훈**: ① **틀린 건 축이었지 구조가 아니었다** — Selvage 불변식(닫힌소스·live1·supersede·append-only·네임스페이스분리) 다 옳고 키만 chain→artifact 이동하니 그대로 작동. 골격 올바르면 축 이동 값쌈. ② 배포단위=artifact(실험계보=chain과 다른 축, source_cycles가 둘을 이음). ③ 상현님 "실험 매몰, 배포 방치"의 실물 해소 — 필드가 홀드 푼다.
+- **⚠️ 배포 안 함(상현님 "굵직하게")**: C101·C102 배포축 사이클 모였으나 Go parity·뷰어통합 등 배포축 카브 더 있으니 **그것들과 함께 굵직하게 한 번 릴리스.** v2 사이클마다 배포(v2.36~v2.49, 14회) 자잘함 반복 안 함. 현재 v2.49.0 유지, deploy 축 코드는 커밋됐으나 미릴리스.
+- **다음(배포축 이월, 굵직하게 묶어 배포 예정)**: Go parity·뷰어통합(#18 뷰어절반)·drift게이트·kind강검증. 그 외: #26(GitHub Release 미발행, 별개 인프라). #27 응답 준비됨.
+- **방법론 대화 성과(별도)**: 세 층 위상 — 체인=DAG(전진), 사이클=트리(백트래킹, 첫정답서 멈춤), 스텝=행동단위(`문제정의*→가설→검증→분석→[실패|문제정의*|성공]`). 실험/개발 성격은 문제가 창발적으로 결정. lineage 불필요해질 수도. v3의 뼈대(chain.md v3-build에 기술). "다른정답도?"는 최적화=새 사이클(그리디).
