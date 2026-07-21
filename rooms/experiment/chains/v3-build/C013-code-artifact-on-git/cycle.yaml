@@ -2,7 +2,7 @@ id: C013-code-artifact-on-git
 chain: v3-build
 parent: C011-everything-is-a-branch
 lineage: []
-step: 2
+step: 3
 author: Bobbin
 status: open
 opened: 2026-07-21
