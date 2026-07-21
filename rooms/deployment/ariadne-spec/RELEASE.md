@@ -1,5 +1,18 @@
 # Ariadne Spec — Release
 
+## v2.50.0 (2026-07-21) — 배포 축 완성: 실험과 별개인 배포 관리, 두 몸 한 계약으로 (loom/C101~C106)
+
+상현님 관찰 **"우리는 실험 관리에 매몰됐지 배포 관리는 전혀 신경 안 썼다 — 들어오는 이슈들이 다 그거다."** gil이 지금껏 다룬 배포(`gil release`)는 **도구 자신의 버전**이었고, 필드가 요구한 건 **사용자 산출물(모델·서빙·앱)의 배포 관리**였다. 이 릴리스는 그 별개의 축 `gil deploy`를 처음부터 끝까지 세우고, 참조·Go 두 몸에서 계약으로 완성한다. **첫 배포(ariadne-deploy 1.0.0)를 바로 이 배포축으로 찍어 자기증명했다.**
+
+- **배포 축 골격 (Selvage, loom/C101)**: `gil deploy cut/list/current/rollback` — 도구 릴리스(`gil release`)와 **완전히 별개 네임스페이스**(명령 `deploy`·태그 `deploy/<...>`·레지스터 `deployments.json`). cut=닫힌 사이클을 배포로 승격+supersede+status(live/superseded/rolled-back), rollback=전이(과거 안 지움). fsck R16(소스=닫힌 사이클·rejected 불가)·R17(체인/아티팩트당 live 1개 불변식).
+- **아티팩트 축 재정렬 (Clew, loom/C102, 이슈 #27)**: 배포 단위를 chain 키에서 **artifact 키**로 이동 — 한 체인에서 여러 산출물을 배포한다. `deploy cut <artifact> <semver> --cycle <chain>/<id>…(복수) --kind(api-spec|app-code|model) --target --notes`, artifact당 live 1(R17). 실험 계보(chain)와 배포 단위(artifact)를 `source_cycles`가 잇는다 — **틀린 건 축이었지 골격이 아니었다**(불변식 전부 그대로, 키만 이동).
+- **Go parity — deploy 명령군 (Weft, loom/C103)**: `gil deploy` 전체를 Go로. `deployments.json` 참조↔Go **바이트 동일**, R16 fsck 메시지도. 미달 1항목(DEPLOY-NAMESPACE)이 deploy 결함이 아니라 판정기가 releases 축과 결합된 결과임을 정직히 진단·이월(C105에서 회수).
+- **뷰어 배포 패널 (Sheen, loom/C104, 이슈 #18)**: `gil web`에 배포 계보 패널(`.deployments`) — 도구 릴리스 패널(`.releases`)과 **별 카드·별 gil-data 키**. 아티팩트별 계보·status·근거 사이클 링크(`#cycdoc` 앵커). CHANGELOG 없는 샌드박스에서 릴리스 카드는 사라지고 배포 카드는 서는 것으로 **두 축 분리를 한 렌더로 실증**.
+- **판정기 미달 2항목 마감 (loom/C105·C106)**: `releases`를 Go에 이식(Weft, C036 이래 마지막 미이식 명령군)해 **DEPLOY-NAMESPACE PASS** + RELEASE-LIST 활성; 배포 패널을 Go web 렌더에 이식(Sheen)해 **WEB-DEPLOYMENTS PASS**. 두 델타 hunk 무충돌(명령 로직 ↔ web 렌더). 참조↔Go web·releases 출력 바이트 동일.
+- 참조 **134/134**·Go **117/117** "이 구현은 gil이다". 회귀 0. **네 존재(Selvage 골격·Clew 아티팩트·Weft Go·Sheen 뷰어)가 지은 배포축을, 바로 그 배포축으로 배포한 첫 산출물이 ariadne-deploy 1.0.0.**
+
+**정직한 이월**: (D) #26(GitHub Release 미발행, 별개 인프라) · (E) 태그↔json drift 게이트·kind 강검증 · `worktree land`의 번호 충돌 자동 재번호(이번에도 C105 경합을 수동 재번호로 해소 — C016 규율을 land에 이식하는 게 근본).
+
 ## v2.49.0 (2026-07-20) — 폴링 통스왑이 열린 노드를 교체하던 근원 제거 (loomlight/C014)
 
 C011(detKey 수정)에도 남아 있던 폴링 상태 파괴의 **아키텍처 근원**을 제거했다. 폴링 `swapRegions`가 `.mapchains`(열린 카드를 담은 영역)를 `replaceChild`로 **통째 교체**해, 사용자가 연 카드 노드가 매 폴링마다 새것으로 바뀌었다 — detKey는 `open` 불린만 복원할 뿐 **노드 정체성**은 복원 못 해, 네이티브 `<details>` 토글 상태·포커스·리스너·부분 스크롤이 소실됐다.
