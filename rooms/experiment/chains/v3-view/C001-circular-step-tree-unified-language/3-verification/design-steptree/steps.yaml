@@ -76,8 +76,26 @@
   backtrack: null
   body: steps/s12.md
 - id: s13
-  kind: success
+  kind: redefine
   parent: s12
-  outcome: success
+  outcome: redefine
   backtrack: null
   body: steps/s13.md
+- id: s14
+  kind: hypothesis
+  parent: s13
+  outcome: null
+  backtrack: null
+  body: steps/s14.md
+- id: s15
+  kind: verify
+  parent: s14
+  outcome: null
+  backtrack: null
+  body: steps/s15.md
+- id: s16
+  kind: analyze
+  parent: s15
+  outcome: null
+  backtrack: null
+  body: steps/s16.md

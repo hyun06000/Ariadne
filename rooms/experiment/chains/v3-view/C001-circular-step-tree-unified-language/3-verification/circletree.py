@@ -14,11 +14,12 @@ sys.path.insert(0, C004)
 from steptree import parse_steps_yaml, build_tree, assign_columns  # noqa: E402
 
 # 레이아웃 — 가로 흐름 (사이클 DAG처럼 왼→오른). depth=가로축, 형제(col)=세로축.
-STEP_W = 128   # depth 한 칸당 가로 간격
-LANE_H = 108   # 형제 가지 한 칸당 세로 간격
-PAD_X = 70
-PAD_Y = 170
-R = 18  # 원 반경 (사이클 DAG처럼 작게)
+# v2 DAG 실측: 원 반경 r=9, 노드 간격 116px (간격/반경 ≈ 13 — 여백 넉넉, 작고 귀여움).
+STEP_W = 116   # depth 한 칸당 가로 간격 (DAG와 동일)
+LANE_H = 96    # 형제 가지 한 칸당 세로 간격
+PAD_X = 60
+PAD_Y = 150
+R = 11  # 원 반경 (DAG r=9에 근접, 작고 귀엽게)
 
 KIND_COLOR = {
     "define": "#2563eb",      # 파랑 — 문제정의
