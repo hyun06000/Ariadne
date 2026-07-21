@@ -1,0 +1,10 @@
+*   e0ecea3 (HEAD, gil/sealed/repo) gilv3 close repo: lineage 머지 [s4, s7] (multi_solution 봉인)
+|\  
+| * 67f0110 (gil/live/s7) gilv3 step: s7 analyze/success
+| * 711d04a gilv3 step: s6 verify
+| * 957d4be gilv3 step: s5 hypothesis (new branch from s1 after checkout-backtrack)
+* | 16c32ab (main, gil/live/s4) gilv3 step: s4 analyze/success
+* | 81cef51 gilv3 step: s3 verify
+* | fde7527 gilv3 step: s2 hypothesis
+|/  
+* c0d6d39 gilv3 open repo: s1 define

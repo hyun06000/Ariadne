@@ -1,0 +1,7 @@
+[PASS] M1-multiparent: 부모수=2(=2) 부모집합일치=True 첫부모=s4=True → 도구가 만든 close 머지가 gil [s4,s7] ≅ git 다중부모 (생 merge 0)
+[PASS] M2-trailer-reconstruct: Kind='merge' Parent='s4, s7' Merge='lineage' 부모지문복원머지수=1(=1) 부모일치=True → trailer가 lineage 담고 부모 지문만으로 DAG 복원 (C009 합류판)
+[PASS] M3-append-only: 두갈래+머지생존=True 전체커밋수=8(=8: s1+3+3+merge) → 머지가 커밋 안 지움, _assert_append_only 통과 (C014 계약)
+[PASS] M4-squash-negative: squash부모수=1(=1) squash가양계보봄=False(=False) → squash는 lineage 잃음; 도구의 --no-ff 다중부모여야 보존 (C012 교훈2 강제)
+[PASS] M5-regression: 봉인커밋부모수=1(=1 선형) gil/live=True gil/sealed=True close메시지='gilv3 close regress-repo: solved 산 잎 s4 ' → --lineage 없는 close = C014 동형 (회귀 0)
+
+=== ALL PASS — supported (5/5) ===
