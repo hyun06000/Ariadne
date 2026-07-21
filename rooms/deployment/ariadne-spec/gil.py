@@ -1325,6 +1325,48 @@ def _build_releases_data(chains_root):
     return {"current": _GIL_VERSION, "entries": entries, "tags_readable": tags_readable}
 
 
+def _build_deployments_data(chains_root):
+    """[loom/C104, 이슈 #18] 사용자 산출물 배포(deployments.json)를 뷰어 데이터로 굽는다.
+    **도구 릴리스(_build_releases_data)와 별개 축이다** — 별 파일(deployments.json), 별 태그
+    (deploy/<artifact>/<semver>), 별 gil-data 키(deployments). 두 축 절대 안 섞임(C102 DEPLOY-NAMESPACE).
+    deployments.json이 없으면 None(배포 안 쓰는 저장소 → 뷰어에 deployments 키 부재 → 바이트 동일).
+    반환: 아티팩트별로 묶은 그룹 리스트. 각 그룹 {artifact, kind, live(버전 or None), records[]}.
+    records는 최신 배포 우선, 각 원소가 status·근거사이클(복수)·supersedes를 자기표현한다(지어냄 0 —
+    deployments.json이 이미 실재 닫힌 사이클만 소스로 담았다)."""
+    reg_path = _deployments_path(chains_root)
+    if not os.path.isfile(reg_path):
+        return None
+    deployments = _load_deployments(reg_path)
+    if not deployments:  # 파일은 있으나 배포 0 — 렌더러가 빈 상태를 정직히 표현
+        return {"groups": []}
+    # 아티팩트별로 묶되, 아티팩트의 첫 등장 순서를 보존한다(레지스터는 append-only이므로 시간순).
+    order = []
+    by_art = {}
+    for d in deployments:
+        art = d.get("artifact") or "?"
+        if art not in by_art:
+            by_art[art] = []
+            order.append(art)
+        srcs = d.get("source_cycles") or ([d["source_cycle"]] if d.get("source_cycle") else [])
+        by_art[art].append({
+            "version": d.get("version") or "?",
+            "kind": d.get("kind") or "",
+            "status": d.get("status") or "?",
+            "deployed_at": d.get("deployed_at") or "",
+            "supersedes": d.get("supersedes") or "",
+            "notes": d.get("notes") or "",
+            "cycles": list(srcs),  # 근거 사이클(복수) — #cycdoc-* 링크의 원천
+        })
+    groups = []
+    for art in order:
+        recs = list(reversed(by_art[art]))  # 최신 배포 우선(레지스터는 append-only 시간순)
+        live = next((r["version"] for r in recs if r["status"] == "live"), None)
+        # 아티팩트 kind는 가장 최근 배포의 kind를 대표로(빈 문자열이면 생략).
+        kind = next((r["kind"] for r in recs if r["kind"]), "")
+        groups.append({"artifact": art, "kind": kind, "live": live, "records": recs})
+    return {"groups": groups}
+
+
 def _supersede_ref(chain, sb):
     """superseded_by 값을 전역 참조로 해소한다 (로컬 id면 자기 체인으로)."""
     if not sb:
@@ -1703,7 +1745,7 @@ _WEB_APP_JS = r"""
   // 폴링으로 갱신할 서버 렌더 동적 영역(구조/집계). JS 마운트 body(.cycbody/.beingbody)는 여기서
   // 통스왑하지 않고(온-디맨드 구축 보존), 아래 rebuildOpen로 새 data에서 다시 그린다.
   var POLL_SEL=[".mapchains",".hmap > svg","header p:first-of-type",".htoc","[role=\"status\"]",
-    ".releases",".beings",".wrap > .card:not(.hmap)"];
+    ".releases",".deployments",".beings",".wrap > .card:not(.hmap)"];
   // [loomlight/C014] 열린 노드는 교체하지 않는다 — replaceChild로 통째 갈면 노드 정체성이 바뀌어
   // (새 노드로 대체) DOM에 붙은 런타임 상태(네이티브 <details> 토글·포커스·리스너·부분 스크롤)가
   // 소실된다. detKey/restoreOpen이 open 불린은 복원하지만 노드 정체성은 복원 못 한다. 그래서
@@ -1793,6 +1835,30 @@ _WEB_HIER_CSS = """
 .gil .relmore>summary{cursor:pointer;font-size:12px;color:var(--node);font-weight:600;padding:4px 0}
 .gil .relmore>summary:hover{text-decoration:underline}
 .gil .relmore>.rellist{margin-top:6px}
+.gil .card.deployments{padding:16px 20px}
+.gil .deployments h2{font-size:15px;font-weight:650;margin:0 0 4px}
+.gil .deployshint{color:var(--muted);font-size:12px;margin:0 0 14px}
+.gil .artgroup{margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--ring)}
+.gil .artgroup:last-child{border-bottom:none;padding-bottom:0;margin-bottom:0}
+.gil .arthead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.gil .artname{font-weight:650;font-size:14px;color:var(--ink)}
+.gil .artkind{font-size:11px;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);padding:1px 7px;border-radius:10px}
+.gil .artlive{font-size:11px;font-weight:600;color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent);padding:1px 8px;border-radius:10px}
+.gil .artdead{font-size:11px;color:var(--muted)}
+.gil .deplist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.gil li.dep{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px;padding-bottom:6px;border-bottom:1px solid var(--ring)}
+.gil li.dep:last-child{border-bottom:none;padding-bottom:0}
+.gil .depstat{font-weight:600;min-width:14px;text-align:center}
+.gil .depstat.live{color:var(--node)}
+.gil .depstat.superseded{color:var(--muted)}
+.gil .depstat.rolled-back{color:var(--supersede)}
+.gil .depver{font-weight:650;color:var(--node);min-width:60px}
+.gil .depdate{color:var(--muted);font-size:12px;min-width:82px}
+.gil .depnote{flex:1 1 200px}
+.gil .depsup{font-size:11px;color:var(--supersede);font-weight:600}
+.gil .depcycs{font-size:11px;flex-basis:100%;color:var(--muted)}
+.gil a.depcyc{color:var(--node);text-decoration:none;font-weight:600;margin-right:8px;white-space:nowrap}
+.gil a.depcyc:hover{text-decoration:underline}
 .gil .cyrel{font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
 .gil .cyrel.shipped{color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent)}
 .gil .cyrel.unshipped{color:var(--muted);background:color-mix(in srgb,var(--muted) 14%,transparent)}
@@ -2409,7 +2475,63 @@ def _render_releases_panel(releases):
             f'{listing}</section>')
 
 
-def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json, beings=None, releases=None):
+_DEPLOY_STAT_MARK = {"live": "●", "superseded": "·", "rolled-back": "↩"}  # ● · ↩
+
+
+def _render_deployments_panel(deployments):
+    """[loom/C104, 이슈 #18] 배포 계보 패널 — 사용자 산출물 배포(deployments.json)를 사람 눈에.
+    **도구 릴리스 패널(_render_releases_panel)과 별개 카드다** — 별 데이터(deployments), 별 클래스
+    (.deployments). 두 축 절대 안 섞임(C102 DEPLOY-NAMESPACE). deployments 데이터 없으면(None) 빈 문자열
+    → 배포 안 쓰는 저장소는 이 카드가 아예 안 뜬다(하위호환). 아티팩트별 계보·status·근거사이클 링크·supersedes."""
+    if not deployments:
+        return ""
+    groups = deployments.get("groups", [])
+    if not groups:
+        return ('<section class="card deployments"><h2>배포 계보</h2>'
+                '<p class="deployshint">아직 배포된 산출물이 없다.</p></section>')
+
+    def _dep_row(r):
+        stat = r.get("status") or "?"
+        mark = _DEPLOY_STAT_MARK.get(stat, "?")
+        v = html.escape(r.get("version") or "")
+        note = html.escape(r.get("notes") or "")
+        note_html = f'<span class="depnote">{note}</span>' if note else ""
+        sup = r.get("supersedes") or ""
+        sup_html = f'<span class="depsup">⇞ v{html.escape(sup)}</span>' if sup else ""
+        # [loom/C104 ← C091] 근거 사이클(복수) 링크 — 이 배포를 낳은 닫힌 사이클로 점프(#cycdoc-<chain>-<id>).
+        cycs = [c.strip() for c in (r.get("cycles") or []) if c.strip()]
+        cycs_html = ""
+        if cycs:
+            chips = "".join(
+                f'<a class="depcyc" href="#cycdoc-{html.escape(ref.replace("/", "-"))}">⚑ {html.escape(ref)}</a>'
+                for ref in cycs)
+            cycs_html = f'<span class="depcycs">근거: {chips}</span>'
+        return (f'<li class="dep"><span class="depstat {html.escape(stat)}">{mark}</span>'
+                f'<span class="depver">v{v}</span>'
+                f'<span class="depdate">{html.escape(r.get("deployed_at") or "")}</span>'
+                f'{note_html}{sup_html}{cycs_html}</li>')
+
+    def _group(g):
+        art = html.escape(g.get("artifact") or "?")
+        kind = html.escape(g.get("kind") or "")
+        kind_html = f'<span class="artkind">{kind}</span>' if kind else ""
+        live = g.get("live")
+        live_html = (f'<span class="artlive">● live v{html.escape(live)}</span>' if live
+                     else '<span class="artdead">live 없음</span>')
+        rows = "".join(_dep_row(r) for r in g.get("records", []))
+        return (f'<div class="artgroup"><div class="arthead">'
+                f'<span class="artname">{art}</span>{kind_html}{live_html}</div>'
+                f'<ul class="deplist">{rows}</ul></div>')
+
+    body = "".join(_group(g) for g in groups)
+    return ('<section class="card deployments"><h2>배포 계보</h2>'
+            '<p class="deployshint">사용자 산출물 배포 이력(deployments.json) — 도구 릴리스와 별개 축이다. '
+            '● live · · superseded · ↩ rolled-back. 아티팩트당 live는 하나. '
+            '“근거”는 이 배포를 낳은 닫힌 사이클(들)로 점프한다.</p>'
+            f'{body}</section>')
+
+
+def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, chains_root, gil_data_json, beings=None, releases=None, deployments=None):
     """위계 뷰어 몸체. L0 체인 지도 → L1 목차 → 체인별 <details>(그래프+표) → 사이클별 <details>(5스텝)."""
     style = _WEB_CSS + "\n" + _WEB_HIER_CSS
     toc = []
@@ -2443,6 +2565,7 @@ def _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage, cha
 <div class="card hmap">{_render_chain_map(data)}
 <div class="mapchains">{"".join(chains_html)}</div></div>
 {_render_releases_panel(releases)}
+{_render_deployments_panel(deployments)}
 {_render_beings_panel(beings or [])}
 <nav class="htoc"><h2>체인 목록</h2><ul>{"".join(toc)}</ul></nav>
 <footer>Ariadne — 사이클은 행동 체인의 기록이다. 이 문서는 gil web이 생성한 자기완결적 정적 페이지다.</footer>
@@ -2475,6 +2598,8 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
         if chains_root:
             beings = _parse_beings(chains_root)
     releases = _build_releases_data(chains_root) if (hierarchy and chains_root) else None
+    # [loom/C104, 이슈 #18] 사용자 산출물 배포 축 — 도구 릴리스와 별개. 파일 없으면 None(키 부재 → 바이트 동일).
+    deployments = _build_deployments_data(chains_root) if (hierarchy and chains_root) else None
     json_payload = {
         # v0.4 (loom/C042): bake — 이 산출물이 **자기를 어떻게 다시 굽는지** 스스로 말한다.
         # 추론(체인이 하나뿐이니 필터겠지)은 거짓일 수 있다 — 그래서 추측하지 않고 기록한다 (C040).
@@ -2501,13 +2626,17 @@ def render_web_page(data, page_title, generated, only=None, refresh=None, hierar
         **({"beings": beings} if beings else {}),
         # [loomlight/C006] 배포 계보(current·entries). CHANGELOG 있을 때만. 무배포/flat은 키 부재 → 바이트 동일.
         **({"releases": releases} if releases else {}),
+        # [loom/C104, 이슈 #18] 사용자 산출물 배포(groups). deployments.json 있을 때만. 무배포/flat은 키 부재 → 바이트 동일.
+        # 도구 릴리스(releases 키)와 별 키 — 두 축 절대 안 섞임(C102 DEPLOY-NAMESPACE).
+        **({"deployments": deployments} if deployments else {}),
     }
     n_cycles = sum(len(c["order"]) for c in data.values())
     n_lineage = sum(len(m["lineage"]) for c in data.values() for m in c["cycles"].values())
     if hierarchy:
         # 위계(드릴다운) 몸체 — 기본 경로를 건드리지 않도록 완전히 분기한다 (아래 else는 개선 전과 바이트 동일).
         body = _render_hierarchy_body(data, page_title, generated, n_cycles, n_lineage,
-                                      chains_root, _json_for_script(json_payload), beings, releases)
+                                      chains_root, _json_for_script(json_payload), beings, releases,
+                                      deployments)
     else:
         body = f"""<div class="gil"><style>{_WEB_CSS}</style><div class="wrap">
 <header><h1>{html.escape(page_title)}</h1>

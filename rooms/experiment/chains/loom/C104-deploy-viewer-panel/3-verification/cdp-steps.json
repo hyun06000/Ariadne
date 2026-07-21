@@ -1,0 +1,10 @@
+[
+ {"eval":"document.querySelectorAll('.card.deployments').length"},
+ {"eval":"document.querySelectorAll('a.depcyc').length"},
+ {"eval":"(function(){var a=document.querySelector('a.depcyc[href=\"#cycdoc-alpha-C001-first-thing\"]');a.click();return location.hash;})()"},
+ {"sleep_ms":300},
+ {"eval":"(function(){var t=document.getElementById('cycdoc-alpha-C001-first-thing');if(!t)return 'no-target';var cs=getComputedStyle(t);var body=t.querySelector('.cycbody');return JSON.stringify({visible:cs.display!=='none', bodyFilled: body?body.innerHTML.length>20:false});})()"},
+ {"eval":"(function(){window.__before=document.querySelector('.card.deployments').textContent.replace(/\\s+/g,' ').slice(0,80);return window.__before;})()"},
+ {"sleep_ms":2600},
+ {"eval":"(function(){var now=document.querySelector('.card.deployments').textContent.replace(/\\s+/g,' ').slice(0,80);var t=document.getElementById('cycdoc-alpha-C001-first-thing');var vis=t?getComputedStyle(t).display!=='none':false;return JSON.stringify({deployPanelStillThere: !!document.querySelector('.card.deployments'), panelTextSame: now===window.__before, targetStillOpen: vis, hash: location.hash});})()"}
+]

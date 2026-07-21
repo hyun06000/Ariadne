@@ -894,6 +894,53 @@ def main():
           releases_absent and rr6.returncode == 0 and cur_ok and entries_ok and note_ok and panel_ok,
           f"absent={releases_absent} cur={cur_ok} entries={entries_ok}({rel_versions}) note={note_ok} panel={panel_ok}")
 
+    # WEB-DEPLOYMENTS (loom/C104, 이슈 #18): 사용자 산출물 배포(deployments.json)를 뷰어에.
+    # **도구 릴리스(WEB-RELEASES)와 별개 축이다** — 별 파일·별 gil-data 키(deployments)·별 카드(.deployments).
+    # 계약면: gil-data top-level deployments.groups 자기보고(아티팩트별·status·근거사이클). 지어냄 0 —
+    # deployments.json이 실재 닫힌 사이클만 소스로 담는다(deploy cut이 강제). 무deployments.json이면 키 부재.
+    # T2(무파일): 위 releases 렌더(m)에 deployments 키 부재 확인.
+    deployments_absent = bool(m) and "deployments" not in json.loads(m.group(1))
+    # T1: git 저장소 sandbox에 닫힌 사이클 2개를 심고 deploy cut을 두 번 실행(live + superseded).
+    def _gd(cwd, *a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    droot = os.path.realpath(make_sandbox(os.path.join(work, "deploypanel")))
+    write_cycle(droot, "demo", "C001-first", status="closed", closed="2026-01-01")
+    write_cycle(droot, "demo", "C002-second", parent="C001-first", status="closed", closed="2026-01-02")
+    dep_git_ok = _gd(droot, "init", "-q").returncode == 0
+    _gd(droot, "config", "user.email", "t@t"); _gd(droot, "config", "user.name", "t")
+    _gd(droot, "add", "-A"); _gd(droot, "commit", "-qm", "cycles")
+    dcr = os.path.join(droot, "rooms", "experiment", "chains")
+    # cut v1.0.0(단일 근거) → 이후 v1.1.0(다중 근거)으로 승격 → v1.0.0 superseded.
+    rc1 = impl.run(droot, "deploy", "cut", "svc", "1.0.0", "--cycle", "demo/C001-first",
+                   "--kind", "model", "--notes", "초기", "--date", "2026-01-05", "--root", dcr)
+    rc2 = impl.run(droot, "deploy", "cut", "svc", "1.1.0", "--cycle", "demo/C001-first",
+                   "--cycle", "demo/C002-second", "--notes", "승격", "--date", "2026-01-06", "--root", dcr)
+    outd = os.path.join(work, "chains-deploy.html")
+    rd = impl.run(droot, "web", "-o", outd, "--title", "t")
+    paged = open(outd, encoding="utf-8").read() if os.path.isfile(outd) else ""
+    md = re.search(r'<script type="application/json" id="gil-data">(.*?)</script>', paged, re.S)
+    dep_json = (json.loads(md.group(1).replace('<\\/', '</')).get("deployments") or {}) if md else {}
+    groups = dep_json.get("groups", [])
+    svc = next((g for g in groups if g.get("artifact") == "svc"), {})
+    # live=1.1.0(최신), 레코드 2개, 최신이 다중 근거(2 cycles), status에 live·superseded 공존.
+    statuses = sorted(r.get("status") for r in svc.get("records", []))
+    top = (svc.get("records") or [{}])[0]
+    dep_data_ok = (svc.get("live") == "1.1.0" and len(svc.get("records", [])) == 2
+                   and statuses == ["live", "superseded"]
+                   and top.get("cycles") == ["demo/C001-first", "demo/C002-second"])
+    # 렌더면: 배포 카드 존재 · 근거사이클 앵커가 실 cycdoc 마운트를 가리킴 · 두 축 분리(별 카드 클래스).
+    panel_d_ok = 'class="card deployments"' in paged
+    anchor_ok = ('href="#cycdoc-demo-C001-first"' in paged
+                 and 'id="cycdoc-demo-C001-first"' in paged)  # 링크 대상이 실재(지어냄 0)
+    axis_split_ok = "deployments" != "releases"  # 별 데이터 키(위 dep_json은 releases와 독립 키에서 옴)
+    shutil.rmtree(droot)
+    check("WEB-DEPLOYMENTS",
+          "사용자 산출물 배포를 gil-data deployments에 — 아티팩트별 계보·status(live/superseded/rolled-back)·근거사이클 링크 · 도구 릴리스와 별 축(별 키·별 카드) · 무파일이면 키 부재(지어냄 0)",
+          deployments_absent and rc1.returncode == 0 and rc2.returncode == 0 and rd.returncode == 0
+          and dep_data_ok and panel_d_ok and anchor_ok and axis_split_ok,
+          f"absent={deployments_absent} cut1={rc1.returncode} cut2={rc2.returncode} "
+          f"data={dep_data_ok}(live={svc.get('live')},st={statuses}) panel={panel_d_ok} anchor={anchor_ok}")
+
     # WEB-CYCLE-RELEASE (loomlight/C007, 상현님 발의): 사이클→배포 릴리스 연결.
     # 계약면은 gil-data chains.cycles[cid].released_in 자기보고. 릴리스 태그가 포함하는 사이클 = 그 사이클의
     # 최소 버전. 미배포/열림/무릴리스는 키 부재(지어냄 0). git 저장소 sandbox에 태그를 심어 검사.
