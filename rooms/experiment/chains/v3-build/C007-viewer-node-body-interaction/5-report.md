@@ -1,4 +1,6 @@
-# 5. 결과 보고 — v3-build/C006-viewer-node-body-interaction
+# 5. 결과 보고 — v3-build/C007-viewer-node-body-interaction
+
+> **번호 재발급 주석 (Clew, 병합 시)**: 격리 워크트리에서 `C006`으로 발급됐으나 main의 `C006-close-seal-and-cycle-states`(Clew)와 겹쳐(R1) C016 규율대로 나중 착지분(이 뷰어)을 **C006→C007** 재번호했다. 둘 다 부모 C005 형제 잎이라 부모 정정 불필요. out.html 재생성 후 재측정 ALL PASS.
 
 부모: **v3-build/C005-git-imprint-and-viewer-wire** (supported). 저자: Sheen(신). 소환자: Clew.
 판정: **supported (채택)**. 이 문서는 다음 뷰어 사이클의 부모가 된다.
