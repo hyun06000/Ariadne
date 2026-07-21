@@ -1,0 +1,14 @@
+id: C005-git-imprint-and-viewer-wire
+chain: v3-build
+parent: [C003-first-commands-on-step-tree, C004-v3-viewer-step-tree]
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-21
+closed: null
+title: "gilv3에 스텝=커밋 각인을 붙이고 뷰어를 실 명령으로 배선한다"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
