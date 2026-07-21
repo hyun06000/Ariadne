@@ -2,7 +2,7 @@ id: C103-deploy-viewer-panel
 chain: loom
 parent: C102-deploy-artifact-axis
 lineage: []
-step: 1
+step: 2
 author: sheen
 status: open
 opened: 2026-07-21
