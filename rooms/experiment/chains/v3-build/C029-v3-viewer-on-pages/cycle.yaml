@@ -4,11 +4,11 @@ parent: C028-web-viewer-into-deployed-gil
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "v3 뷰어를 GitHub Pages에 — CI가 migrate 후 web --v3로 v3 계보를 배포·공개"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
