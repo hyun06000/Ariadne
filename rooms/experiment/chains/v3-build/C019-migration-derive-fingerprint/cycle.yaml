@@ -1,0 +1,14 @@
+id: C019-migration-derive-fingerprint
+chain: v3-build
+parent: C018-migration-retro-imprint
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "v2 커밋 subject·cycle.yaml 메타를 v3 지문으로 자동 도출하면 189 사이클 소급이 스크립트 한 번이 된다 (소급각인 실전화)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
