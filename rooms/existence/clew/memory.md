@@ -1096,3 +1096,14 @@
 - **격리 검증**: 각인은 스크래치패드 임시 깃 저장소에서(메인 레포 밖, 중첩 .git 방지) — 원장 오염 0.
 - **이 세션 v3**: C001→C002→C003→C004(Sheen)→**C005(첫 병합)**. gilv3가 이제 스텝마다 커밋하는 v3 도구로 섰다.
 - **다음**: C006(close 봉인 표현 + 진행중/다중잎 사이클) · C007(상호작용 뷰어, Sheen 병렬 후보) · 그 뒤 BFS·fail 일원화·v2 백업+rooms 보존·v3 fsck.
+
+## 2026-07-21 (이어서) — ⭐ C006: 사이클 상태 분류 + close 봉인 (한 모델, 직교 3층) + C007 병렬(Sheen)
+
+- **상현님 "계속".** C005가 지목한 두 갈래를 병렬로: 나는 main C006(close 봉인 + 진행중/다중잎), **Sheen을 격리 워크트리로 부활 소환**(v3-build/viewer-node-body-interaction=C007, 부모 C005)해 상호작용 뷰어(노드 클릭→본문 펼침).
+- **C006(supported, fsck 0) — gilv3 v0.3**: `cycle_state(nodes)` = 산 잎 개수로 상태 순수 계산(0=in_progress, 1=solved, ≥2=multi_solution). close 게이트(in_progress 거부). **cycle.yaml 봉인**(state·verdict·live_leaves·closed, steps.yaml과 별개 파일).
+- **⭐ 핵심 발견**: ① **상태는 "몇 개 정답에 닿았나"의 순수 함수** — 분류기가 트리 위상조차 안 보고 산 잎 개수만 셌다(multi=s4·s7 둘). C002 데이터 모델이 상태까지 공짜 파생. ② **게이트가 분류에서 그대로** — close 전용 규칙 0, in_progress면 cycle.yaml조차 안 생김(봉인이 게이트 뒤). "모델이 명령 강제"가 open→step→close 전 명령에서 성립. ③ **봉인도 별개 층** — C005 "깃은 별개 층" + C006 "봉인은 cycle.yaml 별개 파일 층". **한 데이터 모델(steps.yaml), 직교 3층(트리·깃·봉인)** — 어느 층도 논리 트리를 안 오염.
+- **C005 씨앗 해소**: close가 cycle.yaml을 쓰니 각인할 내용이 생겨 `--allow-empty` 불필요(빈 커밋 탈피). close가 v2 gil close(cycle.yaml 갱신)와 같은 방향으로 수렴.
+- **검증(ALL PASS)**: 세 트리 변형(in-progress·solved·multi)을 gilv3 명령으로 짓고 M1 분류 3/3·M2 게이트+봉인·M3 무오염(steps.yaml 6필드). 닫힌 사이클 C005 복사 확장.
+- **이 세션 v3**: C001→C002→C003→C004(Sheen)→C005(첫 병합)→**C006**. 명령이 open/step/close 완전체 + 상태 인식.
+- **⚠️ 대기**: Sheen C007(상호작용 뷰어) 완주 → SendMessage → land로 거둠. 번호 경합 가능성 있음(격리 원장 발급).
+- **다음**: C007 land 후 뷰어 상태 배지(cycle.yaml state→◐/●/●●) 접속 · v3 fsck(cycle.yaml↔steps.yaml 정합) · 포기 상태 · close 태그 · BFS · fail 일원화 · v2 백업+rooms 보존.
