@@ -11,3 +11,9 @@
   outcome: null
   backtrack: null
   body: steps/s2.md
+- id: s3
+  kind: verify
+  parent: s2
+  outcome: null
+  backtrack: null
+  body: steps/s3.md
