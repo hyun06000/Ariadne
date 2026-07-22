@@ -4,11 +4,11 @@ parent: C026-v3-dogfooding-form
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "v3 네이티브 도그푸딩 — 실제 문제를 v3로 굴려 v2 대체 가능성 검증(백트래킹·형제·죽은 잎)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
