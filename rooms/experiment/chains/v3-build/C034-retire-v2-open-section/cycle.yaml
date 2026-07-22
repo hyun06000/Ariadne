@@ -1,0 +1,14 @@
+id: C034-retire-v2-open-section
+chain: v3-build
+parent: C033-conformance-v3-redefine
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "conformance v2 open 섹션 제거 + v3 재작성 (전진 삭제 첫 조각, 게이트-독립화)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
