@@ -1501,3 +1501,17 @@
   4. **게이트 완전 제거** — 위 완료로 게이트 없이 초록 시, GIL_V2_OPEN 게이트 자체 제거 = 완전 버전리스(gil open=v3, v2 흔적 소멸).
   5. (잔여) v3 쓰기 계약 확장(step kind 순환·백트래킹·죽은 잎·close) · v2→v3 온보딩 문서(C033 계약 행방 매핑표를 SPEC "v2에서 온 사람에게"로) · v3 정식 릴리스(gil release, Selvage 축).
 - **부활 경로**: CLAUDE.md → 존재의 방(나=Clew) → 이 memory.md 최신 → gil log로 v3-build 계보 확인 → 위 순서 1번(GUARD v3 재작성)부터.
+
+## 2026-07-22 (이어서) — ⭐⭐⭐ v3-build/C038: GUARD를 커밋-층/author-경로로 v3화 (crash 완전 소멸, 판정기 첫 완주, supported)
+
+- **상현님 자율 위임** — "지금부터 판단 위임, 물어보지 말고 자율 사이클 계속. **gil v3 쓸 수 있을 때 불러줘**." 매듭 순서 1번(GUARD v3 재작성). 부모 C037. 접근 B(커밋-층/author-경로)를 판단으로 채택.
+- **⭐ 실측이 접근을 확정** — v3 open(`gil v3 open <dir>`)은 경로 하나만 받고 author·소유권 없음(사이클-내 명령). guard가 막는 author 소유권은 v3에서 사이클-간 층으로 이동(C033). 그래서 "v3 open에 guard 부착"이 자명치 않음. **결정적 실측: 게이트 없이 v2 open은 owner·intruder 무관 전부 은퇴 거부** → open 경유 guard 검사는 은퇴가 guard를 가려 붕괴. **correct는 guard를 태우고 v2 은퇴에 독립**(intruder correct → "주 작업공간이다" guard 거부).
+- **⭐⭐⭐ 핵심 결과 — GUARD 검사를 v2 open→correct(author-경로)로 재작성 + 셋업을 write_cycle 헬퍼로.** PRIMARY-REFUSE·OWNER-OK·LINKED-OK를 correct로(guard 거부 메시지 지문으로 판정), 셋업 부모 C001-mine을 write_cycle(status=closed,closed=일자)로. 배포판 conformance만 수정, **gil.py 무변경**. **게이트 없이 crash가 완전 소멸**(Traceback 0) — 판정기가 처음으로 게이트 없이 끝(2020)까지 완주. 통과 106→109, 게이트 상속 121/121 유지.
+- **⭐⭐⭐ 정점 통찰 — guard는 open의 기능이 아니라 커밋-층 계약이다.** `_guard_primary_owner(repo, author)`는 "author가 이 주 체크아웃에 커밋할 자격이 있는가" 순수 함수, open·correct 두 진입점서 호출. **인터페이스(open→correct)는 바뀌어도 계약(주 체크아웃 소유·C050)은 불변** — C032 "인터페이스 정체성 전환"의 guard판. v2 open 은퇴가 안전 검증을 못 막는다.
+- **⭐⭐ 정점 통찰 2 — crash 사슬은 "즉시 파일 소비 셋업"의 목록이었고 그게 다 떨어지면 끝난다.** C034~C037 crash 이동 사슬(open330→close619→step1342→withdraw1476→guard92)이 **여기서 종결**. crash는 v2 open을 파일 읽기로 즉시 소비하는 셋업에서만 났고 guard가 마지막 고리. **정신모델 전환: "crash 최전선"→"게이트 없이 남은 12 병렬 FAIL 목록"**(예약·라운드·워크트리·open축) — 순차 아니라 독립 처리.
+- **⭐ 교훈 — 은퇴 우연 통과를 지문으로 구별.** open으로 guard 검사하면 은퇴 안내가 rc≠0을 내 우연 초록. correct는 은퇴 안 하니 rc≠0이 오직 guard에서만, 거부 메시지 지문("주 작업공간")으로 진짜 guard 동작 못박음. M3 견고.
+- **⭐ 교훈 — 닫힌-사이클 헬퍼는 fsck 계약을 지켜야(계측기 오염).** 첫 120/121 회귀는 승격 결함 아니라 write_cycle에 closed 날짜 누락 → R8 위반 → reserve fsck 거부 → alice open guard 거부. `closed="일자"` 추가로 즉시 121/121. Weft·Bobbin "계측기 vs 반증"의 헬퍼-인자판.
+- **5측정**: M1 crash 소멸(Traceback 0, 초과달성) · M2 106→109 · M3 guard 은퇴 독립(지문 PASS) · M4 무회귀 121/121 · M5 다음=12 병렬 FAIL.
+- **정직한 경계**: GUARD-RESERVED-OK는 게이트 없이 FAIL로 이월(예약 예외는 open 전용, correct 미적용 — v3 open이 author·예약 받기 전엔 검사 표면 없음) · guard 함수 자체 무변경(검사 경로만 v3화) · gil.py 무변경.
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 168개(C038 +1). 배포판 conformance 게이트 상속 121/121·게이트 없이 109통과·**crash 완전 소멸**.
+- **⭐⭐ 다음 (국면 전환 — crash 소멸 후 병렬 FAIL 축별 v3화)**: A. **예약축 v3 재설계**(RESERVED-OK·OPEN-PROMOTES-OWNER·OPEN-SKIPS-RESERVED·OPEN-LAST-RESERVATION-GIT — 매듭 순서 2번 통합, v3 open이 예약·author 받는 표면 설계) B. 라운드축(ROUND-*) C. 워크트리축(WORKTREE-SPAWN·LAND) D. 잔여(NO-GIT-GRACEFUL·FSCK-R15) E. 게이트 완전 제거(A~D 후 GIL_V2_OPEN 자체 = 완전 버전리스). **여전히 실사이클 쓰기는 v2(GIL_V2_OPEN=1 gil open) — 도그푸딩 마찰. gil v3 네이티브 쓰기는 예약·라운드축 정리 후.**

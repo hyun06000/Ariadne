@@ -1826,26 +1826,34 @@ def main():
     gdg("init", "-q", "-b", "main"); gdg("config", "user.name", "o"); gdg("config", "user.email", "o@t")
     gdg("config", "gil.owner", "owner-x")
     gdg("add", "-A"); gdg("commit", "-q", "-m", "init")
-    head0 = gdg("rev-parse", "HEAD").stdout.strip()
-    r = impl.run(gd, "open", "demo", "intrude", "--author", "intruder", "--new-chain", "--git", "--root", gdr)
-    dir_made = os.path.isdir(os.path.join(gdr, "demo"))
-    head1 = gdg("rev-parse", "HEAD").stdout.strip()
-    check("GUARD-PRIMARY-REFUSE",
-          "주 체크아웃에서 author≠gil.owner의 open을 거부 (exit≠0 ∧ 사이클 미생성 ∧ HEAD 무변화) — C050 봉인",
-          r.returncode != 0 and not dir_made and head1 == head0,
-          f"rc={r.returncode} dir={dir_made} head={head1 == head0}")
-    r = impl.run(gd, "open", "demo", "mine", "--author", "owner-x", "--new-chain", "--git", "--root", gdr)
-    check("GUARD-OWNER-OK", "주 체크아웃에서 주인(gil.owner) author의 open은 통과",
-          r.returncode == 0 and os.path.isdir(os.path.join(gdr, "demo")), f"rc={r.returncode}")
-    _seal_closed(os.path.join(gdr, "demo", "C001-mine"))  # [C097] 아래 예약 open들이 이 부모의 자식이므로 닫는다
+    # [C038] guard는 open의 기능이 아니라 커밋-층 계약(author가 이 주 체크아웃에 커밋할
+    #   자격이 있는가)이다. v2 open이 은퇴하면 open 경유 검사는 은퇴가 guard를 가려 의미가
+    #   붕괴하므로(게이트 없이 owner·intruder 무관 전부 은퇴 거부), guard 동작은 v3에서
+    #   살아남는 author-경로 `correct`로 검사한다 — correct도 _guard_primary_owner를 태운다.
+    #   셋업(닫힌 부모 C001-mine)은 open이 아니라 write_cycle 헬퍼로 짓는다(C035·C037 패턴).
+    _GUARD_REFUSE = "주 작업공간이다"  # guard 거부 메시지 지문 — 은퇴 안내와 구별한다
+    # 셋업: 예약 open들의 부모가 될 닫힌 C001-mine을 헬퍼로 직접 구성(open 미경유)
+    write_cycle(gd, "demo", "C001-mine", author="owner-x", status="closed", closed="2026-01-02", step=5, verdict="supported")
     gdg("add", "-A"); gdg("commit", "-q", "-m", "seal C001-mine")
-    # 링크드 워크트리(존재의 정당한 공간)에서는 남의 author도 통과 — 오탐 0
+    # PRIMARY-REFUSE: intruder(author≠gil.owner)의 커밋 시도를 guard가 거부한다 (C050 봉인).
+    #   correct가 guard를 태우므로 open 없이도 검증 — 거부 메시지 지문으로 은퇴 우연 통과와 구별.
+    r = impl.run(gd, "correct", "demo/C001-mine", "--field", "author", "--to", "x", "--author", "intruder", "--root", gdr)
+    refused = r.returncode != 0 and _GUARD_REFUSE in (r.stdout + r.stderr)
+    check("GUARD-PRIMARY-REFUSE",
+          "주 체크아웃에서 author≠gil.owner의 커밋을 guard가 거부 (거부 메시지 지문 — 은퇴 우연 통과 아님) — C050 봉인",
+          refused, f"rc={r.returncode} guard_msg={_GUARD_REFUSE in (r.stdout + r.stderr)}")
+    # OWNER-OK: 주인(gil.owner) author는 guard를 통과한다 — 거부 메시지 부재로 판정
+    #   (correct는 이후 필드 규칙에서 걸릴 수 있으나 그건 guard '후'다).
+    r = impl.run(gd, "correct", "demo/C001-mine", "--field", "author", "--to", "owner-x", "--author", "owner-x", "--root", gdr)
+    check("GUARD-OWNER-OK", "주 체크아웃에서 주인(gil.owner) author의 커밋은 guard를 통과 (거부 메시지 부재)",
+          _GUARD_REFUSE not in (r.stdout + r.stderr), f"guard_msg={_GUARD_REFUSE in (r.stdout + r.stderr)}")
+    # LINKED-OK: 링크드 워크트리(존재의 정당한 공간)에서는 남의 author도 guard 미적용 — 오탐 0
     gwt = os.path.join(work, "guard-wt")
     gdg("worktree", "add", "-q", "-b", "feat", gwt)
     gwtr = os.path.join(gwt, "rooms/experiment/chains")
-    r = impl.run(gwt, "open", "demo2", "inwt", "--author", "someone", "--new-chain", "--git", "--root", gwtr)
-    check("GUARD-LINKED-OK", "링크드 워크트리에서는 남의 author open도 통과 (오탐 0 — 존재의 작업공간)",
-          r.returncode == 0 and os.path.isdir(os.path.join(gwtr, "demo2")), f"rc={r.returncode}")
+    r = impl.run(gwt, "correct", "demo/C001-mine", "--field", "author", "--to", "y", "--author", "someone", "--root", gwtr)
+    check("GUARD-LINKED-OK", "링크드 워크트리에서는 남의 author 커밋도 guard 미적용 (오탐 0 — 존재의 작업공간)",
+          _GUARD_REFUSE not in (r.stdout + r.stderr), f"guard_msg={_GUARD_REFUSE in (r.stdout + r.stderr)}")
     gdg("worktree", "remove", "--force", gwt)
 
     # GUARD-RESERVED-OK / GUARD-RESERVED-AUTHOR (loom/C078): 예약은 소유자의 명시적 승인이다 —
