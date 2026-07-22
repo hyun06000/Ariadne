@@ -2,7 +2,7 @@ id: C033-conformance-v3-redefine
 chain: v3-build
 parent: C032-promote-open-to-v3
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-22
