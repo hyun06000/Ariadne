@@ -1450,3 +1450,15 @@
 - **정직한 경계**: 첫 겹만(open 호출 층) — write_cycle 산출물 층(close 619 crash)·예약·라운드·open-git·GUARD v3화는 이월 · gil.py 무변경(conformance만) · 게이트 상속 시 127/127(게이트 없이 완전 초록은 다음 겹들 후).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 164개(C034 +1). 배포판 conformance 127/127(게이트 상속), v2 open 섹션 제거됨.
 - **⭐ 다음(게이트 완전 제거로)**: ① **close 섹션 write_cycle 산출물 층 v3화**(다음 관문, line 619 crash원 — 두 번째 겹) ② 예약·라운드·open-git 섹션 v3 재작성(게이트 없이 FAIL 항목) ③ GUARD v3 이전 ④ v3 쓰기 계약 확장(step·백트래킹·죽은 잎·close) ⑤ 게이트 완전 제거(위 완료 시 GIL_V2_OPEN 자체 제거=완전 버전리스).
+
+## 2026-07-22 (이어서) — ⭐⭐ v3-build/C035: conformance 셋업 open을 공용 헬퍼로 (게이트 없이 40→75, supported)
+
+- **상현님 "계속" + AskUserQuestion "공용 v3 셋업 헬퍼로 일괄 교체" → C034 두 번째 겹.** 부모 C034.
+- **⭐ 정직한 정정 — C034 "write_cycle 산출물 층" 진단 부정확.** 게이트 없이 crash(line 619 close)는 write_cycle 때문이 아니라 **close-seal이 617서 v2 open을 직접 호출**해서. grep으로 데이터 직접 보니 v2 open 호출 26곳(3곳은 v3·은퇴 정상) — 두 부류: ①순수 셋업(close/step 테스트용 사이클 만들기) ②open 검사(예약·guard·open 동작). 두 번째 겹은 "산출물 층"이 아니라 "여러 섹션의 셋업 open 직접 호출". **수치 뒤로 들어가 데이터 직접 보니 층 모델 정밀화**(내 정체성).
+- **⭐⭐ 핵심 결과 — close-seal 셋업 open 3개(617·641·682)를 write_cycle+git 커밋 헬퍼로 교체.** 이들은 close/step 게이트 테스트용 커밋된 사이클이 필요할 뿐 open 미검사. 배포판 conformance close-seal crash(619) 소멸→stepgate(1342)로 밀림. **게이트 없이 통과 C034의 40→75 대폭 전진**(gil.py 무변경, conformance만 +8/−3).
+- **⭐⭐ 정점 통찰 — 한 crash가 뒤 수십 항목을 막는다, 제거 파급이 곱셈적.** close-seal 3개만 고쳤는데 40→75(35 증가) — crash 사라지자 뒤 close 본체·step 섹션이 crash 없이 실행. C033 "crash가 전체 무너뜨림"의 국소판. 순차 판정기에서 앞 crash 하나가 뒤 전부 막음.
+- **⭐⭐ 정점 통찰 2 — 셋업 open은 검사 대상 아니다, 수단 교체가 판정 의미 불변.** open --git으로 만든 커밋 사이클을 write_cycle+git 커밋으로 대체해도 CLOSE-SEAL-GATE·ALLOW·VERIFICATION-FREE 전부 PASS. **open은 "커밋된 사이클" 전제를 만드는 셋업이었지 검사 대상 아님.** 셋업(전제 구축)과 검사(계약 판정) 구분하면 셋업은 gil 미호출 헬퍼로 자유 교체해도 판정 보존.
+- **5측정 ALL PASS**: M1 close-seal crash 소멸(619→1342) · M2 게이트-독립 40→75 · M3 판정 의미 불변(close-seal 3항목·STEP-SCOPE PASS) · M4 회계 127 유지 · M5 다음 crash 좌표(stepgate 1326).
+- **정직한 경계**: 첫 조각만(close-seal 3개) — 남은 순수 셋업(stepgate 등)·부류 2(open 검사)·GUARD·게이트 제거는 이월 · gil.py 무변경 · 부류 2는 헬퍼 교체 불가(테스트 삭제라, v3 재작성 필요).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 165개(C035 +1). 배포판 conformance 게이트 상속 127/127·게이트 없이 75통과.
+- **⭐ 다음(게이트 완전 제거로)**: ① **남은 순수 셋업 open 헬퍼 교체**(stepgate 1326·1311·1354·1551·1563·1579 등, C035가 안전 증명해 기계적 반복 — crash가 판정기 끝까지 밀리면 게이트 없이 완전 초록 근접) ② 부류 2 v3 재작성(예약·guard·open 동작) ③ GUARD v3 이전 ④ 게이트 완전 제거(GIL_V2_OPEN 자체) ⑤ v3 쓰기 계약 확장.
