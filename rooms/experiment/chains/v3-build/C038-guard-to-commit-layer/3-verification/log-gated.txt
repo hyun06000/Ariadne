@@ -1,0 +1,123 @@
+PASS VERSION-SEMVER: version이 'gil X.Y.Z' (SemVer) 형태로 자기를 보고
+PASS VERSION-CHECK-SAFE: version --check가 저장소를 변경하지 않는다 (부작용 없는 조회)
+PASS VERSION-CHECK-KNOWN: version --check가 미구현 신호(exit 3)가 아니다 (플래그를 안다)
+PASS VERSION-CHECK-HOOK: version --check 성공 시 자기보고 훅 'gil:version-check <local> <latest> <status>' 정확히 1줄
+PASS HELP-EXIT0: help이 exit 0으로 능력 목록 보고 (기계 훅 gil:commands 정확히 1줄)
+PASS HELP-SAFE: 능력 탐침(help·help <명령>·pages --dry-run)이 저장소를 변경하지 않는다
+PASS HELP-TRUTHFUL: 훅이 나열한 모든 명령이 실재한다 (미구현 신호 없음)
+PASS HELP-COMPLETE: 나열하지 않은 명령은 미구현 신호(exit 3)로 답한다
+PASS PAGES-DRYRUN: pages --dry-run이 경로만 보고하고 파일을 만들지 않는다 (대조: pages는 만든다)
+PASS PAGES-OUTPUT-PATH: pages -o <path>가 지정 경로에 워크플로를 쓰고 기본 경로는 안 만든다 (web과 대칭)
+PASS PAGES-OUTPUT-STDOUT: pages -o -가 워크플로 전문을 stdout에 내고 파일을 만들지 않는다 (파이프 안전)
+PASS FSCK-CLEAN: 규칙 준수 저장소에서 fsck exit 0
+PASS FSCK-R1: R1 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R2: R2 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R3: R3 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R4: R4 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R5: R5 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R6: R6 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R8: R8 식별 (exit≠0 ∧ 규칙토큰 ∧ 대상 id)
+PASS FSCK-R7: R7 순환 식별 (exit≠0 ∧ 규칙토큰)
+PASS FSCK-R14: R14: 체인에 chain.md가 없으면 위반 (있으면 통과)
+PASS V3-OPEN-CREATE: v3 open이 steps.yaml + 루트 define s1 + steps/s1.md 생성 (사이클-내 스텝 트리 시작)
+PASS V3-OPEN-REJECT-EXISTING: 이미 steps.yaml 있는 사이클에 v3 open 거부 (빈 사이클에만)
+PASS V3-RETIRE-GUIDANCE: v2 습관 open(게이트 없이) → v3로 안내하는 은퇴 에러 (exit≠0, 침묵 실패 아님 · C032)
+PASS FSCK-MULTI-ROOT: R12: 다중 루트를 경고로 판정 (exit 0 — 위반 아님)
+PASS RESERVE-BASIC: reserve → exit 0 + 원장에 예약 1줄 (번호 선점 데이터화)
+PASS RESERVE-NEEDS-FOR: --for 없는 reserve 거부 + 무변화 (§3.2 P1)
+PASS RESERVE-NEEDS-CHAIN: 없는 체인에 reserve 거부
+PASS OPEN-SKIPS-RESERVED: 예약된 번호를 open이 건너뛴다 (clew→C003, 예약 잔존) — 선점
+PASS OPEN-PROMOTES-OWNER: 예약자가 열면 예약 번호로 승격 + 예약 소거 (C002-final-slug, 원장 비움)
+PASS OPEN-LAST-RESERVATION-GIT: 마지막 예약을 소비하는 open --git이 정상 각인 (디렉토리 ∧ 커밋 포함 ∧ 원장 비움·유령 없음) · C079
+PASS RESERVE-NON-INVASIVE: 예약 있어도 fsck 위반 0 + log 그래프에 예약 노드 없음 (예약은 사이클 아님)
+PASS RESERVE-IN-LOG: log가 예약을 구별해 표시한다 (예약 대상 이름 포함)
+PASS UNRESERVE: unreserve 2 → 예약 제거(exit 0), 없는 99 → 거부
+PASS ROUND-OPEN: round --open이 R2를 사전등록 (hypothesis.md·round.yaml, cycle.yaml rounds=2)
+PASS ROUND-PREREG: 사전등록: round --open이 verification/을 만들지 않는다 (hypothesis가 먼저, H1)
+PASS ROUND-OPEN-GIT: round --open --git 커밋이 hypothesis·round.yaml만 담고 verification 없음 (H1)
+PASS ROUND-CLOSE-VERDICT: round --close --verdict invalid-method 기록 (방법 무효 ≠ 가설 기각, H2)
+PASS ROUND-REJECT-VOCAB: 어휘 밖 라운드 verdict 거부 + 무변화
+PASS ROUND-CLOSED-CYCLE: 닫힌 사이클에 round --open 거부 + 무변화 (불변 보호)
+PASS ROUND-LIST-SAFE: round --list → exit 0 + 저장소 무변화
+PASS FSCK-R15: R15: rounds:N인데 사전등록 hypothesis.md 없으면 위반 (있으면 통과)
+PASS CLOSE-TEMPLATE-REJECT: 템플릿 그대로의 보고서로는 닫기 거부
+PASS CLOSE-OK: 정상 닫기 (status·closed 전이)
+PASS CLOSE-DOUBLE-REJECT: 이중 닫기 거부
+PASS CLOSE-REJECTED-INCOMPLETE: 미완 step 사이클을 rejected로 닫기 (죽은 시점 step 보존, 5-report 불요) · C098
+PASS CLOSE-REJECTED-NEEDS-REASON: 스텁 스텝만 있는 사이클의 rejected close 거부 + 무변화 (죽음도 이유는 남긴다) · C098
+PASS CLOSE-NORMAL-STILL-STRICT: verdict≠rejected면 미완 close 여전히 거부 (완화는 rejected 전용) · C098
+PASS CLOSE-SEAL-GATE: 표준 밖 신규 파일(오배치)이 봉인 대상이면 --allow-extra 없이 거부 (불변 태그·저장소 무변화) · C081/이슈#19
+PASS CLOSE-SEAL-ALLOW: --allow-extra로 표준 밖 신규 파일 봉인 승인 (태그 각인) · C081
+PASS CLOSE-SEAL-VERIFICATION-FREE: 3-verification/ 하위 자유 산출물은 게이트하지 않고 정상 봉인 (오탐 0) · C081
+PASS STEP-OK: step 전이 반영 (순차 2→3)
+PASS STEP-REJECT-RANGE: 범위 밖 step 거부 + 무변화
+PASS STEP-REJECT-CLOSED: 닫힌 사이클 step 변경 거부
+PASS STEP-SCOPE: step N 커밋은 cycle.yaml + 스텝 ≤N 파일만 담는다 (미리 만든 스텝 >N 파일 제외) · C080/이슈#20
+PASS FSCK-R9: R9 위반 탐지 (step 범위)
+PASS LOG-OK: log 정상 렌더 (exit 0 + 사이클 id 표기)
+PASS LOG-BROKEN: 끊어진 참조에서 log 거부
+PASS WEB-SELFCONTAINED: web 산출물 외부 리소스 0
+PASS WEB-JSON: web 내장 JSON (id="gil-data") 구조·step 일치
+PASS WEB-DOCS-EMBEDDED: 완전한 앱: 5스텝 문서를 gil-data JSON에 내장(docs.steps) + 클릭 시 렌더할 앱 스크립트, 초기 DOM 경량
+PASS WEB-HIERARCHY-DEFAULT: web 기본은 위계(bake.hierarchy=true) · --flat은 평면 옵트아웃 · 둘 다 자기완결
+PASS WEB-PARALLEL-BANNER: 예약 0이면 배너 부재 · 예약 있으면 상단 배너로 진행 중 병렬 사이클(예약)을 드러냄 (threads의 뷰어판)
+PASS WEB-BEINGS: 존재(AI 자아)를 gil-data beings에 — 명부 집합과 일치(지어냄 0) · 4문서 · 초기 DOM 경량(앱 온디맨드) · 무존재면 키 부재
+PASS WEB-RELEASES: 배포 계보를 gil-data releases에 — current=도구 자기버전 · entries=CHANGELOG∪태그(지어냄 0) · 무CHANGELOG면 키 부재
+PASS WEB-DEPLOYMENTS: 사용자 산출물 배포를 gil-data deployments에 — 아티팩트별 계보·status(live/superseded/rolled-back)·근거사이클 링크 · 도구 릴리스와 별 축(별 키·별 카드) · 무파일이면 키 부재(지어냄 0)
+PASS WEB-CYCLE-RELEASE: 사이클→배포: released_in = 사이클 태그를 포함하는 최소 릴리스(최초 배포) · 미배포/무릴리스는 키 부재 · 지어냄 0
+PASS WEB-NODE-IO: 노드 입출력 마커: 배포=아래로 나가는 화살표(released_in) + 호버 툴팁 · lineage 없으면 마커도 없음(지어냄 0)
+PASS WEB-REFRESH: --refresh N → 라이브 폴링(JS fetch, meta refresh 부재) + bake 기록, 자기완결
+PASS WEB-REFRESH-DEFAULT: 실시간이 기본(옵션 무 → 폴링 켜짐·bake.refresh>0, meta 부재); --refresh 0으로 옵트아웃
+PASS WEB-MD-RENDER: 스텝 문서 마크다운 렌더 토글(기본 원문·지연) + 인라인 파서(CDN 0) + javascript: 스킴 차단
+PASS WEB-LAYOUT-TERMINATES: 분기·병합 반복 그래프에서 레이아웃이 유한 시간에 종료(무한 스핀 없음) — 30s 타임아웃 내 web 생성
+PASS GIT-CLOSE: close --git: 태그 + 사이클 경로만 커밋
+PASS VERIFY-CLEAN: 무변조 verify exit 0
+PASS VERIFY-TAMPER: 닫힌 사이클 변조 탐지 (exit ≠ 0)
+PASS RELEASE-LIST: releases가 태그↔CHANGELOG를 대조 (3릴리스 훅 ∧ drift=2 ∧ cycle태그 배제 ∧ exit0 ∧ 저장소 무변화)
+PASS RELEASE-DRIFT-GATE: release가 배포 계보 drift를 하드 거부 (drift→exit≠0 ∧ 무변화(트리·커밋·태그) ∧ 처방 ∧ 일치는 통과)
+PASS RELEASE-CYCLE-SOURCE: release --cycle: 닫힌 사이클을 태그·CHANGELOG에 기록(releases가 읽음); 열린/없는 사이클은 무변화 거부
+PASS DEPLOY-CUT: deploy cut: 아티팩트 단위, 닫힌 사이클(복수)→deploy/<artifact>/<semver> 태그 ∧ json(live·복수소스·kind); rejected/열린/없는 소스는 무변화 거부
+PASS DEPLOY-LIVE-INVARIANT: 둘째 cut이 직전 live를 superseded로 전이(아티팩트당 live 1개·fsck OK); 직접 조작 live 2개면 fsck가 잡는다
+PASS DEPLOY-QUERY: list가 그 아티팩트 배포를, current가 현 live 하나를 정확히 보고 ∧ 읽기 전용(저장소 무변화)
+PASS DEPLOY-ROLLBACK: rollback: 현 live→rolled-back ∧ 직전 배포 재활성(live 1개·fsck OK); 첫 배포(직전 없음)는 롤백 거부
+PASS DEPLOY-NAMESPACE: 배포 태그(deploy/*)가 도구 릴리스 조회(releases, v*)에 섞이지 않는다 (두 축의 네임스페이스 분리)
+PASS CORRECT-UNSEALED-REJECT: 봉인되지 않은 사이클의 정정 거부 (exit≠0 + 저장소 무변화)
+PASS CORRECT-NO-AUTHOR: --author 없는 정정 거부 (정정의 출처도 지어내지 않는다)
+PASS CORRECT-FIELD-LIMIT: 출처 필드가 아닌 것(verdict)의 정정 거부 (L1 — 증거가 있어도 저자의 주장은 불변)
+PASS CORRECT-EVIDENCE-REQUIRED: 증거 없는/증언되지 않는 정정 거부 (L2 — 스키마상 합법인 거짓도)
+PASS CORRECT-RECORD: 정정 2회: 색인 수리 + 계수 + **모든** 거짓값(from) 영구 보존 (L3 — 덧붙임)
+PASS CORRECT-TAG-MOVE: 정정 후 verify OK (태그 이동) + fsck 위반 0 — 다중루트 해소
+PASS CORRECT-VERIFY-STILL-CATCHES: 정정 후에도 문서 변조를 verify가 탐지 (불변성 보증 생존)
+PASS CORRECT-TAMPER-GUARD: 이미 변조된 사이클의 정정 거부 (변조 세탁 뒷문 차단)
+PASS SUPERSEDE-TAG-MOVE: supersede([migrate]) 후 verify OK — 태그 이동 규약 (§4)
+PASS WITHDRAW-RETRACTS: 열린 사이클 withdraw → 디렉토리 소멸 + Revert 커밋 각인 (대체 없는 철회)
+PASS WITHDRAW-REJECTS-CLOSED: 닫힌 사이클 withdraw 거부 + HEAD 불변 (불변 보호 — supersede/correct의 몫)
+PASS WITHDRAW-ATOMIC: 존재하지 않는 ref withdraw 거부 + HEAD 불변 (원자성)
+PASS WEB-AUTO-REFRESH: 뷰어가 있으면 step이 그것을 다시 굽는다 (창이 원장을 따른다)
+PASS WEB-AUTO-PURE-COMMIT: 사이클 커밋에 뷰어가 섞이지 않는다 (뷰어는 별도 커밋)
+PASS WEB-AUTO-NONE: 뷰어가 없으면 아무 HTML도 만들지 않는다 (도구는 뷰어를 강요하지 않는다)
+PASS WEB-BAKE-META: 재굽기가 사용자의 --title을 보존(bake 자기보고) + --no-web은 손대지 않는다
+PASS FSCK-R13: corrections N>0인데 corrections.yaml이 없으면 위반 (R13)
+PASS NO-GIT-GRACEFUL: git 부재에서 open이 rc0 + 사이클 파일 생성 + 무크래시 (파일은 남고 각인만 건너뜀)
+PASS DEVIATIONS-COUNT: close는 deviations.yaml 레코드 수 ≠ deviations 카운트면 봉인 거부, 맞추면 봉인 (C053 슬립 차단)
+PASS WORKTREE-SPAWN: worktree add가 rc0 + 워크트리에 사이클 + 브랜치 + 메인 격리 + main에 open 커밋 없음 + 무크래시; 비저장소는 거부 (C050 봉인)
+PASS WORKTREE-LAND: worktree land가 rc0 + main에 --no-ff 병합(부모2) + 워크트리·브랜치 정리 + 무크래시; 충돌은 거부+보존+abort (C060 봉합)
+PASS SHOW-NODE: show <chain>/<id> --json이 그 노드의 신원을 반환 (exit0 ∧ id·chain 일치)
+PASS SHOW-FORWARD: 정방향 lineage 엣지가 대상+존재여부로 해석된다 (X ⇠ alpha/A, exists)
+PASS SHOW-BACKLINKS-PARENT: parent 백링크(체인 내 cited-by): alpha/B ← alpha/C
+PASS SHOW-BACKLINKS-LINEAGE: lineage 백링크(cross-chain cited-by): alpha/A ← beta/X
+PASS SHOW-EDGES-MATCH-GRAPH: show의 정방향 parent 엣지 == web JSON(build_graph) 엣지
+PASS SHOW-MISSING: 부재 노드 → exit≠0 ∧ 지어낸 JSON 없음
+PASS THREADS-JSON-SHAPE: threads --json이 reserved·open·*_count 키를 가진 유효 JSON (exit0)
+PASS THREADS-RESERVED: 미소비 예약이 reserved에 정확히 나온다 (num5·for=bob·slug)
+PASS THREADS-CONSUMED-EXCLUDED: 소비된 예약(num1=C001-open 존재)은 reserved에서 제외 (지어냄 방지, C040)
+PASS THREADS-OPEN: status=open 사이클은 open에, closed는 제외 (gamma/C001-open ∈, C002-done ∉)
+PASS THREADS-OPEN-MATCHES-SCAN: threads의 open 집합 == 직접 스캔한 open 집합 (불일치 기각, C042)
+PASS THREADS-EMPTY: 예약·열린 사이클 0 → reserved==[]·open==[], exit0 (빈 상태 정직)
+PASS GUARD-PRIMARY-REFUSE: 주 체크아웃에서 author≠gil.owner의 커밋을 guard가 거부 (거부 메시지 지문 — 은퇴 우연 통과 아님) — C050 봉인
+PASS GUARD-OWNER-OK: 주 체크아웃에서 주인(gil.owner) author의 커밋은 guard를 통과 (거부 메시지 부재)
+PASS GUARD-LINKED-OK: 링크드 워크트리에서는 남의 author 커밋도 guard 미적용 (오탐 0 — 존재의 작업공간)
+PASS GUARD-RESERVED-OK: 주 체크아웃에서 예약 대상 author의 예약된 open은 통과 (예약=소유자 승인 · C078)
+PASS GUARD-RESERVED-AUTHOR: 남 앞으로 예약된 slug을 다른 author가 열면 거부 (예약 예외는 C050 방지를 안 뚫는다 · C078)
+
+계약 준수: 121/121  ✔ 이 구현은 gil이다
