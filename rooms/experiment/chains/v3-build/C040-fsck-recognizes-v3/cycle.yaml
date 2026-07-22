@@ -2,7 +2,7 @@ id: C040-fsck-recognizes-v3
 chain: v3-build
 parent: C039-worktree-v3-open
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-23
