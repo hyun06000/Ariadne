@@ -1,0 +1,14 @@
+id: C042-v3-lineage-in-log
+chain: v3-build
+parent: C041-v3-open-lineage
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-23
+closed: null
+title: ""
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
