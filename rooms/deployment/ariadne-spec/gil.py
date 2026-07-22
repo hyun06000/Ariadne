@@ -116,21 +116,36 @@ def load_chain_records(chain_dir):
     records = []
     chain_name = os.path.basename(os.path.normpath(chain_dir))
     for entry in sorted(os.listdir(chain_dir)):
-        yaml_path = os.path.join(chain_dir, entry, "cycle.yaml")
-        if os.path.isfile(yaml_path):
-            data = parse_cycle_yaml(yaml_path)
-            data["_dir"] = entry
-            data["parents"] = _as_list(data.get("parent"))
-            data["lineage_list"] = _as_list(data.get("lineage"))
-            records.append(data)
-            continue
         entry_dir = os.path.join(chain_dir, entry)
-        if os.path.isfile(os.path.join(entry_dir, "steps.yaml")):  # v3 네이티브 사이클 (C040)
+        yaml_path = os.path.join(entry_dir, "cycle.yaml")
+        # [C043] steps.yaml이 있으면 v3 사이클이다 (열림·닫힘 무관). 닫힌 v3도 steps.yaml을
+        #   가지며 v3 close가 쓴 cycle.yaml은 v3 형식(state·verdict, id 없음)이라 v2 로더가
+        #   읽으면 'id 없음' crash — 도그푸딩(C043)이 잡은 결함. steps.yaml 유무로 판별한다.
+        if os.path.isfile(os.path.join(entry_dir, "steps.yaml")):  # v3 네이티브 사이클 (C040·C043)
             parents, author = _v3_lineage(entry_dir)  # [C042] 계보 trailer로 parents·author 복원
             data = {"id": entry, "chain": chain_name, "_dir": entry, "_v3": True,
                     "parents": parents, "lineage_list": [], "_v3_dir": entry_dir}
             if author:
                 data["author"] = author
+            if os.path.isfile(yaml_path):  # 닫힌 v3 — v3 close가 쓴 봉인 메타(state·verdict)
+                sealed = parse_cycle_yaml(yaml_path)
+                data["status"] = sealed.get("state") or "closed"
+                if sealed.get("verdict") and sealed.get("verdict") != "null":
+                    data["verdict"] = sealed.get("verdict")
+                if sealed.get("closed"):
+                    data["closed"] = sealed.get("closed")
+            else:  # 열린 v3 — 상태를 스텝 트리에서 도출 (log 뱃지 [?]→[in_progress]/[solved])
+                try:
+                    data["status"] = cycle_state(load(entry_dir))
+                except Exception:
+                    pass
+            records.append(data)
+            continue
+        if os.path.isfile(yaml_path):  # v2 사이클 (cycle.yaml, steps.yaml 없음)
+            data = parse_cycle_yaml(yaml_path)
+            data["_dir"] = entry
+            data["parents"] = _as_list(data.get("parent"))
+            data["lineage_list"] = _as_list(data.get("lineage"))
             records.append(data)
     return records
 
