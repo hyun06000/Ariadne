@@ -4,11 +4,11 @@ parent: C032-promote-open-to-v3
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "conformance를 v3 계약으로 재정의 (v2 계약 은퇴, 안전 가드는 존치)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
