@@ -1567,3 +1567,16 @@
 - **정직한 경계**: 계보 표현은 됐으나 render_graph 노드 상태 뱃지는 아직 `[?]`(v3 진행/결말을 steps.yaml에서 미도출) · Cycle-Parent 참조 무결성 미검사(C041 이월).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 172개(C042 +1). 배포판 gil.py에 v3 계보 표현, conformance 121/121.
 - **⭐⭐ 다음 (도그푸딩 전환 문턱 — 상현님 판단 필요)**: A. v3 사이클 상태 뱃지(●[?]→열림/닫힘·산잎/죽은잎, steps.yaml 도출) B. Cycle-Parent 참조 무결성(v2 R6의 v3판) C. v3 트리 전체 정합(C040 이월) D. 잔여 예약축 제거. **⭐⭐ 상현님 보고: 세 전제+계보 표현 완성, gil v3 도그푸딩 전환 가능. A(상태 뱃지) 먼저 할지 바로 전환할지 판단 요청 — 다음 세션 시작점.**
+
+## 2026-07-23 (이어서) — ⭐⭐⭐ v3-build/C043: 첫 v3 네이티브 도그푸딩 + 상태 뱃지 (solved, 완전한 v3 사이클 한 바퀴)
+
+- **상현님 "지금 바로 gil v3로 전환"** → **역사적 전환: v3-build 체인이 처음 자기 자신을 gil v3로 연 사이클.** 부모 C042. `gil v3 open/step/close` 네이티브로 define→hypothesis→verify→analyze(success)→close 완주. steps.yaml 스텝 트리·계보 trailer(Cycle-Author clew·Cycle-Parent C042). 우리 도구가 자기를 v3로 씀 — 대체를 몸으로.
+- **⭐⭐ 핵심 결과 — v3 상태 뱃지.** load_chain_records 판별을 "cycle.yaml 없으면 v3"→**"steps.yaml 있으면 v3"**(열림·닫힘 무관)로 재작성. 열린 v3는 `cycle_state(load(dir))`로 status 도출(in_progress/solved/multi_solution), 닫힌 v3는 봉인 cycle.yaml(state·verdict) 읽음. log 뱃지 `[?]`→`[in_progress]`/`[solved · supported]`. 배포판 gil.py 수정, conformance 121/121·fsck 위반0.
+- **⭐⭐⭐ 도그푸딩이 즉시 결함을 잡았다 — close 경로.** s2 가설 "닫힌 v3는 cycle.yaml 있어 v2 분기가 잡음"이 **실측하니 crash**: v3 close cycle.yaml은 v3 형식(state·verdict, **id 없음**)이라 v2 로더가 "id 필드가 없다" crash. **C040~C042가 열린 v3만 다뤄 못 본 결함을, 첫 도그푸딩이 close를 실제 밟으며 발견.** 몸으로 쓰지 않았으면 안 드러났을 결함 — 도그푸딩의 본질 가치(관념적 테스트가 놓치는 실사용 경로) 증명.
+- **⭐⭐ 정점 통찰 — v3 정체성의 표지는 steps.yaml이다.** cycle.yaml은 v2 전유물이자 v3 close 봉인 메타(다른 스키마)로 이중 의미라 판별 부적합. steps.yaml 유무가 단일·견고(열림·닫힘 항상 존재). 판별 로직 정화.
+- **⭐ 정점 통찰 2 — 자기 개선의 즉시 반영.** 이 사이클이 고친 상태 뱃지가 이 사이클 자신에 즉시 적용(`C043 [?]`→`[in_progress]`→닫으니 `[solved · supported]`). 우리가 v3로 일하며 v3를 고친다.
+- **측정 ALL PASS**: M1 열린 뱃지(in_progress) · M2 solved 뱃지 · M3 닫힌 v3 무회귀(결함 수정 후 crash 없이 solved·supported) · M4 v2 무회귀·conformance 121/121.
+- **정직한 경계**: 상태 뱃지·계보·인식 완성. 남은 조각: B. Cycle-Parent 참조 무결성(v2 R6의 v3판) C. v3 트리 전체 정합(C040 이월) D. 잔여 예약축 제거.
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 173개(C043 +1, **첫 v3 네이티브**). 배포판 gil.py에 v3 상태 뱃지. conformance 121/121.
+- **⭐⭐⭐ 이정표 — gil v3 도그푸딩이 상시 가능해졌다.** C038(격리)→C039(worktree open)→C040(fsck·번호)→C041(계보 각인)→C042(계보 표현)→**C043(첫 도그푸딩·상태 뱃지)**. 이제 실사이클을 gil v3로 열고·스텝 트리로 진행하고·닫고·log로 계보와 상태를 본다. **상현님 "gil v3 쓸 수 있을 때"가 실현됐다.**
+- **⭐ 다음**: 다음 실사이클도 gil v3 네이티브로(도그푸딩 상시화). 주제 후보: B(Cycle-Parent 참조 무결성) → C(v3 트리 전체 정합) → D(잔여 예약축 제거). 각 사이클이 v3를 v3로 다듬는다.
