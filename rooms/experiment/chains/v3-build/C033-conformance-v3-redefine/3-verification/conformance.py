@@ -2068,7 +2068,6 @@ def main():
     # 사이클-간 계약(번호·저자·부모 게이트)을 갖지 않는다 — 그 계약들은 v3에서 notes/cycle.yaml
     # 층으로 이동했다(C033 s2 실측). v3 open은 사이클-내 스텝 트리의 시작만 다룬다. 여기서는
     # v3 쓰기의 핵심 계약을 판정기에 세운다 (v2 삭제가 아니라 v3 신규 — 안전한 순증).
-    # 게이트-독립 완성(v2 항목 제거·판정기 v2 crash 내성)은 후속 카브(C033 M5 이월).
     v3root = make_sandbox(os.path.join(work, "v3-write"))
     v3cyc = os.path.join(v3root, "rooms/experiment/chains/demo/C001-v3-cycle")
     os.makedirs(v3cyc, exist_ok=True)
@@ -2081,6 +2080,7 @@ def main():
           rv.returncode == 0 and os.path.isfile(sy) and os.path.isfile(s1)
           and "kind: define" in sy_txt and "id: s1" in sy_txt,
           f"rc={rv.returncode} sy={os.path.isfile(sy)} s1={os.path.isfile(s1)}")
+    # 이미 steps.yaml 있는 dir에 v3 open → 거부 (v3 open은 빈 사이클에만 — 유일한 거부 계약)
     rv2 = impl.run(v3root, "v3", "open", v3cyc, "--title", "중복")
     check("V3-OPEN-REJECT-EXISTING",
           "이미 steps.yaml 있는 사이클에 v3 open 거부 (빈 사이클에만)",
