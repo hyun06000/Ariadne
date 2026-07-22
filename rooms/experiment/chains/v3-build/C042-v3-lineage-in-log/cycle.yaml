@@ -2,7 +2,7 @@ id: C042-v3-lineage-in-log
 chain: v3-build
 parent: C041-v3-open-lineage
 lineage: []
-step: 3
+step: 4
 author: clew
 status: open
 opened: 2026-07-23
