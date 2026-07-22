@@ -1462,3 +1462,16 @@
 - **정직한 경계**: 첫 조각만(close-seal 3개) — 남은 순수 셋업(stepgate 등)·부류 2(open 검사)·GUARD·게이트 제거는 이월 · gil.py 무변경 · 부류 2는 헬퍼 교체 불가(테스트 삭제라, v3 재작성 필요).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 165개(C035 +1). 배포판 conformance 게이트 상속 127/127·게이트 없이 75통과.
 - **⭐ 다음(게이트 완전 제거로)**: ① **남은 순수 셋업 open 헬퍼 교체**(stepgate 1326·1311·1354·1551·1563·1579 등, C035가 안전 증명해 기계적 반복 — crash가 판정기 끝까지 밀리면 게이트 없이 완전 초록 근접) ② 부류 2 v3 재작성(예약·guard·open 동작) ③ GUARD v3 이전 ④ 게이트 완전 제거(GIL_V2_OPEN 자체) ⑤ v3 쓰기 계약 확장.
+
+## 2026-07-22 (이어서) — ⭐⭐ v3-build/C036: v2 open 검사 항목 제거 (게이트 없이 75→84, supported)
+
+- **상현님 "계속 가자" + AskUserQuestion "v2 open 검사 항목 제거" → 현 crash원(stepgate 1342) 해소.** 부모 C035. 게이트 필요(`GIL_V2_OPEN=1`).
+- **⭐ 전수 분류 실측 — open 관련 항목이 두 부류.** 부류 A(open 자체 검사, v2 전용, 제거): OPEN-GIT·OPEN-NEWCHAIN-COMMIT·OPEN-PUSH-RENUMBER·NO-REMOTE-GRACEFUL·PATH-SYMLINK-GIT. 부류 B(셋업, 헬퍼 교체): withdraw·STEP-GATE. 전부 `if skip_git/no-git else:` git-present 블록 안(1024).
+- **⭐⭐ 핵심 결과 — v2 open 검사 6항목 제거(부류 A 5 + STEP-GATE).** 모두 사이클-간 커밋 구조·번호 재번호·환경 우아화 검사, v3 대응 없음(C033 매핑). 배포판 conformance 127→**121/121**(정확한 회계, gil.py 무변경, conformance −155/+8). **게이트 없이 75→84 전진**, crash 1342(stepgate)→**1476(withdraw 셋업)**로 밀림.
+- **⭐⭐ 정점 통찰 — 부류 A/B 이분법은 항목이 아니라 검사 단위에서 성립, STEP-GATE는 혼합.** STEP-GATE 한 check에 (1)open 검사 + (2)(3)step 검사가 묶임. 처리 열쇠: 각 검사가 **다른 곳에 중복 커버**되는지 — (1)은 V3-OPEN-CREATE, (2)(3)은 STEP-OK 등이 담당해 제거가 계약 공백 안 만듦. 혼합 항목은 "분해 후 각 조각 중복 여부"로 판단.
+- **⭐⭐ 정점 통찰 2 — crash 이동 사슬이 전진의 지도.** open(330)→close-seal(619)→stepgate(1342)→withdraw(1476). C034~C036 세 카브가 crash를 판정기 따라 뒤로 밀었다. **crash 위치 = "게이트 없이 어디까지 왔나"의 좌표.** 판정기 끝(2020)까지 거리 좁혀짐. 순차 판정기에서 crash는 진행 최전선.
+- **⭐ 교훈 — crash 제거 파급은 균일하지 않다(막던 항목 수 비례).** C035 +35(close-seal이 뒤 수십 막음), C036 +9(stepgate 뒤 항목 적음). 큰 파급 crash 먼저가 효율적이나 순차라 순서는 crash 위치가 강제. **v2 전용 판별 기준 = "사이클-간을 보는가"** — 그렇다면 v3 대응 없음 → 제거.
+- **5측정**: M1 STEP-GATE 재분류(혼합, 둘 다 중복이라 제거) · M2 crash 전진 1342→1476·75→84 · M3 회계 121/121 · M4 무결(121 전부 PASS) · M5 다음 좌표(withdraw 1563).
+- **정직한 경계**: 부류 A 5 + STEP-GATE만 — withdraw 셋업·남은 open·GUARD·게이트 제거는 이월 · gil.py 무변경 · GUARD는 제거 아니라 v3 재작성(안전은 버전 무관).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 166개(C036 +1). 배포판 conformance 게이트 상속 121/121·게이트 없이 84통과.
+- **⭐ 다음(게이트 완전 제거로)**: ① **withdraw 셋업 open 헬퍼 교체**(다음 crash원 1476, 부류 B, C035 패턴) ② 남은 셋업/검사 open 순차(crash를 판정기 끝 2020까지) ③ GUARD v3 재작성(guard 부착) ④ 게이트 완전 제거(GIL_V2_OPEN 자체=완전 버전리스) ⑤ v3 쓰기 계약 확장.
