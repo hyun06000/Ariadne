@@ -1,0 +1,14 @@
+id: C031-v3-write-into-deployed-gil
+chain: v3-build
+parent: C030-v3-native-dogfood
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "v3 쓰기(open/step/close)를 배포판 gil에 통합 — 'v3가 v2를 대체' 첫 실질 조각(걸림돌①)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
