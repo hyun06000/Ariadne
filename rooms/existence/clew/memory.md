@@ -1437,3 +1437,16 @@
 - **정직한 경계**: 첫 조각만(open 계약 3항목) — v3 쓰기 계약 전면(step·백트래킹·죽은 잎·close)·GUARD v3 이전·v2 항목 제거는 이월 · 배포판 적용, 게이트 상속 시 137/137(게이트 없이 완전 초록은 다음 관문).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 163개(C033 +1). 배포판 conformance 137/137(게이트 상속), 판정기에 v3 계약 3항목 섬.
 - **⭐ 다음(순서대로)**: ① **판정기 v2 crash 내성 or v2 항목 제거**(다음 관문, 게이트 없이 초록 — (A)예외 격리+게이트 or (B)v2 항목 제거·v3 대체, 상현님 "v2 완전 폐기"면 B) ② v3 쓰기 계약 확장(step kind 순환·백트래킹·죽은 잎·close) ③ GUARD v3 이전(v3 open에 guard 부착) ④ 읽기축 기본 전환(log/web v3) ⑤ v2→v3 온보딩 문서(C033 매핑표를 SPEC으로).
+
+## 2026-07-22 (이어서) — ⭐⭐ v3-build/C034: conformance v2 open 섹션 전진 삭제 (버전리스 실질 전진, supported)
+
+- **상현님 "계속" + AskUserQuestion "v2 섹션 전진 삭제 + v3 재작성" → C033 관문(게이트 제거)을 (B)길로.** 부모 C033. 게이트 필요(`GIL_V2_OPEN=1 gil open`).
+- **⭐ 지형 실측 — v2 결합이 판정기 거의 전체에 퍼짐.** conformance 137항 중 37곳이 v2 open 호출, 61곳이 v2 산출물(cycle.yaml·5문서) 전제. 그러나 crash는 오직 open 섹션 v2 open 호출 때문(line 330 `_seal_closed`) — close는 write_cycle로 v2 open과 독립.
+- **⭐⭐ 핵심 결과 — v2 open 10항목 제거 + v3 3항목 이동, crash 근원 소멸.** OPEN-CREATE·INCREMENT·REJECT-SLUG·AUTHOR·PARENT·ROOT·GATE(10) + prov() 헬퍼 삭제, C033이 파일 끝에 세운 v3 계약 3항목을 open 자리(초입)로 이동. 배포판 conformance 137→**127/127**(제거 −10, gil.py 무변경, 배포판=검증본 바이트 동일). **게이트 없이 crash 지점 330(open)→619(close) 이동, 40항목 PASS**(crash 때 0).
+- **⭐⭐ 정점 통찰 — v2 결합은 두 겹이다(open 호출 층 + write_cycle 산출물 층).** C033 "v2 결합이 open보다 깊다"의 구조를 벗김: (1) open 호출 층 — open 후 파일 읽기(`_seal_closed`)로 crash, C034가 제거. (2) write_cycle 산출물 층 — close 등이 write_cycle의 v2 산출물(cycle.yaml·5-report)에 의존, 다음 crash원(619). **첫 겹 벗기니 crash 330→619로 밀림.** 전진 삭제 = 겹을 하나씩.
+- **⭐⭐ 정점 통찰 2 — crash와 FAIL은 v2 결합 강도 차이.** 같은 v2 open 호출도 결과를 파일 읽기로 바로 쓰면 crash(open 섹션), 종료코드만 보면 FAIL(예약·라운드). C034 후 예약·라운드는 crash 아니라 정상 FAIL로 강등 — 판정기 안 무너지고 정직히 보고. 게이트-독립 완성은 이 FAIL 항목도 v3 재작성(crash 제거=필요조건, 초록=충분조건).
+- **⭐ 교훈 — 전진 삭제 회계 정직.** 137→127 = 정확히 −10(제거). v3 3항목은 이미 137에 셈·이동만이라 순감 0. "제거지 회귀 아님"을 명시적 회계로 증명(C021 잔여 회계 연장). 이동은 경로 독립(판정 항목 독립, loom/C012)이라 cut-paste가 공짜.
+- **5측정**: M1 crash 소멸(330→619) PASS · M2 게이트-독립 40 PASS · M3 open-git 잔여 미도달(이월) · M4 v3 이동 생존 PASS · M5 회계 127/127 PASS.
+- **정직한 경계**: 첫 겹만(open 호출 층) — write_cycle 산출물 층(close 619 crash)·예약·라운드·open-git·GUARD v3화는 이월 · gil.py 무변경(conformance만) · 게이트 상속 시 127/127(게이트 없이 완전 초록은 다음 겹들 후).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 164개(C034 +1). 배포판 conformance 127/127(게이트 상속), v2 open 섹션 제거됨.
+- **⭐ 다음(게이트 완전 제거로)**: ① **close 섹션 write_cycle 산출물 층 v3화**(다음 관문, line 619 crash원 — 두 번째 겹) ② 예약·라운드·open-git 섹션 v3 재작성(게이트 없이 FAIL 항목) ③ GUARD v3 이전 ④ v3 쓰기 계약 확장(step·백트래킹·죽은 잎·close) ⑤ 게이트 완전 제거(위 완료 시 GIL_V2_OPEN 자체 제거=완전 버전리스).
