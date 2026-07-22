@@ -1475,3 +1475,15 @@
 - **정직한 경계**: 부류 A 5 + STEP-GATE만 — withdraw 셋업·남은 open·GUARD·게이트 제거는 이월 · gil.py 무변경 · GUARD는 제거 아니라 v3 재작성(안전은 버전 무관).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 166개(C036 +1). 배포판 conformance 게이트 상속 121/121·게이트 없이 84통과.
 - **⭐ 다음(게이트 완전 제거로)**: ① **withdraw 셋업 open 헬퍼 교체**(다음 crash원 1476, 부류 B, C035 패턴) ② 남은 셋업/검사 open 순차(crash를 판정기 끝 2020까지) ③ GUARD v3 재작성(guard 부착) ④ 게이트 완전 제거(GIL_V2_OPEN 자체=완전 버전리스) ⑤ v3 쓰기 계약 확장.
+
+## 2026-07-22 (이어서) — ⭐ v3-build/C037: withdraw 셋업 open을 헬퍼로 (게이트 없이 84→106, supported)
+
+- **상현님 "계속 가자" → C036 다음 crash원(withdraw 셋업 1476).** 부모 C036. C035 패턴의 기계적 반복이라 설계 컨펌 생략(새 결정 없음, 순차 카브).
+- **⭐⭐ 핵심 결과 — withdraw 3항목 셋업 open을 write_cycle+git 헬퍼로.** WITHDRAW-RETRACTS·ATOMIC: `open --git`→`write_cycle`+commit. REJECTS-CLOSED: `open+step×5+close`(7 gil 호출)→`write_cycle(status=closed,step=5)`+commit+`git tag cycle/demo/C001-to-seal`(닫힌 사이클=상태 직접 구성). 배포판 conformance 게이트 없이 **84→106**(+22 대폭), 게이트 상속 **121/121 유지**, gil.py 무변경. crash 1476(withdraw)→**line 92 `_seal_closed`(guard 셋업 open ~1832)**로 밀림.
+- **⭐ 정점 통찰 — 명령은 셋업 수단과 무관하게 자기 대상만 본다.** WITHDRAW-RETRACTS의 Revert 검증(디렉토리 소멸)이 헬퍼 셋업 위에서도 통과 — withdraw는 open이 만든 사이클이든 write_cycle이 만든 사이클이든 **마지막 사이클 커밋을 revert**. C035 "셋업은 검사 대상 아님"의 revert 판.
+- **⭐ 교훈 — 헬퍼 교체는 crash 해소 + 셋업 간결화.** REJECTS-CLOSED 셋업이 7 gil 호출→3 호출로. "7단계 정상 경로 구축"→"최종 상태 직접 구성". C036 close-seal의 write_cycle+태그 재사용.
+- **⭐ 교훈 — crash 제거 파급은 하류 write_cycle 섹션 밀도에 비례.** C037 +22(withdraw 뒤 web·fsck·deploy 등 write_cycle 셋업 다수) > C036 +9. crash 이동 사슬 open(330)→close(619)→step(1342)→withdraw(1476)→**guard(92)** — 다섯 카브가 판정기 절반 너머로 밀었다.
+- **5측정 ALL PASS**: M1 crash 소멸(1476→92) · M2 84→106 · M3 withdraw 3항목 PASS(판정 불변) · M4 회계 121 유지 · M5 다음 좌표(guard 1832).
+- **정직한 경계**: withdraw 3항목만 — guard(C050 안전, 셋업 아니라 검사→v3 재작성)·예약·게이트 제거는 이월 · gil.py 무변경.
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 167개(C037 +1). 배포판 conformance 게이트 상속 121/121·게이트 없이 106통과.
+- **⭐ 다음(게이트 완전 제거로)**: ① **GUARD 섹션 v3 재작성**(다음 crash원 ~1832, C050 병렬 안전 — 셋업 아니라 검사라 v3 open에 guard 부착+V3-GUARD-*, 제거 아님) ② 예약 섹션 부류 재판별(사이클-간이면 제거) ③ 게이트 완전 제거(GIL_V2_OPEN 자체) ④ v3 쓰기 계약 확장.
