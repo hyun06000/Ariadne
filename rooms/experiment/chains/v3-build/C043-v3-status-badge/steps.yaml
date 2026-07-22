@@ -5,3 +5,9 @@
   outcome: null
   backtrack: null
   body: steps/s1.md
+- id: s2
+  kind: hypothesis
+  parent: s1
+  outcome: null
+  backtrack: null
+  body: steps/s2.md
