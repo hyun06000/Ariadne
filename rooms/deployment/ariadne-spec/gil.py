@@ -966,7 +966,9 @@ def _worktree_add(args):
         n = _next_number(records)
         cyc_dir = os.path.join(chain_dir, f"C{n:03d}-{args.slug}")
         cmd = [sys.executable, os.path.abspath(__file__), "v3", "open", cyc_dir,
-               "--title", args.slug, "--git"]
+               "--title", args.slug, "--git", "--author", args.author]
+        for p in args.parent:  # [C041] 계보를 v3 사이클 커밋에 Cycle-Parent trailer로
+            cmd += ["--parent", p]
     else:
         cmd = [sys.executable, os.path.abspath(__file__), "open", args.chain, args.slug,
                "--author", args.author, "--root", wt_chains, "--date", args.date, "--git", "--no-web"]
@@ -6316,10 +6318,17 @@ def cmd_v3open(args):
     dump(dir_, [root])
     write_body(dir_, "s1", "# s1 · define (루트)\n\n" + (args.title or "(문제 미기술)"))
     if getattr(args, "git", False):
-        # 루트 define — 계약 trailer로 각인 (C010). Parent: null.
+        # 루트 define — 계약 trailer로 각인 (C010). Parent: null (스텝 트리 부모).
+        # [C041] 사이클-간 계보(누가 열었나·부모 사이클)는 Cycle-Author·Cycle-Parent
+        #   trailer로 별도 각인 — steps.yaml(스텝 트리)은 불변, 계보는 커밋 메타로.
+        #   복원: git log --format=%(trailers:key=Cycle-Author). worktree add가 넘긴다.
+        trailers = [("Step-Id", "s1"), ("Kind", "define"), ("Parent", "null")]
+        if getattr(args, "author", None):
+            trailers.append(("Cycle-Author", args.author))
+        for p in getattr(args, "parent", None) or []:
+            trailers.append(("Cycle-Parent", p))
         git_imprint(dir_, "gilv3 open %s: s1 define" % os.path.basename(os.path.abspath(dir_)),
-                    trailers=[("Step-Id", "s1"), ("Kind", "define"),
-                              ("Parent", "null")])
+                    trailers=trailers)
     print("open: %s — 루트 define s1 생성" % dir_)
 
 def cmd_v3step(args):
@@ -6774,6 +6783,8 @@ def main(argv=None):
     v3sub = p_v3.add_subparsers(dest="v3cmd", required=True)
     v3o = v3sub.add_parser("open", help="v3 사이클 시작 — 루트 define s1 생성")
     v3o.add_argument("dir"); v3o.add_argument("--title"); v3o.add_argument("--git", action="store_true")
+    v3o.add_argument("--author", help="이 사이클을 연 존재 — 계보 각인 (Cycle-Author trailer, C041)")
+    v3o.add_argument("--parent", action="append", default=[], help="부모 사이클 id — 계보 각인 (Cycle-Parent trailer; 병합이면 여러 번, C041)")
     v3o.set_defaults(func=cmd_v3open)
     v3s = v3sub.add_parser("step", help="v3 스텝 전이 — define→hypothesis→verify→analyze 순환 (번호 아님, --kind)")
     v3s.add_argument("dir"); v3s.add_argument("--kind"); v3s.add_argument("--outcome")

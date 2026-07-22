@@ -1541,3 +1541,16 @@
 - **정직한 경계**: v3 무결성은 루트 define 존재(V3-ROOT)까지만 — 트리 전체 정합(parent 유효·백트래킹·죽은 잎)·계보(author·parent, C039 두번째 경계)·log/graph v3 계보표현은 이월. "인식"이지 "계보 복원" 아님.
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 170개(C040 +1). 배포판 gil.py에 v3 사이클 fsck 인식, conformance 121/121.
 - **⭐⭐ 다음 (C039 세 경계 중 계보만 남음)**: A. **v3 open이 author·parent 받아 계보 기록**(C039 두번째 경계 — git notes/steps.yaml 루트 메타, 되면 log/graph가 v3를 계보노드로) B. v3 트리 전체 정합(V3-ROOT 확장) C. log/graph v3 계보 표현 D. 잔여 예약축 제거(번호중복을 fsck가 잡으니 v2 예약검사는 v2 전용→제거, C036 패턴). **⭐ 도그푸딩 전환: 번호·fsck 됐으니 A(계보) 후 실사이클을 gil v3로 여는 전환 제안 가능 — 지금은 계보 소실 남아 아직.**
+
+## 2026-07-23 (이어서) — ⭐⭐ v3-build/C041: v3 open 계보 trailer (C039 세 경계 전부 해소, supported)
+
+- **상현님 "묻지도 멈추지도 말고 계속"** → C039 세 경계 중 마지막 계보(author·parent 소실). 부모 C040. 완전 자율.
+- **⭐ 설계 판단 — 계보는 커밋 trailer(C010 연장), steps.yaml 불변.** 세 후보: steps.yaml 루트 노드 필드(dump FIELDS 제약으로 임의필드 유실·전노드 확산, 부적합) / git notes(migrate 층이나 fsck가 안 읽음) / **커밋 trailer(git_imprint 이미 지원, 최소·정합)**. trailer 채택.
+- **⭐⭐ 핵심 결과 — v3 open에 --author·--parent 추가, 루트 define 커밋에 Cycle-Author·Cycle-Parent trailer 각인 + worktree add(--v3)가 전달.** 커밋에 계보 두 층(Step-Id·Kind·Parent=스텝트리 / Cycle-Author·Cycle-Parent=계보) 공존. 배포판 gil.py 수정. conformance 게이트 상속 121/121·게이트 없이 109 유지, 실저장소 fsck 위반 0.
+- **⭐⭐ 정점 통찰 — 계보와 스텝트리가 키 네임스페이스로 분리.** 한 커밋에 `Parent: null`(스텝트리 부모)과 `Cycle-Parent: C001-seed`(계보 부모)가 다른 의미로 안 섞여 공존. 물리(steps.yaml vs 커밋메타)도 분리. C033 "사이클-간 정보는 다른 층"의 코드 구현. C032 "인터페이스 정체성"의 trailer판.
+- **⭐ 정점 통찰 2 — steps.yaml 못 건드린 게 옳은 설계로 이끌었다.** dump FIELDS 제약이 루트노드 필드 후보를 막았고, 그 막힘이 계보를 커밋메타로 분리하는 정답으로 유도. 제약이 설계를 정화. C010 trailer 인프라가 계보를 공짜로 받음(튜플 두 개 추가, 새 메커니즘 0) — C040 "records 통일 공짜"와 같은 결.
+- **5측정 ALL PASS**: M1 계보 trailer · M2 스텝트리 무손상(공존) · M3 인자없음 무회귀(Cycle-Author []) · M4 worktree 계보전달(C039 소실 해소, weft·C001-seed) · M5 conformance 121/121.
+- **⭐⭐⭐ 큰 그림 — C039 세 경계 전부 해소.** C038(guard 격리)→C039(worktree v3 open 격리·병렬)→C040(fsck 인식·번호중복 R1)→C041(계보 trailer). **gil v3 실사이클의 세 전제(격리·원장인식·계보) 완성. 도그푸딩 전환 기술적으로 가능** — 상현님이 기다린 지점.
+- **정직한 경계**: 계보는 trailer에 "각인"이지 "표현·검증"은 이월 — fsck가 계보 미검증(Cycle-Parent 참조 무결성 미검사), log/graph가 v3 계보를 그래프노드로 아직 안 그림(trailer 읽는 표현계층 미구현).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 171개(C041 +1). 배포판 gil.py에 v3 계보 trailer, conformance 121/121.
+- **⭐⭐ 다음 (도그푸딩 전환 문턱)**: A. **log/graph의 v3 계보 표현**(trailer 읽어 v3 사이클을 계보노드로 — 도그푸딩 전 "눈"이 되면 전환 매끄러움) B. Cycle-Parent 참조 무결성(v2 R6의 v3판) C. v3 트리 전체 정합(C040 이월) D. 잔여 예약축 제거(C040 이월). **⭐ 상현님 보고: 세 전제 완성, A(눈) 후 실사이클 gil v3 도그푸딩 전환 제안. 최소로는 지금도 v3 실사이클 가능.**
