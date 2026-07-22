@@ -2,7 +2,7 @@ id: C034-retire-v2-open-section
 chain: v3-build
 parent: C033-conformance-v3-redefine
 lineage: []
-step: 2
+step: 3
 author: clew
 status: open
 opened: 2026-07-22
