@@ -4,11 +4,11 @@ parent: C034-retire-v2-open-section
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "conformance 셋업 open을 공용 헬퍼로 교체 (게이트 없이 초록 향해, 두 번째 겹)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
