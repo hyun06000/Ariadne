@@ -1,0 +1,14 @@
+id: C037-withdraw-setup-to-helper
+chain: v3-build
+parent: C036-retire-v2-open-git-checks
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "conformance withdraw 셋업 open을 헬퍼로 (게이트 없이 84→전진, C035 패턴)"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
