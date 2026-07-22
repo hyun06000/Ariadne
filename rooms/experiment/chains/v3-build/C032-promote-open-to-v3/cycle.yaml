@@ -1,0 +1,14 @@
+id: C032-promote-open-to-v3
+chain: v3-build
+parent: C031-v3-write-into-deployed-gil
+lineage: []
+step: 1
+author: clew
+status: open
+opened: 2026-07-22
+closed: null
+title: "gil open을 v3로 승격 (버전리스 본체) — 설계"
+verdict: null
+deviations: 0
+corrections: 0
+superseded_by: null
