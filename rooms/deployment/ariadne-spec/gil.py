@@ -81,6 +81,32 @@ def _as_list(value):
     return [value] if isinstance(value, str) else list(value)
 
 
+def _v3_lineage(entry_dir):
+    """[C042] v3 사이클 커밋의 계보 trailer를 읽어 (parents, author)를 반환한다.
+    Cycle-Parent(여러 가능)·Cycle-Author(C041 각인)를 git으로 복원 — v3 계보의 진실원은
+    커밋 메타(steps.yaml은 스텝 트리만). git 아니거나 실패면 ([], None)로 안전 폴백."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", entry_dir, "log",
+             "--format=%(trailers:key=Cycle-Parent,valueonly,separator=%x00)",
+             "--", "steps.yaml"],
+            capture_output=True, text=True)
+        parents = []
+        if r.returncode == 0:
+            for tok in r.stdout.replace("\n", "\x00").split("\x00"):
+                tok = tok.strip()
+                if tok and tok not in parents:
+                    parents.append(tok)
+        ra = subprocess.run(
+            ["git", "-C", entry_dir, "log", "-1",
+             "--format=%(trailers:key=Cycle-Author,valueonly)", "--", "steps.yaml"],
+            capture_output=True, text=True)
+        author = ra.stdout.strip() if ra.returncode == 0 and ra.stdout.strip() else None
+        return parents, author
+    except Exception:
+        return [], None
+
+
 def load_chain_records(chain_dir):
     """cycle.yaml이 있는 하위 디렉토리를 전부 읽는다. 검증하지 않고 수집만 한다 (fsck용).
     [C040] v3 사이클(steps.yaml만, cycle.yaml 없음)도 최소 record로 수집한다 — id=디렉토리명,
@@ -100,8 +126,11 @@ def load_chain_records(chain_dir):
             continue
         entry_dir = os.path.join(chain_dir, entry)
         if os.path.isfile(os.path.join(entry_dir, "steps.yaml")):  # v3 네이티브 사이클 (C040)
+            parents, author = _v3_lineage(entry_dir)  # [C042] 계보 trailer로 parents·author 복원
             data = {"id": entry, "chain": chain_name, "_dir": entry, "_v3": True,
-                    "parents": [], "lineage_list": [], "_v3_dir": entry_dir}
+                    "parents": parents, "lineage_list": [], "_v3_dir": entry_dir}
+            if author:
+                data["author"] = author
             records.append(data)
     return records
 

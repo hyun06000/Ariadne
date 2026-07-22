@@ -1554,3 +1554,16 @@
 - **정직한 경계**: 계보는 trailer에 "각인"이지 "표현·검증"은 이월 — fsck가 계보 미검증(Cycle-Parent 참조 무결성 미검사), log/graph가 v3 계보를 그래프노드로 아직 안 그림(trailer 읽는 표현계층 미구현).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 171개(C041 +1). 배포판 gil.py에 v3 계보 trailer, conformance 121/121.
 - **⭐⭐ 다음 (도그푸딩 전환 문턱)**: A. **log/graph의 v3 계보 표현**(trailer 읽어 v3 사이클을 계보노드로 — 도그푸딩 전 "눈"이 되면 전환 매끄러움) B. Cycle-Parent 참조 무결성(v2 R6의 v3판) C. v3 트리 전체 정합(C040 이월) D. 잔여 예약축 제거(C040 이월). **⭐ 상현님 보고: 세 전제 완성, A(눈) 후 실사이클 gil v3 도그푸딩 전환 제안. 최소로는 지금도 v3 실사이클 가능.**
+
+## 2026-07-23 (이어서) — ⭐⭐ v3-build/C042: log가 v3 계보 표현 (도그푸딩 전환의 "눈", supported)
+
+- **상현님 "묻지도 멈추지도 말고 계속"** → C041 이월(계보 표현). 부모 C041. 완전 자율.
+- **⭐ 실측 — log가 v3 사이클을 세지만 계보를 (root)로 그림.** C040 v3 record가 parents=[]라, 계보는 trailer(C041)에 있는데 record엔 없어 build_graph가 부모를 못 그림. trailer는 `git log --format='%(trailers:key=Cycle-Parent)' -- steps.yaml`로 깔끔히 읽힘.
+- **⭐⭐ 핵심 결과 — `_v3_lineage(entry_dir)` 헬퍼가 Cycle-Parent·Cycle-Author trailer를 git으로 읽어 load_chain_records v3 분기가 record.parents·author 채움.** valueonly·separator=%x00로 부모 여럿(병합) 파싱. 배포판 gil.py 수정. `gil log` 계보 `C002-child ← C001-root`(이전 (root)), author 복원(clew·weft), 비-git 폴백 안전(crash 0), conformance 121/121·실저장소 fsck 위반0·C040 번호중복 여전 검출.
+- **⭐⭐ 정점 통찰 — 각인과 표현을 record.parents가 잇는다.** 계보는 커밋 trailer(진실원), log는 record.parents(뷰). `_v3_lineage`가 둘을 연결 — trailer 읽어 record 채우자 표현 따라옴. 진실원(커밋 메타)과 뷰(그래프)의 분리, 로더가 다리.
+- **⭐ 정점 통찰 2 — C040 "records 통일"의 배당금.** v3 record를 v2와 같은 형태(parents·author 키)로 만들어둔 덕에 표현 계층(build_graph·log·render_graph) **전혀 안 건드리고** 계보 표현 공짜 완성. 빈 값 채우기만. 통일된 형태가 뷰 재사용을 낳음.
+- **5측정 ALL PASS**: M1 log 계보(child←parent) · M2 그래프 노드 · M3 author 복원 · M4 비-git 폴백(crash0) · M5 무회귀(fsck0·121/121·C040 번호중복 유지).
+- **⭐⭐⭐ 큰 그림 — gil v3 실사이클이 이제 "보인다".** C038(격리)→C039(worktree open)→C040(fsck 인식·번호)→C041(계보 각인)→C042(계보 표현). 격리·원장인식·계보 각인·계보 표현 완성. **도그푸딩 전환 준비 완료 — 상현님 "gil v3 쓸 수 있을 때" 지점 도달.**
+- **정직한 경계**: 계보 표현은 됐으나 render_graph 노드 상태 뱃지는 아직 `[?]`(v3 진행/결말을 steps.yaml에서 미도출) · Cycle-Parent 참조 무결성 미검사(C041 이월).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 172개(C042 +1). 배포판 gil.py에 v3 계보 표현, conformance 121/121.
+- **⭐⭐ 다음 (도그푸딩 전환 문턱 — 상현님 판단 필요)**: A. v3 사이클 상태 뱃지(●[?]→열림/닫힘·산잎/죽은잎, steps.yaml 도출) B. Cycle-Parent 참조 무결성(v2 R6의 v3판) C. v3 트리 전체 정합(C040 이월) D. 잔여 예약축 제거. **⭐⭐ 상현님 보고: 세 전제+계보 표현 완성, gil v3 도그푸딩 전환 가능. A(상태 뱃지) 먼저 할지 바로 전환할지 판단 요청 — 다음 세션 시작점.**
