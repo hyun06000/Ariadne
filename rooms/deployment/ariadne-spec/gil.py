@@ -931,16 +931,30 @@ def _worktree_add(args):
     # 워크트리 안의 chains 경로를 대상으로 gil self-invoke → open이 그 브랜치에 사이클을 커밋.
     chains_rel = _rel_to_repo(chains_root, repo)
     wt_chains = os.path.join(wt_path, chains_rel)
-    cmd = [sys.executable, os.path.abspath(__file__), "open", args.chain, args.slug,
-           "--author", args.author, "--root", wt_chains, "--date", args.date, "--git", "--no-web"]
-    for p in args.parent:
-        cmd += ["--parent", p]
-    for l in args.lineage:
-        cmd += ["--lineage", l]
-    if args.new_chain:
-        cmd.append("--new-chain")
-    if args.new_root:
-        cmd.append("--new-root")
+    if getattr(args, "v3", False):
+        # [C039] v3 네이티브 경로 — gil v3 open self-invoke. v3 open은 경로가 정체성이라
+        #   번호를 안 매긴다: add가 기존 사이클을 세어 번호를 결정론적으로 계산하고 완전
+        #   경로를 넘긴다. 각 존재가 자기 slug을 정하므로 slug 충돌 없음 → 예약 불필요.
+        #   author는 커밋 author(브랜치명 {author}/…)로, parent는 아직 v3 open 인자에 없어
+        #   커밋 trailer로 남긴다(migrate가 읽는 notes 층). C050 격리는 v3 open --git이
+        #   워크트리 브랜치에만 커밋해 계승된다.
+        chain_dir = os.path.join(wt_chains, args.chain)
+        records = load_chain_records(chain_dir) if os.path.isdir(chain_dir) else []
+        n = _next_number(records)
+        cyc_dir = os.path.join(chain_dir, f"C{n:03d}-{args.slug}")
+        cmd = [sys.executable, os.path.abspath(__file__), "v3", "open", cyc_dir,
+               "--title", args.slug, "--git"]
+    else:
+        cmd = [sys.executable, os.path.abspath(__file__), "open", args.chain, args.slug,
+               "--author", args.author, "--root", wt_chains, "--date", args.date, "--git", "--no-web"]
+        for p in args.parent:
+            cmd += ["--parent", p]
+        for l in args.lineage:
+            cmd += ["--lineage", l]
+        if args.new_chain:
+            cmd.append("--new-chain")
+        if args.new_root:
+            cmd.append("--new-root")
     r = subprocess.run(cmd, cwd=wt_path, capture_output=True, text=True)
     if r.returncode != 0:
         # 원자성: open이 실패하면 워크트리·브랜치를 잔여 없이 되돌린다 (open 계열 무변화 규율 계승).
@@ -6537,6 +6551,7 @@ def main(argv=None):
     p_wt.add_argument("--lineage", action="append", default=[], help="교훈의 연원 <chain>/<id> (여러 번; add 전용)")
     p_wt.add_argument("--new-chain", action="store_true", help="체인이 없으면 생성 (add 전용)")
     p_wt.add_argument("--new-root", action="store_true", help="비어있지 않은 체인에 새 루트 (add 전용)")
+    p_wt.add_argument("--v3", action="store_true", help="워크트리 안에서 v3 네이티브 사이클을 연다 (gil v3 open self-invoke; add 전용, C039) — 번호 충돌 없어 예약 불필요")
     p_wt.add_argument("--push", action="store_true", help="land: 병합 성공 후 main push")
     p_wt.add_argument("--date", default=today, help="opened 일자 (기본: 오늘; add 전용)")
     p_wt.add_argument("--root", default="rooms/experiment/chains", help="체인 루트")

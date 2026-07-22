@@ -1515,3 +1515,16 @@
 - **정직한 경계**: GUARD-RESERVED-OK는 게이트 없이 FAIL로 이월(예약 예외는 open 전용, correct 미적용 — v3 open이 author·예약 받기 전엔 검사 표면 없음) · guard 함수 자체 무변경(검사 경로만 v3화) · gil.py 무변경.
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 168개(C038 +1). 배포판 conformance 게이트 상속 121/121·게이트 없이 109통과·**crash 완전 소멸**.
 - **⭐⭐ 다음 (국면 전환 — crash 소멸 후 병렬 FAIL 축별 v3화)**: A. **예약축 v3 재설계**(RESERVED-OK·OPEN-PROMOTES-OWNER·OPEN-SKIPS-RESERVED·OPEN-LAST-RESERVATION-GIT — 매듭 순서 2번 통합, v3 open이 예약·author 받는 표면 설계) B. 라운드축(ROUND-*) C. 워크트리축(WORKTREE-SPAWN·LAND) D. 잔여(NO-GIT-GRACEFUL·FSCK-R15) E. 게이트 완전 제거(A~D 후 GIL_V2_OPEN 자체 = 완전 버전리스). **여전히 실사이클 쓰기는 v2(GIL_V2_OPEN=1 gil open) — 도그푸딩 마찰. gil v3 네이티브 쓰기는 예약·라운드축 정리 후.**
+
+## 2026-07-23 — ⭐⭐ v3-build/C039: worktree add를 v3 open으로 (gil v3 실사이클 격리 도달, 부분 supported)
+
+- **상현님 "멈추지 말고 달려, 계속 자율 사이클"** → C038 후속 예약축(매듭 순서 2번). 부모 C038.
+- **⭐ 실측이 예약축의 뿌리를 드러냄** — 예약(번호 선점)은 v2 open의 번호 자동증가와 짝(병렬 open 시 C0NN 충돌 방지). v3 open은 경로가 정체성이라 번호 자동증가 없음. 그리고 **우리 병렬 워크플로 `_worktree_add`가 v2 open을 self-invoke**(gil.py 934) — 예약축과 워크트리축이 얽힘.
+- **⭐⭐ 핵심 결과 — `worktree add --v3` 옵트인 구현(C032 이후 첫 gil.py 수정).** v3면 `gil v3 open <dir>` self-invoke, dir 번호는 `_next_number`로 결정론 계산. 격리 검증: 워크트리 브랜치에 steps.yaml 생성·메인 무변화(**C050 격리 v3 계승**), land --no-ff 봉합 성공, conformance 게이트 상속 **121/121 유지**(v2 경로 무손상). **gil v3로 실사이클을 격리·병렬 수준에서 열 수 있다** — 상현님 "gil v3 쓸 수 있을 때"의 격리 수준 도달.
+- **⭐⭐ 정점 통찰 — 세 실패가 한 뿌리: v3 사이클의 v2 원장 미편입.** ①번호 중복(병렬 워크트리가 서로의 브랜치를 못 봐 둘 다 C002 계산) ②author/parent 소실(v3 open이 --author 미수용, 커밋 author=git user, parent는 steps.yaml에 null) ③fsck v3 미인식(cycle.yaml 없어 load_chain_records 레이더 밖 — "사이클 1개"만 셈). 셋 다 v2가 **cycle.yaml에 쓰던 사이클-간 정보(순서·계보·무결성)**가 v3 steps.yaml엔 없어서. **C033 "사이클-간 정보는 notes 층으로"가 아직 코드로 미실현** — worktree가 그 공백을 정면으로 드러냄.
+- **⭐ 정점 발견 — v2 worktree add는 C032 이후 이미 죽어 있었다.** self-invoke하는 v2 open이 은퇴 안내에 걸려 게이트 없이 실패(self-invoke가 GIL_V2_OPEN 미전달). WORKTREE-SPAWN 게이트 없이 FAIL(cyc=False br=False)이 이걸 증명. **`--v3`는 무회귀 대상이 아니라 worktree add를 되살리는 유일한 살아있는 경로.** C032 파급이 병렬 워크플로까지 이미 닿음.
+- **⭐ 교훈 — 번호 충돌은 v3에서도 실재("예약 불필요"의 한계).** "경로가 정체성이라 충돌 없음"은 slug 수준만 참. C0NN 번호를 계속 쓰는 한 병렬 워크트리 번호 중복 남음(slug 달라 경로·데이터는 안전하나 번호 겹침). 진짜 예약 불필요는 번호를 버리거나 land 시점 할당.
+- **6측정**: M1 v3 격리 PASS · M2 병렬 부분(경로 무충돌·번호 중복) · M3 재정의(v2 add 이미 은퇴) · M4 land PASS · M5 계보 FAIL(소실) · M6 conformance 121/121 PASS.
+- **정직한 경계**: 부분 채택 — 핵심(격리·병렬·land)은 supported, 번호·계보·fsck 세 경계는 v3 원장 편입 미완의 실증. gil.py 수정(worktree v3 분기), v2 예약 메커니즘 무변경(v3 경로가 안 쓸 뿐).
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 169개(C039 +1). 배포판 conformance 게이트 상속 121/121·게이트 없이 109. gil.py에 worktree add --v3.
+- **⭐⭐ 다음 (v3 사이클의 v2 원장 편입 — 세 실패의 뿌리)**: A. **fsck·load_chain_records가 v3 사이클(steps.yaml) 인식**(가장 근본 — 번호 중복도 위반으로 잡힘) B. v3 open이 author·parent 받아 notes/trailer 계보 기록(C010 확장) C. 번호 할당을 land 시점으로(충돌 원천 제거) 또는 번호 폐기 D. 잔여 예약축(OPEN-SKIPS/PROMOTES/LAST-RESERVATION·GUARD-RESERVED-OK)은 v3가 예약 안 쓰면 v2 전용→제거(C036 패턴, A·B·C 후 판별). **도그푸딩 전환은 A(fsck v3 인식) 후 권장 — 지금 v3 실사이클 열면 fsck 사각지대.**
