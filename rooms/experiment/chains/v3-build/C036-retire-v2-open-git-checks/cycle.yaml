@@ -2,7 +2,7 @@ id: C036-retire-v2-open-git-checks
 chain: v3-build
 parent: C035-setup-open-to-helper
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-22
