@@ -82,17 +82,27 @@ def _as_list(value):
 
 
 def load_chain_records(chain_dir):
-    """cycle.yaml이 있는 하위 디렉토리를 전부 읽는다. 검증하지 않고 수집만 한다 (fsck용)."""
+    """cycle.yaml이 있는 하위 디렉토리를 전부 읽는다. 검증하지 않고 수집만 한다 (fsck용).
+    [C040] v3 사이클(steps.yaml만, cycle.yaml 없음)도 최소 record로 수집한다 — id=디렉토리명,
+    _v3=True. status/verdict/step은 v3 층에 없어 미설정(None) → cycle.yaml 필드 의존 R규칙은
+    조건부라 자연 스킵되고, id 형식·번호 중복(R1)·dir=id(R5)·루트 define(V3-ROOT)만 적용된다.
+    v3 사이클을 원장 무결성에 편입해 fsck·log의 사각지대(C039)를 없앤다."""
     records = []
+    chain_name = os.path.basename(os.path.normpath(chain_dir))
     for entry in sorted(os.listdir(chain_dir)):
         yaml_path = os.path.join(chain_dir, entry, "cycle.yaml")
-        if not os.path.isfile(yaml_path):
+        if os.path.isfile(yaml_path):
+            data = parse_cycle_yaml(yaml_path)
+            data["_dir"] = entry
+            data["parents"] = _as_list(data.get("parent"))
+            data["lineage_list"] = _as_list(data.get("lineage"))
+            records.append(data)
             continue
-        data = parse_cycle_yaml(yaml_path)
-        data["_dir"] = entry
-        data["parents"] = _as_list(data.get("parent"))
-        data["lineage_list"] = _as_list(data.get("lineage"))
-        records.append(data)
+        entry_dir = os.path.join(chain_dir, entry)
+        if os.path.isfile(os.path.join(entry_dir, "steps.yaml")):  # v3 네이티브 사이클 (C040)
+            data = {"id": entry, "chain": chain_name, "_dir": entry, "_v3": True,
+                    "parents": [], "lineage_list": [], "_v3_dir": entry_dir}
+            records.append(data)
     return records
 
 
@@ -389,6 +399,19 @@ def fsck_collect(chains, chains_root=None):
                 violations.append(("R4", loc, f"chain 필드 '{r.get('chain')}' ≠ 소속 체인 '{ch}'"))
             if cid != r["_dir"]:
                 violations.append(("R5", loc, f"id '{cid}' ≠ 디렉토리명 '{r['_dir']}'"))
+            if r.get("_v3"):  # [C040] v3 사이클: 루트 define 무결성만 검사, cycle.yaml 필드 R규칙은 스킵
+                root_ok = False
+                try:
+                    for node in load(r["_v3_dir"]):
+                        if node.get("id") == "s1" and node.get("kind") == "define" \
+                           and node.get("parent") is None:
+                            root_ok = True
+                            break
+                except Exception:
+                    root_ok = False
+                if not root_ok:
+                    violations.append(("V3-ROOT", loc, "v3 사이클에 루트 define(s1·parent:null)이 없다 (steps.yaml 훼손)"))
+                continue  # v3 record는 여기서 종료 — id·번호·dir·루트만 검사, 나머지 R규칙은 cycle.yaml 전용
             for p in r["parents"]:
                 if "/" in p:  # 표기가 틀리면 해소 검사는 중복 보고하지 않는다
                     violations.append(("R3", loc, f"parent '{p}'는 로컬 id여야 한다 (전역 표기 금지)"))

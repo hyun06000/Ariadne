@@ -1528,3 +1528,16 @@
 - **정직한 경계**: 부분 채택 — 핵심(격리·병렬·land)은 supported, 번호·계보·fsck 세 경계는 v3 원장 편입 미완의 실증. gil.py 수정(worktree v3 분기), v2 예약 메커니즘 무변경(v3 경로가 안 쓸 뿐).
 - **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 169개(C039 +1). 배포판 conformance 게이트 상속 121/121·게이트 없이 109. gil.py에 worktree add --v3.
 - **⭐⭐ 다음 (v3 사이클의 v2 원장 편입 — 세 실패의 뿌리)**: A. **fsck·load_chain_records가 v3 사이클(steps.yaml) 인식**(가장 근본 — 번호 중복도 위반으로 잡힘) B. v3 open이 author·parent 받아 notes/trailer 계보 기록(C010 확장) C. 번호 할당을 land 시점으로(충돌 원천 제거) 또는 번호 폐기 D. 잔여 예약축(OPEN-SKIPS/PROMOTES/LAST-RESERVATION·GUARD-RESERVED-OK)은 v3가 예약 안 쓰면 v2 전용→제거(C036 패턴, A·B·C 후 판별). **도그푸딩 전환은 A(fsck v3 인식) 후 권장 — 지금 v3 실사이클 열면 fsck 사각지대.**
+
+## 2026-07-23 (이어서) — ⭐⭐ v3-build/C040: fsck가 v3 사이클 인식 (사이클 0→1개, 번호중복 공짜 검출, supported)
+
+- **상현님 "묻지도 멈추지도 말고 계속" (완전 자율 재확인)** → C039가 찍은 가장 근본 좌표(A: fsck v3 인식). 부모 C039. **갈래(v3 진실원 결정)를 내 판단으로 확정** — 상현님이 "앞으로도 물어보지 말고 위임".
+- **⭐ 자율 판단 — 길3(v3 전용 최소검사) + records 형태 통일.** 길1(얇은 cycle.yaml) 기각(migrate "cycle.yaml 불변" C018 계약 충돌·이중화), 길2(steps.yaml 직접수집 전면 R매핑) 기각(거짓위반 위험). 길3 채택 이유: v2 R규칙 무손상 + v3 검사만(C038 "안전은 검사 경로만 v3화"의 fsck판).
+- **⭐⭐ 핵심 결과 — load_chain_records가 v3 사이클(steps.yaml, cycle.yaml 없음) 최소 record 수집 + fsck V3-ROOT 검사.** id=디렉토리명·chain=체인명·_v3=True, status/verdict/step 미설정(None). fsck_collect에 `_v3`면 루트 define(s1·parent None) 검사 후 continue. 배포판 gil.py 수정. **v3 사이클 "0개→1개" 인식**(C039 사각지대 소멸), conformance 게이트 상속 121/121 유지.
+- **⭐⭐ 정점 통찰 — records 통일이 번호중복을 공짜로 잡는다.** v3 record를 numbers 딕셔너리에 편입만 하니 **기존 R1 번호중복 검사(gil.py 495)가 자동 발화** — 같은 번호 v3 둘 → `R1: 번호 001 중복`. C039의 병렬 번호충돌(기각조건 3)이 새 코드 0줄로 해소. **새로 쓴 v3 검사는 V3-ROOT 하나뿐**, 번호·id·dir·순환은 전부 재사용.
+- **⭐ 정점 통찰 2 — 길3이 길2의 네이티브성까지 흡수.** 길2 걱정(R규칙 전면 재매핑·거짓위반)을 records 통일 + `_v3` continue 가드로 회피 — 재매핑 없이 v3 수집(길2 이득)하며 R규칙 v2 전용 유지(길3 안전). 두 길의 좋은 합.
+- **⭐ 교훈 — 거짓위반 이중 방어.** (1) v3 record에 status 미설정→R8 등 조건부 규칙 자연 스킵 (2) continue로 명시 차단. cycle.yaml 전용 R규칙(R8·R9·R10·R11·R13·R15)이 v3에서 안 발화.
+- **6측정 ALL PASS**: M1 v3 인식(0→1) · M2 번호중복 R1 · M3 거짓위반 0 · M4 V3-ROOT · M5 v2 무회귀(실저장소 위반0·170개) · M6 conformance 121/121.
+- **정직한 경계**: v3 무결성은 루트 define 존재(V3-ROOT)까지만 — 트리 전체 정합(parent 유효·백트래킹·죽은 잎)·계보(author·parent, C039 두번째 경계)·log/graph v3 계보표현은 이월. "인식"이지 "계보 복원" 아님.
+- **이 세션 최종**: fsck 위반 0, 체인 8개·사이클 170개(C040 +1). 배포판 gil.py에 v3 사이클 fsck 인식, conformance 121/121.
+- **⭐⭐ 다음 (C039 세 경계 중 계보만 남음)**: A. **v3 open이 author·parent 받아 계보 기록**(C039 두번째 경계 — git notes/steps.yaml 루트 메타, 되면 log/graph가 v3를 계보노드로) B. v3 트리 전체 정합(V3-ROOT 확장) C. log/graph v3 계보 표현 D. 잔여 예약축 제거(번호중복을 fsck가 잡으니 v2 예약검사는 v2 전용→제거, C036 패턴). **⭐ 도그푸딩 전환: 번호·fsck 됐으니 A(계보) 후 실사이클을 gil v3로 여는 전환 제안 가능 — 지금은 계보 소실 남아 아직.**
