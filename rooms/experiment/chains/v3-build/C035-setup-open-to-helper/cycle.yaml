@@ -2,7 +2,7 @@ id: C035-setup-open-to-helper
 chain: v3-build
 parent: C034-retire-v2-open-section
 lineage: []
-step: 4
+step: 5
 author: clew
 status: open
 opened: 2026-07-22
