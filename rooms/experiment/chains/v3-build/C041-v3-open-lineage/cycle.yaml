@@ -2,7 +2,7 @@ id: C041-v3-open-lineage
 chain: v3-build
 parent: C040-fsck-recognizes-v3
 lineage: []
-step: 1
+step: 2
 author: clew
 status: open
 opened: 2026-07-23
