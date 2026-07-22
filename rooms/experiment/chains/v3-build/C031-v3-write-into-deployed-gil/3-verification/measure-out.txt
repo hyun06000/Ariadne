@@ -1,0 +1,24 @@
+=== C031 measure — v3 쓰기(open/step/close)를 배포판 gil에 통합 5측정 ===
+
+[PASS] M1 오라클 대조
+      gil v3 open/step/close steps.yaml == gilv3 (digest 262d3523 / 567cb3b5, 바이트 동일)
+
+[PASS] M2 트리 표현
+      gil v3 step으로 백트래킹(s4→s1)·죽은 잎(s4)·형제 가지·산 잎(s7) 실제 생성
+      status: 7노드, solved, 산 잎 [s7]·죽은 잎 [s4]
+
+[PASS] M3 v2 무회귀
+      conformance 134/134 ✔ 이 구현은 gil이다 — v2 open/step/close 무손상
+      cmd_v3open/step/close/status로 v2 cmd_open 등과 충돌 회피
+
+[PASS] M4 자기완결
+      gil.py 격리 복사해도 v3 open 동작 — 외부 모듈 import 0 (SPEC §7)
+
+[PASS] M5 전환 안내 (상현님 "에러 메시지·온보딩으로 해결")
+      v2 습관(kind 없이 step)에 친절한 에러: "번호가 아니라 kind", v2→v3 대응, 순환·백트래킹 안내
+
+통합 방식: gilv3 v3 쓰기 백엔드(22 헬퍼 + open/step/close/status, 31블록)를 gil.py 인라인 이식,
+  cmd_v3* 접두어로 v2 충돌 회피, gil v3 <cmd> 중첩 서브명령 그룹. 오라클 대조 바이트 동일이 이식 보존 집행.
+
+⭐ 궁극 방향(상현님): v3가 표준이 되면 gil open이 곧 v3(버전리스). 지금은 gil v3로 옵트인 — 전환 토대.
+  버전리스 마찰은 도구 복잡화 아니라 친절한 에러·온보딩 문서로(M5가 씨앗).
