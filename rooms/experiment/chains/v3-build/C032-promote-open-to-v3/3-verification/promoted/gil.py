@@ -709,8 +709,7 @@ def _push_with_renumber(repo, chain_dir, chain, cid, title):
 def cmd_open(args):
     # [C032] v2 은퇴 안내 — 버전리스 승격(gil open = v3). v2 습관으로 오면 v3로 안내한다.
     #   상현님: "결국 v3 표준, 버전 몰라도 되게" + "에러 메시지·온보딩이 흡수".
-    #   전환기: GIL_V2_OPEN=1이면 v2 open 유지(conformance·기존 189 원장 조작). 기본은 은퇴 안내.
-    #   ①네임스페이스 승격만 — ②읽기축·③conformance v3 재정의·④공존 완결은 후속 (C032 정직한 경계).
+    #   전환기: GIL_V2_OPEN=1이면 v2 open 유지(conformance·기존 원장 조작). 기본은 은퇴 안내.
     if os.environ.get("GIL_V2_OPEN") != "1":
         sys.exit(
             "거부: gil open은 이제 v3 사이클을 연다 (버전리스 승격, C032).\n"
