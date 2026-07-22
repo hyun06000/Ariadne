@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v3 스텝 트리 뷰어 — v3-case</title>
+<style>
+
+:root{
+  --bg:#0f1115; --fg:#e6e8ec; --muted:#9aa1ac; --panel:#171a21;
+  --edge:#5b6472; --bt:#f08a3c; --live:#3fbf6f; --dead:#6b7280;
+  --define:#3b82f6; --hypothesis:#a855f7; --verify:#14b8a6; --analyze:#4b5563;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f7f8fa; --fg:#1c1f26; --muted:#5b6472; --panel:#eef1f5; --edge:#9aa4b2; }
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.head h1{margin:0 0 6px;font-size:19px}
+.head .meta{display:flex;flex-wrap:wrap;gap:14px;color:var(--muted)}
+.head .meta b{color:var(--fg)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 0;padding:10px 12px;
+  background:var(--panel);border-radius:8px;color:var(--muted)}
+.legend .lg{display:inline-flex;align-items:center;gap:6px}
+.chip{display:inline-block;width:14px;height:14px;border-radius:3px;font-size:11px;
+  line-height:14px;text-align:center;color:#fff}
+.kind-define-chip{background:var(--define)}
+.kind-hypothesis-chip{background:var(--hypothesis)}
+.kind-verify-chip{background:var(--verify)}
+.kind-analyze-chip{background:var(--analyze)}
+.leaf-live-chip{background:var(--live)}
+.leaf-dead-chip{background:transparent;color:var(--dead);border:1px dashed var(--dead)}
+.canvas{overflow-x:auto;background:var(--panel);border-radius:10px;padding:8px}
+svg.steptree{max-width:100%;height:auto;display:block}
+
+/* 엣지 — 두 종류를 명확히 가른다 */
+.edge-parent{stroke:var(--edge);stroke-width:2;fill:none}
+.edge-backtrack{stroke:var(--bt);stroke-width:2.4;stroke-dasharray:7 5;fill:none}
+.bt-arrowhead{fill:var(--bt)}
+
+/* 노드 */
+.node .node-box{fill:var(--panel);stroke:var(--edge);stroke-width:1.5}
+.node .node-id{font-weight:700;font-size:15px;fill:var(--fg)}
+.node .node-kind{font-size:11px;fill:var(--muted)}
+.kind-define .node-box{stroke:var(--define);stroke-width:2.5}
+.kind-hypothesis .node-box{stroke:var(--hypothesis);stroke-width:2}
+.kind-verify .node-box{stroke:var(--verify);stroke-width:2}
+.kind-analyze .node-box{stroke:var(--analyze);stroke-width:2}
+
+/* 잎 두 운명 */
+.leaf-live .node-box{stroke:var(--live);stroke-width:3.5;fill:rgba(63,191,111,.14)}
+.leaf-dead .node-box{stroke:var(--dead);stroke-width:2;stroke-dasharray:5 4;
+  fill:rgba(107,114,128,.10);opacity:.9}
+.leaf-dead .node-id,.leaf-dead .node-kind{opacity:.75}
+.badge{font-size:11px;font-weight:600}
+.badge-live{fill:var(--live)}
+.badge-dead{fill:var(--dead)}
+.foot{margin-top:16px;color:var(--muted);font-size:12px}
+
+</style>
+</head>
+<body>
+<header class="head">
+  <h1>v3 스텝 트리 뷰어</h1>
+  <div class="meta">
+    <span>chain: <b>v3-build</b></span>
+    <span>cycle: <b>v3-case</b></span>
+    <span>노드: <b>7</b></span>
+    <span>산 잎: <b>1</b></span>
+    <span>죽은 잎: <b>1</b></span>
+    <span>close 가능: <b>예 (산 잎 도달)</b></span>
+  </div>
+</header>
+<div class="legend">
+  <span class="lg lg-parent"><svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" class="edge-parent"/></svg> parent 엣지 (가지)</span>
+  <span class="lg lg-backtrack"><svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" class="edge-backtrack"/></svg> backtrack 엣지 (되돌아감)</span>
+  <span class="lg"><b class="chip leaf-live-chip">✓</b> 산 잎 (success)</span>
+  <span class="lg"><b class="chip leaf-dead-chip">✕</b> 죽은 잎 (backtrack · 벽의 지도)</span>
+  <span class="lg"><b class="chip kind-define-chip"></b>define</span>
+  <span class="lg"><b class="chip kind-hypothesis-chip"></b>hypothesis</span>
+  <span class="lg"><b class="chip kind-verify-chip"></b>verify</span>
+  <span class="lg"><b class="chip kind-analyze-chip"></b>analyze</span>
+</div>
+<div class="canvas">
+<svg class="steptree" viewBox="0 0 460 710" width="460" height="710"
+   xmlns="http://www.w3.org/2000/svg" role="img"
+   aria-label="v3 스텝 트리: 7노드">
+  <defs>
+    <marker id="bt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="bt-arrowhead" />
+    </marker>
+  </defs>
+  <g class="edges-parent"><line class="edge-parent" x1="230.0" y1="216.0" x2="135.0" y2="280.0" data-from="s1" data-to="s2" /><line class="edge-parent" x1="135.0" y1="346.0" x2="135.0" y2="410.0" data-from="s2" data-to="s3" /><line class="edge-parent" x1="135.0" y1="476.0" x2="135.0" y2="540.0" data-from="s3" data-to="s4" /><line class="edge-parent" x1="230.0" y1="216.0" x2="325.0" y2="280.0" data-from="s1" data-to="s5" /><line class="edge-parent" x1="325.0" y1="346.0" x2="325.0" y2="410.0" data-from="s5" data-to="s6" /><line class="edge-parent" x1="325.0" y1="476.0" x2="325.0" y2="540.0" data-from="s6" data-to="s7" /></g>
+  <g class="edges-backtrack"><path class="edge-backtrack" d="M 60.0 573.0 C 30.0 573.0, 30.0 183.0, 155.0 183.0" marker-end="url(#bt-arrow)" data-from="s4" data-to="s1" data-y-from="573.0" data-y-to="183.0" /></g>
+  <g class="nodes"><g class="node kind-define" data-id="s1" data-kind="define" data-outcome=""><rect class="node-box" x="155.0" y="150.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="230.0" y="175.0" text-anchor="middle">s1</text><text class="node-kind" x="230.0" y="197.0" text-anchor="middle">define</text></g><g class="node kind-hypothesis" data-id="s2" data-kind="hypothesis" data-outcome=""><rect class="node-box" x="60.0" y="280.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="135.0" y="305.0" text-anchor="middle">s2</text><text class="node-kind" x="135.0" y="327.0" text-anchor="middle">hypothesis</text></g><g class="node kind-verify" data-id="s3" data-kind="verify" data-outcome=""><rect class="node-box" x="60.0" y="410.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="135.0" y="435.0" text-anchor="middle">s3</text><text class="node-kind" x="135.0" y="457.0" text-anchor="middle">verify</text></g><g class="node kind-analyze leaf-dead" data-id="s4" data-kind="analyze" data-outcome="backtrack"><rect class="node-box" x="60.0" y="540.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="135.0" y="565.0" text-anchor="middle">s4</text><text class="node-kind" x="135.0" y="587.0" text-anchor="middle">analyze</text><text class="badge badge-dead" x="135.0" y="624.0" text-anchor="middle">✕ 죽은 잎 · 벽의 지도 (backtrack→s1)</text></g><g class="node kind-hypothesis" data-id="s5" data-kind="hypothesis" data-outcome=""><rect class="node-box" x="250.0" y="280.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="325.0" y="305.0" text-anchor="middle">s5</text><text class="node-kind" x="325.0" y="327.0" text-anchor="middle">hypothesis</text></g><g class="node kind-verify" data-id="s6" data-kind="verify" data-outcome=""><rect class="node-box" x="250.0" y="410.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="325.0" y="435.0" text-anchor="middle">s6</text><text class="node-kind" x="325.0" y="457.0" text-anchor="middle">verify</text></g><g class="node kind-analyze leaf-live" data-id="s7" data-kind="analyze" data-outcome="success"><rect class="node-box" x="250.0" y="540.0" rx="10" ry="10" width="150" height="66" /><text class="node-id" x="325.0" y="565.0" text-anchor="middle">s7</text><text class="node-kind" x="325.0" y="587.0" text-anchor="middle">analyze</text><text class="badge badge-live" x="325.0" y="624.0" text-anchor="middle">✓ 산 잎 (success)</text></g></g>
+</svg>
+</div>
+<footer class="foot">v3 뷰어 — 사이클=스텝들의 트리. 자기완결(외부 리소스 0). Sheen(신), v3-build/C004.</footer>
+</body>
+</html>

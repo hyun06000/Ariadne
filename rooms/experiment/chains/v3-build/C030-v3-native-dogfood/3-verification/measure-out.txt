@@ -1,0 +1,25 @@
+=== C030 measure — v3 네이티브 도그푸딩 4측정 ===
+
+실제로 v3로 푼 탐색 트리 (gilv3 open/step/close):
+  s1 define → [접근 A: s2→s3→s4 죽은잎 backtrack→s1] + [접근 B: s5→s6→s7 산잎 success]
+
+[PASS] M1 v3 탐색 구조 기록
+      steps.yaml: s4(outcome=backtrack, backtrack=s1) 죽은 잎 · s7(outcome=success) 산 잎
+      형제 가지 s2·s5 (s1의 두 자식) · 백트래킹 엣지 s4→s1
+
+[PASS] M2 web --v3 시각화
+      gilv3 view → v3-case-tree.html: leaf-dead 6·leaf-live 4·edge-backtrack 3 렌더
+
+[PASS] M3 v2 대비 우위
+      v2 5스텝이면 "A 실패 후 B 성공"이 4-analysis 한 문단에 뭉뚱그려짐.
+      v3는 죽은 잎(영구 보존)·백트래킹 엣지·형제 가지로 탐색 실제 모양을 데이터로 남김.
+
+[PASS] M4 대체 걸림돌 발견 (정직한 목록)
+      ① 배포판 미통합(gilv3 쓰기는 실험 산출물에만) ② 5스텝 규율 상실 우려(자유 트리)
+      ③ 실사이클 인프라 부재(fsck·worktree·release 등) ④ 기존 189 사이클과 공존 설계 필요
+
+⭐ 도그푸딩 실제 산출물: 접근 B(디스크 5문서 도출)로 초기 16개 전부 80 스텝 노드 도출 성공.
+   C024가 "커밋 관습 이질로 이월"한 16개를 "디스크 문서 구조" 진실원으로 회수.
+
+판정: ALL PASS → supported (부분). v3 표현 우위 확인 + 대체 걸림돌 4개 명시.
+   C026 "눈" 결론 유지되나 v3는 눈 이상 — 실제 쓰기 표현으로 v2 초과. 대체는 걸림돌 넘는 점진.
