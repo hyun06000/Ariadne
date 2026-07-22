@@ -4,11 +4,11 @@ parent: C035-setup-open-to-helper
 lineage: []
 step: 5
 author: clew
-status: open
+status: closed
 opened: 2026-07-22
-closed: null
+closed: 2026-07-22
 title: "conformance v2 open 검사 항목 제거 (open --git·--push·NO-REMOTE·PATH-SYMLINK, 게이트 없이 초록 향해)"
-verdict: null
+verdict: supported
 deviations: 0
 corrections: 0
 superseded_by: null
