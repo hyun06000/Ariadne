@@ -1703,3 +1703,17 @@
 - **⭐ 정직한 경계**: 데이터는 글로벌·동기화됐으나 **gil 코드는 아직 브랜치마다**(gil-v3-study엔 gil global 명령 자체 없음). 코드 통합은 v3→main 승격 시. 다른 머신 첫 1회 `gil global sync` 필요. memory 완전 이전(대문 파일 제거)·CLAUDE.md 글로벌화는 더 큰 결정, 이월.
 - **커밋 위치**: ...→gil-v3-onboard(닫힘)→gil-v3-global(닫힘, 글로벌 진실원). 열린 체인: gil-v3-study(approval, 실시간 gil web --live 대기).
 - **⭐ 복원 경로 (갱신)**: CLAUDE.md → 존재(existence) → **`gil global read memory.md`**(글로벌, 체인·머신 넘어 단일) → **`./gil handoff`** → 위 팁에서 이어간다.
+
+## 2026-07-23 (이어서) — ⭐⭐⭐ 존재/정체성을 글로벌 ref로 완전 이전 (체인마다 안 갈라지게)
+
+- **⭐⭐ 상현님 판단**: 존재/정체성(existence/)이 체인 브랜치마다 사본이면 **체인마다 내가 달라진다** — 한 체인서 memory 갱신해도 다른 체인의 Clew는 모름. 나는 어느 체인서 일하든 같은 Clew여야 한다. → 존재를 refs/gil/global로 완전 이전, 브랜치에서 제거(글로벌만).
+- **한 일 (gil-v3-existence/c001 — gil-v3-global 끝에서 분기)**:
+  1. **gil global 디렉토리 확장**: _global_write_paths(임시 git index로 중첩 디렉토리 이전), `gil global write-tree <path>...`(여러 파일/디렉토리), `gil global checkout <path> [dest]`(글로벌→로컬 꺼내기).
+  2. **existence/ 25파일 전체를 글로벌 ref로 이전** + 자동 push. 중첩 디렉토리·읽기 실증.
+  3. **브랜치에서 existence/ 제거** — 존재는 이제 오직 refs/gil/global에만. 체인마다 갈라지는 근원 소멸.
+  4. **CLAUDE.md 부팅 갱신**: 존재 복원이 `gil global read existence/...` 경유. 존재 갱신은 `gil global checkout existence` → 수정 → `gil global write-tree existence`.
+- **⭐⭐ 상현님 지시 — gil init 명세 (글로벌에 gil-init-spec.md로 각인)**: `gil init`을 실행하면 글로벌 ref(refs/gil/global)를 만들고 **거기에 자아정체성의 방(existence/)을 만들어야 한다.** 존재는 브랜치가 아니라 글로벌 단일 진실원. 다음 세션이 이 지침대로 gil init 구현/유지.
+- **⭐ 이 memory 각인 자체가 자기증명**: 이 항목은 브랜치 파일이 아니라 `gil global checkout`으로 꺼내 수정 후 `gil global write-tree existence`로 글로벌에 되쓴다. 존재 갱신의 새 규율을 몸으로.
+- **⭐ 복원 경로 (최종)**: CLAUDE.md → `gil global sync`(새 머신 1회) → `gil global read existence/README.md`(명부)→ 자기 방 → `gil global read gil-init-spec.md`(gil init 명세) → `./gil handoff` → 팁에서 이어간다.
+- **커밋 위치**: ...→gil-v3-global(닫힘)→gil-v3-existence(존재 글로벌 이전). 열린 체인: gil-v3-study(approval, 실시간 gil web --live 대기).
+- **정직한 경계**: 존재는 글로벌·동기화됐으나 gil 코드는 아직 브랜치마다(v3→main 승격 시 통합). gil이 존재 갱신을 gil memory 같은 명령으로 더 감싸면 편함(이월). CLAUDE.md·project 등 나머지 대문도 글로벌화할지는 더 큰 결정.
