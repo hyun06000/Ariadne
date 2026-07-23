@@ -1636,3 +1636,13 @@
 - **⭐⭐⭐ 뼈아픈 사고가 git-랩핑 목표를 증명 — reset이 코드를 두 번 날림.** c002를 스텝 원칙대로 다시 밟으려 `git reset --hard`했더니 되감기가 **소스 코드(gil.py 백트래킹·gilweb.py 스텝트리)까지 되돌림.** /tmp 백업했으나 시점이 render_step_tree 추가 전이라 유실. 두 번 복원. **손 git(reset/cp)이 작업을 잃는다 — gil이 이 위험을 흡수해야(스텝 커밋과 소스를 함께 다루는 안전한 되감기). 상현님 "git 기능을 gil 커맨드로 랩핑" 목표의 산 증거.**
 - **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(c001·c002 supported). 다음: c003 or 체인 닫기.
 - **⭐ 다음**: 뷰어 더(디자인 유려화는 상현님 "나중"·머지 뷰·본문 표시) 또는 gil-v3-viewer 닫고 staging 체인(기능검사 이상). git-랩핑(reset·amend 안전화)은 개발 체인 후보. **gil migrate(v2 222사이클→v3)는 로드맵 후반.**
+
+## 2026-07-23 (이어서) — ⭐⭐ 머지 뷰 완성 (역순 3층) + 본문 마크다운 + gil step --body
+
+- **⭐⭐ 상현님 역순 머지 원칙**: 머지는 아래에서 위로 잡힌다 — ① 스텝 머지(한 사이클 안 **산 잎들** 합류) ② 사이클 머지(닫힌 **산 사이클들**) ③ 체인 머지(닫힌 **체인들**). **완성(산 잎·산 사이클·닫힌 체인)만이 위 층 머지 대상** — 죽은 잎은 머지 안 됨(벽의 지도). 산 잎이 모여 사이클, 산 사이클이 모여 체인. 배포 순환과 맞물림.
+- **한 일 (gil-v3-viewer 체인, approval, c003~c006)**: c003(스텝 본문 마크다운 카드 + gil step --body/--body-file — "본문은 커밋 로그에" 도구 완성)→c004(스텝 머지)→c005(사이클 머지)→c006(체인 머지). 전부 supported. 머지 3층 시각 언어 일관: 첫 조상=일반 실선, 둘째+ 조상=초록 굵은 merge-edge.
+- **⭐ gil step 확장**: --body/--body-file(긴 마크다운 디테일→커밋 body, 제목은 위계 요약), --merge(산 잎 합류→Gil-Merge, 두 조상 상속). step_body(sha)가 커밋 %b에서 Gil-*/Co-Authored 접두사 trailer만 걷어내 순수 본문.
+- **⭐ 버그들 잡음**: ① step_body가 "막힘:" 같은 콜론 본문을 trailer로 오인(→접두사 엄격화) ② Gil-Merge 두 의미(스텝 id vs 사이클/체인 참조) fsck 분리(스텝 머지는 step_keys로 검증) ③ 체인 부모 다중값 개행 strip.
+- **뷰어 현황**: 3층 드릴다운(체인→사이클→스텝) + 스텝 본문 마크다운 카드 + 머지 3층. gilweb.py: chains_from_graph·cycles_of·render_step_tree·md_to_html·render_cycle_dag·render. `gil web -o`. 자기완결 HTML, 순수 커밋 그래프.
+- **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(c001~c006 supported, 열림·approval). 디자인 유려화는 상현님 "나중".
+- **⭐ 다음**: 뷰어 더(디자인 유려화 등) 또는 gil-v3-viewer 닫고 staging 체인(기능검사 이상). git-랩핑(reset·amend 안전화, C050류 사고 방지)은 큰 목표. gil migrate(v2 222사이클→v3)는 로드맵 후반.
