@@ -81,6 +81,87 @@ def chains_from_graph():
     return chains
 
 
+# ── 사이클 층 (체인 안의 사이클 DAG — 드릴다운 대상) ──────────────────────
+
+CYC_COLOR = {"solved": "#16a34a", "in_progress": "#7c3aed",
+             "pending": "#e879f9", "dead": "#dc2626"}
+CYC_LABEL = {"solved": "solved", "in_progress": "진행중",
+             "pending": "대기", "dead": "폐기"}
+
+
+def cycles_of(chain):
+    """한 체인 안의 사이클들을 집계. 반환 {cid:{parents,status,steps}}."""
+    cyc = {}
+    for n in reversed(gil.collect_nodes(chain)):  # old→new
+        if n["chain"] != chain or not n["cycle"]:
+            continue
+        c = cyc.setdefault(n["cycle"], {"parents": [], "steps": []})
+        c["steps"].append(n)
+        for p in n["cycle_parents"]:
+            # 같은 체인 안 사이클 부모만(체인 참조는 루트 표시라 제외)
+            if p != chain and p not in c["parents"]:
+                c["parents"].append(p)
+    for cid, c in cyc.items():
+        ks = [(s["kind"], s["outcome"]) for s in c["steps"]]
+        if any(k == "analyze" and o == "success" for k, o in ks):
+            c["status"] = "solved"
+        elif any(k == "analyze" and o == "fail" for k, o in ks):
+            c["status"] = "dead"
+        elif any(k == "pending" for k, o in ks):
+            c["status"] = "pending"
+        else:
+            c["status"] = "in_progress"
+    return cyc
+
+
+def render_cycle_dag(chain):
+    """한 체인의 사이클 DAG SVG. 사이클 없으면 안내."""
+    cyc = cycles_of(chain)
+    if not cyc:
+        return '<p class="empty">이 체인엔 아직 사이클이 없다.</p>'
+    depth = {}
+
+    def d(cid):
+        if cid in depth:
+            return depth[cid]
+        ps = [p for p in cyc[cid]["parents"] if p in cyc]
+        depth[cid] = 0 if not ps else 1 + max(d(p) for p in ps)
+        return depth[cid]
+    for cid in cyc:
+        d(cid)
+    by_depth, pos = {}, {}
+    CW, LH, PX, PY = 150, 84, 40, 40
+    for cid in sorted(cyc, key=lambda x: (depth[x], x)):
+        dd = depth[cid]
+        lane = by_depth.get(dd, 0)
+        by_depth[dd] = lane + 1
+        pos[cid] = (PX + dd * CW + R, PY + lane * LH + R)
+    mx = max(x for x, y in pos.values()) + R + 40
+    my = max(y for x, y in pos.values()) + R + 40
+    edges, nodes = [], []
+    for cid, c in cyc.items():
+        cx, cy = pos[cid]
+        for p in c["parents"]:
+            if p in pos:
+                px, py = pos[p]
+                m = (px + cx) / 2
+                edges.append(f'<path class="edge" d="M {px+R:.0f} {py:.0f} '
+                             f'C {m:.0f} {py:.0f}, {m:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
+        color = CYC_COLOR[c["status"]]
+        sp = cid.split("-", 1)
+        nodes.append(
+            f'<g class="node status-{c["status"]}"><circle cx="{cx:.0f}" cy="{cy:.0f}" '
+            f'r="{R}" fill="{color}" stroke="{color}"/>'
+            f'<text class="nm" x="{cx:.0f}" y="{cy+R+16:.0f}" text-anchor="middle">'
+            f'{html.escape(sp[0])}</text>'
+            f'<text class="sub" x="{cx:.0f}" y="{cy+R+30:.0f}" text-anchor="middle">'
+            f'{html.escape(sp[1] if len(sp)>1 else "")} · {len(c["steps"])}스텝</text>'
+            f'<title>{html.escape(cid)} · {c["status"]}</title></g>')
+    return (f'<svg width="{mx}" height="{my}" viewBox="0 0 {mx} {my}" '
+            f'xmlns="http://www.w3.org/2000/svg">'
+            + "".join(edges) + "".join(nodes) + "</svg>")
+
+
 def layout(chains):
     depth = {}
 
@@ -120,8 +201,11 @@ def render():
                 f'C {mx:.0f} {py:.0f}, {mx:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
         color = CHAIN_COLOR[info["status"]]
         mode_badge = "🔒승인" if info["mode"] == "approval" else ""
+        drill = f'data-drill="drill-{html.escape(c)}"' if info["cycles"] else ""
+        clk = "clickable" if info["cycles"] else ""
         nodes.append(
-            f'<g class="node status-{info["status"]}" tabindex="0" role="button">'
+            f'<g class="node status-{info["status"]} {clk}" tabindex="0" role="button" '
+            f'{drill}>'
             f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="{R}" fill="{color}" stroke="{color}"/>'
             f'<text class="nm" x="{cx:.0f}" y="{cy+R+18:.0f}" text-anchor="middle">'
             f'{html.escape(c)}</text>'
@@ -135,13 +219,34 @@ def render():
     svg = (f'<svg width="{max_x}" height="{max_y}" viewBox="0 0 {max_x} {max_y}" '
            f'xmlns="http://www.w3.org/2000/svg">'
            + "".join(edges) + "".join(nodes) + "</svg>")
+    # 드릴다운 카드 — 각 체인의 사이클 DAG (기본 숨김, 체인 클릭 시 열림)
+    drills = []
+    for c, info in chains.items():
+        if not info["cycles"]:
+            continue
+        dag = render_cycle_dag(c)
+        drills.append(
+            f'<section class="drill" id="drill-{html.escape(c)}" hidden>'
+            f'<div class="drill-head"><b>{html.escape(c)}</b> 의 사이클 DAG '
+            f'<span class="dh">— 체인 안으로 드릴다운</span>'
+            f'<button class="dc" data-close="drill-{html.escape(c)}">✕</button></div>'
+            f'<div class="drill-body">{dag}</div></section>')
+    cyc_legend = "".join(
+        f'<span class="lg"><span class="sw" style="background:{CYC_COLOR[k]}"></span>'
+        f'{CYC_LABEL[k]}</span>' for k in ["in_progress", "solved", "pending", "dead"])
     return f"""<!doctype html><meta charset="utf-8"><style>{CSS}</style>
 <div class="head"><h1>gil 뷰어 — 체인 층</h1>
 <div class="meta">체인 {len(chains)}개 · 순수 커밋 그래프에서 읽음 (Gil-* trailer).
-체인이 어떻게 이어지는지 — gil init → 개발 → … 배포 순환. 원형 노드+실선.</div></div>
+체인이 어떻게 이어지는지 — gil init → 개발 → … 배포 순환. <b>체인 노드를 클릭하면
+그 체인 안의 사이클 DAG가 아래에 열린다.</b></div></div>
 <div class="legend">{legend}<span class="lg"><svg width=34 height=10><line x1=0 y1=5 x2=34 y2=5 stroke=#94a3b8 stroke-width=2/></svg>체인 계보</span><span class="lg">🔒승인 = approval 모드</span></div>
 <div class="wrap">{svg}</div>
-<div class="head"><div class="meta">gil-v3-viewer/c001 · Clew · 자기완결 (외부 리소스 0)</div></div>"""
+<div class="layer2"><div class="l2h">사이클 층 <span class="dh">(체인 클릭 → 그 안의 사이클 트리)</span></div>
+<div class="cyc-legend">{cyc_legend}</div>
+{"".join(drills)}
+<div class="drill-empty" id="drill-empty">위 체인 노드를 클릭하면 그 체인의 사이클 DAG가 여기 펼쳐집니다.</div></div>
+<div class="head"><div class="meta">gil-v3-viewer/c001 · Clew · 자기완결 (외부 리소스 0)</div></div>
+<script>{JS}</script>"""
 
 
 CSS = """
@@ -163,6 +268,59 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
 @media(prefers-color-scheme:dark){.nm{fill:#cbd5e1}.sub{fill:#64748b}}
 .status-closed circle{stroke-width:3}
 .node:hover circle{stroke:#0f172a;stroke-width:3.5}
+.status-solved circle{stroke-width:3}
+.status-pending circle{fill-opacity:.35;stroke-dasharray:3 3}
+.node.clickable{cursor:pointer}
+.node.open circle{stroke:#0f172a;stroke-width:4}
+.layer2{padding:8px 24px 24px}
+.l2h{font-size:13px;font-weight:700;color:#475569;padding:8px 0 4px}
+@media(prefers-color-scheme:dark){.l2h{color:#94a3b8}}
+.dh{font-weight:400;color:#94a3b8}
+.cyc-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#64748b;padding:0 0 8px}
+.drill{border:1px solid #e2e8f0;border-radius:12px;margin:8px 0;overflow:hidden}
+@media(prefers-color-scheme:dark){.drill{border-color:#1e293b}}
+.drill[hidden]{display:none}
+.drill-head{display:flex;align-items:center;gap:8px;padding:10px 14px;
+  border-bottom:1px solid #eef2f7;font-size:13px}
+@media(prefers-color-scheme:dark){.drill-head{border-color:#1e293b}}
+.dc{margin-left:auto;border:none;background:transparent;cursor:pointer;color:#94a3b8;font-size:15px}
+.drill-body{overflow-x:auto;padding:8px 14px}
+.drill-empty{color:#94a3b8;font-size:13px;padding:22px;text-align:center;
+  border:1.5px dashed #cbd5e1;border-radius:12px;margin:8px 0}
+@media(prefers-color-scheme:dark){.drill-empty{border-color:#334155}}
+.empty{color:#94a3b8;font-size:13px;padding:12px}
+"""
+
+JS = """
+(function(){
+  function closeAll(){
+    document.querySelectorAll('.drill').forEach(function(s){s.setAttribute('hidden','');});
+    document.querySelectorAll('.node.open').forEach(function(g){g.classList.remove('open');});
+    var e=document.getElementById('drill-empty'); if(e) e.style.display='';
+  }
+  function drill(g){
+    var id=g.getAttribute('data-drill'); if(!id) return;
+    var s=document.getElementById(id); if(!s) return;
+    var was=!s.hasAttribute('hidden');
+    closeAll();
+    if(!was){ s.removeAttribute('hidden'); g.classList.add('open');
+      var e=document.getElementById('drill-empty'); if(e) e.style.display='none';
+      s.scrollIntoView({block:'nearest',behavior:'smooth'});
+    }
+  }
+  document.querySelectorAll('.node.clickable').forEach(function(g){
+    g.addEventListener('click', function(){drill(g);});
+    g.addEventListener('keydown', function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();drill(g);}});
+  });
+  document.querySelectorAll('.dc').forEach(function(b){
+    b.addEventListener('click', function(){
+      var s=document.getElementById(b.getAttribute('data-close'));
+      if(s) s.setAttribute('hidden','');
+      document.querySelectorAll('.node.open').forEach(function(g){g.classList.remove('open');});
+      var e=document.getElementById('drill-empty'); if(e) e.style.display='';
+    });
+  });
+})();
 """
 
 
