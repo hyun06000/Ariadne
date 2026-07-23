@@ -60,8 +60,6 @@ git 커밋 그래프와 브랜치로 표현된다. 폴더도 md 파일도 아니
 ```
 ═══ gil handoff — 세션 부활 정보 ═══
 
-▶ 열린 체인: gil-v3-onboard (autonomous 모드)
-    열린 사이클 없음 — 닫힌 사이클 끝에서 새 사이클을 연다.
 ▶ 열린 체인: gil-v3-study (approval 모드)
     열린 사이클 없음 — 닫힌 사이클 끝에서 새 사이클을 연다.
 
@@ -69,7 +67,7 @@ git 커밋 그래프와 브랜치로 표현된다. 폴더도 md 파일도 아니
     gil-v3 (init) ← (대문)
     gil-v3-dev (closed) ← gil-v3
     gil-v3-handoff (closed) ← gil-v3-viewer
-    gil-v3-onboard (open) ← gil-v3-handoff
+    gil-v3-onboard (closed) ← gil-v3-handoff
     gil-v3-study (open) ← gil-v3-viewer
     gil-v3-viewer (closed) ← gil-v3-dev
 
