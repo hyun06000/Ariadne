@@ -80,10 +80,20 @@ def collect_nodes(rev_range="HEAD"):
     return nodes
 
 
-def fsck(nodes):
+def declared_chains(rev_range="HEAD"):
+    """선언된 체인 = Gil-Chain trailer를 가진 모든 커밋 (체인 루트 포함).
+
+    체인 루트 커밋(gil init·chain-root)엔 Gil-Step이 없어 collect_nodes가 안 잡지만,
+    Gil-Chain은 있다. 계보 부모가 체인일 수 있으므로(원칙 2) 이걸 따로 수집한다.
+    """
+    out = _git("log", "--format=%(trailers:key=Gil-Chain,valueonly)", rev_range)
+    return {ln.strip() for ln in out.splitlines() if ln.strip()}
+
+
+def fsck(nodes, chains_known=None):
     """SPEC §3 무결성 검사. 반환: 위반 문자열 리스트 (빈 리스트=건강)."""
     violations = []
-    chains = set()
+    chains = set(chains_known or [])
     cycles = {}   # cycle id -> chain
     steps = {}    # (chain,cycle,step) -> node
 
@@ -131,12 +141,129 @@ def fsck(nodes):
         # 외부 참조(chain/cycle 꼴)는 이 그래프 밖일 수 있다 — id 문법만 보고 실재는
         # 검사하지 않는다(체인 경계 넘는 계보는 정상, 머지·부모 사이클로 이어짐).
         # 같은 체인 안 참조(cycle 꼴)만 실재를 강제한다.
+        # 참조는 세 꼴: 알려진 체인(체인 부모) · "cycle"(같은 체인 안 사이클) ·
+        # "chain/cycle"(다른 체인/외부). 사이클은 체인에서 태어날 수 있으므로(원칙 2:
+        # 체인 시작점) 참조가 알려진 체인이면 유효하다. 같은 체인 안 사이클 참조만 실재를
+        # 강제하고, 외부 chain/cycle 꼴은 경계 넘는 계보라 미검사.
         for ref in n["cycle_parents"] + n["merges"]:
+            if ref in chains:
+                continue  # 체인 부모 — 사이클이 체인 시작점에서 태어남 (유효)
             if "/" in ref:
                 continue  # 외부 참조 — 실재 미검사 (경계 넘는 계보 허용)
             if ref not in cycles:
                 violations.append(f'계보: {cc} — 같은 체인 참조 "{ref}" 실재 안 함')
     return violations
+
+
+# ── 쓰기 (커밋 노드를 새긴다 — 손 커밋의 코드화) ───────────────────────────
+
+def _commit(subject, body, trailers, allow_empty=True):
+    """제목+본문+Gil-* trailer로 커밋 하나를 새긴다. trailers=[(k,v)...]."""
+    msg = subject + "\n\n" + body.rstrip() + "\n\n"
+    msg += "\n".join(f"{k}: {v}" for k, v in trailers)
+    args = ["commit", "-q", "-F", "-"]
+    if allow_empty:
+        args.append("--allow-empty")
+    subprocess.run(["git", *args], input=msg, text=True, check=True)
+
+
+def _current_cycle(chain, cycle):
+    """이 (chain,cycle)의 스텝들을 커밋 그래프에서 수집. 없으면 []."""
+    return [n for n in collect_nodes()
+            if n["chain"] == chain and n["cycle"] == cycle]
+
+
+def _next_step_id(steps):
+    n = 1 + max([int(s["step"][1:]) for s in steps if s["step"][1:].isdigit()],
+                default=0)
+    return f"s{n}"
+
+
+def _growing_tip(steps):
+    """가장 최근 스텝(팁). 선형 전진의 부모가 된다."""
+    return steps[0] if steps else None  # collect_nodes는 새→old 순
+
+
+def cmd_open(args):
+    """gil open <chain>/<cycle> --author <who> [--parent <cyc>...] [--title T]"""
+    import argparse
+    p = argparse.ArgumentParser(prog="gil open")
+    p.add_argument("ref")  # chain/cycle
+    p.add_argument("--author", required=True)
+    p.add_argument("--parent", action="append", default=[])
+    p.add_argument("--title", default="")
+    a = p.parse_args(args)
+    if "/" not in a.ref:
+        sys.exit("거부: <chain>/<cycle> 꼴이어야 함")
+    chain, cycle = a.ref.split("/", 1)
+    for label, v in (("chain", chain), ("cycle", cycle)):
+        if not ID_RE.match(v):
+            sys.exit(f'거부: {label} id "{v}"는 소문자·숫자·하이픈만')
+    if _current_cycle(chain, cycle):
+        sys.exit(f"거부: {a.ref} 이미 존재 (open은 새 사이클만)")
+    subject = f"gil {chain}/{cycle}/s1 define: {a.title or '(문제 미기술)'}"
+    body = a.title or "(문제 미기술 — 본문을 커밋 수정으로 채우라)"
+    tr = [("Gil-Chain", chain), ("Gil-Cycle", cycle),
+          ("Gil-Step", "s1"), ("Gil-Kind", "define"), ("Gil-Parent", "null"),
+          ("Gil-Cycle-Author", a.author)]
+    for par in a.parent:
+        tr.append(("Gil-Cycle-Parent", par))
+    _commit(subject, body, tr)
+    print(f"open: {a.ref}/s1 define")
+
+
+def cmd_step(args):
+    """gil step <chain>/<cycle> --kind K [--outcome O] [--to define] [--title T]"""
+    import argparse
+    p = argparse.ArgumentParser(prog="gil step")
+    p.add_argument("ref")
+    p.add_argument("--kind", required=True)
+    p.add_argument("--outcome")
+    p.add_argument("--to")
+    p.add_argument("--title", default="")
+    a = p.parse_args(args)
+    chain, cycle = a.ref.split("/", 1)
+    steps = _current_cycle(chain, cycle)
+    if not steps:
+        sys.exit(f"거부: {a.ref} 없음 (먼저 gil open)")
+    if a.kind not in KINDS:
+        sys.exit(f'거부: 알 수 없는 kind "{a.kind}"')
+    if a.kind == "analyze" and a.outcome not in OUTCOMES:
+        sys.exit("거부: analyze는 --outcome success|backtrack|fail 필요")
+    sid = _next_step_id(steps)
+    parent = a.to or (_growing_tip(steps)["step"] if steps else "null")
+    subject = f"gil {chain}/{cycle}/{sid} {a.kind}: {a.title or a.kind}"
+    tr = [("Gil-Chain", chain), ("Gil-Cycle", cycle),
+          ("Gil-Step", sid), ("Gil-Kind", a.kind), ("Gil-Parent", parent)]
+    if a.outcome:
+        tr.append(("Gil-Outcome", a.outcome))
+    if a.outcome == "backtrack" and a.to:
+        tr.append(("Gil-Backtrack", a.to))
+    _commit(subject, a.title or a.kind, tr)
+    print(f"step: {a.ref}/{sid} {a.kind} ←{parent}")
+
+
+def cmd_close(args):
+    """gil close <chain>/<cycle> [--verdict V]"""
+    import argparse
+    p = argparse.ArgumentParser(prog="gil close")
+    p.add_argument("ref")
+    p.add_argument("--verdict", default="supported")
+    a = p.parse_args(args)
+    chain, cycle = a.ref.split("/", 1)
+    steps = _current_cycle(chain, cycle)
+    if not steps:
+        sys.exit(f"거부: {a.ref} 없음")
+    live = [s for s in steps if s["kind"] == "analyze"
+            and s["outcome"] == "success"]
+    if not live:
+        sys.exit("거부: 산 잎(analyze/success) 없음 — 닫을 수 없다")
+    subject = f"gil {chain}/{cycle} close: {a.verdict}"
+    body = f"사이클 봉인. 산 잎 {[s['step'] for s in live]}. 판정: {a.verdict}."
+    tr = [("Gil-Chain", chain), ("Gil-Cycle", cycle),
+          ("Gil-Kind", "close"), ("Gil-Verdict", a.verdict)]
+    _commit(subject, body, tr)
+    print(f"close: {a.ref} — {a.verdict}")
 
 
 def cmd_log(args):
@@ -158,7 +285,8 @@ def cmd_fsck(args):
     # 선택 rev-range: 손 시연 초기의 규칙-위반 유산 노드를 범위 밖으로 둘 수 있다.
     # append-only라 옛 노드는 못 고치므로, fsck는 "여기서부터" 건강을 검사한다.
     rng = args[0] if args else "HEAD"
-    v = fsck(collect_nodes(rng))
+    # 체인 선언은 전체 히스토리에서 수집(체인은 어디서 선언됐든 유효). 노드 검사만 범위.
+    v = fsck(collect_nodes(rng), chains_known=declared_chains("HEAD"))
     if not v:
         print("fsck: 위반 0 — 커밋 그래프 건강")
         return
@@ -167,7 +295,14 @@ def cmd_fsck(args):
     sys.exit(1)
 
 
+COMMANDS = {
+    "open": cmd_open, "step": cmd_step, "close": cmd_close,
+    "log": cmd_log, "fsck": cmd_fsck,
+}
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "log"
     rest = sys.argv[2:]
-    {"log": cmd_log, "fsck": cmd_fsck}.get(cmd, cmd_log)(rest)
+    if cmd not in COMMANDS:
+        sys.exit(f"gil: 알 수 없는 명령 {cmd!r} — {list(COMMANDS)}")
+    COMMANDS[cmd](rest)

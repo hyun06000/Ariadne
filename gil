@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# gil — v3 실행 진입점. 긴 python3 경로 없이 `gil <cmd>`.
+# 진실원은 커밋 그래프. 이 래퍼는 gil.py를 부르는 얇은 층이다.
+exec python3 "$(dirname "$0")/project/gil-v3-redesign/source/gil.py" "$@"
