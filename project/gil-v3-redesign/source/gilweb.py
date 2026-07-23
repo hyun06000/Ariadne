@@ -114,8 +114,77 @@ def cycles_of(chain):
     return cyc
 
 
+# ── 스텝 층 (사이클 안의 스텝 트리 — 세 번째 드릴다운) ────────────────────
+
+KIND_COLOR = {"define": "#2563eb", "hypothesis": "#7c3aed", "verify": "#0d9488",
+              "analyze": "#64748b", "success": "#16a34a", "fail": "#dc2626",
+              "pending": "#e879f9"}
+KIND_LABEL = {"define": "문제정의", "hypothesis": "가설", "verify": "검증",
+              "analyze": "분석", "success": "성공", "fail": "실패", "pending": "대기"}
+
+
+def render_step_tree(chain, cid, steps):
+    """한 사이클의 스텝 트리 SVG. parent 실선·backtrack 파선·kind 색.
+
+    success=산 잎(초록), fail·backtrack=죽은 잎(빨강, 벽의 지도). 상현님 스텝 원칙:
+    막힌 지점(backtrack)은 죽은 잎으로 그려지고, 파선이 조상 define으로 되돌아간다.
+    """
+    by = {s["step"]: s for s in steps}
+    depth = {}
+
+    def d(sid):
+        if sid in depth:
+            return depth[sid]
+        p = by[sid]["parent"]
+        p = p if p not in (None, "null") and p in by else None
+        depth[sid] = 0 if not p else 1 + d(p)
+        return depth[sid]
+    for s in steps:
+        d(s["step"])
+    by_depth, pos = {}, {}
+    SW, LH, PX, PY = 108, 74, 40, 40
+    for sid in sorted(by, key=lambda x: (depth[x], int(x[1:]) if x[1:].isdigit() else 0)):
+        dd = depth[sid]
+        lane = by_depth.get(dd, 0)
+        by_depth[dd] = lane + 1
+        pos[sid] = (PX + dd * SW + R, PY + lane * LH + R)
+    mx = max(x for x, y in pos.values()) + R + 40
+    my = max(y for x, y in pos.values()) + R + 40
+    edges, nodes = [], []
+    for s in steps:
+        sid = s["step"]
+        cx, cy = pos[sid]
+        p = s["parent"]
+        if p not in (None, "null") and p in pos:
+            px, py = pos[p]
+            m = (px + cx) / 2
+            edges.append(f'<path class="edge" d="M {px+R:.0f} {py:.0f} '
+                         f'C {m:.0f} {py:.0f}, {m:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
+        if s["outcome"] == "backtrack" and s.get("backtrack") in pos:
+            tx, ty = pos[s["backtrack"]]
+            arch = min(cy, ty) - 34
+            edges.append(f'<path class="bt" d="M {cx:.0f} {cy-R:.0f} '
+                         f'C {cx:.0f} {arch:.0f}, {tx:.0f} {arch:.0f}, {tx:.0f} {ty-R:.0f}"/>')
+        kind = s["kind"]
+        if kind == "analyze" and s["outcome"] == "success":
+            kind = "success"
+        elif kind == "analyze" and s["outcome"] in ("fail", "backtrack"):
+            kind = "fail"
+        color = KIND_COLOR.get(kind, "#64748b")
+        nodes.append(
+            f'<g class="node kind-{kind}"><circle cx="{cx:.0f}" cy="{cy:.0f}" r="{R}" '
+            f'fill="{color}" stroke="{color}"/>'
+            f'<text class="nm" x="{cx:.0f}" y="{cy+R+15:.0f}" text-anchor="middle">'
+            f'{KIND_LABEL.get(kind, kind)}</text>'
+            f'<text class="sub" x="{cx:.0f}" y="{cy+R+29:.0f}" text-anchor="middle">'
+            f'{html.escape(sid)}</text><title>{html.escape(sid)} · {kind}</title></g>')
+    return (f'<svg width="{mx}" height="{my}" viewBox="0 0 {mx} {my}" '
+            f'xmlns="http://www.w3.org/2000/svg">'
+            + "".join(edges) + "".join(nodes) + "</svg>")
+
+
 def render_cycle_dag(chain):
-    """한 체인의 사이클 DAG SVG. 사이클 없으면 안내."""
+    """한 체인의 사이클 DAG SVG + 스텝트리 드릴다운 카드. 사이클 없으면 안내."""
     cyc = cycles_of(chain)
     if not cyc:
         return '<p class="empty">이 체인엔 아직 사이클이 없다.</p>'
@@ -149,17 +218,30 @@ def render_cycle_dag(chain):
                              f'C {m:.0f} {py:.0f}, {m:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
         color = CYC_COLOR[c["status"]]
         sp = cid.split("-", 1)
+        stid = f"steptree-{chain}-{cid}"
         nodes.append(
-            f'<g class="node status-{c["status"]}"><circle cx="{cx:.0f}" cy="{cy:.0f}" '
+            f'<g class="node status-{c["status"]} clickable" data-drill="{stid}" '
+            f'tabindex="0" role="button"><circle cx="{cx:.0f}" cy="{cy:.0f}" '
             f'r="{R}" fill="{color}" stroke="{color}"/>'
             f'<text class="nm" x="{cx:.0f}" y="{cy+R+16:.0f}" text-anchor="middle">'
             f'{html.escape(sp[0])}</text>'
             f'<text class="sub" x="{cx:.0f}" y="{cy+R+30:.0f}" text-anchor="middle">'
             f'{html.escape(sp[1] if len(sp)>1 else "")} · {len(c["steps"])}스텝</text>'
             f'<title>{html.escape(cid)} · {c["status"]}</title></g>')
-    return (f'<svg width="{mx}" height="{my}" viewBox="0 0 {mx} {my}" '
-            f'xmlns="http://www.w3.org/2000/svg">'
-            + "".join(edges) + "".join(nodes) + "</svg>")
+    svg = (f'<svg width="{mx}" height="{my}" viewBox="0 0 {mx} {my}" '
+           f'xmlns="http://www.w3.org/2000/svg">'
+           + "".join(edges) + "".join(nodes) + "</svg>")
+    trees = []
+    for cid, c in cyc.items():
+        stid = f"steptree-{chain}-{cid}"
+        tree = render_step_tree(chain, cid, c["steps"])
+        trees.append(
+            f'<section class="steptree" id="{stid}" hidden>'
+            f'<div class="drill-head"><b>{html.escape(cid)}</b> 의 스텝 트리 '
+            f'<span class="dh">— 사이클 안 사고 트리</span>'
+            f'<button class="dc" data-close="{stid}">✕</button></div>'
+            f'<div class="drill-body">{tree}</div></section>')
+    return svg + "".join(trees)
 
 
 def layout(chains):
@@ -289,22 +371,32 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
   border:1.5px dashed #cbd5e1;border-radius:12px;margin:8px 0}
 @media(prefers-color-scheme:dark){.drill-empty{border-color:#334155}}
 .empty{color:#94a3b8;font-size:13px;padding:12px}
+.bt{stroke:#f59e0b;stroke-width:1.8;stroke-dasharray:6 5;fill:none}
+.steptree{border:1px solid #e2e8f0;border-radius:10px;margin:8px 0;overflow:hidden;
+  background:#f8fafc}
+@media(prefers-color-scheme:dark){.steptree{border-color:#1e293b;background:#0d1526}}
+.steptree[hidden]{display:none}
+.kind-success circle{stroke-width:3}
+.kind-fail circle{stroke-width:2}
+.kind-fail .nm{fill:#dc2626}
+.kind-success .nm{fill:#16a34a}
+.kind-pending circle{fill-opacity:.35;stroke-dasharray:3 3}
 """
 
 JS = """
 (function(){
-  function closeAll(){
-    document.querySelectorAll('.drill').forEach(function(s){s.setAttribute('hidden','');});
-    document.querySelectorAll('.node.open').forEach(function(g){g.classList.remove('open');});
-    var e=document.getElementById('drill-empty'); if(e) e.style.display='';
-  }
+  // 두 레벨 드릴다운: 체인→사이클(.drill), 사이클→스텝(.steptree). 같은 레벨만 닫는다.
   function drill(g){
     var id=g.getAttribute('data-drill'); if(!id) return;
     var s=document.getElementById(id); if(!s) return;
+    var cls=s.classList.contains('steptree')?'steptree':'drill';
     var was=!s.hasAttribute('hidden');
-    closeAll();
+    document.querySelectorAll('.'+cls).forEach(function(x){x.setAttribute('hidden','');});
+    (g.closest('svg')||document).querySelectorAll('.node.open')
+      .forEach(function(n){n.classList.remove('open');});
     if(!was){ s.removeAttribute('hidden'); g.classList.add('open');
-      var e=document.getElementById('drill-empty'); if(e) e.style.display='none';
+      var e=document.getElementById('drill-empty');
+      if(e && cls==='drill') e.style.display='none';
       s.scrollIntoView({block:'nearest',behavior:'smooth'});
     }
   }
@@ -316,8 +408,8 @@ JS = """
     b.addEventListener('click', function(){
       var s=document.getElementById(b.getAttribute('data-close'));
       if(s) s.setAttribute('hidden','');
-      document.querySelectorAll('.node.open').forEach(function(g){g.classList.remove('open');});
-      var e=document.getElementById('drill-empty'); if(e) e.style.display='';
+      var e=document.getElementById('drill-empty');
+      if(e && s && s.classList.contains('drill')) e.style.display='';
     });
   });
 })();
