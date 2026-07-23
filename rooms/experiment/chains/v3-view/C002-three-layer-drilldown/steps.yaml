@@ -17,3 +17,9 @@
   outcome: null
   backtrack: null
   body: steps/s3.md
+- id: s4
+  kind: analyze
+  parent: s3
+  outcome: success
+  backtrack: null
+  body: steps/s4.md
