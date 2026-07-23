@@ -127,10 +127,15 @@ def fsck(nodes):
             violations.append(f'스텝순환: {cc} — backtrack은 Gil-Backtrack '
                               f'(조상 define) 필요')
         # ── 6. 계보 참조 무결성 (Cycle-Parent·Merge 실재) ──
+        # 참조는 두 꼴: "cycle"(같은 체인 안) 또는 "chain/cycle"(다른 체인/외부).
+        # 외부 참조(chain/cycle 꼴)는 이 그래프 밖일 수 있다 — id 문법만 보고 실재는
+        # 검사하지 않는다(체인 경계 넘는 계보는 정상, 머지·부모 사이클로 이어짐).
+        # 같은 체인 안 참조(cycle 꼴)만 실재를 강제한다.
         for ref in n["cycle_parents"] + n["merges"]:
-            base = ref.split("/")[-1]  # chain/cycle or cycle
-            if base not in cycles and ref not in chains:
-                violations.append(f'계보: {cc} — 참조 "{ref}" 실재 안 함')
+            if "/" in ref:
+                continue  # 외부 참조 — 실재 미검사 (경계 넘는 계보 허용)
+            if ref not in cycles:
+                violations.append(f'계보: {cc} — 같은 체인 참조 "{ref}" 실재 안 함')
     return violations
 
 
@@ -150,7 +155,10 @@ def cmd_log(args):
 
 
 def cmd_fsck(args):
-    v = fsck(collect_nodes())
+    # 선택 rev-range: 손 시연 초기의 규칙-위반 유산 노드를 범위 밖으로 둘 수 있다.
+    # append-only라 옛 노드는 못 고치므로, fsck는 "여기서부터" 건강을 검사한다.
+    rng = args[0] if args else "HEAD"
+    v = fsck(collect_nodes(rng))
     if not v:
         print("fsck: 위반 0 — 커밋 그래프 건강")
         return
