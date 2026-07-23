@@ -80,17 +80,33 @@ def collect_nodes(rev_range="HEAD"):
     return nodes
 
 
-def step_body(sha):
-    """한 스텝 커밋의 본문(디테일) — 제목·trailer 제외한 순수 마크다운 본문.
+def body_index(rev_range="--all"):
+    """sha(9자) → 순수 본문(디테일) 인덱스를 **단일 git log**로 만든다.
 
-    커밋 = 제목 + 빈줄 + 본문 + 빈줄 + Gil-* trailer. %b는 본문+trailer를 준다.
-    끝의 연속된 Gil-*(또는 Co-Authored-By 등) trailer 라인을 걷어내 본문만 남긴다.
+    step_body를 스텝마다 git fork로 부르면 O(스텝수)의 프로세스 생성이 된다(62초 벽,
+    gil-v3-study/c002/s4). 이 함수는 git log 한 번(--all 2320커밋 0.037초)으로 모든
+    커밋의 본문을 뽑아, step_body(sha, idx)가 fork 없이 인덱스에서 읽게 한다.
     """
-    body = _git("log", "-1", "--format=%b", sha).rstrip("\n")
+    fmt = "%H" + _FSEP + "%b" + _SEP
+    out = _git("log", "--format=" + fmt, rev_range)
+    idx = {}
+    for rec in out.split(_SEP):
+        rec = rec.strip("\n")
+        if not rec:
+            continue
+        f = rec.split(_FSEP, 1)
+        if len(f) < 2:
+            continue
+        idx[f[0][:9]] = _strip_trailers(f[1].rstrip("\n"))
+    return idx
+
+
+TRAILER_PREFIXES = ("Gil-", "Co-Authored-By:", "Co-authored-by:", "Signed-off-by:")
+
+
+def _strip_trailers(body):
+    """본문 끝의 trailer 블록(알려진 키로 시작하는 라인)을 걷어내 순수 본문만 남긴다."""
     lines = body.split("\n")
-    # 끝에서부터 trailer 블록만 제거. trailer는 **알려진 키**(Gil-* 또는 Co-Authored-By)
-    # 로 시작하는 라인만 — 본문에도 "막힘: …"처럼 콜론이 흔하므로 접두사로 엄격히 구분.
-    TRAILER_PREFIXES = ("Gil-", "Co-Authored-By:", "Co-authored-by:", "Signed-off-by:")
     end = len(lines)
     while end > 0:
         ln = lines[end - 1].strip()
@@ -102,6 +118,18 @@ def step_body(sha):
         else:
             break
     return "\n".join(lines[:end]).strip()
+
+
+def step_body(sha, idx=None):
+    """한 스텝 커밋의 본문(디테일) — 제목·trailer 제외한 순수 마크다운 본문.
+
+    idx(body_index 결과)를 주면 fork 없이 인덱스에서 읽는다(빠른 경로). 없으면 단건 조회.
+    커밋 = 제목 + 빈줄 + 본문 + 빈줄 + Gil-* trailer. %b는 본문+trailer를 준다.
+    본문에도 "막힘: …"처럼 콜론이 흔하므로 알려진 접두사로만 trailer를 엄격히 구분한다.
+    """
+    if idx is not None:
+        return idx.get(sha[:9], "")
+    return _strip_trailers(_git("log", "-1", "--format=%b", sha).rstrip("\n"))
 
 
 def declared_chains(rev_range="HEAD"):
@@ -397,10 +425,28 @@ def cmd_fsck(args):
 
 
 def cmd_web(args):
-    """gil web [-o out.html] — 커밋 그래프를 체인 층 뷰어로 (가장 상위 층)."""
+    """gil web [-o out.html] [--live [--port P] [--interval S] [--no-open]]
+
+    -o     : 정적 자기완결 번들(file://로 열림). 지금까지의 동작.
+    --live : ThreadingHTTPServer + SSE. 커밋 그래프가 자라면 브라우저 자동 갱신.
+    (인자 없음): 정적 문서를 stdout으로.
+    """
     import gilweb
-    dst = None
     rest = list(args)
+
+    if "--live" in rest:
+        rest.remove("--live")
+        port, interval, open_browser = 8737, 1.0, True
+        if "--port" in rest:
+            i = rest.index("--port"); port = int(rest[i + 1]); del rest[i:i + 2]
+        if "--interval" in rest:
+            i = rest.index("--interval"); interval = float(rest[i + 1]); del rest[i:i + 2]
+        if "--no-open" in rest:
+            rest.remove("--no-open"); open_browser = False
+        gilweb.serve_live(port=port, interval=interval, open_browser=open_browser)
+        return
+
+    dst = None
     if "-o" in rest:
         i = rest.index("-o")
         dst = rest[i + 1]

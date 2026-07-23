@@ -39,6 +39,50 @@ def _branches():
     return [b.strip() for b in out.splitlines() if b.strip()]
 
 
+_TR_SEP = "\x1f"
+_REC_SEP = "\x1e"
+# 커밋 인덱스에 담을 트레일러 키 (chains_from_graph가 쓰는 것들).
+_IDX_KEYS = ["Gil-Chain", "Gil-Kind", "Gil-Mode", "Gil-Cycle-Parent", "Gil-Merge"]
+
+
+def commit_index():
+    """단일 `git log --branches`로 모든 커밋의 subject·주요 트레일러를 인덱스한다.
+
+    brancheswise sha별 `git log -1` 반복(62초 벽, gil-v3-study/c002/s4)을 없앤다.
+    반환: {sha9: {subject, chain, kind, mode, cycle_parents[], merges[]}}.
+    한 줄에 담기지 않는 멀티값(Cycle-Parent·Merge)은 %x00 구분.
+    """
+    parts = ["%H", "%s"]
+    for k in _IDX_KEYS[:3]:  # 단일값
+        parts.append(f"%(trailers:key={k},valueonly)")
+    for k in _IDX_KEYS[3:]:  # 멀티값
+        parts.append(f"%(trailers:key={k},valueonly,separator=%x00)")
+    fmt = _TR_SEP.join(parts) + _REC_SEP
+    out = _git("log", "--branches", "--format=" + fmt)
+    idx = {}
+    for rec in out.split(_REC_SEP):
+        rec = rec.strip("\n")
+        if not rec:
+            continue
+        f = rec.split(_TR_SEP)
+        if len(f) < 7:
+            continue
+        idx[f[0][:9]] = {
+            "subject": f[1],
+            "chain": f[2].strip() or None,
+            "kind": f[3].strip() or None,
+            "mode": f[4].strip() or None,
+            "cycle_parents": [x for x in f[5].split("\x00") if x.strip()],
+            "merges": [x for x in f[6].split("\x00") if x.strip()],
+        }
+    return idx
+
+
+def _branch_shas(br):
+    """한 브랜치의 커밋 sha(9자) 리스트 — sha만 뽑는 가벼운 단일 호출."""
+    return [s[:9] for s in _git("log", "--format=%H", br).split()]
+
+
 def chains_from_graph():
     """커밋 그래프에서 체인 단위로 집계.
 
@@ -46,44 +90,37 @@ def chains_from_graph():
     체인 = Gil-Kind가 init 또는 chain-root인 커밋으로 선언된다. 부모는 그 커밋의
     Gil-Cycle-Parent(체인을 가리킴). 상태는 chain-close 커밋 존재로 판정.
     """
+    idx = commit_index()  # 단일 git log — 브랜치×sha별 fork 제거 (c002/s5)
+    all_nodes = gil.collect_nodes("--branches")  # 사이클 집계용, 역시 단일 log
     chains = {}
     for br in _branches():
-        # 이 브랜치의 커밋들을 sha 단위로 순회 — 트레일러는 커밋별 개별 조회(멀티라인 안전).
-        shas = _git("log", "--format=%H", br).split()
+        shas = _branch_shas(br)  # sha만 (가벼운 단일 호출)
         root = None
         closed = False
+        head = idx.get(shas[0]) if shas else None
         # chain_name = 브랜치 HEAD의 Gil-Chain (이 브랜치가 대표하는 체인)
-        chain_name = _git("log", "-1", "--format=%(trailers:key=Gil-Chain,"
-                          "valueonly)", br).strip() or None
+        chain_name = head["chain"] if head else None
         for sha in shas:
-            def tr(key):
-                return _git("log", "-1",
-                            f"--format=%(trailers:key={key},valueonly)",
-                            sha).strip()
-            def tr_multi(key):
-                # 여러 줄 trailer (체인 머지 = 여러 부모 체인)
-                out = _git("log", "-1",
-                           f"--format=%(trailers:key={key},valueonly,separator=%x00)",
-                           sha)
-                return [x.strip() for x in out.split("\x00") if x.strip()]
-            kind = tr("Gil-Kind")
-            ch = tr("Gil-Chain")
+            info = idx.get(sha)
+            if not info:
+                continue
+            kind = info["kind"]
+            ch = info["chain"]
             # 이 체인 루트만 (조상 체인의 root 배제)
             if kind in ("init", "chain-root") and ch == chain_name and root is None:
-                subj = _git("log", "-1", "--format=%s", sha).strip()
                 # 부모 체인: Gil-Cycle-Parent 여러 줄 = 체인 머지(닫힌 체인들 합류).
-                # 단, 이 값이 사이클 참조가 아니라 체인 참조인 경우만(체인 루트이므로).
-                parents = tr_multi("Gil-Cycle-Parent") or tr_multi("Gil-Merge")
+                parents = info["cycle_parents"] or info["merges"]
                 root = {"parents": parents,
-                        "mode": tr("Gil-Mode") or "autonomous",
-                        "kind": kind, "subject": subj}
+                        "mode": info["mode"] or "autonomous",
+                        "kind": kind, "subject": info["subject"]}
             # chain-close는 이 체인 이름의 것만 센다(조상 체인의 close 배제).
             if kind == "chain-close" and ch == chain_name:
                 closed = True
         if not chain_name or not root:
             continue
-        cyc = {n["cycle"] for n in gil.collect_nodes(br)
-               if n["chain"] == chain_name and n["cycle"]}
+        br_shas = set(shas)
+        cyc = {n["cycle"] for n in all_nodes
+               if n["chain"] == chain_name and n["cycle"] and n["sha"] in br_shas}
         status = "init" if root["kind"] == "init" else (
             "closed" if closed else "open")
         chains[chain_name] = {
@@ -200,13 +237,13 @@ def md_to_html(text):
     return "".join(out)
 
 
-def render_step_body_page(chain, cid, sid, kind, sha):
+def render_step_body_page(chain, cid, sid, kind, sha, body_idx=None):
     """한 스텝 본문의 자기완결 HTML 페이지 (사이드 번들 파일). 이미지 data URI 포함.
 
     이 파일 하나가 자기완결 — 뷰어 iframe이 클릭 시 로드한다. 메인 HTML엔 안 들어가
     뷰어 단독 크기를 지킨다(상현님 교훈).
     """
-    detail = md_to_html(gil.step_body(sha))
+    detail = md_to_html(gil.step_body(sha, body_idx))
     color = KIND_COLOR.get(kind, "#64748b")
     return f"""<!doctype html><meta charset="utf-8"><style>
 :root{{color-scheme:light dark}}
@@ -397,10 +434,18 @@ def layout(chains):
     return pos
 
 
-def render():
+def render_graph_inner():
+    """그래프 본문 조각만 (head 메타·legend·wrap·layer2·드릴다운).
+
+    셸(<!doctype>·<style>·<script>)을 뺀 순수 갱신 대상. 정적 render()도, 실시간
+    --live도 이 조각을 공유한다. --live는 그래프가 자랄 때 이 조각만 다시 만들어
+    SSE로 밀어넣고, 브라우저는 #graph-root.innerHTML을 이걸로 교체한다.
+
+    반환: (inner_html, ok). 체인 없으면 ("<p>체인 없음</p>", False).
+    """
     chains = chains_from_graph()
     if not chains:
-        return "<!doctype html><meta charset=utf-8><p>체인 없음</p>"
+        return "<p class='empty'>체인 없음</p>", False
     pos = layout(chains)
     max_x = max(x for x, y in pos.values()) + R + 120
     max_y = max(y for x, y in pos.values()) + R + 60
@@ -452,8 +497,7 @@ def render():
     cyc_legend = "".join(
         f'<span class="lg"><span class="sw" style="background:{CYC_COLOR[k]}"></span>'
         f'{CYC_LABEL[k]}</span>' for k in ["in_progress", "solved", "pending", "dead"])
-    return f"""<!doctype html><meta charset="utf-8"><style>{CSS}</style>
-<div class="head"><h1>gil 뷰어 — 체인 층</h1>
+    inner = f"""<div class="head"><h1>gil 뷰어 — 체인 층</h1>
 <div class="meta">체인 {len(chains)}개 · 순수 커밋 그래프에서 읽음 (Gil-* trailer).
 체인이 어떻게 이어지는지 — gil init → 개발 → … 배포 순환. <b>체인 노드를 클릭하면
 그 체인 안의 사이클 DAG가 아래에 열린다.</b></div></div>
@@ -462,7 +506,17 @@ def render():
 <div class="layer2"><div class="l2h">사이클 층 <span class="dh">(체인 클릭 → 그 안의 사이클 트리)</span></div>
 <div class="cyc-legend">{cyc_legend}</div>
 {"".join(drills)}
-<div class="drill-empty" id="drill-empty">위 체인 노드를 클릭하면 그 체인의 사이클 DAG가 여기 펼쳐집니다.</div></div>
+<div class="drill-empty" id="drill-empty">위 체인 노드를 클릭하면 그 체인의 사이클 DAG가 여기 펼쳐집니다.</div></div>"""
+    return inner, True
+
+
+def render():
+    """정적 자기완결 문서 (file://로 열림). 그래프 조각을 셸로 감싼다."""
+    inner, ok = render_graph_inner()
+    if not ok:
+        return "<!doctype html><meta charset=utf-8><p>체인 없음</p>"
+    return f"""<!doctype html><meta charset="utf-8"><style>{CSS}</style>
+<div id="graph-root">{inner}</div>
 <div class="head"><div class="meta">gil-v3-viewer/c001 · Clew · 자기완결 (외부 리소스 0)</div></div>
 <script>{JS}</script>"""
 
@@ -583,27 +637,92 @@ JS = """
       } else if(fr){ fitFrame(fr); }
       s.scrollIntoView({block:'nearest',behavior:'smooth'}); }
   }
-  document.querySelectorAll('.node.clickable').forEach(function(g){
-    var isBody=g.hasAttribute('data-body');
-    g.addEventListener('click', function(){ isBody?body(g):drill(g); });
-    g.addEventListener('keydown', function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault(); isBody?body(g):drill(g);}});
-  });
-  document.querySelectorAll('.dc').forEach(function(b){
-    b.addEventListener('click', function(){
-      var s=document.getElementById(b.getAttribute('data-close'));
-      if(s) s.setAttribute('hidden','');
-      var e=document.getElementById('drill-empty');
-      if(e && s && s.classList.contains('drill')) e.style.display='';
+  // 리스너 바인딩을 함수로 — 실시간 innerHTML 교체 후 다시 부를 수 있게(idempotent).
+  function bind(root){
+    root=root||document;
+    root.querySelectorAll('.node.clickable').forEach(function(g){
+      if(g._gilBound) return; g._gilBound=true;
+      var isBody=g.hasAttribute('data-body');
+      g.addEventListener('click', function(){ isBody?body(g):drill(g); });
+      g.addEventListener('keydown', function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault(); isBody?body(g):drill(g);}});
     });
-  });
-  document.querySelectorAll('.sb-close').forEach(function(b){
-    b.addEventListener('click', function(){
-      var s=document.getElementById(b.getAttribute('data-close'));
-      if(s){ s.setAttribute('hidden',''); }
+    root.querySelectorAll('.dc').forEach(function(b){
+      if(b._gilBound) return; b._gilBound=true;
+      b.addEventListener('click', function(){
+        var s=document.getElementById(b.getAttribute('data-close'));
+        if(s) s.setAttribute('hidden','');
+        var e=document.getElementById('drill-empty');
+        if(e && s && s.classList.contains('drill')) e.style.display='';
+      });
     });
-  });
+    root.querySelectorAll('.sb-close').forEach(function(b){
+      if(b._gilBound) return; b._gilBound=true;
+      b.addEventListener('click', function(){
+        var s=document.getElementById(b.getAttribute('data-close'));
+        if(s){ s.setAttribute('hidden',''); }
+      });
+    });
+  }
+  bind(document);
+
+  // ── 실시간(--live): SSE로 그래프 조각을 받아 #graph-root 교체 + 상태 보존 ──
+  // 서버가 그래프 셸에 window.__GIL_LIVE__=true를 심으면 구독한다. 정적 file://은 미구독.
+  if(window.__GIL_LIVE__){
+    var root=document.getElementById('graph-root');
+    function openIds(){  // 현재 열려 있는 드릴다운·본문 카드 id 집합 (상태 보존용)
+      var ids=[];
+      document.querySelectorAll('.drill:not([hidden]),.steptree:not([hidden]),.stepbody:not([hidden])')
+        .forEach(function(x){ if(x.id) ids.push(x.id); });
+      return ids;
+    }
+    function restore(ids){  // 교체 후 같은 id를 다시 연다(데이터만 갈고 열림 보존)
+      ids.forEach(function(id){
+        var s=document.getElementById(id); if(!s) return;
+        s.removeAttribute('hidden');
+        var e=document.getElementById('drill-empty');
+        if(e && s.classList.contains('drill')) e.style.display='none';
+        // 사이드 iframe은 지연 로드였으니 다시 열릴 때 로드 트리거
+        var fr=s.querySelector&&s.querySelector('.sb-frame');
+        if(fr && !fr.src && fr.getAttribute('data-src')) fr.src=fr.getAttribute('data-src');
+      });
+    }
+    var es=new EventSource('/events');
+    es.addEventListener('graph', function(ev){
+      if(!root) return;
+      var keep=openIds();
+      root.innerHTML=ev.data;   // 그래프 조각 교체(데이터만 갈림)
+      bind(root);               // 새 노드에 리스너 재바인딩
+      restore(keep);            // 열려 있던 것 복원
+    });
+    es.onerror=function(){ /* EventSource가 자동 재연결(서버 재시작 견딤) */ };
+  }
 })();
 """
+
+
+def _write_step_pages(ddir):
+    """모든 스텝 본문을 ddir에 자기완결 HTML로 쓴다. 반환: 쓴 페이지 수.
+
+    단일 collect_nodes("--branches") + 단일 body_index로 굽는다 — 브랜치×스텝별
+    git fork(62초 벽, c002/s4)를 없앤 빠른 경로(c002/s5). (chain,cycle,step) dedup.
+    """
+    os.makedirs(ddir, exist_ok=True)
+    body_idx = gil.body_index("--branches")
+    seen, count = set(), 0
+    for n in gil.collect_nodes("--branches"):
+        if not (n["chain"] and n["cycle"] and n["step"]):
+            continue
+        key = (n["chain"], n["cycle"], n["step"])
+        if key in seen:
+            continue
+        seen.add(key)
+        page = render_step_body_page(n["chain"], n["cycle"], n["step"],
+                                     n["kind"], n["sha"], body_idx)
+        fp = os.path.join(ddir, f'{n["chain"]}-{n["cycle"]}-{n["step"]}.html')
+        with open(fp, "w", encoding="utf-8") as fh:
+            fh.write(page)
+        count += 1
+    return count
 
 
 def write_bundle(dst):
@@ -615,21 +734,162 @@ def write_bundle(dst):
     doc = render()
     with open(dst, "w", encoding="utf-8") as fh:
         fh.write(doc)
-    # 사이드 번들 — 모든 체인의 모든 스텝 본문
     ddir = os.path.join(os.path.dirname(os.path.abspath(dst)), DATA_DIR)
-    os.makedirs(ddir, exist_ok=True)
-    count = 0
-    for br in _branches():
-        for n in gil.collect_nodes(br):
-            if not (n["chain"] and n["cycle"] and n["step"]):
-                continue
-            page = render_step_body_page(n["chain"], n["cycle"], n["step"],
-                                         n["kind"], n["sha"])
-            fp = os.path.join(ddir, f'{n["chain"]}-{n["cycle"]}-{n["step"]}.html')
-            with open(fp, "w", encoding="utf-8") as fh:
-                fh.write(page)
-            count += 1
+    count = _write_step_pages(ddir)
     return len(doc), count
+
+
+# ── 실시간 서버 (--live): stdlib만, SSE로 그래프 조각 push ──────────────────
+
+def _graph_signature():
+    """그래프 시그니처 = 모든 로컬 브랜치 팁 sha 집합. 팁이 하나라도 바뀌면(=새 스텝
+    커밋) 값이 변한다. git for-each-ref 한 번 — 싸다."""
+    out = _git("for-each-ref", "--format=%(objectname)", "refs/heads/")
+    return "|".join(sorted(out.split()))
+
+
+def _live_shell():
+    """실시간 셸 문서 — 정적 render()의 셸과 같되 window.__GIL_LIVE__=true를 심어
+    브라우저가 /events를 구독하게 한다. 그래프 조각은 최초 1회 인라인, 이후 SSE 교체."""
+    inner, ok = render_graph_inner()
+    if not ok:
+        inner = "<p class='empty'>체인 없음 — gil open으로 시작하라.</p>"
+    return f"""<!doctype html><meta charset="utf-8"><style>{CSS}</style>
+<script>window.__GIL_LIVE__=true;</script>
+<div id="graph-root">{inner}</div>
+<div class="head"><div class="meta">gil web --live · Clew · 실시간(SSE) · 커밋 그래프가 자라면 자동 갱신</div></div>
+<script>{JS}</script>"""
+
+
+def serve_live(port=8737, interval=1.0, open_browser=True):
+    """gil web --live — ThreadingHTTPServer + SSE. 커밋 그래프 변화를 브라우저에 push.
+
+    라우트: GET / (실시간 셸) · GET /events (SSE 스트림) · GET /<data_dir>/<f> (스텝 본문).
+    watcher 스레드가 interval마다 그래프 시그니처를 재보고 변하면 최신 그래프 조각을
+    모든 SSE 구독자에게 flush. 외부 의존 0 (http.server·threading·queue 전부 stdlib).
+    """
+    import http.server
+    import threading
+    import queue as _queue
+
+    subscribers = []      # 각 구독자의 Queue
+    sub_lock = threading.Lock()
+    ddir = os.path.join(os.getcwd(), DATA_DIR)
+
+    def _refresh_bundle():
+        """스텝 본문 사이드 번들을 현재 그래프 기준으로 다시 쓴다(/data/ 라우트가 서빙).
+
+        단일 log+인덱스 경로(_write_step_pages)로 굽는다 — watcher가 매 변화마다 불러도
+        62초가 아니라 1초 이하. 실시간성 회복(c002/s5).
+        """
+        try:
+            _write_step_pages(ddir)
+        except Exception:
+            pass  # 번들 갱신 실패는 실시간 갱신을 막지 않는다
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass  # 요청 로그 침묵
+
+        def _send(self, code, ctype, body):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            if body is not None:
+                self.wfile.write(body)
+
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/" or path == "/index.html":
+                self._send(200, "text/html; charset=utf-8",
+                           _live_shell().encode("utf-8"))
+                return
+            if path == "/events":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+                q = _queue.Queue()
+                with sub_lock:
+                    subscribers.append(q)
+                # 연결 즉시 현재 그래프 1회 push (첫 화면 동기화)
+                inner, _ = render_graph_inner()
+                q.put(inner)
+                try:
+                    while True:
+                        data = q.get()
+                        if data is None:
+                            break
+                        payload = "event: graph\ndata: " + \
+                            data.replace("\n", "\ndata: ") + "\n\n"
+                        self.wfile.write(payload.encode("utf-8"))
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                finally:
+                    with sub_lock:
+                        if q in subscribers:
+                            subscribers.remove(q)
+                return
+            # /<DATA_DIR>/<file> — 스텝 본문 사이드 번들
+            if path.startswith("/" + DATA_DIR + "/"):
+                fname = os.path.basename(path)
+                fp = os.path.join(ddir, fname)
+                if os.path.isfile(fp):
+                    with open(fp, "rb") as fh:
+                        self._send(200, "text/html; charset=utf-8", fh.read())
+                else:
+                    self._send(404, "text/plain", b"not found")
+                return
+            self._send(404, "text/plain", b"not found")
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server._gil_stop = threading.Event()
+
+    def watcher():
+        last = None
+        while True:
+            try:
+                sig = _graph_signature()
+            except Exception:
+                sig = last
+            if sig != last:
+                last = sig
+                _refresh_bundle()
+                inner, ok = render_graph_inner()
+                if ok:
+                    with sub_lock:
+                        for q in list(subscribers):
+                            q.put(inner)
+            server._gil_stop.wait(interval)
+            if server._gil_stop.is_set():
+                break
+
+    _refresh_bundle()
+    t = threading.Thread(target=watcher, daemon=True)
+    t.start()
+
+    url = f"http://127.0.0.1:{port}/"
+    print(f"gil web --live — {url} (Ctrl-C로 종료)")
+    if open_browser:
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\ngil web --live 종료.")
+    finally:
+        server._gil_stop.set()
+        with sub_lock:
+            for q in list(subscribers):
+                q.put(None)   # 구독자 스레드 깨워 종료
+        server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":
