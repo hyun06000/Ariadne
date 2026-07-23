@@ -284,11 +284,14 @@ def render_cycle_dag(chain):
     edges, nodes = [], []
     for cid, c in cyc.items():
         cx, cy = pos[cid]
-        for p in c["parents"]:
+        # 첫 부모 = 일반 실선. 둘째+ 부모 = 머지 엣지(초록 굵게, 두 조상 상속 — 상현님
+        # 역순 머지 둘째 층: 닫힌 산 사이클들이 합류). 스텝 머지와 일관된 시각.
+        for i, p in enumerate(c["parents"]):
             if p in pos:
                 px, py = pos[p]
                 m = (px + cx) / 2
-                edges.append(f'<path class="edge" d="M {px+R:.0f} {py:.0f} '
+                cls = "edge" if i == 0 else "edge merge-edge"
+                edges.append(f'<path class="{cls}" d="M {px+R:.0f} {py:.0f} '
                              f'C {m:.0f} {py:.0f}, {m:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
         color = CYC_COLOR[c["status"]]
         sp = cid.split("-", 1)
