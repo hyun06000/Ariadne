@@ -90,17 +90,23 @@ def declared_chains(rev_range="HEAD"):
     return {ln.strip() for ln in out.splitlines() if ln.strip()}
 
 
-def fsck(nodes, chains_known=None):
-    """SPEC §3 무결성 검사. 반환: 위반 문자열 리스트 (빈 리스트=건강)."""
-    violations = []
-    chains = set(chains_known or [])
-    cycles = {}   # cycle id -> chain
-    steps = {}    # (chain,cycle,step) -> node
+def fsck(nodes, chains_known=None, universe=None):
+    """SPEC §3 무결성 검사. 반환: 위반 문자열 리스트 (빈 리스트=건강).
 
-    # 선언된 체인·사이클 수집
-    for n in nodes:
+    nodes = 검사 대상(범위 내). universe = 참조 실재 확인용 전체 노드(부모·사이클이
+    범위 밖에 있어도 실재하면 통과). universe 미지정 시 nodes로 대체.
+    """
+    violations = []
+    universe = universe if universe is not None else nodes
+    chains = set(chains_known or [])
+    cycles = {}   # cycle id -> chain (전체 그래프 기준)
+    step_keys = set()  # (chain,cycle,step) — 전체 그래프 기준
+
+    # 선언된 체인·사이클·스텝은 전체 그래프(universe)에서 수집 — 범위 밖 참조도 실재 인정
+    for n in universe:
         if n["chain"]:
             chains.add(n["chain"])
+        step_keys.add((n["chain"], n["cycle"], n["step"]))
         if n["cycle"] and n["kind"] == "define" and n["parent"] in (None, "null"):
             cycles[n["cycle"]] = n["chain"]
 
@@ -122,11 +128,10 @@ def fsck(nodes, chains_known=None):
         # ── 3. kind 유효 ──
         if n["kind"] and n["kind"] not in KINDS:
             violations.append(f'kind: {cc} — 알 수 없는 kind "{n["kind"]}"')
-        # ── 4. dangling parent ──
+        # ── 4. dangling parent (전체 그래프 기준 — 부모가 범위 밖이어도 실재하면 OK) ──
         p = n["parent"]
         if p and p not in ("null",):
-            key = (n["chain"], n["cycle"], p)
-            if key not in {(x["chain"], x["cycle"], x["step"]) for x in nodes}:
+            if (n["chain"], n["cycle"], p) not in step_keys:
                 violations.append(f'위계: {cc} — 부모 스텝 {p} 실재 안 함 '
                                   f'(dangling parent)')
         # ── 5. analyze는 outcome 강제 ──
@@ -285,8 +290,10 @@ def cmd_fsck(args):
     # 선택 rev-range: 손 시연 초기의 규칙-위반 유산 노드를 범위 밖으로 둘 수 있다.
     # append-only라 옛 노드는 못 고치므로, fsck는 "여기서부터" 건강을 검사한다.
     rng = args[0] if args else "HEAD"
-    # 체인 선언은 전체 히스토리에서 수집(체인은 어디서 선언됐든 유효). 노드 검사만 범위.
-    v = fsck(collect_nodes(rng), chains_known=declared_chains("HEAD"))
+    # 검사는 범위(rng), 참조 실재 확인은 전체 그래프(universe). 부모·사이클·체인이
+    # 범위 밖에 있어도 실재하면 통과 — dangling 오검 방지.
+    v = fsck(collect_nodes(rng), chains_known=declared_chains("HEAD"),
+             universe=collect_nodes("HEAD"))
     if not v:
         print("fsck: 위반 0 — 커밋 그래프 건강")
         return
