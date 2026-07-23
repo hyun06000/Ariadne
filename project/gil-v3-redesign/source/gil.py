@@ -416,6 +416,94 @@ def cmd_chain(args):
     print(f"chain: {a.name} 개설 — 목적: {a.purpose}")
 
 
+def topological_leaves(tips):
+    """팁 목록에서 위상적 끝단만 추린다 — 다른 팁의 조상인 팁은 제외.
+
+    상현님 통찰: "위상이 같은 끝단끼리 머지하면 된다. 모든 노드를 각각 머지하는
+    건 바보 같다." 다른 팁의 조상인 팁은 그 팁을 머지하면 자동 포함되므로, 누구의
+    조상도 아닌 끝단만 머지하면 전부 묶인다.
+    """
+    shas = {t: _git("rev-parse", t).strip() for t in tips}
+    leaves = []
+    for a in tips:
+        covered = False
+        for b in tips:
+            if a == b:
+                continue
+            # a가 b의 조상이면(그리고 같은 커밋이 아니면) a는 끝단 아님
+            r = subprocess.run(["git", "merge-base", "--is-ancestor",
+                                shas[a], shas[b]], capture_output=True)
+            if r.returncode == 0 and shas[a] != shas[b]:
+                covered = True
+                break
+        if not covered and a not in [l for l in leaves]:
+            # 같은 sha 중복 제거
+            if shas[a] not in {shas[l] for l in leaves}:
+                leaves.append(a)
+    return leaves
+
+
+def cmd_chain_merge(args):
+    """gil chain-merge <newchain> --purpose <P> <tip>...
+
+    흩어진 체인들을 하나로 묶는다 (상현님: 체인 머지 = git 머지 차용, 머지 순간부터
+    이후 노드가 모든 갈래의 조상을 상속). 주어진 팁들 중 위상적 끝단만 자동 추려
+    octopus 머지 커밋을 새 체인 루트로 새긴다. 각 끝단은 Gil-Merge로 계보 각인.
+
+    트리는 현재 HEAD(호출 시점 체인, 보통 최신 gil.py)를 그대로 쓴다 — gil의 본질은
+    커밋 그래프 계보이지 파일 병합이 아니다. 파일 정리는 통합 체인이 이어서 한다
+    (-s ours 정신). 손 octopus merge를 gil이 흡수한다.
+    """
+    import argparse
+    p = argparse.ArgumentParser(prog="gil chain-merge")
+    p.add_argument("name")
+    p.add_argument("--purpose", required=True)
+    p.add_argument("tips", nargs="+", help="묶을 체인 팁들 (브랜치/ref). 위상적 "
+                                           "끝단만 자동 추려 머지한다.")
+    a = p.parse_args(args)
+    if not ID_RE.match(a.name):
+        sys.exit(f'거부: 체인 이름 "{a.name}"은 소문자·숫자·하이픈만')
+    if chain_purpose(a.name):
+        sys.exit(f'거부: 체인 "{a.name}" 이미 존재')
+
+    leaves = topological_leaves(a.tips)
+    dropped = [t for t in a.tips if t not in leaves]
+    print(f"위상적 끝단 {len(leaves)}개: {', '.join(leaves)}", file=sys.stderr)
+    if dropped:
+        print(f"조상이라 생략(자동 포함): {', '.join(dropped)}", file=sys.stderr)
+    if len(leaves) < 2:
+        sys.exit(f"거부: 머지할 끝단이 {len(leaves)}개 — 최소 2개 필요")
+
+    # 부모 = HEAD(현재 체인, 트리 원천) + 각 끝단. 저수준 commit-tree로 다부모 커밋.
+    # HEAD가 이미 끝단 중 하나면(예: guard에서 guard 포함 머지) 중복되므로 sha로
+    # 유일화한다 — 안 그러면 git이 중복 부모를 합쳐 갈래를 잃는다.
+    head = _git("rev-parse", "HEAD").strip()
+    parent_shas = [head]
+    for t in leaves:
+        s = _git("rev-parse", t).strip()
+        if s not in parent_shas:
+            parent_shas.append(s)
+    tree = _git("rev-parse", "HEAD^{tree}").strip()
+    subject = f"gil {a.name} chain-merge: {a.purpose}"
+    body = (f"체인 [{a.name}] 개설 — 위상적 끝단 {len(leaves)}개를 묶음.\n\n"
+            f"묶은 끝단: {', '.join(leaves)}\n"
+            f"트리는 현재 체인(HEAD) 것을 씀(-s ours 정신). 이후 노드는 이 모든\n"
+            f"갈래의 조상을 상속한다. 파일 정리는 이 통합 체인이 이어서.")
+    tr = [("Gil-Chain", a.name), ("Gil-Chain-Purpose", a.purpose)]
+    for lf in leaves:
+        tr.append(("Gil-Merge", lf))
+    msg = subject + "\n\n" + body.rstrip() + "\n\n"
+    msg += "\n".join(f"{k}: {v}" for k, v in tr)
+    pargs = []
+    for ps in parent_shas:
+        pargs += ["-p", ps]
+    new = subprocess.run(["git", "commit-tree", tree, *pargs],
+                         input=msg, text=True, capture_output=True, check=True
+                         ).stdout.strip()
+    _git("update-ref", "HEAD", new)  # 현재 브랜치 팁을 머지 커밋으로 전진
+    print(f"chain-merge: {a.name} 개설 — {len(leaves)}갈래 묶음 (커밋 {new[:9]})")
+
+
 def cmd_log(args):
     ch = args[0] if args else None
     nodes = collect_nodes()
@@ -448,7 +536,8 @@ def cmd_fsck(args):
 
 
 COMMANDS = {
-    "chain": cmd_chain, "open": cmd_open, "step": cmd_step, "close": cmd_close,
+    "chain": cmd_chain, "chain-merge": cmd_chain_merge,
+    "open": cmd_open, "step": cmd_step, "close": cmd_close,
     "log": cmd_log, "fsck": cmd_fsck,
 }
 
