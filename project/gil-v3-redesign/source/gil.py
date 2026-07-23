@@ -80,6 +80,30 @@ def collect_nodes(rev_range="HEAD"):
     return nodes
 
 
+def step_body(sha):
+    """한 스텝 커밋의 본문(디테일) — 제목·trailer 제외한 순수 마크다운 본문.
+
+    커밋 = 제목 + 빈줄 + 본문 + 빈줄 + Gil-* trailer. %b는 본문+trailer를 준다.
+    끝의 연속된 Gil-*(또는 Co-Authored-By 등) trailer 라인을 걷어내 본문만 남긴다.
+    """
+    body = _git("log", "-1", "--format=%b", sha).rstrip("\n")
+    lines = body.split("\n")
+    # 끝에서부터 trailer(키: 값) 블록을 제거
+    end = len(lines)
+    while end > 0:
+        ln = lines[end - 1].strip()
+        if ln == "":
+            end -= 1
+            continue
+        # trailer 형태: "Key: value" (키는 영문·하이픈)
+        if ln.split(":", 1)[0].replace("-", "").isalnum() and ":" in ln \
+                and " " not in ln.split(":", 1)[0]:
+            end -= 1
+        else:
+            break
+    return "\n".join(lines[:end]).strip()
+
+
 def declared_chains(rev_range="HEAD"):
     """선언된 체인 = Gil-Chain trailer를 가진 모든 커밋 (체인 루트 포함).
 

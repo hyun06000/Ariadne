@@ -123,6 +123,56 @@ KIND_LABEL = {"define": "문제정의", "hypothesis": "가설", "verify": "검�
               "analyze": "분석", "success": "성공", "fail": "실패", "pending": "대기"}
 
 
+import re as _re
+
+
+def md_to_html(text):
+    """작은 마크다운 → HTML (stdlib만). 제목·리스트·코드펜스·굵게·인라인코드·문단."""
+    if not text.strip():
+        return '<p class="md-empty">(본문 없음 — 이 스텝은 제목만)</p>'
+    def inline(s):
+        s = html.escape(s)
+        s = _re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+        s = _re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+        return s
+    out, i = [], 0
+    lines = text.split("\n")
+    while i < len(lines):
+        ln = lines[i]
+        if ln.startswith("```"):  # 코드펜스
+            i += 1
+            code = []
+            while i < len(lines) and not lines[i].startswith("```"):
+                code.append(html.escape(lines[i])); i += 1
+            i += 1
+            out.append('<pre class="md-code"><code>' + "\n".join(code) + "</code></pre>")
+            continue
+        m = _re.match(r"^(#{1,6})\s+(.*)", ln)
+        if m:
+            lv = len(m.group(1))
+            out.append(f'<h{lv} class="md-h">{inline(m.group(2))}</h{lv}>')
+            i += 1
+            continue
+        if _re.match(r"^\s*[-*]\s+", ln):  # 리스트
+            items = []
+            while i < len(lines) and _re.match(r"^\s*[-*]\s+", lines[i]):
+                items.append("<li>" + inline(_re.sub(r"^\s*[-*]\s+", "", lines[i])) + "</li>")
+                i += 1
+            out.append("<ul class='md-ul'>" + "".join(items) + "</ul>")
+            continue
+        if ln.strip() == "":
+            i += 1
+            continue
+        # 문단 (연속 비어있지 않은 줄)
+        para = []
+        while i < len(lines) and lines[i].strip() != "" \
+                and not lines[i].startswith(("#", "```")) \
+                and not _re.match(r"^\s*[-*]\s+", lines[i]):
+            para.append(lines[i]); i += 1
+        out.append("<p class='md-p'>" + inline(" ".join(para)) + "</p>")
+    return "".join(out)
+
+
 def render_step_tree(chain, cid, steps):
     """한 사이클의 스텝 트리 SVG. parent 실선·backtrack 파선·kind 색.
 
@@ -171,16 +221,33 @@ def render_step_tree(chain, cid, steps):
         elif kind == "analyze" and s["outcome"] in ("fail", "backtrack"):
             kind = "fail"
         color = KIND_COLOR.get(kind, "#64748b")
+        bid = f"stepbody-{chain}-{cid}-{sid}"
         nodes.append(
-            f'<g class="node kind-{kind}"><circle cx="{cx:.0f}" cy="{cy:.0f}" r="{R}" '
+            f'<g class="node kind-{kind} clickable" data-body="{bid}" tabindex="0" '
+            f'role="button"><circle cx="{cx:.0f}" cy="{cy:.0f}" r="{R}" '
             f'fill="{color}" stroke="{color}"/>'
             f'<text class="nm" x="{cx:.0f}" y="{cy+R+15:.0f}" text-anchor="middle">'
             f'{KIND_LABEL.get(kind, kind)}</text>'
             f'<text class="sub" x="{cx:.0f}" y="{cy+R+29:.0f}" text-anchor="middle">'
             f'{html.escape(sid)}</text><title>{html.escape(sid)} · {kind}</title></g>')
-    return (f'<svg width="{mx}" height="{my}" viewBox="0 0 {mx} {my}" '
-            f'xmlns="http://www.w3.org/2000/svg">'
-            + "".join(edges) + "".join(nodes) + "</svg>")
+    svg = (f'<svg width="{mx}" height="{my}" viewBox="0 0 {mx} {my}" '
+           f'xmlns="http://www.w3.org/2000/svg">'
+           + "".join(edges) + "".join(nodes) + "</svg>")
+    # 각 스텝의 본문 카드 (스텝 노드 클릭 시 열림, 마크다운 렌더)
+    cards = []
+    for s in steps:
+        sid = s["step"]
+        bid = f"stepbody-{chain}-{cid}-{sid}"
+        detail = md_to_html(gil.step_body(s["sha"]))
+        color = KIND_COLOR.get(s["kind"], "#64748b")
+        cards.append(
+            f'<article class="stepbody" id="{bid}" hidden>'
+            f'<div class="sb-head"><span class="sb-dot" style="background:{color}"></span>'
+            f'<b>{html.escape(sid)}</b> · {KIND_LABEL.get(s["kind"], s["kind"])} '
+            f'<span class="sb-sha">{html.escape(s["sha"])}</span>'
+            f'<button class="sb-close" data-close="{bid}">✕</button></div>'
+            f'<div class="sb-md">{detail}</div></article>')
+    return svg + "".join(cards)
 
 
 def render_cycle_dag(chain):
@@ -381,6 +448,27 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
 .kind-fail .nm{fill:#dc2626}
 .kind-success .nm{fill:#16a34a}
 .kind-pending circle{fill-opacity:.35;stroke-dasharray:3 3}
+.stepbody{background:#fff;border:1px solid #e2e8f0;border-radius:10px;margin:8px 14px;
+  padding:12px 14px;max-width:760px}
+@media(prefers-color-scheme:dark){.stepbody{background:#0b1120;border-color:#1e293b}}
+.stepbody[hidden]{display:none}
+.sb-head{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px}
+.sb-dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+.sb-sha{color:#94a3b8;font-size:11px;font-family:ui-monospace,monospace}
+.sb-close{margin-left:auto;border:none;background:transparent;cursor:pointer;
+  color:#94a3b8;font-size:15px}
+.sb-md{font-size:13px;line-height:1.6;color:#334155}
+@media(prefers-color-scheme:dark){.sb-md{color:#cbd5e1}}
+.md-h{font-weight:700;margin:12px 0 6px;line-height:1.3}
+h1.md-h{font-size:17px} h2.md-h{font-size:15px} h3.md-h{font-size:14px}
+.md-p{margin:6px 0} .md-ul{margin:6px 0;padding-left:20px} .md-ul li{margin:2px 0}
+.md-code{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;
+  overflow-x:auto;font-size:12px;font-family:ui-monospace,monospace}
+@media(prefers-color-scheme:dark){.md-code{background:#111a2e;border-color:#1e293b}}
+.sb-md code{background:#f1f5f9;border-radius:4px;padding:0 4px;font-size:12px;
+  font-family:ui-monospace,monospace}
+@media(prefers-color-scheme:dark){.sb-md code{background:#111a2e}}
+.md-empty{color:#94a3b8;font-style:italic}
 """
 
 JS = """
@@ -400,9 +488,21 @@ JS = """
       s.scrollIntoView({block:'nearest',behavior:'smooth'});
     }
   }
+  // 스텝 노드(data-body) 클릭 → 그 스텝 본문 카드 토글 (같은 스텝트리 안 단일 열림)
+  function body(g){
+    var id=g.getAttribute('data-body'); if(!id) return;
+    var s=document.getElementById(id); if(!s) return;
+    var scope=g.closest('.steptree')||document;
+    var was=!s.hasAttribute('hidden');
+    scope.querySelectorAll('.stepbody').forEach(function(x){x.setAttribute('hidden','');});
+    scope.querySelectorAll('.node.open').forEach(function(n){n.classList.remove('open');});
+    if(!was){ s.removeAttribute('hidden'); g.classList.add('open');
+      s.scrollIntoView({block:'nearest',behavior:'smooth'}); }
+  }
   document.querySelectorAll('.node.clickable').forEach(function(g){
-    g.addEventListener('click', function(){drill(g);});
-    g.addEventListener('keydown', function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();drill(g);}});
+    var isBody=g.hasAttribute('data-body');
+    g.addEventListener('click', function(){ isBody?body(g):drill(g); });
+    g.addEventListener('keydown', function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault(); isBody?body(g):drill(g);}});
   });
   document.querySelectorAll('.dc').forEach(function(b){
     b.addEventListener('click', function(){
@@ -410,6 +510,12 @@ JS = """
       if(s) s.setAttribute('hidden','');
       var e=document.getElementById('drill-empty');
       if(e && s && s.classList.contains('drill')) e.style.display='';
+    });
+  });
+  document.querySelectorAll('.sb-close').forEach(function(b){
+    b.addEventListener('click', function(){
+      var s=document.getElementById(b.getAttribute('data-close'));
+      if(s){ s.setAttribute('hidden',''); }
     });
   });
 })();
