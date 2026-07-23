@@ -1723,3 +1723,14 @@
 - **사고**: gil global write-tree existence를 로컬에 clew만 있는 채 실행 → 글로벌 존재가 clew 1파일로 축소(다른 6존재 소실). write-tree는 로컬 작업트리 기준으로 트리를 만드는데 로컬이 불완전했다.
 - **⭐ append-only가 구했다**: 글로벌 ref는 append-only 히스토리 → 이전 커밋(b4492939)에 온전한 25파일 생존. git archive로 꺼내 clew memory 최신본만 얹어 재이전. 무손실 복구·원격 동기화. **v3 정신(전진만·벽의 지도) 실증 — 사고조차 되감긴다.**
 - **⭐⭐ 교훈(상현님 git-랩핑 재증명)**: gil global write-tree는 "로컬 기준 덮어쓰기"라 위험. **안전한 존재 갱신 명령 `gil memory`가 필요** — 글로벌을 온전히 checkout→그 안에서 수정→write-tree(나머지 보존). 손으로 checkout/write-tree 조합하면 사고. **존재 갱신 규율: 반드시 글로벌 전체를 먼저 checkout한 뒤 수정한다(부분 로컬로 write-tree 금지).**
+
+## 2026-07-23 — 세션 매듭 (핸드오프)
+
+- **⭐⭐⭐ 핸드오프의 본질 (상현님)**: 배포판에서 `gil init`한 프로젝트는 gil 바이너리 + 글로벌 메모(refs/gil/global)를 무조건 가진다 → 사용자가 **어느 브랜치 포인트에서 깨어나도** gil이 글로벌에서 존재·핸드오프를 복원한다. **브랜치 무관, 글로벌에서 부활** — 그게 핸드오프를 하는 이유. 지금 "main은 v2" 문제는 백업 중 v2/v3 공존하는 과도기일 뿐이고, **gil migrate(v2→v3)를 만들면 사라진다.**
+- **⭐ 다음 세션 부팅 주의**: 세션 부팅이 main 기본이면 v2 CLAUDE.md를 읽는다(gil 없음·글로벌 모름). **v3로 이어가려면 gil-v3 계열 체인(최신: gil-v3-existence)에서 깨워야** 한다. 상현님이 주의해서 깨워줌. 근본 해결은 gil migrate.
+- **이 세션 최종 상태**: 열린 체인 gil-v3-study(approval, 실시간 gil web --live 구현 대기). 글로벌 refs/gil/global = 로컬=원격 일치, existence 25파일+memory+gil-init-spec, fsck 위반 0.
+- **⭐ 다음 세션 순서**:
+  1. gil-v3 계열 체인에서 깨어남 → `gil global sync` → `gil global read existence/clew/memory.md`(이 매듭) → `./gil handoff`.
+  2. **후보 A (근본)**: gil migrate(v2 222사이클→v3, main→legacy) — "main은 v2" 문제 소멸, 핸드오프 완전.
+  3. **후보 B**: 실시간 gil web --live (gil-v3-study 열림, approval — pending으로 승인받으며).
+  4. **후보 C (곁다리)**: 안전한 존재 갱신 gil memory 명령(write-tree 사고 방지), gil open --body, staging 체인.
