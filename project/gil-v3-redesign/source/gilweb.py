@@ -58,12 +58,21 @@ def chains_from_graph():
                 return _git("log", "-1",
                             f"--format=%(trailers:key={key},valueonly)",
                             sha).strip()
+            def tr_multi(key):
+                # 여러 줄 trailer (체인 머지 = 여러 부모 체인)
+                out = _git("log", "-1",
+                           f"--format=%(trailers:key={key},valueonly,separator=%x00)",
+                           sha)
+                return [x.strip() for x in out.split("\x00") if x.strip()]
             kind = tr("Gil-Kind")
             ch = tr("Gil-Chain")
             # 이 체인 루트만 (조상 체인의 root 배제)
             if kind in ("init", "chain-root") and ch == chain_name and root is None:
                 subj = _git("log", "-1", "--format=%s", sha).strip()
-                root = {"parent": tr("Gil-Cycle-Parent") or None,
+                # 부모 체인: Gil-Cycle-Parent 여러 줄 = 체인 머지(닫힌 체인들 합류).
+                # 단, 이 값이 사이클 참조가 아니라 체인 참조인 경우만(체인 루트이므로).
+                parents = tr_multi("Gil-Cycle-Parent") or tr_multi("Gil-Merge")
+                root = {"parents": parents,
                         "mode": tr("Gil-Mode") or "autonomous",
                         "kind": kind, "subject": subj}
             # chain-close는 이 체인 이름의 것만 센다(조상 체인의 close 배제).
@@ -76,7 +85,7 @@ def chains_from_graph():
         status = "init" if root["kind"] == "init" else (
             "closed" if closed else "open")
         chains[chain_name] = {
-            "parent": root["parent"], "mode": root["mode"],
+            "parents": root["parents"], "mode": root["mode"],
             "status": status, "cycles": len(cyc), "subject": root["subject"]}
     return chains
 
@@ -327,8 +336,8 @@ def layout(chains):
     def d(c):
         if c in depth:
             return depth[c]
-        p = chains.get(c, {}).get("parent")
-        depth[c] = 0 if not p or p not in chains else 1 + d(p)
+        ps = [p for p in chains.get(c, {}).get("parents", []) if p in chains]
+        depth[c] = 0 if not ps else 1 + max(d(p) for p in ps)
         return depth[c]
     for c in chains:
         d(c)
@@ -351,13 +360,16 @@ def render():
     edges, nodes = [], []
     for c, info in chains.items():
         cx, cy = pos[c]
-        p = info["parent"]
-        if p and p in pos:
-            px, py = pos[p]
-            mx = (px + cx) / 2
-            edges.append(
-                f'<path class="edge" d="M {px+R:.0f} {py:.0f} '
-                f'C {mx:.0f} {py:.0f}, {mx:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
+        # 첫 부모=실선, 둘째+=머지 엣지(초록 굵게 — 체인 머지: 닫힌 체인들 합류).
+        # 역순 머지 셋째 층. 스텝·사이클 머지와 일관된 시각.
+        for i, p in enumerate(info.get("parents", [])):
+            if p in pos:
+                px, py = pos[p]
+                mx = (px + cx) / 2
+                cls = "edge" if i == 0 else "edge merge-edge"
+                edges.append(
+                    f'<path class="{cls}" d="M {px+R:.0f} {py:.0f} '
+                    f'C {mx:.0f} {py:.0f}, {mx:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
         color = CHAIN_COLOR[info["status"]]
         mode_badge = "🔒승인" if info["mode"] == "approval" else ""
         drill = f'data-drill="drill-{html.escape(c)}"' if info["cycles"] else ""
