@@ -405,12 +405,11 @@ def cmd_web(args):
         i = rest.index("-o")
         dst = rest[i + 1]
         del rest[i:i + 2]
-    doc = gilweb.render()
     if dst:
-        open(dst, "w", encoding="utf-8").write(doc)
-        print(f"wrote {dst} ({len(doc)} bytes)")
+        size, n = gilweb.write_bundle(dst)  # 메인 HTML + 사이드 번들(지연 로드)
+        print(f"wrote {dst} ({size} bytes) + {gilweb.DATA_DIR}/ ({n} step pages)")
     else:
-        sys.stdout.write(doc)
+        sys.stdout.write(gilweb.render())
 
 
 COMMANDS = {

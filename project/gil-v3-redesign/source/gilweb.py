@@ -17,6 +17,8 @@ sys.path.insert(0, HERE)
 import gil  # noqa: E402
 
 
+DATA_DIR = "gil-viewer.data"  # 사이드 번들 — 스텝 본문·이미지 (지연 로딩)
+
 CHAIN_COLOR = {
     "open": "#7c3aed",     # 진행중(열림) — 보라
     "closed": "#16a34a",   # 닫힘(완주) — 초록
@@ -140,14 +142,30 @@ def md_to_html(text):
     if not text.strip():
         return '<p class="md-empty">(본문 없음 — 이 스텝은 제목만)</p>'
     def inline(s):
+        # 이미지 ![alt](url) — data URI 포함. escape 전에 뽑아 placeholder로 보호.
+        imgs = []
+        def _img(m):
+            imgs.append((m.group(1), m.group(2)))
+            return f"\x00IMG{len(imgs)-1}\x00"
+        s = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _img, s)
         s = html.escape(s)
         s = _re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
         s = _re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+        for idx, (alt, url) in enumerate(imgs):
+            tag = (f'<img class="md-img" src="{html.escape(url, quote=True)}" '
+                   f'alt="{html.escape(alt, quote=True)}">')
+            s = s.replace(f"\x00IMG{idx}\x00", tag)
         return s
     out, i = [], 0
     lines = text.split("\n")
     while i < len(lines):
         ln = lines[i]
+        # 단독 이미지 라인 (긴 data URI 등) — 문단으로 감싸지 않고 그대로
+        mi = _re.match(r"^\s*!\[([^\]]*)\]\(([^)]+)\)\s*$", ln)
+        if mi:
+            out.append(f'<p class="md-imgline">{inline(ln.strip())}</p>')
+            i += 1
+            continue
         if ln.startswith("```"):  # 코드펜스
             i += 1
             code = []
@@ -180,6 +198,32 @@ def md_to_html(text):
             para.append(lines[i]); i += 1
         out.append("<p class='md-p'>" + inline(" ".join(para)) + "</p>")
     return "".join(out)
+
+
+def render_step_body_page(chain, cid, sid, kind, sha):
+    """한 스텝 본문의 자기완결 HTML 페이지 (사이드 번들 파일). 이미지 data URI 포함.
+
+    이 파일 하나가 자기완결 — 뷰어 iframe이 클릭 시 로드한다. 메인 HTML엔 안 들어가
+    뷰어 단독 크기를 지킨다(상현님 교훈).
+    """
+    detail = md_to_html(gil.step_body(sha))
+    color = KIND_COLOR.get(kind, "#64748b")
+    return f"""<!doctype html><meta charset="utf-8"><style>
+:root{{color-scheme:light dark}}
+body{{margin:0;padding:14px 16px;font:13px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:#fff;color:#334155}}
+@media(prefers-color-scheme:dark){{body{{background:#0b1120;color:#cbd5e1}}}}
+.md-h{{font-weight:700;margin:12px 0 6px;line-height:1.3}}
+h1.md-h{{font-size:17px}} h2.md-h{{font-size:15px}} h3.md-h{{font-size:14px}}
+.md-p{{margin:6px 0}} .md-ul{{margin:6px 0;padding-left:20px}} .md-ul li{{margin:2px 0}}
+.md-code{{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;
+  overflow-x:auto;font-size:12px;font-family:ui-monospace,monospace}}
+@media(prefers-color-scheme:dark){{.md-code{{background:#111a2e;border-color:#1e293b}}}}
+code{{background:#f1f5f9;border-radius:4px;padding:0 4px;font-size:12px;font-family:ui-monospace,monospace}}
+@media(prefers-color-scheme:dark){{code{{background:#111a2e}}}}
+.md-img{{max-width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px;margin:8px 0;display:block}}
+.md-empty{{color:#94a3b8;font-style:italic}}
+</style><div class="sb-md">{detail}</div>"""
 
 
 def render_step_tree(chain, cid, steps):
@@ -249,20 +293,23 @@ def render_step_tree(chain, cid, steps):
     svg = (f'<svg width="{mx}" height="{my}" viewBox="0 0 {mx} {my}" '
            f'xmlns="http://www.w3.org/2000/svg">'
            + "".join(edges) + "".join(nodes) + "</svg>")
-    # 각 스텝의 본문 카드 (스텝 노드 클릭 시 열림, 마크다운 렌더)
+    # 각 스텝의 본문 카드 — 지연 로딩(상현님 교훈: 뷰어 HTML 단독 크기 방지).
+    # 본문·이미지는 메인 HTML에 인라인하지 않고 사이드 번들(DATA_DIR/<...>.html)로 분리.
+    # 클릭 시에만 iframe이 그 파일을 로드(loading=lazy). 번들 전체가 자기완결.
     cards = []
     for s in steps:
         sid = s["step"]
         bid = f"stepbody-{chain}-{cid}-{sid}"
-        detail = md_to_html(gil.step_body(s["sha"]))
         color = KIND_COLOR.get(s["kind"], "#64748b")
+        src = f"{DATA_DIR}/{chain}-{cid}-{sid}.html"
         cards.append(
             f'<article class="stepbody" id="{bid}" hidden>'
             f'<div class="sb-head"><span class="sb-dot" style="background:{color}"></span>'
             f'<b>{html.escape(sid)}</b> · {KIND_LABEL.get(s["kind"], s["kind"])} '
             f'<span class="sb-sha">{html.escape(s["sha"])}</span>'
             f'<button class="sb-close" data-close="{bid}">✕</button></div>'
-            f'<div class="sb-md">{detail}</div></article>')
+            f'<iframe class="sb-frame" data-src="{html.escape(src, quote=True)}" '
+            f'loading="lazy"></iframe></article>')
     return svg + "".join(cards)
 
 
@@ -482,6 +529,7 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
   color:#94a3b8;font-size:15px}
 .sb-md{font-size:13px;line-height:1.6;color:#334155}
 @media(prefers-color-scheme:dark){.sb-md{color:#cbd5e1}}
+.sb-frame{width:100%;min-height:120px;border:0;display:block;background:transparent}
 .md-h{font-weight:700;margin:12px 0 6px;line-height:1.3}
 h1.md-h{font-size:17px} h2.md-h{font-size:15px} h3.md-h{font-size:14px}
 .md-p{margin:6px 0} .md-ul{margin:6px 0;padding-left:20px} .md-ul li{margin:2px 0}
@@ -492,6 +540,9 @@ h1.md-h{font-size:17px} h2.md-h{font-size:15px} h3.md-h{font-size:14px}
   font-family:ui-monospace,monospace}
 @media(prefers-color-scheme:dark){.sb-md code{background:#111a2e}}
 .md-empty{color:#94a3b8;font-style:italic}
+.md-img{max-width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px;margin:8px 0;display:block}
+@media(prefers-color-scheme:dark){.md-img{border-color:#1e293b}}
+.md-imgline{margin:8px 0}
 """
 
 JS = """
@@ -511,7 +562,12 @@ JS = """
       s.scrollIntoView({block:'nearest',behavior:'smooth'});
     }
   }
-  // 스텝 노드(data-body) 클릭 → 그 스텝 본문 카드 토글 (같은 스텝트리 안 단일 열림)
+  // 스텝 노드(data-body) 클릭 → 본문 카드 토글. iframe은 지연 로드(클릭 시 data-src→src).
+  function fitFrame(fr){
+    try{ var d=fr.contentDocument;
+      if(d) fr.style.height=(d.body.scrollHeight+24)+'px';
+    }catch(e){}
+  }
   function body(g){
     var id=g.getAttribute('data-body'); if(!id) return;
     var s=document.getElementById(id); if(!s) return;
@@ -520,6 +576,11 @@ JS = """
     scope.querySelectorAll('.stepbody').forEach(function(x){x.setAttribute('hidden','');});
     scope.querySelectorAll('.node.open').forEach(function(n){n.classList.remove('open');});
     if(!was){ s.removeAttribute('hidden'); g.classList.add('open');
+      var fr=s.querySelector('.sb-frame');
+      if(fr && !fr.src && fr.getAttribute('data-src')){   // 지연 로드: 클릭 때 처음 로드
+        fr.addEventListener('load', function(){fitFrame(fr);});
+        fr.src=fr.getAttribute('data-src');
+      } else if(fr){ fitFrame(fr); }
       s.scrollIntoView({block:'nearest',behavior:'smooth'}); }
   }
   document.querySelectorAll('.node.clickable').forEach(function(g){
@@ -545,13 +606,38 @@ JS = """
 """
 
 
+def write_bundle(dst):
+    """메인 HTML(그래프만, 가벼움) + 사이드 번들(스텝 본문 파일들, 지연 로드) 생성.
+
+    dst 옆에 DATA_DIR/ 디렉토리를 만들고 각 스텝 본문을 자기완결 HTML로 쓴다.
+    메인 HTML엔 본문·이미지가 안 들어가 뷰어 단독 크기가 작다(상현님 교훈).
+    """
+    doc = render()
+    with open(dst, "w", encoding="utf-8") as fh:
+        fh.write(doc)
+    # 사이드 번들 — 모든 체인의 모든 스텝 본문
+    ddir = os.path.join(os.path.dirname(os.path.abspath(dst)), DATA_DIR)
+    os.makedirs(ddir, exist_ok=True)
+    count = 0
+    for br in _branches():
+        for n in gil.collect_nodes(br):
+            if not (n["chain"] and n["cycle"] and n["step"]):
+                continue
+            page = render_step_body_page(n["chain"], n["cycle"], n["step"],
+                                         n["kind"], n["sha"])
+            fp = os.path.join(ddir, f'{n["chain"]}-{n["cycle"]}-{n["step"]}.html')
+            with open(fp, "w", encoding="utf-8") as fh:
+                fh.write(page)
+            count += 1
+    return len(doc), count
+
+
 if __name__ == "__main__":
     dst = None
     if "-o" in sys.argv:
         dst = sys.argv[sys.argv.index("-o") + 1]
-    doc = render()
     if dst:
-        open(dst, "w", encoding="utf-8").write(doc)
-        print(f"wrote {dst} ({len(doc)} bytes)")
+        size, n = write_bundle(dst)
+        print(f"wrote {dst} ({size} bytes) + {DATA_DIR}/ ({n} step pages)")
     else:
-        sys.stdout.write(doc)
+        sys.stdout.write(render())
