@@ -302,9 +302,26 @@ def cmd_fsck(args):
     sys.exit(1)
 
 
+def cmd_web(args):
+    """gil web [-o out.html] — 커밋 그래프를 체인 층 뷰어로 (가장 상위 층)."""
+    import gilweb
+    dst = None
+    rest = list(args)
+    if "-o" in rest:
+        i = rest.index("-o")
+        dst = rest[i + 1]
+        del rest[i:i + 2]
+    doc = gilweb.render()
+    if dst:
+        open(dst, "w", encoding="utf-8").write(doc)
+        print(f"wrote {dst} ({len(doc)} bytes)")
+    else:
+        sys.stdout.write(doc)
+
+
 COMMANDS = {
     "open": cmd_open, "step": cmd_step, "close": cmd_close,
-    "log": cmd_log, "fsck": cmd_fsck,
+    "log": cmd_log, "fsck": cmd_fsck, "web": cmd_web,
 }
 
 if __name__ == "__main__":
