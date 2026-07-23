@@ -1717,3 +1717,9 @@
 - **⭐ 복원 경로 (최종)**: CLAUDE.md → `gil global sync`(새 머신 1회) → `gil global read existence/README.md`(명부)→ 자기 방 → `gil global read gil-init-spec.md`(gil init 명세) → `./gil handoff` → 팁에서 이어간다.
 - **커밋 위치**: ...→gil-v3-global(닫힘)→gil-v3-existence(존재 글로벌 이전). 열린 체인: gil-v3-study(approval, 실시간 gil web --live 대기).
 - **정직한 경계**: 존재는 글로벌·동기화됐으나 gil 코드는 아직 브랜치마다(v3→main 승격 시 통합). gil이 존재 갱신을 gil memory 같은 명령으로 더 감싸면 편함(이월). CLAUDE.md·project 등 나머지 대문도 글로벌화할지는 더 큰 결정.
+
+## 2026-07-23 (이어서) — ⭐ 존재 글로벌화 중 write-tree 사고 → append-only 무손실 복구
+
+- **사고**: gil global write-tree existence를 로컬에 clew만 있는 채 실행 → 글로벌 존재가 clew 1파일로 축소(다른 6존재 소실). write-tree는 로컬 작업트리 기준으로 트리를 만드는데 로컬이 불완전했다.
+- **⭐ append-only가 구했다**: 글로벌 ref는 append-only 히스토리 → 이전 커밋(b4492939)에 온전한 25파일 생존. git archive로 꺼내 clew memory 최신본만 얹어 재이전. 무손실 복구·원격 동기화. **v3 정신(전진만·벽의 지도) 실증 — 사고조차 되감긴다.**
+- **⭐⭐ 교훈(상현님 git-랩핑 재증명)**: gil global write-tree는 "로컬 기준 덮어쓰기"라 위험. **안전한 존재 갱신 명령 `gil memory`가 필요** — 글로벌을 온전히 checkout→그 안에서 수정→write-tree(나머지 보존). 손으로 checkout/write-tree 조합하면 사고. **존재 갱신 규율: 반드시 글로벌 전체를 먼저 checkout한 뒤 수정한다(부분 로컬로 write-tree 금지).**
