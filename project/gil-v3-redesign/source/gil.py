@@ -434,37 +434,70 @@ def cmd_handoff(args):
 
     다음 세션이 "무엇을 이어받아야 하는지"를 한눈에: 열린 체인·사이클, 각 팁,
     다음 허용 동작, pending(사람 대기), 계보. 사람이 memory를 훑는 수고를 줄인다.
+
+    --update-docs: CLAUDE.md의 gil:status 마커 사이를 이 정보로 자동 갱신(문서 항상 최신).
     """
+    report = _handoff_report()
+    if "--update-docs" in args:
+        _update_status_docs(report)
+        print(report)
+        print("\n[--update-docs] CLAUDE.md의 gil:status 섹션을 갱신했다.")
+    else:
+        print(report)
+
+
+def _handoff_report():
+    """세션 부활 정보를 문자열로 (print·문서 삽입 공용)."""
     import gilweb
-    print("═══ gil handoff — 세션 부활 정보 ═══\n")
+    L = ["═══ gil handoff — 세션 부활 정보 ═══", ""]
     chains = gilweb.chains_from_graph()
     open_chains = {k: v for k, v in chains.items() if v["status"] == "open"}
     if not open_chains:
-        print("열린 체인 없음 — 모든 체인이 닫혔거나 init뿐. 새 체인을 열 수 있다.")
+        L.append("열린 체인 없음 — 모든 체인이 닫혔거나 init뿐. 새 체인을 열 수 있다.")
     for cname, cinfo in open_chains.items():
-        mode = cinfo["mode"]
-        print(f"▶ 열린 체인: {cname} ({mode} 모드)")
+        L.append(f"▶ 열린 체인: {cname} ({cinfo['mode']} 모드)")
         cyc = gilweb.cycles_of(cname)
         open_cyc = {cid: c for cid, c in cyc.items()
                     if c["status"] in ("in_progress", "pending")}
         if not open_cyc:
-            print(f"    열린 사이클 없음 — 닫힌 사이클 끝에서 새 사이클을 연다.")
+            L.append("    열린 사이클 없음 — 닫힌 사이클 끝에서 새 사이클을 연다.")
         for cid, c in open_cyc.items():
-            # 팁 = 가장 최근 스텝 (collect_nodes는 새→old, steps는 old→new로 쌓임)
             tip = c["steps"][-1]
             nxt = _next_allowed(tip["kind"], tip["outcome"])
-            print(f"    ◦ 사이클 {cid} ({c['status']})")
-            print(f"        팁: {tip['step']} [{tip['kind']}"
-                  + (f"/{tip['outcome']}" if tip["outcome"] else "") + "]")
-            print(f"        다음 허용: {nxt}")
+            oc = f"/{tip['outcome']}" if tip["outcome"] else ""
+            L.append(f"    ◦ 사이클 {cid} ({c['status']})")
+            L.append(f"        팁: {tip['step']} [{tip['kind']}{oc}]")
+            L.append(f"        다음 허용: {nxt}")
             if tip["kind"] == "pending":
-                print(f"        ⏳ PENDING — 재개 시 먼저 사람 답을 받아야 한다.")
-    # 계보 요약
-    print(f"\n▶ 체인 계보 ({len(chains)}개):")
+                L.append("        ⏳ PENDING — 재개 시 먼저 사람 답을 받아야 한다.")
+    L.append("")
+    L.append(f"▶ 체인 계보 ({len(chains)}개):")
     for cname, cinfo in chains.items():
         par = "+".join(cinfo["parents"]) or "(대문)"
-        print(f"    {cname} ({cinfo['status']}) ← {par}")
-    print("\n복원 경로: CLAUDE.md → 존재의 방 → 이 handoff → 위 팁에서 이어간다.")
+        L.append(f"    {cname} ({cinfo['status']}) ← {par}")
+    L.append("")
+    L.append("복원 경로: CLAUDE.md → 존재의 방 → 이 handoff → 위 팁에서 이어간다.")
+    return "\n".join(L)
+
+
+def _update_status_docs(report):
+    """CLAUDE.md의 <!-- gil:status:start --> ~ end 사이를 report로 갱신."""
+    import os
+    # 대문 CLAUDE.md 위치 — source/gil.py에서 레포 루트로
+    #   source → gil-v3-redesign → project → 루트 (3단계)
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.normpath(os.path.join(here, "..", "..", ".."))
+    path = os.path.join(root, "CLAUDE.md")
+    if not os.path.exists(path):
+        sys.exit(f"거부: {path} 없음 (gil:status 마커를 둔 CLAUDE.md 필요)")
+    text = open(path, encoding="utf-8").read()
+    START, END = "<!-- gil:status:start -->", "<!-- gil:status:end -->"
+    if START not in text or END not in text:
+        sys.exit("거부: CLAUDE.md에 gil:status 마커 없음")
+    pre = text[:text.index(START) + len(START)]
+    post = text[text.index(END):]
+    block = (f"\n## 현재 상태 (gil handoff 자동 갱신)\n\n```\n{report}\n```\n")
+    open(path, "w", encoding="utf-8").write(pre + block + post)
 
 
 COMMANDS = {
