@@ -158,17 +158,19 @@ def _show_purpose_context(chain, cycle=None, cycle_purpose_str=None):
 
 
 def chain_closed(chain, rev_range="HEAD"):
-    """체인이 닫혔는가 — Gil-Kind: close 커밋이 이 체인에 있으면 True.
+    """체인이 닫혔는가 — Gil-Kind: chain-close 커밋이 이 체인에 있으면 True.
 
-    닫힌 부모 체인 안에서는 새 사이클을 못 연다(dev/c002 죽은 잎이 가르친 규칙).
-    새 사이클은 새 자식 체인에서만.
+    주의: 사이클 close(Gil-Kind: close, Gil-Cycle 있음)와 체인 close(chain-close,
+    Gil-Cycle 없음)는 다르다. 사이클 하나를 닫았다고 체인이 닫힌 게 아니다 — 그러면
+    닫힌 사이클 끝에서 다음 사이클을 여는 정상 흐름까지 막힌다(도그푸딩이 잡은 버그).
+    닫힌 부모 체인 안에서만 새 사이클을 금하고 새 자식 체인을 강제한다(원칙 6).
     """
     fmt = ("%(trailers:key=Gil-Chain,valueonly)" + _FSEP
            + "%(trailers:key=Gil-Kind,valueonly)" + _SEP)
     out = _gitlog("--format=" + fmt, rev_range)
     for rec in out.split(_SEP):
         c, _, k = rec.partition(_FSEP)
-        if c.strip() == chain and k.strip() == "close":
+        if c.strip() == chain and k.strip() == "chain-close":
             return True
     return False
 
