@@ -88,16 +88,16 @@ def step_body(sha):
     """
     body = _git("log", "-1", "--format=%b", sha).rstrip("\n")
     lines = body.split("\n")
-    # 끝에서부터 trailer(키: 값) 블록을 제거
+    # 끝에서부터 trailer 블록만 제거. trailer는 **알려진 키**(Gil-* 또는 Co-Authored-By)
+    # 로 시작하는 라인만 — 본문에도 "막힘: …"처럼 콜론이 흔하므로 접두사로 엄격히 구분.
+    TRAILER_PREFIXES = ("Gil-", "Co-Authored-By:", "Co-authored-by:", "Signed-off-by:")
     end = len(lines)
     while end > 0:
         ln = lines[end - 1].strip()
         if ln == "":
             end -= 1
             continue
-        # trailer 형태: "Key: value" (키는 영문·하이픈)
-        if ln.split(":", 1)[0].replace("-", "").isalnum() and ":" in ln \
-                and " " not in ln.split(":", 1)[0]:
+        if ln.startswith(TRAILER_PREFIXES):
             end -= 1
         else:
             break
@@ -241,8 +241,21 @@ def cmd_open(args):
     print(f"open: {a.ref}/s1 define")
 
 
+def _resolve_body(a):
+    """--body(문자열) 또는 --body-file(경로)에서 스텝 디테일 본문을 얻는다."""
+    if getattr(a, "body_file", None):
+        with open(a.body_file, encoding="utf-8") as fh:
+            return fh.read().strip()
+    return getattr(a, "body", None) or ""
+
+
 def cmd_step(args):
-    """gil step <chain>/<cycle> --kind K [--outcome O] [--to define] [--title T]"""
+    """gil step <chain>/<cycle> --kind K [--outcome O] [--to define]
+       [--title T] [--body TEXT | --body-file PATH]
+
+    제목(subject) = --title(짧은 위계 요약). 본문(디테일, 마크다운) = --body 또는
+    --body-file. 본문 없으면 제목이 본문을 겸한다(하위호환). '본문은 커밋 로그에'.
+    """
     import argparse
     p = argparse.ArgumentParser(prog="gil step")
     p.add_argument("ref")
@@ -250,6 +263,8 @@ def cmd_step(args):
     p.add_argument("--outcome")
     p.add_argument("--to")
     p.add_argument("--title", default="")
+    p.add_argument("--body")
+    p.add_argument("--body-file")
     a = p.parse_args(args)
     chain, cycle = a.ref.split("/", 1)
     steps = _current_cycle(chain, cycle)
@@ -284,13 +299,14 @@ def cmd_step(args):
 
     sid = _next_step_id(steps)
     subject = f"gil {chain}/{cycle}/{sid} {a.kind}: {a.title or a.kind}"
+    body = _resolve_body(a) or a.title or a.kind
     tr = [("Gil-Chain", chain), ("Gil-Cycle", cycle),
           ("Gil-Step", sid), ("Gil-Kind", a.kind), ("Gil-Parent", parent)]
     if a.outcome:
         tr.append(("Gil-Outcome", a.outcome))
     if a.outcome == "backtrack":
         tr.append(("Gil-Backtrack", a.to))
-    _commit(subject, a.title or a.kind, tr)
+    _commit(subject, body, tr)
     tail = f" ⤳backtrack→{a.to}" if a.outcome == "backtrack" else (
         f" (형제 가지 ←{a.to})" if a.kind == "hypothesis" and a.to else "")
     print(f"step: {a.ref}/{sid} {a.kind} ←{parent}{tail}")
