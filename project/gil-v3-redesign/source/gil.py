@@ -446,13 +446,13 @@ def topological_leaves(tips):
 def cmd_chain_merge(args):
     """gil chain-merge <newchain> --purpose <P> <tip>...
 
-    흩어진 체인들을 하나로 묶는다 (상현님: 체인 머지 = git 머지 차용, 머지 순간부터
-    이후 노드가 모든 갈래의 조상을 상속). 주어진 팁들 중 위상적 끝단만 자동 추려
-    octopus 머지 커밋을 새 체인 루트로 새긴다. 각 끝단은 Gil-Merge로 계보 각인.
+    흩어진 체인들을 하나로 묶는다 (상현님: **체인 머지는 gil 레벨 표현이고 실동작은
+    브랜치 머지 — git merge로 동작한다**). 주어진 팁들 중 위상적 끝단만 자동 추려
+    실제 `git merge`로 파일 트리까지 병합한다. Gil-Merge trailer는 그 위에 얹는 gil
+    레벨 표현일 뿐, 실체는 진짜 머지 커밋(파일 병합·다부모).
 
-    트리는 현재 HEAD(호출 시점 체인, 보통 최신 gil.py)를 그대로 쓴다 — gil의 본질은
-    커밋 그래프 계보이지 파일 병합이 아니다. 파일 정리는 통합 체인이 이어서 한다
-    (-s ours 정신). 손 octopus merge를 gil이 흡수한다.
+    현재 브랜치(HEAD) 위에서 끝단들을 octopus 머지한다. 충돌이 나면 자동 해결하지
+    않고 abort 후 멈춘다 — 충돌 해결은 git 표준 흐름(사람/후속 스텝)이 맡는다.
     """
     import argparse
     p = argparse.ArgumentParser(prog="gil chain-merge")
@@ -466,42 +466,61 @@ def cmd_chain_merge(args):
     if chain_purpose(a.name):
         sys.exit(f'거부: 체인 "{a.name}" 이미 존재')
 
+    # 추적 파일에 미커밋 변경이 있으면 머지 불가(충돌·섞임 방지). untracked
+    # 산출물(빌드 결과 등)은 머지와 무관하므로 무시(-uno).
+    if _git("status", "--porcelain", "-uno").strip():
+        sys.exit("거부: 추적 파일에 미커밋 변경이 있다 — 머지 전 정리하라")
+
     leaves = topological_leaves(a.tips)
     dropped = [t for t in a.tips if t not in leaves]
     print(f"위상적 끝단 {len(leaves)}개: {', '.join(leaves)}", file=sys.stderr)
     if dropped:
         print(f"조상이라 생략(자동 포함): {', '.join(dropped)}", file=sys.stderr)
-    if len(leaves) < 2:
-        sys.exit(f"거부: 머지할 끝단이 {len(leaves)}개 — 최소 2개 필요")
 
-    # 부모 = HEAD(현재 체인, 트리 원천) + 각 끝단. 저수준 commit-tree로 다부모 커밋.
-    # HEAD가 이미 끝단 중 하나면(예: guard에서 guard 포함 머지) 중복되므로 sha로
-    # 유일화한다 — 안 그러면 git이 중복 부모를 합쳐 갈래를 잃는다.
+    # 현재 HEAD가 이미 어떤 끝단의 후손이면 그 끝단은 머지 불필요(이미 포함). 남은
+    # 끝단만 실제 머지 대상.
     head = _git("rev-parse", "HEAD").strip()
-    parent_shas = [head]
-    for t in leaves:
-        s = _git("rev-parse", t).strip()
-        if s not in parent_shas:
-            parent_shas.append(s)
-    tree = _git("rev-parse", "HEAD^{tree}").strip()
-    subject = f"gil {a.name} chain-merge: {a.purpose}"
-    body = (f"체인 [{a.name}] 개설 — 위상적 끝단 {len(leaves)}개를 묶음.\n\n"
-            f"묶은 끝단: {', '.join(leaves)}\n"
-            f"트리는 현재 체인(HEAD) 것을 씀(-s ours 정신). 이후 노드는 이 모든\n"
-            f"갈래의 조상을 상속한다. 파일 정리는 이 통합 체인이 이어서.")
-    tr = [("Gil-Chain", a.name), ("Gil-Chain-Purpose", a.purpose)]
+    to_merge = []
     for lf in leaves:
+        s = _git("rev-parse", lf).strip()
+        r = subprocess.run(["git", "merge-base", "--is-ancestor", s, head],
+                           capture_output=True)
+        if r.returncode != 0:  # 아직 HEAD 조상 아님 → 머지 필요
+            to_merge.append(lf)
+    if not to_merge:
+        sys.exit("거부: 머지할 끝단이 없다 — HEAD가 이미 모두 포함")
+
+    # 순차 머지 (한 끝단씩). octopus는 충돌 해결을 못 하므로, 끝단을 하나씩 git
+    # merge하며 충돌이 나면 **abort하지 않고 멈춘다** — 충돌 상태를 워킹트리에 남겨
+    # 충돌 해결 체인의 사이클이 해결하게 한다 (상현님: 순차 머지하며 충돌 해결을
+    # 체인·사이클로). Gil-Merge trailer는 각 머지 커밋에 얹는 gil 레벨 표현.
+    for i, lf in enumerate(to_merge, 1):
+        subject = f"gil {a.name} chain-merge ({i}/{len(to_merge)}): {lf} 병합"
+        r = subprocess.run(["git", "merge", "--no-ff", "-m", subject, lf],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            # 충돌 — 멈춘다(abort 안 함). 해결은 충돌 해결 체인이 이어서.
+            conflicts = _git("diff", "--name-only", "--diff-filter=U").strip()
+            print(f"⚠ 충돌 — [{lf}] 병합에서 멈춤 ({i}/{len(to_merge)}).\n"
+                  f"충돌 파일:\n{conflicts}\n\n"
+                  f"충돌 해결 체인을 열어 사이클로 해결하라. 해결 후:\n"
+                  f"  git add <해결한 파일> && gil chain-merge-continue {a.name} {lf}\n"
+                  f"남은 끝단: {', '.join(to_merge[i:]) or '(없음)'}", file=sys.stderr)
+            sys.exit(2)  # 2 = 충돌로 멈춤 (거부 1과 구분)
+        # 머지 성공 → 이 머지 커밋에 Gil-* trailer amend
+        tr = [("Gil-Chain", a.name)]
+        if i == 1:
+            tr.append(("Gil-Chain-Purpose", a.purpose))
         tr.append(("Gil-Merge", lf))
-    msg = subject + "\n\n" + body.rstrip() + "\n\n"
-    msg += "\n".join(f"{k}: {v}" for k, v in tr)
-    pargs = []
-    for ps in parent_shas:
-        pargs += ["-p", ps]
-    new = subprocess.run(["git", "commit-tree", tree, *pargs],
-                         input=msg, text=True, capture_output=True, check=True
-                         ).stdout.strip()
-    _git("update-ref", "HEAD", new)  # 현재 브랜치 팁을 머지 커밋으로 전진
-    print(f"chain-merge: {a.name} 개설 — {len(leaves)}갈래 묶음 (커밋 {new[:9]})")
+        cur = _git("log", "-1", "--format=%B").rstrip()
+        msg = cur + "\n\n" + "\n".join(f"{k}: {v}" for k, v in tr)
+        subprocess.run(["git", "commit", "--amend", "-q", "-F", "-"],
+                       input=msg, text=True, check=True)
+        print(f"  ✓ {lf} 병합 ({i}/{len(to_merge)})", file=sys.stderr)
+
+    new = _git("rev-parse", "HEAD").strip()
+    print(f"chain-merge: {a.name} 개설 — {len(to_merge)}갈래 순차 병합 완료 "
+          f"(커밋 {new[:9]})")
 
 
 def cmd_log(args):
