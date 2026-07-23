@@ -31,6 +31,16 @@ def _git(*args):
                           check=True).stdout
 
 
+def _gitlog(*args):
+    """git log 래퍼. 커밋이 아직 없는 빈 저장소(HEAD 부재)에선 빈 문자열.
+
+    첫 체인을 gil chain으로 여는 시나리오처럼 커밋 0개일 때 git log는 exit 128로
+    죽는다 — 그건 오류가 아니라 '아직 노드 없음'이므로 빈 결과로 흡수한다.
+    """
+    r = subprocess.run(["git", "log", *args], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
 def collect_nodes(rev_range="HEAD"):
     """커밋 그래프를 훑어 Gil-Step trailer를 가진 커밋을 스텝 노드로 수집.
 
@@ -52,7 +62,7 @@ def collect_nodes(rev_range="HEAD"):
         "%(trailers:key=Gil-Backtrack,valueonly)",
         "%(trailers:key=Gil-Merge,valueonly,separator=%x00)",
     ]) + _SEP
-    out = _git("log", "--format=" + fmt, rev_range)
+    out = _gitlog("--format=" + fmt, rev_range)
     nodes = []
     for rec in out.split(_SEP):
         rec = rec.strip("\n")
@@ -86,7 +96,7 @@ def declared_chains(rev_range="HEAD"):
     체인 루트 커밋(gil init·chain-root)엔 Gil-Step이 없어 collect_nodes가 안 잡지만,
     Gil-Chain은 있다. 계보 부모가 체인일 수 있으므로(원칙 2) 이걸 따로 수집한다.
     """
-    out = _git("log", "--format=%(trailers:key=Gil-Chain,valueonly)", rev_range)
+    out = _gitlog("--format=%(trailers:key=Gil-Chain,valueonly)", rev_range)
     return {ln.strip() for ln in out.splitlines() if ln.strip()}
 
 
@@ -99,11 +109,13 @@ def chain_purpose(chain, rev_range="HEAD"):
     같은 Gil-Chain을 가진 커밋 중 Gil-Chain-Purpose가 있는 첫(최신) 값. 체인 루트가
     선언하고 이후 노드가 상속. 시작 지점에서 이 목적을 띄워 정합 판단의 근거로 쓴다.
     """
+    # valueonly는 값 뒤에 개행을 남겨 한 커밋 출력이 여러 줄로 쪼개진다. 레코드
+    # 구분자(_SEP)로 커밋마다 묶어 먼저 나눈 뒤 필드를 분리한다(collect_nodes 패턴).
     fmt = ("%(trailers:key=Gil-Chain,valueonly)" + _FSEP
-           + "%(trailers:key=Gil-Chain-Purpose,valueonly)")
-    out = _git("log", "--format=" + fmt, rev_range)
-    for ln in out.splitlines():
-        c, _, k = ln.partition(_FSEP)
+           + "%(trailers:key=Gil-Chain-Purpose,valueonly)" + _SEP)
+    out = _gitlog("--format=" + fmt, rev_range)
+    for rec in out.split(_SEP):
+        c, _, k = rec.partition(_FSEP)
         if c.strip() == chain and k.strip():
             return k.strip()
     return None
@@ -117,10 +129,10 @@ def cycle_purpose(chain, cycle, rev_range="HEAD"):
     """
     fmt = ("%(trailers:key=Gil-Chain,valueonly)" + _FSEP
            + "%(trailers:key=Gil-Cycle,valueonly)" + _FSEP
-           + "%(trailers:key=Gil-Cycle-Purpose,valueonly)")
-    out = _git("log", "--format=" + fmt, rev_range)
-    for ln in out.splitlines():
-        c, _, rest = ln.partition(_FSEP)
+           + "%(trailers:key=Gil-Cycle-Purpose,valueonly)" + _SEP)
+    out = _gitlog("--format=" + fmt, rev_range)
+    for rec in out.split(_SEP):
+        c, _, rest = rec.partition(_FSEP)
         cy, _, pu = rest.partition(_FSEP)
         if c.strip() == chain and cy.strip() == cycle and pu.strip():
             return pu.strip()
@@ -152,10 +164,10 @@ def chain_closed(chain, rev_range="HEAD"):
     새 사이클은 새 자식 체인에서만.
     """
     fmt = ("%(trailers:key=Gil-Chain,valueonly)" + _FSEP
-           + "%(trailers:key=Gil-Kind,valueonly)")
-    out = _git("log", "--format=" + fmt, rev_range)
-    for ln in out.splitlines():
-        c, _, k = ln.partition(_FSEP)
+           + "%(trailers:key=Gil-Kind,valueonly)" + _SEP)
+    out = _gitlog("--format=" + fmt, rev_range)
+    for rec in out.split(_SEP):
+        c, _, k = rec.partition(_FSEP)
         if c.strip() == chain and k.strip() == "close":
             return True
     return False
@@ -167,7 +179,7 @@ def chain_has_children(chain, rev_range="--all"):
     자식이 분기해 나간 닫힌 부모 체인은 봉인된 것 — 그 안에서 다시 자라면
     자식 체인들과 조상을 다툰다(배포 계보 꼬임).
     """
-    out = _git("log", "--format=%(trailers:key=Gil-Chain-Parent,valueonly)",
+    out = _gitlog("--format=%(trailers:key=Gil-Chain-Parent,valueonly)",
                rev_range)
     return any(ln.strip() == chain for ln in out.splitlines())
 
