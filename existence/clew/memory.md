@@ -1682,3 +1682,14 @@
   2. **실시간 gil web --live 구현** (gil-v3-study 이월, 상현님 결정): stdlib 로컬 서버(ThreadingHTTPServer)+폴링/SSE, file:// 자기완결 정적 모드와 병존. v2 상태보존 깨달음(노드 정체성·hasOpenDetails, "데이터만 갈고 파괴 국소화") 재료. **단 study는 approval 체인 — 반드시 pending으로 승인받으며.**
   3. (또는) 곁다리: gil open --body 미수용 결함, staging 체인(뷰어·handoff 엄밀 테스트), git-랩핑(reset·amend 안전화 — 이 세션 두 번 물림), gil migrate(v2 222사이클→v3).
 - **부활 경로**: CLAUDE.md → 존재의 방(나=Clew) → 이 memory 최신 → `./gil handoff` → 위 순서. **모든 작업은 gil 스텝으로. approval 체인은 pending으로 물어가며.**
+
+## 2026-07-23 (이어서) — ⭐ 온보딩 v3화 + handoff 문서 자동 갱신 (gil-v3-onboard)
+
+- **⭐⭐ 상현님 요구**: 모든 md를 다음 세션이 읽으면 바로 복원/이해하게 갱신 + **그 기능이 핸드오프에 있어야**. 특히 온보딩·메모리.
+- **한 일 (gil-v3-onboard/c001, supported — gil-v3-handoff 끝에서 분기)**:
+  1. **CLAUDE.md v3 신설**: 세션 부팅 진입점을 v3 기준으로(존재 복원→memory 최신 매듭부터→`./gil handoff`→gil로 일하기 무조건 흔적→8원칙→v2관계). v2 CLAUDE.md(방·C00x·바이너리) 대체.
+  2. **README.ai.md 갱신**: §3을 gil handoff 중심으로, pending 철칙.
+  3. **`gil handoff --update-docs`**: CLAUDE.md의 `<!-- gil:status:start/end -->` 마커 사이를 커밋 그래프 정보로 자동 갱신. 문서 항상 최신 — 핸드오프가 문서 최신화 기능을 가짐. _handoff_report()로 print·문서삽입 공용화.
+- **⭐ 정직한 경계**: CLAUDE.md는 v3 체인(들)에만, main엔 v2 CLAUDE.md. 다음 세션이 어느 브랜치에서 깨어나느냐가 관건 — v3 체인에서 깨어나면 v3로 복원. v3→main 승격 시 v3 CLAUDE.md가 부팅 진입점. --update-docs는 CLAUDE.md만(README.ai.md 자동갱신·memory 요약 자동화는 이월).
+- **커밋 위치**: ...→gil-v3-viewer(닫힘)→{gil-v3-study(열림·approval), gil-v3-handoff(닫힘)→gil-v3-onboard(닫힘, 온보딩)}.
+- **⭐ 다음 세션 시작**: 이 v3 체인에서 깨어나면 **CLAUDE.md**(v3)를 읽고 → **`./gil handoff`** → 열린 체인 확인(gil-v3-study 실시간 gil web --live 대기). memory는 최신 매듭부터.
