@@ -90,6 +90,88 @@ def declared_chains(rev_range="HEAD"):
     return {ln.strip() for ln in out.splitlines() if ln.strip()}
 
 
+# 체인·사이클 목적성 (자연어). 커밋-층에 Gil-Chain-Purpose·Gil-Cycle-Purpose로
+# 선언된다. gil은 이를 판별하지 않고 시작 지점에서 눈앞에 띄운다 — 정합성 판단은
+# AI(Clew)의 몫 (상현님: "자연어 목적을 알려주고 지금 일과 정합한지 AI가 판별").
+def chain_purpose(chain, rev_range="HEAD"):
+    """체인 목적성(자연어)을 커밋 그래프에서 읽는다. 없으면 None.
+
+    같은 Gil-Chain을 가진 커밋 중 Gil-Chain-Purpose가 있는 첫(최신) 값. 체인 루트가
+    선언하고 이후 노드가 상속. 시작 지점에서 이 목적을 띄워 정합 판단의 근거로 쓴다.
+    """
+    fmt = ("%(trailers:key=Gil-Chain,valueonly)" + _FSEP
+           + "%(trailers:key=Gil-Chain-Purpose,valueonly)")
+    out = _git("log", "--format=" + fmt, rev_range)
+    for ln in out.splitlines():
+        c, _, k = ln.partition(_FSEP)
+        if c.strip() == chain and k.strip():
+            return k.strip()
+    return None
+
+
+def cycle_purpose(chain, cycle, rev_range="HEAD"):
+    """사이클 목적성(자연어)을 커밋 그래프에서 읽는다. 없으면 None.
+
+    사이클 루트(s1 define)의 Gil-Cycle-Purpose. 스텝 시작 때 이 목적을 띄워
+    "지금 스텝이 이 사이클 목적에 부합하는가"를 판단하게 한다.
+    """
+    fmt = ("%(trailers:key=Gil-Chain,valueonly)" + _FSEP
+           + "%(trailers:key=Gil-Cycle,valueonly)" + _FSEP
+           + "%(trailers:key=Gil-Cycle-Purpose,valueonly)")
+    out = _git("log", "--format=" + fmt, rev_range)
+    for ln in out.splitlines():
+        c, _, rest = ln.partition(_FSEP)
+        cy, _, pu = rest.partition(_FSEP)
+        if c.strip() == chain and cy.strip() == cycle and pu.strip():
+            return pu.strip()
+    return None
+
+
+def _show_purpose_context(chain, cycle=None, cycle_purpose_str=None):
+    """시작 지점(체인/사이클/스텝)에서 목적성을 눈앞에 띄운다.
+
+    gil은 정합을 판별하지 않는다 — 목적을 표시하고 AI(Clew)가 판단하게 한다
+    (상현님: "자연어 목적을 알려주고 지금 일과 정합한지 AI가 판별").
+    """
+    cp = chain_purpose(chain)
+    if cp:
+        print(f"─ 체인 [{chain}] 목적: {cp}", file=sys.stderr)
+    if cycle:
+        pu = cycle_purpose_str or cycle_purpose(chain, cycle)
+        if pu:
+            print(f"─ 사이클 [{cycle}] 목적: {pu}", file=sys.stderr)
+    if cp or cycle:
+        print("─ 지금 하려는 일이 위 목적에 정합하는지 판단하고, 어긋나면 멈춰라.",
+              file=sys.stderr)
+
+
+def chain_closed(chain, rev_range="HEAD"):
+    """체인이 닫혔는가 — Gil-Kind: close 커밋이 이 체인에 있으면 True.
+
+    닫힌 부모 체인 안에서는 새 사이클을 못 연다(dev/c002 죽은 잎이 가르친 규칙).
+    새 사이클은 새 자식 체인에서만.
+    """
+    fmt = ("%(trailers:key=Gil-Chain,valueonly)" + _FSEP
+           + "%(trailers:key=Gil-Kind,valueonly)")
+    out = _git("log", "--format=" + fmt, rev_range)
+    for ln in out.splitlines():
+        c, _, k = ln.partition(_FSEP)
+        if c.strip() == chain and k.strip() == "close":
+            return True
+    return False
+
+
+def chain_has_children(chain, rev_range="--all"):
+    """이 체인을 부모로 선언한 다른 체인이 있는가 (Gil-Chain-Parent).
+
+    자식이 분기해 나간 닫힌 부모 체인은 봉인된 것 — 그 안에서 다시 자라면
+    자식 체인들과 조상을 다툰다(배포 계보 꼬임).
+    """
+    out = _git("log", "--format=%(trailers:key=Gil-Chain-Parent,valueonly)",
+               rev_range)
+    return any(ln.strip() == chain for ln in out.splitlines())
+
+
 def fsck(nodes, chains_known=None, universe=None):
     """SPEC §3 무결성 검사. 반환: 위반 문자열 리스트 (빈 리스트=건강).
 
@@ -197,6 +279,9 @@ def cmd_open(args):
     p.add_argument("--author", required=True)
     p.add_argument("--parent", action="append", default=[])
     p.add_argument("--title", default="")
+    p.add_argument("--purpose", required=True,
+                   help="이 사이클의 목적성 (자연어). 시작 지점에서 체인 목적과 함께 "
+                        "떠올라, 지금 작업이 정합한지 AI가 판별하는 근거가 된다.")
     a = p.parse_args(args)
     if "/" not in a.ref:
         sys.exit("거부: <chain>/<cycle> 꼴이어야 함")
@@ -206,11 +291,28 @@ def cmd_open(args):
             sys.exit(f'거부: {label} id "{v}"는 소문자·숫자·하이픈만')
     if _current_cycle(chain, cycle):
         sys.exit(f"거부: {a.ref} 이미 존재 (open은 새 사이클만)")
-    subject = f"gil {chain}/{cycle}/s1 define: {a.title or '(문제 미기술)'}"
+
+    # ── 닫힌 부모 체인 사이클 금지 (dev/c002 죽은 잎이 가르친 규칙) ──
+    # 닫힌 체인 안에서 새 사이클을 열면 배포 계보가 꼬인다. 특히 자식 체인이 분기해
+    # 나갔으면 절대 — 봉인된 부모에서 다시 자라면 자식들과 조상을 다툰다. 새 사이클은
+    # 무조건 새 자식 체인에서.
+    if chain_closed(chain):
+        why = "자식 체인이 분기함" if chain_has_children(chain) else "닫힌 체인"
+        sys.exit(f'거부: "{chain}"은 닫힌 부모 체인({why}) — 그 안에 새 사이클을 '
+                 f'열 수 없다. 새 자식 체인을 열어라 (gil chain <name> --purpose ...). '
+                 f'닫힌 부모에서 다시 자라면 배포 계보가 꼬인다.')
+
+    # ── 체인 적합성 점검 (상현님: 사이클 시작 시 목적성 정합 판별) ──
+    # gil은 판별하지 않는다 — 체인 목적을 눈앞에 띄워 AI(Clew)가 정합성을 판단하게
+    # 한다. gil의 강제는 "목적성을 반드시 명시(--purpose)" + "시작 때 목적 표시".
+    _show_purpose_context(chain, cycle, cycle_purpose_str=a.purpose)
+
+    subject = f"gil {chain}/{cycle}/s1 define: {a.title or a.purpose}"
     body = a.title or "(문제 미기술 — 본문을 커밋 수정으로 채우라)"
     tr = [("Gil-Chain", chain), ("Gil-Cycle", cycle),
           ("Gil-Step", "s1"), ("Gil-Kind", "define"), ("Gil-Parent", "null"),
-          ("Gil-Cycle-Author", a.author)]
+          ("Gil-Cycle-Author", a.author),
+          ("Gil-Cycle-Purpose", a.purpose)]
     for par in a.parent:
         tr.append(("Gil-Cycle-Parent", par))
     _commit(subject, body, tr)
@@ -233,6 +335,8 @@ def cmd_step(args):
         sys.exit(f"거부: {a.ref} 없음 (먼저 gil open)")
     if a.kind not in KINDS:
         sys.exit(f'거부: 알 수 없는 kind "{a.kind}"')
+    # 매 스텝 시작 시 체인·사이클 목적을 띄워 정합 판단을 강제 (상현님).
+    _show_purpose_context(chain, cycle)
     if a.kind == "analyze" and a.outcome not in OUTCOMES:
         sys.exit("거부: analyze는 --outcome success|backtrack|fail 필요")
     sid = _next_step_id(steps)
@@ -271,6 +375,33 @@ def cmd_close(args):
     print(f"close: {a.ref} — {a.verdict}")
 
 
+def cmd_chain(args):
+    """gil chain <name> --purpose <자연어> [--kind study|dev|staging|deploy]
+
+    새 체인 루트를 연다. 체인 시작 지점에서 목적성을 반드시 명시(--purpose 필수).
+    이 목적이 이후 사이클·스텝 시작 때 눈앞에 떠 정합 판단의 근거가 된다 (상현님:
+    "체인 시작 때 목적을 물어보고 명시하게"). 체인 위계 규칙(닫힌 체인 끝에서만)은
+    git 브랜치·머지로 표현되므로 여기선 목적 각인에 집중한다.
+    """
+    import argparse
+    p = argparse.ArgumentParser(prog="gil chain")
+    p.add_argument("name")
+    p.add_argument("--purpose", required=True,
+                   help="이 체인의 목적성 (자연어). 이후 모든 시작 지점에서 떠오른다.")
+    a = p.parse_args(args)
+    if not ID_RE.match(a.name):
+        sys.exit(f'거부: 체인 이름 "{a.name}"은 소문자·숫자·하이픈만')
+    if chain_purpose(a.name):
+        sys.exit(f'거부: 체인 "{a.name}" 이미 목적 선언됨 (chain은 새 체인만)')
+    subject = f"gil {a.name} chain: {a.purpose}"
+    body = (f"체인 [{a.name}] 개설. 목적: {a.purpose}\n\n"
+            f"이 목적은 이후 사이클·스텝 시작 때 떠올라, 그 작업이 이 체인에 "
+            f"정합하는지 판단하는 근거가 된다.")
+    tr = [("Gil-Chain", a.name), ("Gil-Chain-Purpose", a.purpose)]
+    _commit(subject, body, tr)
+    print(f"chain: {a.name} 개설 — 목적: {a.purpose}")
+
+
 def cmd_log(args):
     ch = args[0] if args else None
     nodes = collect_nodes()
@@ -303,7 +434,7 @@ def cmd_fsck(args):
 
 
 COMMANDS = {
-    "open": cmd_open, "step": cmd_step, "close": cmd_close,
+    "chain": cmd_chain, "open": cmd_open, "step": cmd_step, "close": cmd_close,
     "log": cmd_log, "fsck": cmd_fsck,
 }
 
