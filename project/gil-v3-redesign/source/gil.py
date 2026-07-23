@@ -512,6 +512,40 @@ def _ensure_global_refspec():
     return False
 
 
+def _global_write_paths(paths, message):
+    """여러 파일/디렉토리를 글로벌 ref에 이전(중첩 디렉토리 지원). 기존 글로벌 보존.
+
+    임시 git index에 (1) 기존 글로벌 트리를 read-tree로 얹고 (2) paths를 add해
+    write-tree로 새 트리를 만든다. checkout·작업트리 오염 없음.
+    """
+    import tempfile
+    import os as _os
+    idx = tempfile.NamedTemporaryFile(delete=False, suffix=".gilidx").name
+    env = dict(_os.environ, GIT_INDEX_FILE=idx)
+    try:
+        # 기존 글로벌 트리를 임시 index에 (있으면)
+        if subprocess.run(["git", "rev-parse", "--verify", "-q", GLOBAL_REF],
+                          capture_output=True).returncode == 0:
+            subprocess.run(["git", "read-tree", GLOBAL_REF], env=env, check=True)
+        # paths(작업트리의 파일/디렉토리)를 index에 add
+        subprocess.run(["git", "add", "--", *paths], env=env, check=True)
+        tree = subprocess.run(["git", "write-tree"], env=env,
+                              capture_output=True, text=True, check=True).stdout.strip()
+    finally:
+        if _os.path.exists(idx):
+            _os.remove(idx)
+    parent = []
+    p = subprocess.run(["git", "rev-parse", "-q", "--verify", GLOBAL_REF],
+                       capture_output=True, text=True)
+    if p.returncode == 0:
+        parent = ["-p", p.stdout.strip()]
+    commit = subprocess.run(["git", "commit-tree", tree, *parent],
+                            input=message, text=True, capture_output=True,
+                            check=True).stdout.strip()
+    subprocess.run(["git", "update-ref", GLOBAL_REF, commit], check=True)
+    return commit[:9]
+
+
 def cmd_global(args):
     """gil global <list|read|write|push|pull|sync> — 글로벌 진실원(refs/gil/global).
 
@@ -549,6 +583,36 @@ def cmd_global(args):
         pushed = _global_push()  # 갱신 즉시 원격 동기화(여러 머신 일관성)
         note = " + 원격 push" if pushed else " (원격 push 실패/없음 — gil global push 재시도)"
         print(f"글로벌 {name} 갱신 → {GLOBAL_REF} ({sha}){note}")
+    elif sub == "write-tree":
+        # gil global write-tree <path>... — 여러 파일/디렉토리를 글로벌로 이전
+        if len(args) < 2:
+            sys.exit("사용: gil global write-tree <path>...")
+        paths = args[1:]
+        sha = _global_write_paths(paths, f"gil global write-tree: {' '.join(paths)}\n")
+        pushed = _global_push()
+        note = " + 원격 push" if pushed else " (push 실패/없음)"
+        print(f"글로벌에 이전: {', '.join(paths)} → {GLOBAL_REF} ({sha}){note}")
+    elif sub == "checkout":
+        # gil global checkout <path> [dest] — 글로벌 ref의 경로를 로컬로 꺼낸다(조회용)
+        if len(args) < 2:
+            sys.exit("사용: gil global checkout <path> [dest]")
+        src = args[1]
+        dest = args[2] if len(args) > 2 else src
+        import os as _os
+        # 디렉토리면 전체, 파일이면 하나
+        files = subprocess.run(["git", "ls-tree", "--name-only", "-r",
+                                f"{GLOBAL_REF}", "--", src],
+                               capture_output=True, text=True).stdout.splitlines()
+        if not files:
+            sys.exit(f"거부: 글로벌에 {src} 없음")
+        for f in files:
+            content = _global_read(f)
+            if content is None:
+                continue
+            out = f if dest == src else f.replace(src, dest, 1)
+            _os.makedirs(_os.path.dirname(out) or ".", exist_ok=True)
+            open(out, "w", encoding="utf-8").write(content)
+        print(f"글로벌 {src} → 로컬 {dest} ({len(files)}파일 꺼냄)")
     elif sub == "push":
         print("원격 push 완료" if _global_push() else "원격 push 실패(원격 없음?)")
     elif sub == "pull":
