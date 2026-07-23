@@ -235,17 +235,41 @@ def cmd_step(args):
         sys.exit(f'거부: 알 수 없는 kind "{a.kind}"')
     if a.kind == "analyze" and a.outcome not in OUTCOMES:
         sys.exit("거부: analyze는 --outcome success|backtrack|fail 필요")
+
+    # ── 스텝 원칙 (상현님): 막히면 실패 노드로 닫고 → backtrack으로 조상 define로
+    #   되돌아가 새 형제 가지. parent를 세 경우로 명확히 나눈다.
+    tip = _growing_tip(steps)
+    tip_id = tip["step"] if tip else None
+    define_ids = {s["step"] for s in steps if s["kind"] == "define"}
+
+    if a.kind == "hypothesis" and a.to:
+        # 되돌아가 새 형제 가지: 조상 define(--to)의 새 자식. (백트래킹의 '나아가는' 절반)
+        if a.to not in define_ids:
+            sys.exit(f"거부: --to {a.to}는 조상 define이어야 함")
+        parent = a.to
+    elif a.outcome == "backtrack":
+        # 막힌 지점을 죽은 잎으로 닫음 — 선형 끝(팁의 자식). Gil-Backtrack=되돌아갈 define.
+        if not a.to:
+            sys.exit("거부: backtrack은 --to <조상 define> 필요 (되돌아갈 곳)")
+        if a.to not in define_ids:
+            sys.exit(f"거부: --to {a.to}는 조상 define이어야 함")
+        parent = tip_id or "null"
+    else:
+        # 선형 전진 (define→hypothesis→verify→analyze) 또는 success 잎.
+        parent = tip_id or "null"
+
     sid = _next_step_id(steps)
-    parent = a.to or (_growing_tip(steps)["step"] if steps else "null")
     subject = f"gil {chain}/{cycle}/{sid} {a.kind}: {a.title or a.kind}"
     tr = [("Gil-Chain", chain), ("Gil-Cycle", cycle),
           ("Gil-Step", sid), ("Gil-Kind", a.kind), ("Gil-Parent", parent)]
     if a.outcome:
         tr.append(("Gil-Outcome", a.outcome))
-    if a.outcome == "backtrack" and a.to:
+    if a.outcome == "backtrack":
         tr.append(("Gil-Backtrack", a.to))
     _commit(subject, a.title or a.kind, tr)
-    print(f"step: {a.ref}/{sid} {a.kind} ←{parent}")
+    tail = f" ⤳backtrack→{a.to}" if a.outcome == "backtrack" else (
+        f" (형제 가지 ←{a.to})" if a.kind == "hypothesis" and a.to else "")
+    print(f"step: {a.ref}/{sid} {a.kind} ←{parent}{tail}")
 
 
 def cmd_close(args):
