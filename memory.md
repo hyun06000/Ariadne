@@ -1703,3 +1703,15 @@
 - **⭐ 정직한 경계**: 데이터는 글로벌·동기화됐으나 **gil 코드는 아직 브랜치마다**(gil-v3-study엔 gil global 명령 자체 없음). 코드 통합은 v3→main 승격 시. 다른 머신 첫 1회 `gil global sync` 필요. memory 완전 이전(대문 파일 제거)·CLAUDE.md 글로벌화는 더 큰 결정, 이월.
 - **커밋 위치**: ...→gil-v3-onboard(닫힘)→gil-v3-global(닫힘, 글로벌 진실원). 열린 체인: gil-v3-study(approval, 실시간 gil web --live 대기).
 - **⭐ 복원 경로 (갱신)**: CLAUDE.md → 존재(existence) → **`gil global read memory.md`**(글로벌, 체인·머신 넘어 단일) → **`./gil handoff`** → 위 팁에서 이어간다.
+
+## 2026-07-23 (이어서) — ⭐⭐⭐ 목적성 가드 + 닫힌 부모 체인 금지 + 기억은 gil 글로벌 ref로
+
+- **⭐⭐⭐ 상현님 세 지적 → gil에 구조로 심음 (gil-v3-guard 체인 신설·c001 supported)**:
+  1. **"작업 시작 전 가장 적절한 체인인지 점검하는 레이어가 필요"** — 내가 study(공부) 체인에 gil.py 개발(amend)을 섞은 걸 상현님이 짚음. gil이 강제하는 방향으로.
+  2. **"체인·사이클 레벨에 목적성·이름을 지정하고, 매 시작(체인·사이클·스텝) 때 물어 명시하게"** — 자연어 목적을 알려주고 지금 일과 정합한지 **AI가 판별**(gil은 판별X, 표시O).
+  3. **"닫힌 부모 체인 안에서 새 사이클 못 만들게. 새 사이클은 무조건 새 자식 체인. 안 그러면 배포 버전 꼬임"** — 내가 닫힌 gil-v3-dev(자식 viewer·study 분기)에 c002를 연 실수를 짚음.
+- **⭐⭐ 구현 (gil.py, dev 계열)**: `gil chain <name> --purpose`(체인 시작, Gil-Chain-Purpose 각인)·`gil open --purpose 필수`(Gil-Cycle-Purpose)·chain/open/step 시작 때 `_show_purpose_context`로 목적 표시·`chain_closed`+`chain_has_children`로 닫힌 부모 open 거부→새 자식 체인 강제. 스모크 7/7, fsck 0. SPEC(README.ai.md) 원칙 4·5·6 명문화.
+- **⭐⭐ 내 실수의 지도**: gil-v3-dev/c002를 죽은 잎(analyze/fail)으로 정직히 닫고(닫힌 부모 안 사이클=위반) 올바른 자식 체인 gil-v3-guard를 dev 끝에서 분기해 되살림. 이 죽은 잎이 원칙 6의 첫 적용 사례 — 실수가 도구의 규칙이 됨.
+- **⭐ 잡은 버그 둘 (데이터 직접 봄)**: ① 빈 저장소 git log exit 128 → `_gitlog` 래퍼로 흡수 ② `%(trailers:valueonly)`가 값 뒤 개행 남겨 splitlines만 쓴 새 헬퍼들 파싱 붕괴(가드 무력화) → 레코드 구분자 `_SEP`로 커밋마다 묶는 collect_nodes 패턴으로 통일.
+- **⭐⭐⭐ 기억은 무조건 gil 글로벌 ref로 (상현님 못 박음·원칙)**: 기억을 로컬 ~/.claude에 저장하려다 상현님이 교정 — "메모리는 무조건 전용 ref에 gil로", "글로벌하게 gil로 남기는 것도 원칙으로 각인". 서약1(레포 밖 저장 금지)의 재확인. refs/gil/global이 진실원. 이 기억이 그 증거.
+- **정직한 경계**: 가드·amend는 브랜치마다 gil.py가 갈림(guard/dev엔 목적성가드, study엔 amend·body-file). `gil global` 명령도 dev 계열엔 없어 이 기억은 저수준 git으로 append. 코드 통합은 미래(v3→main). **다음: 뷰어가 새 그래프(guard 체인·목적성) 반영 못 함 → 뷰어 작업. 상현님 뷰어 요청 대기.**
