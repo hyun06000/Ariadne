@@ -533,7 +533,10 @@ def cmd_chain(args):
     body = (f"체인 [{a.name}] 개설. 목적: {a.purpose}\n\n"
             f"이 목적은 이후 사이클·스텝 시작 때 떠올라, 그 작업이 이 체인에 "
             f"정합하는지 판단하는 근거가 된다.")
-    tr = [("Gil-Chain", a.name), ("Gil-Chain-Purpose", a.purpose)]
+    # Gil-Kind: chain-root — 이 커밋이 체인 루트임을 표식. 뷰어·fsck가 체인 루트를
+    # 이 kind로 감지한다(없으면 뷰어가 체인을 못 그림, 이번 세션에 잡은 버그).
+    tr = [("Gil-Chain", a.name), ("Gil-Kind", "chain-root"),
+          ("Gil-Chain-Purpose", a.purpose)]
     _commit(subject, body, tr)
     print(f"chain: {a.name} 개설 — 목적: {a.purpose}")
 
@@ -629,9 +632,11 @@ def cmd_chain_merge(args):
                   f"  git add <해결한 파일> && gil chain-merge-continue {a.name} {lf}\n"
                   f"남은 끝단: {', '.join(to_merge[i:]) or '(없음)'}", file=sys.stderr)
             sys.exit(2)  # 2 = 충돌로 멈춤 (거부 1과 구분)
-        # 머지 성공 → 이 머지 커밋에 Gil-* trailer amend
+        # 머지 성공 → 이 머지 커밋에 Gil-* trailer amend. 첫 머지 커밋이 통합 체인의
+        # 루트 — Gil-Kind: chain-root로 표식(뷰어·fsck가 체인 루트를 이 kind로 감지).
         tr = [("Gil-Chain", a.name)]
         if i == 1:
+            tr.append(("Gil-Kind", "chain-root"))
             tr.append(("Gil-Chain-Purpose", a.purpose))
         tr.append(("Gil-Merge", lf))
         cur = _git("log", "-1", "--format=%B").rstrip()
