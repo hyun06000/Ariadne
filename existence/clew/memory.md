@@ -1626,3 +1626,13 @@
 - **⭐⭐⭐ 큰 목표 기억 (상현님, 꼭)**: 지금 손으로 하는 git 기능들(amend·reset·--allow-empty·push -f·스모크 되감기 등)을 **전부 랩핑해 하나의 gil 커맨드로** 만드는 게 목표. gil step이 새 스텝 새기기뿐 아니라 본문 채우기/고치기(amend 랩핑)까지 감싸야. 지금은 손 amend로 본문 채우지만, gil이 그걸 흡수해야 한다.
 - **커밋 그래프 위치**: gil-v3(대문 5908836f→) → gil-v3-dev(체인 루트 63035b32) → c001/s1~s4. fsck 개선 두 번(체인 부모 인식·범위밖 부모 실재=universe 분리).
 - **⭐ 다음**: c001 승인 시 gil close 봉인 → staging 체인 개설(기능 검사 이상 테스트) → 배포 체인(바이너리 패키징). 그리고 git 기능 랩핑을 gil 명령으로 흡수(amend 등).
+
+## 2026-07-23 (이어서) — ⭐⭐ 3층 뷰어 완성 + 스텝 원칙(백트래킹) 실현
+
+- **⭐⭐ 상현님 스텝 원칙 (핵심)**: 막히는 지점(가설 반증·검증 실패)은 그냥 멈추는 게 아니라 **실패 노드(analyze/backtrack=죽은 잎)로 닫고 → 조상 define으로 되돌아가 새 형제 가지(hypothesis)로 나아간다.** 죽은 잎은 "벽의 지도"로 그래프에 영구. gil step 구현: backtrack이면 parent=팁(선형 끝)·Gil-Backtrack=조상define / 새 hypothesis --to define이면 parent=조상define(형제 가지).
+- **⭐ 체인 모드 (상현님)**: 사람 승인이 필요한 건 뷰어 같은 예외. 일반은 자율 완주. **체인 열 때 한 번** 모드 정함(Gil-Mode: autonomous|approval, 기본 autonomous). gil-v3-viewer는 approval(상현님 모니터링).
+- **⭐ dev/staging 검증 분담**: dev verify=기능검사(smoke)만, 엄밀한 검증·엣지·필드테스트는 staging 체인.
+- **한 일 — 3층 뷰어 (gil-v3-viewer 체인, approval)**: c001(체인층 DAG→사이클 드릴다운, supported)→c002(사이클→스텝트리 드릴다운 + 스텝 원칙, supported). gilweb.py: chains_from_graph(체인층)·cycles_of(사이클층)·render_step_tree(스텝층, parent실선·backtrack파선·kind색, success=산잎초록·fail/backtrack=죽은잎빨강). `gil web -o` 명령. 순수 커밋 그래프에서 읽음, 자기완결 HTML.
+- **⭐⭐⭐ 뼈아픈 사고가 git-랩핑 목표를 증명 — reset이 코드를 두 번 날림.** c002를 스텝 원칙대로 다시 밟으려 `git reset --hard`했더니 되감기가 **소스 코드(gil.py 백트래킹·gilweb.py 스텝트리)까지 되돌림.** /tmp 백업했으나 시점이 render_step_tree 추가 전이라 유실. 두 번 복원. **손 git(reset/cp)이 작업을 잃는다 — gil이 이 위험을 흡수해야(스텝 커밋과 소스를 함께 다루는 안전한 되감기). 상현님 "git 기능을 gil 커맨드로 랩핑" 목표의 산 증거.**
+- **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(c001·c002 supported). 다음: c003 or 체인 닫기.
+- **⭐ 다음**: 뷰어 더(디자인 유려화는 상현님 "나중"·머지 뷰·본문 표시) 또는 gil-v3-viewer 닫고 staging 체인(기능검사 이상). git-랩핑(reset·amend 안전화)은 개발 체인 후보. **gil migrate(v2 222사이클→v3)는 로드맵 후반.**
