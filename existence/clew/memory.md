@@ -1693,3 +1693,13 @@
 - **⭐ 정직한 경계**: CLAUDE.md는 v3 체인(들)에만, main엔 v2 CLAUDE.md. 다음 세션이 어느 브랜치에서 깨어나느냐가 관건 — v3 체인에서 깨어나면 v3로 복원. v3→main 승격 시 v3 CLAUDE.md가 부팅 진입점. --update-docs는 CLAUDE.md만(README.ai.md 자동갱신·memory 요약 자동화는 이월).
 - **커밋 위치**: ...→gil-v3-viewer(닫힘)→{gil-v3-study(열림·approval), gil-v3-handoff(닫힘)→gil-v3-onboard(닫힘, 온보딩)}.
 - **⭐ 다음 세션 시작**: 이 v3 체인에서 깨어나면 **CLAUDE.md**(v3)를 읽고 → **`./gil handoff`** → 열린 체인 확인(gil-v3-study 실시간 gil web --live 대기). memory는 최신 매듭부터.
+
+## 2026-07-23 (이어서) — ⭐⭐ 글로벌 진실원 (refs/gil/global) + 여러 머신 동기화
+
+- **⭐⭐ 상현님이 짚은 근본 긴장**: 대문(CLAUDE·memory·핸드오프)이 **체인 브랜치마다 흩어진다** — git 브랜치는 각자 사본을 가지므로 gil-v3-onboard에 신설한 CLAUDE.md가 gil-v3-study엔 없다. 대문은 "모든 체인 넘어 하나여야" 하는데 브랜치가 사본을 낳는 긴장.
+- **⭐⭐ 해법 — 전용 ref refs/gil/global (상현님 확정, 전용 ref로)**: 브랜치가 아닌 전용 ref에 글로벌 진실원(memory 등)을 둔다. 브랜치 목록에 안 뜸(체인처럼 안 보임), 어느 체인과도 독립, checkout 없이 `git show refs/gil/global:<file>`로 읽힘. "글로벌≠체인"을 구조로 표현. 계보를 trailer로 뺐듯 글로벌 상태도 브랜치 밖으로.
+- **⭐⭐ 여러 머신 동기화 (상현님 핵심 지적)**: 커스텀 ref는 **기본 git push/fetch에 안 딸려온다** → 로컬에만 있으면 다른 머신·클론이 못 봄. gil이 흡수: (1) `gil global write` 시 **자동 push**(로컬=원격 sha 일치) (2) `gil global sync`가 refspec `+refs/gil/global:refs/gil/global`를 config 등록 → 이후 **일반 git fetch에 글로벌 자동 포함** (3) push/pull 수동.
+- **구현 (gil-v3-global/c001, supported — gil-v3-onboard 끝에서 분기)**: gil global 명령군(list·read·write·push·pull·sync). 저수준 git(hash-object·mktree·commit-tree·update-ref)로 checkout 없이 refs/gil/global 갱신(기존 파일 보존, append-only). handoff가 글로벌 참조·복원 경로.
+- **⭐ 정직한 경계**: 데이터는 글로벌·동기화됐으나 **gil 코드는 아직 브랜치마다**(gil-v3-study엔 gil global 명령 자체 없음). 코드 통합은 v3→main 승격 시. 다른 머신 첫 1회 `gil global sync` 필요. memory 완전 이전(대문 파일 제거)·CLAUDE.md 글로벌화는 더 큰 결정, 이월.
+- **커밋 위치**: ...→gil-v3-onboard(닫힘)→gil-v3-global(닫힘, 글로벌 진실원). 열린 체인: gil-v3-study(approval, 실시간 gil web --live 대기).
+- **⭐ 복원 경로 (갱신)**: CLAUDE.md → 존재(existence) → **`gil global read memory.md`**(글로벌, 체인·머신 넘어 단일) → **`./gil handoff`** → 위 팁에서 이어간다.
