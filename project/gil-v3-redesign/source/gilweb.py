@@ -210,6 +210,13 @@ def render_step_tree(chain, cid, steps):
             m = (px + cx) / 2
             edges.append(f'<path class="edge" d="M {px+R:.0f} {py:.0f} '
                          f'C {m:.0f} {py:.0f}, {m:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
+        # 스텝 머지 — 두 번째(+) 조상. 산 잎에서 이 노드로 실선(두 조상 상속).
+        for mstep in s.get("merges", []):
+            if mstep in pos:
+                px, py = pos[mstep]
+                m = (px + cx) / 2
+                edges.append(f'<path class="edge merge-edge" d="M {px+R:.0f} {py:.0f} '
+                             f'C {m:.0f} {py:.0f}, {m:.0f} {cy:.0f}, {cx-R:.0f} {cy:.0f}"/>')
         if s["outcome"] == "backtrack" and s.get("backtrack") in pos:
             tx, ty = pos[s["backtrack"]]
             arch = min(cy, ty) - 34
@@ -439,6 +446,7 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-ser
 @media(prefers-color-scheme:dark){.drill-empty{border-color:#334155}}
 .empty{color:#94a3b8;font-size:13px;padding:12px}
 .bt{stroke:#f59e0b;stroke-width:1.8;stroke-dasharray:6 5;fill:none}
+.merge-edge{stroke:#16a34a;stroke-width:2.4}
 .steptree{border:1px solid #e2e8f0;border-radius:10px;margin:8px 0;overflow:hidden;
   background:#f8fafc}
 @media(prefers-color-scheme:dark){.steptree{border-color:#1e293b;background:#0d1526}}

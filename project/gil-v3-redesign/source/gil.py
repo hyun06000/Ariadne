@@ -165,20 +165,27 @@ def fsck(nodes, chains_known=None, universe=None):
         if n["outcome"] == "backtrack" and not n["backtrack"]:
             violations.append(f'스텝순환: {cc} — backtrack은 Gil-Backtrack '
                               f'(조상 define) 필요')
-        # ── 6. 계보 참조 무결성 (Cycle-Parent·Merge 실재) ──
-        # 참조는 두 꼴: "cycle"(같은 체인 안) 또는 "chain/cycle"(다른 체인/외부).
-        # 외부 참조(chain/cycle 꼴)는 이 그래프 밖일 수 있다 — id 문법만 보고 실재는
-        # 검사하지 않는다(체인 경계 넘는 계보는 정상, 머지·부모 사이클로 이어짐).
-        # 같은 체인 안 참조(cycle 꼴)만 실재를 강제한다.
-        # 참조는 세 꼴: 알려진 체인(체인 부모) · "cycle"(같은 체인 안 사이클) ·
-        # "chain/cycle"(다른 체인/외부). 사이클은 체인에서 태어날 수 있으므로(원칙 2:
-        # 체인 시작점) 참조가 알려진 체인이면 유효하다. 같은 체인 안 사이클 참조만 실재를
-        # 강제하고, 외부 chain/cycle 꼴은 경계 넘는 계보라 미검사.
-        for ref in n["cycle_parents"] + n["merges"]:
+        # ── 6a. 스텝 머지 (Gil-Merge = 같은 사이클 안 산 잎 스텝 id, 역순 머지 맨 아래) ──
+        # Gil-Merge는 두 의미: 스텝 머지(스텝 id, 같은 사이클) 또는 체인/사이클 머지.
+        # 스텝 id(같은 사이클 안 실재)면 스텝으로 검증하고 넘어간다.
+        step_merges = []
+        cyc_chain_merges = []
+        for ref in n["merges"]:
+            if (n["chain"], n["cycle"], ref) in step_keys:
+                step_merges.append(ref)  # 스텝 머지 — 같은 사이클 산 잎
+            else:
+                cyc_chain_merges.append(ref)  # 체인/사이클 머지
+        # (스텝 머지 대상 실재는 step_keys로 이미 확인됨 — 위반 없음)
+
+        # ── 6b. 계보 참조 무결성 (Cycle-Parent + 체인/사이클 Merge 실재) ──
+        # 참조 세 꼴: 알려진 체인(체인 부모) · "cycle"(같은 체인 사이클) · "chain/cycle"(외부).
+        # 사이클은 체인 시작점에서 태어날 수 있으니 알려진 체인이면 유효. 외부는 경계 넘는
+        # 계보라 미검사. 같은 체인 사이클 참조만 실재 강제.
+        for ref in n["cycle_parents"] + cyc_chain_merges:
             if ref in chains:
-                continue  # 체인 부모 — 사이클이 체인 시작점에서 태어남 (유효)
+                continue  # 체인 부모/머지 — 유효
             if "/" in ref:
-                continue  # 외부 참조 — 실재 미검사 (경계 넘는 계보 허용)
+                continue  # 외부 참조 — 실재 미검사
             if ref not in cycles:
                 violations.append(f'계보: {cc} — 같은 체인 참조 "{ref}" 실재 안 함')
     return violations
@@ -265,6 +272,8 @@ def cmd_step(args):
     p.add_argument("--title", default="")
     p.add_argument("--body")
     p.add_argument("--body-file")
+    p.add_argument("--merge", action="append", default=[],
+                   help="합류할 산 잎 스텝 id (여러 번). 이 스텝이 두 조상을 상속")
     a = p.parse_args(args)
     chain, cycle = a.ref.split("/", 1)
     steps = _current_cycle(chain, cycle)
@@ -281,11 +290,27 @@ def cmd_step(args):
     tip_id = tip["step"] if tip else None
     define_ids = {s["step"] for s in steps if s["kind"] == "define"}
 
-    if a.kind == "hypothesis" and a.to:
+    # 산 잎(analyze/success) id 집합 — 머지 대상 검증용
+    live_leaves = {s["step"] for s in steps
+                   if s["kind"] == "analyze" and s["outcome"] == "success"}
+
+    if a.merge:
+        # 스텝 머지: 한 사이클 안 산 잎들을 합류 (역순 머지 맨 아래, 상현님).
+        # parent=첫 산 잎, Gil-Merge=나머지. 이후 노드는 두 갈래를 조상으로.
+        # 완성(산 잎)만 머지 대상 — 죽은 잎은 벽의 지도로 남을 뿐.
+        targets = a.merge
+        for m in targets:
+            if m not in live_leaves:
+                sys.exit(f"거부: --merge {m}는 산 잎(analyze/success)이어야 함 "
+                         f"(완성만 머지 대상, 죽은 잎은 벽의 지도)")
+        parent = targets[0]
+        merge_rest = targets[1:]
+    elif a.kind == "hypothesis" and a.to:
         # 되돌아가 새 형제 가지: 조상 define(--to)의 새 자식. (백트래킹의 '나아가는' 절반)
         if a.to not in define_ids:
             sys.exit(f"거부: --to {a.to}는 조상 define이어야 함")
         parent = a.to
+        merge_rest = []
     elif a.outcome == "backtrack":
         # 막힌 지점을 죽은 잎으로 닫음 — 선형 끝(팁의 자식). Gil-Backtrack=되돌아갈 define.
         if not a.to:
@@ -293,9 +318,11 @@ def cmd_step(args):
         if a.to not in define_ids:
             sys.exit(f"거부: --to {a.to}는 조상 define이어야 함")
         parent = tip_id or "null"
+        merge_rest = []
     else:
         # 선형 전진 (define→hypothesis→verify→analyze) 또는 success 잎.
         parent = tip_id or "null"
+        merge_rest = []
 
     sid = _next_step_id(steps)
     subject = f"gil {chain}/{cycle}/{sid} {a.kind}: {a.title or a.kind}"
@@ -306,9 +333,12 @@ def cmd_step(args):
         tr.append(("Gil-Outcome", a.outcome))
     if a.outcome == "backtrack":
         tr.append(("Gil-Backtrack", a.to))
+    for m in merge_rest:
+        tr.append(("Gil-Merge", m))
     _commit(subject, body, tr)
     tail = f" ⤳backtrack→{a.to}" if a.outcome == "backtrack" else (
-        f" (형제 가지 ←{a.to})" if a.kind == "hypothesis" and a.to else "")
+        f" (형제 가지 ←{a.to})" if a.kind == "hypothesis" and a.to else (
+            f" ⋈merge {'+'.join(a.merge)}" if a.merge else ""))
     print(f"step: {a.ref}/{sid} {a.kind} ←{parent}{tail}")
 
 
