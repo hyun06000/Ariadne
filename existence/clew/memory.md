@@ -1655,3 +1655,30 @@
 - **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(닫힘)→{gil-v3-study(열림·approval, v2공부 c001), gil-v3-handoff(닫힘, 세션핸드오프 c001)}. 뷰어에서 두 갈래 분기.
 - **⭐ 이월**: gil open --body 미수용(곁다리 결함, s1 본문이 title만). handoff·뷰어 엄밀 테스트→staging. memory.md를 gil handoff가 대체할지는 큰 결정(지금 보조). gil web --live 실시간 구현(study 이월).
 - **⭐ 다음 (gil handoff로 확인)**: 열린 체인은 gil-v3-study만(뷰어 공부, 실시간 gil web --live 구현 대기). 또는 새 개발(open --body 곁다리, staging 체인, git-랩핑, gil migrate).
+
+## 2026-07-23 — 세션 매듭 (핸드오프, 다음 세션 시작점)
+
+- **⭐⭐⭐ 이 세션의 대전환**: v3를 상현님 디자인대로 **완전히 새로 빌드**. "gilv3" 이름 폐기, 옛 gil 버림, 손 시연→코드. **커밋 그래프가 곧 기록**(폴더 0·md 0, Gil-* trailer + 커밋 본문). 방(room) 버리고 **체인 순환**(개발→스테이징→배포). rooms 확장(existence·deployment·project).
+- **⭐⭐ 확립된 근본 원칙들 (전부 SPEC 명문화)**:
+  1. 무조건 gil로 모든 흔적을 남긴다.
+  2. 체인은 닫힌 체인 끝에서만 생성(gil init 예외)·사이클은 닫힌 사이클 끝/체인 시작점·분기는 모두 git 브랜치.
+  3. 체인=orphan 아님(대문 이어받음). 대문=README 3종·온보딩·존재기록·project, 체인 넘어 보존.
+  4. 체인 모드(열 때 정함): autonomous 기본 / approval(뷰어 등). **approval은 반드시 pending으로 승인/기각.**
+  5. 스텝 원칙: 막히면 실패노드로 닫고 backtrack→조상 define 새 가지. success=산잎·fail/backtrack=죽은잎(벽의 지도).
+  6. 머지=두 조상, 역순(스텝 산잎→사이클 산사이클→체인). 완성만 머지 대상.
+  7. 가설 없는 공부는 다음 스텝 아님 — 능동적 가설. 문제 불명확하면 사람에게 먼저 물음(매번 아님).
+  8. 분기 지점은 코드 계보로 정함(개념 독립성 아님).
+- **⭐ gil이 지금 하는 것**: `./gil` 진입점. open/step/close(--body/--body-file/--merge/--to/--outcome)·log·fsck·web(3층 드릴다운 뷰어+본문 마크다운+머지+이미지 지연로드)·**handoff**(부활 정보 자동). fsck: 위계·id소문자·스텝순환·계보참조·스텝머지.
+- **⭐ 체인 지도 (gil handoff로 확인)**:
+  ```
+  gil-v3 (대문/init)
+    └ gil-v3-dev (닫힘 — gil 쓸 수 있게)
+        └ gil-v3-viewer (닫힘 — 3층 뷰어·본문·머지·이미지·pending, c001~c008)
+            ├ gil-v3-study (⭐열림·approval — v2 뷰어 공부 c001 닫힘, 실시간 gil web --live 구현 대기)
+            └ gil-v3-handoff (닫힘 — 세션 핸드오프 gil handoff, c001)
+  ```
+- **⭐⭐ 다음 세션 시작 (순서)**:
+  1. **`./gil handoff` 실행** — 부활 정보 자동 확인(열린 체인=gil-v3-study).
+  2. **실시간 gil web --live 구현** (gil-v3-study 이월, 상현님 결정): stdlib 로컬 서버(ThreadingHTTPServer)+폴링/SSE, file:// 자기완결 정적 모드와 병존. v2 상태보존 깨달음(노드 정체성·hasOpenDetails, "데이터만 갈고 파괴 국소화") 재료. **단 study는 approval 체인 — 반드시 pending으로 승인받으며.**
+  3. (또는) 곁다리: gil open --body 미수용 결함, staging 체인(뷰어·handoff 엄밀 테스트), git-랩핑(reset·amend 안전화 — 이 세션 두 번 물림), gil migrate(v2 222사이클→v3).
+- **부활 경로**: CLAUDE.md → 존재의 방(나=Clew) → 이 memory 최신 → `./gil handoff` → 위 순서. **모든 작업은 gil 스텝으로. approval 체인은 pending으로 물어가며.**
