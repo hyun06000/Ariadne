@@ -1626,3 +1626,36 @@
 - **⭐⭐⭐ 큰 목표 기억 (상현님, 꼭)**: 지금 손으로 하는 git 기능들(amend·reset·--allow-empty·push -f·스모크 되감기 등)을 **전부 랩핑해 하나의 gil 커맨드로** 만드는 게 목표. gil step이 새 스텝 새기기뿐 아니라 본문 채우기/고치기(amend 랩핑)까지 감싸야. 지금은 손 amend로 본문 채우지만, gil이 그걸 흡수해야 한다.
 - **커밋 그래프 위치**: gil-v3(대문 5908836f→) → gil-v3-dev(체인 루트 63035b32) → c001/s1~s4. fsck 개선 두 번(체인 부모 인식·범위밖 부모 실재=universe 분리).
 - **⭐ 다음**: c001 승인 시 gil close 봉인 → staging 체인 개설(기능 검사 이상 테스트) → 배포 체인(바이너리 패키징). 그리고 git 기능 랩핑을 gil 명령으로 흡수(amend 등).
+
+## 2026-07-23 (이어서) — ⭐⭐ 3층 뷰어 완성 + 스텝 원칙(백트래킹) 실현
+
+- **⭐⭐ 상현님 스텝 원칙 (핵심)**: 막히는 지점(가설 반증·검증 실패)은 그냥 멈추는 게 아니라 **실패 노드(analyze/backtrack=죽은 잎)로 닫고 → 조상 define으로 되돌아가 새 형제 가지(hypothesis)로 나아간다.** 죽은 잎은 "벽의 지도"로 그래프에 영구. gil step 구현: backtrack이면 parent=팁(선형 끝)·Gil-Backtrack=조상define / 새 hypothesis --to define이면 parent=조상define(형제 가지).
+- **⭐ 체인 모드 (상현님)**: 사람 승인이 필요한 건 뷰어 같은 예외. 일반은 자율 완주. **체인 열 때 한 번** 모드 정함(Gil-Mode: autonomous|approval, 기본 autonomous). gil-v3-viewer는 approval(상현님 모니터링).
+- **⭐ dev/staging 검증 분담**: dev verify=기능검사(smoke)만, 엄밀한 검증·엣지·필드테스트는 staging 체인.
+- **한 일 — 3층 뷰어 (gil-v3-viewer 체인, approval)**: c001(체인층 DAG→사이클 드릴다운, supported)→c002(사이클→스텝트리 드릴다운 + 스텝 원칙, supported). gilweb.py: chains_from_graph(체인층)·cycles_of(사이클층)·render_step_tree(스텝층, parent실선·backtrack파선·kind색, success=산잎초록·fail/backtrack=죽은잎빨강). `gil web -o` 명령. 순수 커밋 그래프에서 읽음, 자기완결 HTML.
+- **⭐⭐⭐ 뼈아픈 사고가 git-랩핑 목표를 증명 — reset이 코드를 두 번 날림.** c002를 스텝 원칙대로 다시 밟으려 `git reset --hard`했더니 되감기가 **소스 코드(gil.py 백트래킹·gilweb.py 스텝트리)까지 되돌림.** /tmp 백업했으나 시점이 render_step_tree 추가 전이라 유실. 두 번 복원. **손 git(reset/cp)이 작업을 잃는다 — gil이 이 위험을 흡수해야(스텝 커밋과 소스를 함께 다루는 안전한 되감기). 상현님 "git 기능을 gil 커맨드로 랩핑" 목표의 산 증거.**
+- **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(c001·c002 supported). 다음: c003 or 체인 닫기.
+- **⭐ 다음**: 뷰어 더(디자인 유려화는 상현님 "나중"·머지 뷰·본문 표시) 또는 gil-v3-viewer 닫고 staging 체인(기능검사 이상). git-랩핑(reset·amend 안전화)은 개발 체인 후보. **gil migrate(v2 222사이클→v3)는 로드맵 후반.**
+
+## 2026-07-23 (이어서) — ⭐⭐ 머지 뷰 완성 (역순 3층) + 본문 마크다운 + gil step --body
+
+- **⭐⭐ 상현님 역순 머지 원칙**: 머지는 아래에서 위로 잡힌다 — ① 스텝 머지(한 사이클 안 **산 잎들** 합류) ② 사이클 머지(닫힌 **산 사이클들**) ③ 체인 머지(닫힌 **체인들**). **완성(산 잎·산 사이클·닫힌 체인)만이 위 층 머지 대상** — 죽은 잎은 머지 안 됨(벽의 지도). 산 잎이 모여 사이클, 산 사이클이 모여 체인. 배포 순환과 맞물림.
+- **한 일 (gil-v3-viewer 체인, approval, c003~c006)**: c003(스텝 본문 마크다운 카드 + gil step --body/--body-file — "본문은 커밋 로그에" 도구 완성)→c004(스텝 머지)→c005(사이클 머지)→c006(체인 머지). 전부 supported. 머지 3층 시각 언어 일관: 첫 조상=일반 실선, 둘째+ 조상=초록 굵은 merge-edge.
+- **⭐ gil step 확장**: --body/--body-file(긴 마크다운 디테일→커밋 body, 제목은 위계 요약), --merge(산 잎 합류→Gil-Merge, 두 조상 상속). step_body(sha)가 커밋 %b에서 Gil-*/Co-Authored 접두사 trailer만 걷어내 순수 본문.
+- **⭐ 버그들 잡음**: ① step_body가 "막힘:" 같은 콜론 본문을 trailer로 오인(→접두사 엄격화) ② Gil-Merge 두 의미(스텝 id vs 사이클/체인 참조) fsck 분리(스텝 머지는 step_keys로 검증) ③ 체인 부모 다중값 개행 strip.
+- **뷰어 현황**: 3층 드릴다운(체인→사이클→스텝) + 스텝 본문 마크다운 카드 + 머지 3층. gilweb.py: chains_from_graph·cycles_of·render_step_tree·md_to_html·render_cycle_dag·render. `gil web -o`. 자기완결 HTML, 순수 커밋 그래프.
+- **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(c001~c006 supported, 열림·approval). 디자인 유려화는 상현님 "나중".
+- **⭐ 다음**: 뷰어 더(디자인 유려화 등) 또는 gil-v3-viewer 닫고 staging 체인(기능검사 이상). git-랩핑(reset·amend 안전화, C050류 사고 방지)은 큰 목표. gil migrate(v2 222사이클→v3)는 로드맵 후반.
+
+## 2026-07-23 (이어서) — ⭐⭐⭐ 세 근본 원칙 + v2 뷰어 공부 사이클 (gil-v3-study)
+
+- **⭐⭐⭐ 상현님이 못 박은 세 근본 원칙 (SPEC 명문화)**:
+  1. **무조건 gil로 모든 흔적을 남긴다** — 조사·공부·구현·판단·실험 무엇이든 gil 스텝으로. gil 밖 작업은 흔적이 없어 재현·계보 끊김. 작업 전에 담을 스텝이 열려 있어야.
+  2. **승인(approval) 체인은 반드시 pending 스텝으로 사람의 승인/기각을 명시적으로 받는다** — 승인/기각 없이 산 잎·죽은 잎을 임의 확정 금지.
+  3. **가설 없는 공부/작업은 다음 스텝이 아니다** — 남의 결론 나열해 판단 떠넘기기 금지. 내가 능동적으로 가설을 세우고 타당한 내용을 탐색하며 나아간다. 단 **문제 정의가 명확치 않다고 판단되면 사람에게 문제부터 묻는다**(매번은 아님).
+- **⭐⭐ pending human-in-the-loop 워크플로 (c008에서 확립)**: approval 체인에서 판단 필요 지점→pending 스텝→에이전트가 승인/기각 2보기로 물음→사람이 뷰어로 확인 후 답→승인=success 산 잎 / 기각=backtrack 죽은 잎→조상 define 새 가지. c008이 실사례(JPG 기각→PNG 승인, 두 번 human-in-the-loop).
+- **한 일 (gil-v3-viewer c007~c008 마무리 + gil-v3-study c001)**: c007(이미지 임베드+지연로딩, 뷰어 단독크기 방지-사이드번들). c008(pending 워크플로 실증). gil-v3-viewer 닫음(c001~c008 supported, 3층 드릴다운·본문 마크다운·머지 3층·이미지·pending). **gil-v3-study 체인 개설(approval)** → c001: v2 뷰어 공부.
+- **⭐ v2 뷰어의 관통 깨달음 (Explore 조사, s3 흔적)**: 실시간 4단계(meta refresh→기본화→라이브 폴링→노드 정체성 보존). ***"전체 리로드는 상태를 원리적으로 파괴하니 실시간은 다시 그리기가 아니라 데이터만 갈고 파괴를 국소화하기"*** / ***"상태 보존은 무엇을 스왑하지 않을지의 설계"*** / ***"보존의 단위는 불린이 아니라 노드"*** / ***"병목은 바이트가 아니라 매 로드 렌더되는 노드 수"*** / ***"계약은 수단(JS 0줄)이 아니라 목적(자기완결)"***. 출처: loomlight/C010~C014, loom/C049·C075·C085·C088.
+- **⭐⭐ c001 결론 (공부→가설→탐색→결정)**: 내 가설=실시간·용량은 엮인 문제, 우리 사이드번들 구조가 상태보존·용량에 유리(용량해결 c007이 실시간 토대). 능동 탐색으로 file:// 실시간 벽 확인(브라우저 단독 fetch 불가, v2도 이슈#24 이월). 상현님 결정: **실시간 = `gil web --live` 로컬 서버(stdlib ThreadingHTTPServer+폴링/SSE)**, file:// 자기완결 정적 모드와 병존. **실제 구현은 다음 사이클.**
+- **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(닫힘, c001~c008)→gil-v3-study(c001 supported, 열림·approval). 
+- **⭐ 다음**: gil web --live 로컬 서버 + 상태 보존형 실시간 구현(v2 노드 정체성·hasOpenDetails 가드 재료). 그다음 디자인 유려화(색 검증은 node 부재로 미실행). staging 체인·git-랩핑·gil migrate(v2→v3)는 로드맵.

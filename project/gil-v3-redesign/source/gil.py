@@ -90,6 +90,58 @@ def collect_nodes(rev_range="HEAD"):
     return nodes
 
 
+def body_index(rev_range="--all"):
+    """sha(9자) → 순수 본문(디테일) 인덱스를 **단일 git log**로 만든다.
+
+    step_body를 스텝마다 git fork로 부르면 O(스텝수)의 프로세스 생성이 된다(62초 벽,
+    gil-v3-study/c002/s4). 이 함수는 git log 한 번(--all 2320커밋 0.037초)으로 모든
+    커밋의 본문을 뽑아, step_body(sha, idx)가 fork 없이 인덱스에서 읽게 한다.
+    """
+    fmt = "%H" + _FSEP + "%b" + _SEP
+    out = _git("log", "--format=" + fmt, rev_range)
+    idx = {}
+    for rec in out.split(_SEP):
+        rec = rec.strip("\n")
+        if not rec:
+            continue
+        f = rec.split(_FSEP, 1)
+        if len(f) < 2:
+            continue
+        idx[f[0][:9]] = _strip_trailers(f[1].rstrip("\n"))
+    return idx
+
+
+TRAILER_PREFIXES = ("Gil-", "Co-Authored-By:", "Co-authored-by:", "Signed-off-by:")
+
+
+def _strip_trailers(body):
+    """본문 끝의 trailer 블록(알려진 키로 시작하는 라인)을 걷어내 순수 본문만 남긴다."""
+    lines = body.split("\n")
+    end = len(lines)
+    while end > 0:
+        ln = lines[end - 1].strip()
+        if ln == "":
+            end -= 1
+            continue
+        if ln.startswith(TRAILER_PREFIXES):
+            end -= 1
+        else:
+            break
+    return "\n".join(lines[:end]).strip()
+
+
+def step_body(sha, idx=None):
+    """한 스텝 커밋의 본문(디테일) — 제목·trailer 제외한 순수 마크다운 본문.
+
+    idx(body_index 결과)를 주면 fork 없이 인덱스에서 읽는다(빠른 경로). 없으면 단건 조회.
+    커밋 = 제목 + 빈줄 + 본문 + 빈줄 + Gil-* trailer. %b는 본문+trailer를 준다.
+    본문에도 "막힘: …"처럼 콜론이 흔하므로 알려진 접두사로만 trailer를 엄격히 구분한다.
+    """
+    if idx is not None:
+        return idx.get(sha[:9], "")
+    return _strip_trailers(_git("log", "-1", "--format=%b", sha).rstrip("\n"))
+
+
 def declared_chains(rev_range="HEAD"):
     """선언된 체인 = Gil-Chain trailer를 가진 모든 커밋 (체인 루트 포함).
 
@@ -237,20 +289,27 @@ def fsck(nodes, chains_known=None, universe=None):
         if n["outcome"] == "backtrack" and not n["backtrack"]:
             violations.append(f'스텝순환: {cc} — backtrack은 Gil-Backtrack '
                               f'(조상 define) 필요')
-        # ── 6. 계보 참조 무결성 (Cycle-Parent·Merge 실재) ──
-        # 참조는 두 꼴: "cycle"(같은 체인 안) 또는 "chain/cycle"(다른 체인/외부).
-        # 외부 참조(chain/cycle 꼴)는 이 그래프 밖일 수 있다 — id 문법만 보고 실재는
-        # 검사하지 않는다(체인 경계 넘는 계보는 정상, 머지·부모 사이클로 이어짐).
-        # 같은 체인 안 참조(cycle 꼴)만 실재를 강제한다.
-        # 참조는 세 꼴: 알려진 체인(체인 부모) · "cycle"(같은 체인 안 사이클) ·
-        # "chain/cycle"(다른 체인/외부). 사이클은 체인에서 태어날 수 있으므로(원칙 2:
-        # 체인 시작점) 참조가 알려진 체인이면 유효하다. 같은 체인 안 사이클 참조만 실재를
-        # 강제하고, 외부 chain/cycle 꼴은 경계 넘는 계보라 미검사.
-        for ref in n["cycle_parents"] + n["merges"]:
+        # ── 6a. 스텝 머지 (Gil-Merge = 같은 사이클 안 산 잎 스텝 id, 역순 머지 맨 아래) ──
+        # Gil-Merge는 두 의미: 스텝 머지(스텝 id, 같은 사이클) 또는 체인/사이클 머지.
+        # 스텝 id(같은 사이클 안 실재)면 스텝으로 검증하고 넘어간다.
+        step_merges = []
+        cyc_chain_merges = []
+        for ref in n["merges"]:
+            if (n["chain"], n["cycle"], ref) in step_keys:
+                step_merges.append(ref)  # 스텝 머지 — 같은 사이클 산 잎
+            else:
+                cyc_chain_merges.append(ref)  # 체인/사이클 머지
+        # (스텝 머지 대상 실재는 step_keys로 이미 확인됨 — 위반 없음)
+
+        # ── 6b. 계보 참조 무결성 (Cycle-Parent + 체인/사이클 Merge 실재) ──
+        # 참조 세 꼴: 알려진 체인(체인 부모) · "cycle"(같은 체인 사이클) · "chain/cycle"(외부).
+        # 사이클은 체인 시작점에서 태어날 수 있으니 알려진 체인이면 유효. 외부는 경계 넘는
+        # 계보라 미검사. 같은 체인 사이클 참조만 실재 강제.
+        for ref in n["cycle_parents"] + cyc_chain_merges:
             if ref in chains:
-                continue  # 체인 부모 — 사이클이 체인 시작점에서 태어남 (유효)
+                continue  # 체인 부모/머지 — 유효
             if "/" in ref:
-                continue  # 외부 참조 — 실재 미검사 (경계 넘는 계보 허용)
+                continue  # 외부 참조 — 실재 미검사
             if ref not in cycles:
                 violations.append(f'계보: {cc} — 같은 체인 참조 "{ref}" 실재 안 함')
     return violations
@@ -333,8 +392,21 @@ def cmd_open(args):
     print(f"open: {a.ref}/s1 define")
 
 
+def _resolve_body(a):
+    """--body(문자열) 또는 --body-file(경로)에서 스텝 디테일 본문을 얻는다."""
+    if getattr(a, "body_file", None):
+        with open(a.body_file, encoding="utf-8") as fh:
+            return fh.read().strip()
+    return getattr(a, "body", None) or ""
+
+
 def cmd_step(args):
-    """gil step <chain>/<cycle> --kind K [--outcome O] [--to define] [--title T]"""
+    """gil step <chain>/<cycle> --kind K [--outcome O] [--to define]
+       [--title T] [--body TEXT | --body-file PATH]
+
+    제목(subject) = --title(짧은 위계 요약). 본문(디테일, 마크다운) = --body 또는
+    --body-file. 본문 없으면 제목이 본문을 겸한다(하위호환). '본문은 커밋 로그에'.
+    """
     import argparse
     p = argparse.ArgumentParser(prog="gil step")
     p.add_argument("ref")
@@ -342,6 +414,10 @@ def cmd_step(args):
     p.add_argument("--outcome")
     p.add_argument("--to")
     p.add_argument("--title", default="")
+    p.add_argument("--body")
+    p.add_argument("--body-file")
+    p.add_argument("--merge", action="append", default=[],
+                   help="합류할 산 잎 스텝 id (여러 번). 이 스텝이 두 조상을 상속")
     a = p.parse_args(args)
     chain, cycle = a.ref.split("/", 1)
     steps = _current_cycle(chain, cycle)
@@ -353,17 +429,63 @@ def cmd_step(args):
     _show_purpose_context(chain, cycle)
     if a.kind == "analyze" and a.outcome not in OUTCOMES:
         sys.exit("거부: analyze는 --outcome success|backtrack|fail 필요")
+
+    # ── 스텝 원칙 (상현님): 막히면 실패 노드로 닫고 → backtrack으로 조상 define로
+    #   되돌아가 새 형제 가지. parent를 세 경우로 명확히 나눈다.
+    tip = _growing_tip(steps)
+    tip_id = tip["step"] if tip else None
+    define_ids = {s["step"] for s in steps if s["kind"] == "define"}
+
+    # 산 잎(analyze/success) id 집합 — 머지 대상 검증용
+    live_leaves = {s["step"] for s in steps
+                   if s["kind"] == "analyze" and s["outcome"] == "success"}
+
+    if a.merge:
+        # 스텝 머지: 한 사이클 안 산 잎들을 합류 (역순 머지 맨 아래, 상현님).
+        # parent=첫 산 잎, Gil-Merge=나머지. 이후 노드는 두 갈래를 조상으로.
+        # 완성(산 잎)만 머지 대상 — 죽은 잎은 벽의 지도로 남을 뿐.
+        targets = a.merge
+        for m in targets:
+            if m not in live_leaves:
+                sys.exit(f"거부: --merge {m}는 산 잎(analyze/success)이어야 함 "
+                         f"(완성만 머지 대상, 죽은 잎은 벽의 지도)")
+        parent = targets[0]
+        merge_rest = targets[1:]
+    elif a.kind == "hypothesis" and a.to:
+        # 되돌아가 새 형제 가지: 조상 define(--to)의 새 자식. (백트래킹의 '나아가는' 절반)
+        if a.to not in define_ids:
+            sys.exit(f"거부: --to {a.to}는 조상 define이어야 함")
+        parent = a.to
+        merge_rest = []
+    elif a.outcome == "backtrack":
+        # 막힌 지점을 죽은 잎으로 닫음 — 선형 끝(팁의 자식). Gil-Backtrack=되돌아갈 define.
+        if not a.to:
+            sys.exit("거부: backtrack은 --to <조상 define> 필요 (되돌아갈 곳)")
+        if a.to not in define_ids:
+            sys.exit(f"거부: --to {a.to}는 조상 define이어야 함")
+        parent = tip_id or "null"
+        merge_rest = []
+    else:
+        # 선형 전진 (define→hypothesis→verify→analyze) 또는 success 잎.
+        parent = tip_id or "null"
+        merge_rest = []
+
     sid = _next_step_id(steps)
-    parent = a.to or (_growing_tip(steps)["step"] if steps else "null")
     subject = f"gil {chain}/{cycle}/{sid} {a.kind}: {a.title or a.kind}"
+    body = _resolve_body(a) or a.title or a.kind
     tr = [("Gil-Chain", chain), ("Gil-Cycle", cycle),
           ("Gil-Step", sid), ("Gil-Kind", a.kind), ("Gil-Parent", parent)]
     if a.outcome:
         tr.append(("Gil-Outcome", a.outcome))
-    if a.outcome == "backtrack" and a.to:
+    if a.outcome == "backtrack":
         tr.append(("Gil-Backtrack", a.to))
-    _commit(subject, a.title or a.kind, tr)
-    print(f"step: {a.ref}/{sid} {a.kind} ←{parent}")
+    for m in merge_rest:
+        tr.append(("Gil-Merge", m))
+    _commit(subject, body, tr)
+    tail = f" ⤳backtrack→{a.to}" if a.outcome == "backtrack" else (
+        f" (형제 가지 ←{a.to})" if a.kind == "hypothesis" and a.to else (
+            f" ⋈merge {'+'.join(a.merge)}" if a.merge else ""))
+    print(f"step: {a.ref}/{sid} {a.kind} ←{parent}{tail}")
 
 
 def cmd_close(args):
@@ -554,10 +676,44 @@ def cmd_fsck(args):
     sys.exit(1)
 
 
+def cmd_web(args):
+    """gil web [-o out.html] [--live [--port P] [--interval S] [--no-open]]
+
+    -o     : 정적 자기완결 번들(file://로 열림). 지금까지의 동작.
+    --live : ThreadingHTTPServer + SSE. 커밋 그래프가 자라면 브라우저 자동 갱신.
+    (인자 없음): 정적 문서를 stdout으로.
+    """
+    import gilweb
+    rest = list(args)
+
+    if "--live" in rest:
+        rest.remove("--live")
+        port, interval, open_browser = 8737, 1.0, True
+        if "--port" in rest:
+            i = rest.index("--port"); port = int(rest[i + 1]); del rest[i:i + 2]
+        if "--interval" in rest:
+            i = rest.index("--interval"); interval = float(rest[i + 1]); del rest[i:i + 2]
+        if "--no-open" in rest:
+            rest.remove("--no-open"); open_browser = False
+        gilweb.serve_live(port=port, interval=interval, open_browser=open_browser)
+        return
+
+    dst = None
+    if "-o" in rest:
+        i = rest.index("-o")
+        dst = rest[i + 1]
+        del rest[i:i + 2]
+    if dst:
+        size, n = gilweb.write_bundle(dst)  # 메인 HTML + 사이드 번들(지연 로드)
+        print(f"wrote {dst} ({size} bytes) + {gilweb.DATA_DIR}/ ({n} step pages)")
+    else:
+        sys.stdout.write(gilweb.render())
+
+
 COMMANDS = {
     "chain": cmd_chain, "chain-merge": cmd_chain_merge,
     "open": cmd_open, "step": cmd_step, "close": cmd_close,
-    "log": cmd_log, "fsck": cmd_fsck,
+    "log": cmd_log, "fsck": cmd_fsck, "web": cmd_web,
 }
 
 if __name__ == "__main__":
