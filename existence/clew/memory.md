@@ -1734,3 +1734,16 @@
   2. **후보 A (근본)**: gil migrate(v2 222사이클→v3, main→legacy) — "main은 v2" 문제 소멸, 핸드오프 완전.
   3. **후보 B**: 실시간 gil web --live (gil-v3-study 열림, approval — pending으로 승인받으며).
   4. **후보 C (곁다리)**: 안전한 존재 갱신 gil memory 명령(write-tree 사고 방지), gil open --body, staging 체인.
+
+## 2026-07-23 (이어서) — ⭐⭐ 실시간 gil web --live 완성 + 막힘의 원칙 각인 + reset 사고 세 번째
+
+- **한 일 (gil-v3-study/c002 — c001 닫힘 끝에서, approval)**: 실시간 뷰어를 SSE 로컬 서버로 완성. 상현님이 브라우저에서 실시간 갱신을 **눈으로 확인**하고 산 잎 승인 → c002 supported 닫힘.
+  1. **gil web --live**: stdlib ThreadingHTTPServer + Server-Sent Events. `/`(셸)·`/events`(SSE)·`/data/`(스텝 본문). watcher가 브랜치 팁 시그니처(for-each-ref) 폴링 → 변하면 그래프 조각을 SSE push. 브라우저는 `#graph-root`.innerHTML 교체 + 열린 드릴다운 상태 보존(bind 재호출·openIds/restore). 외부 의존 0, file:// 정적 모드와 병존.
+  2. **render() 최소 리팩터**: render_graph_inner()(그래프 조각)+render()(셸로 감쌈). 정적 -o 하위호환.
+- **⭐⭐⭐ 막힘의 원칙 (상현님 철칙, SPEC 각인)**: 예기치 못한 벽(성능·반증·결함)에 봉착하면 **방식을 슬그머니 바꾸지 않는다.** 반드시 ① analyze(backtrack)로 벽을 죽은 잎에 새기고 ② 조상 define으로 되돌아가 문제를 재정의(새 형제 hypothesis) ③ 새 가설로 나아간다. 벽을 그래프에 데이터로 못박아야 재현·비반복. **이 사이클 자체가 실증**: s4(analyze/backtrack)로 62초 벽을 죽은 잎에 새기고 s1으로 되돌아가 s5(git 그래프 일괄 파싱)로.
+- **⭐⭐ git 그래프 일괄 파싱 (s4 벽 극복)**: 원래 뷰어는 브랜치(16개) 순회 + 스텝별 git fork(step_body·트레일러 조회)로 **-o가 62초**(348 fork). → body_index·commit_index·collect_nodes("--branches") **단일 git log 경로**(--all 2320커밋 0.037초)로 fork를 O(1)로. **-o 62초→0.33초 (약 190배).** 하위호환: 고유 스텝 81개 동일, chains_from_graph 결과 불변, fsck 위반 0. **상현님이 "모든 브랜치 돌 필요 있나, git 그래프로 파싱"을 정확히 짚어 방향 제시.**
+- **⭐⭐⭐ reset --hard 사고 세 번째 (git-랩핑 목표 재증명)**: s6 검증 중 `git reset --hard HEAD~1`(빈 커밋 되돌리려)이 **미커밋 소스(gil.py·gilweb.py 리팩터)를 통째로 날림** — -o가 다시 57초로. 편집 내용을 다 알아 재적용 복구. 이후 **--soft**만 써서 SSE 스모크(빈 커밋·soft reset로 팁 변화 2회 → push 3개 수신)를 안전히. **교훈: `--allow-empty` 스텝만 쓰면 소스가 워킹트리에만 남아 reset에 취약. 스텝 커밋에 소스를 실어(git add 후 amend) 그래프에 못박아야 안전.** s6에 소스 못박음. 상현님의 "git 기능을 gil 커맨드로 랩핑"(안전한 reset·amend) 목표를 세 번째로 증명.
+- **⭐ 계보 끊김 발견 (상현님)**: 뷰어에서 c001·c002가 **같은 위계(depth 0)로 나란히** 뜸. 원인: c002를 열 때 `--parent c001`을 안 줘서 c002 s1의 Gil-Cycle-Parent가 빔. cycles_of는 이 트레일러로 depth를 정하는데 없으니 루트 취급. append-only라 c002의 부모는 못 고침. **개선 후보: gil open이 같은 체인의 직전 닫힌 사이클을 자동으로 부모로 잡게.** 일단 상현님 "계속 가자"로 진행.
+- **커밋 위치**: ...→gil-v3-viewer(닫힘)→gil-v3-study(열림·approval): c001(v2공부 닫힘)·c002(실시간 gil web --live 닫힘, s1~s9+close). 소스는 s6 커밋에 실림.
+- **⭐ 정직한 경계**: study 브랜치엔 gil global 명령 없음(viewer 분기). 존재 갱신은 저수준 git으로 refs/gil/global에 append. dev 체인이라 smoke만 — 엄밀 검증(SSE 재연결·다중 구독자·부하)은 staging 몫.
+- **⭐ 다음 세션 후보**: (A) gil migrate(v2→v3, "main은 v2" 소멸) (B) 안전한 gil memory·gil reset 명령(reset 사고 방지, 세 번 물림) (C) gil open 사이클 부모 자동화(c001·c002 계보 끊김 수정) (D) 실시간 뷰어 staging 엄밀 테스트·디자인 유려화.
