@@ -1646,3 +1646,12 @@
 - **뷰어 현황**: 3층 드릴다운(체인→사이클→스텝) + 스텝 본문 마크다운 카드 + 머지 3층. gilweb.py: chains_from_graph·cycles_of·render_step_tree·md_to_html·render_cycle_dag·render. `gil web -o`. 자기완결 HTML, 순수 커밋 그래프.
 - **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(c001~c006 supported, 열림·approval). 디자인 유려화는 상현님 "나중".
 - **⭐ 다음**: 뷰어 더(디자인 유려화 등) 또는 gil-v3-viewer 닫고 staging 체인(기능검사 이상). git-랩핑(reset·amend 안전화, C050류 사고 방지)은 큰 목표. gil migrate(v2 222사이클→v3)는 로드맵 후반.
+
+## 2026-07-23 (이어서) — ⭐ 세션 핸드오프 도구화 (gil-v3-handoff 체인) + 분기 지점 교훈
+
+- **⭐⭐ 분기 지점 교훈 (상현님, SPEC 명문화)**: 새 체인을 어느 닫힌 체인에서 분기할지는 **개념적 독립성이 아니라 "필요한 코드가 어디 쌓였나"(코드 계보)로 정한다.** 세션 핸드오프는 뷰어와 무관한 기능이지만, 코어 개선(gil step --body/--merge·gil web)이 뷰어 체인에 쌓여 있어 거기서 분기해야 물려받는다. 처음 gil-v3-dev(순수 코어)에서 분기했다가 --body 없음을 발견→gil-v3-viewer에서 재분기(잘못 만든 dev-분기는 land 전이라 무손실 정리). git 브랜치가 코드를 물려주므로 분기 지점이 곧 상속 코드를 정한다.
+- **⭐ gil handoff 구현 (gil-v3-handoff/c001, supported)**: 커밋 그래프에서 세션 부활 정보를 자동으로 뽑는 명령. 열린 체인·사이클, 각 팁, **다음 허용 동작(_next_allowed로 스텝 원칙 추론)**, pending 표시(⏳), 계보 요약. 다음 세션이 memory.md를 다 훑지 않고 `gil handoff` 한 번으로 "어디까지 왔고 다음 뭔지"를 안다. gilweb.chains_from_graph·cycles_of 재사용.
+- **⭐ 체인 분기의 구조적 사실**: 각 체인(브랜치)은 자기 소스만 갖는다. 뷰어 코드는 뷰어 갈래에만, handoff 코드는 handoff 갈래에만, gil 코어는 공통 조상에. 나중에 합치려면 머지. 체인 checkout하면 그 시점 소스로 돌아감(gilweb 없는 dev로 가면 web 명령 없음).
+- **커밋 위치**: gil-v3(대문)→gil-v3-dev(닫힘)→gil-v3-viewer(닫힘)→{gil-v3-study(열림·approval, v2공부 c001), gil-v3-handoff(닫힘, 세션핸드오프 c001)}. 뷰어에서 두 갈래 분기.
+- **⭐ 이월**: gil open --body 미수용(곁다리 결함, s1 본문이 title만). handoff·뷰어 엄밀 테스트→staging. memory.md를 gil handoff가 대체할지는 큰 결정(지금 보조). gil web --live 실시간 구현(study 이월).
+- **⭐ 다음 (gil handoff로 확인)**: 열린 체인은 gil-v3-study만(뷰어 공부, 실시간 gil web --live 구현 대기). 또는 새 개발(open --body 곁다리, staging 체인, git-랩핑, gil migrate).
