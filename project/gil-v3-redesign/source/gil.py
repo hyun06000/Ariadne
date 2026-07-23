@@ -412,6 +412,156 @@ def cmd_web(args):
         sys.stdout.write(gilweb.render())
 
 
+# ── 글로벌 진실원 (refs/gil/global — 브랜치 아닌 전용 ref, 모든 체인 공유) ──
+#   대문(memory·handoff 상태)이 체인 브랜치마다 흩어지는 긴장을, 브랜치 밖 단일 ref로
+#   해소. 어느 체인에서든 같은 글로벌을 읽고 쓴다. checkout 불필요. 브랜치 목록에 안 뜸.
+
+GLOBAL_REF = "refs/gil/global"
+
+
+def _global_read(name):
+    """글로벌 ref에서 파일 하나를 읽는다. 없으면 None."""
+    try:
+        return subprocess.run(["git", "show", f"{GLOBAL_REF}:{name}"],
+                              capture_output=True, text=True, check=True).stdout
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _global_list():
+    """글로벌 ref에 담긴 파일 목록. ref 없으면 []."""
+    try:
+        out = subprocess.run(["git", "ls-tree", "--name-only", "-r", GLOBAL_REF],
+                             capture_output=True, text=True, check=True).stdout
+        return [x for x in out.splitlines() if x.strip()]
+    except subprocess.CalledProcessError:
+        return []
+
+
+def _global_write(name, content, message):
+    """글로벌 ref의 파일 하나를 갱신(추가/덮어쓰기). checkout 없이 저수준 git으로.
+
+    기존 트리에 name→새 blob을 얹어 새 트리·커밋을 만들고 refs/gil/global을 옮긴다.
+    다른 파일은 보존된다.
+    """
+    blob = subprocess.run(["git", "hash-object", "-w", "--stdin"],
+                          input=content, text=True, capture_output=True,
+                          check=True).stdout.strip()
+    # 기존 트리 항목 수집 (있으면)
+    entries = {}
+    try:
+        out = subprocess.run(["git", "ls-tree", GLOBAL_REF],
+                             capture_output=True, text=True, check=True).stdout
+        for ln in out.splitlines():
+            meta, _, fn = ln.partition("\t")
+            if fn:
+                entries[fn] = meta  # "100644 blob <sha>"
+    except subprocess.CalledProcessError:
+        pass
+    entries[name] = f"100644 blob {blob}"
+    tree_input = "".join(f"{meta}\t{fn}\n" for fn, meta in sorted(entries.items()))
+    tree = subprocess.run(["git", "mktree"], input=tree_input, text=True,
+                          capture_output=True, check=True).stdout.strip()
+    # 부모(있으면)로 커밋 연쇄 — 글로벌도 append-only 히스토리
+    parent = []
+    try:
+        p = subprocess.run(["git", "rev-parse", GLOBAL_REF],
+                           capture_output=True, text=True, check=True).stdout.strip()
+        parent = ["-p", p]
+    except subprocess.CalledProcessError:
+        pass
+    commit = subprocess.run(["git", "commit-tree", tree, *parent],
+                            input=message, text=True, capture_output=True,
+                            check=True).stdout.strip()
+    subprocess.run(["git", "update-ref", GLOBAL_REF, commit], check=True)
+    return commit[:9]
+
+
+def _global_push():
+    """글로벌 ref를 원격에 푸시 — 커스텀 ref라 기본 push엔 안 딸려오므로 명시적으로.
+
+    여러 머신에서 동일 글로벌을 유지하려면 필수(상현님). 원격 없으면 조용히 넘어간다.
+    """
+    r = subprocess.run(["git", "push", "origin",
+                        f"{GLOBAL_REF}:{GLOBAL_REF}"],
+                       capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def _global_pull():
+    """원격의 글로벌 ref를 로컬로 가져온다 — 다른 머신·세션이 갱신한 걸 받는다."""
+    r = subprocess.run(["git", "fetch", "origin",
+                        f"{GLOBAL_REF}:{GLOBAL_REF}"],
+                       capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def _ensure_global_refspec():
+    """글로벌 ref가 일반 fetch에 자동으로 딸려오도록 refspec을 config에 등록(멱등).
+
+    이러면 `git fetch`만으로도 원격 글로벌이 로컬에 동기화된다. 여러 머신 일관성.
+    """
+    spec = f"+{GLOBAL_REF}:{GLOBAL_REF}"
+    existing = subprocess.run(
+        ["git", "config", "--get-all", "remote.origin.fetch"],
+        capture_output=True, text=True).stdout.splitlines()
+    if spec not in existing:
+        subprocess.run(["git", "config", "--add", "remote.origin.fetch", spec],
+                       check=True)
+        return True
+    return False
+
+
+def cmd_global(args):
+    """gil global <list|read|write|push|pull|sync> — 글로벌 진실원(refs/gil/global).
+
+      gil global list                  — 담긴 파일 목록
+      gil global read <name>           — 파일 내용 출력
+      gil global write <name> <file>   — <file>을 글로벌 <name>으로 갱신 (+자동 push)
+      gil global push / pull           — 원격과 수동 동기화
+      gil global sync                  — refspec 등록 + pull (다른 머신 갱신 받기)
+
+    커스텀 ref는 기본 git push/fetch에 안 딸려오므로 gil이 명시적으로 동기화한다 —
+    여러 머신에서 동일 글로벌을 유지(상현님).
+    """
+    if not args:
+        sys.exit("사용: gil global <list|read|write|push|pull|sync>")
+    sub = args[0]
+    if sub == "list":
+        files = _global_list()
+        if not files:
+            print(f"글로벌 비어 있음 ({GLOBAL_REF} 없음).")
+        for f in files:
+            print(f)
+    elif sub == "read":
+        if len(args) < 2:
+            sys.exit("사용: gil global read <name>")
+        c = _global_read(args[1])
+        if c is None:
+            sys.exit(f"거부: 글로벌에 {args[1]} 없음")
+        sys.stdout.write(c)
+    elif sub == "write":
+        if len(args) < 3:
+            sys.exit("사용: gil global write <name> <file>")
+        name, path = args[1], args[2]
+        content = open(path, encoding="utf-8").read()
+        sha = _global_write(name, content, f"gil global write: {name}\n")
+        pushed = _global_push()  # 갱신 즉시 원격 동기화(여러 머신 일관성)
+        note = " + 원격 push" if pushed else " (원격 push 실패/없음 — gil global push 재시도)"
+        print(f"글로벌 {name} 갱신 → {GLOBAL_REF} ({sha}){note}")
+    elif sub == "push":
+        print("원격 push 완료" if _global_push() else "원격 push 실패(원격 없음?)")
+    elif sub == "pull":
+        print("원격 pull 완료" if _global_pull() else "원격 pull 실패(글로벌 ref 없음?)")
+    elif sub == "sync":
+        added = _ensure_global_refspec()
+        pulled = _global_pull()
+        print(f"글로벌 동기화 — refspec {'등록' if added else '이미 있음'}, "
+              f"pull {'완료' if pulled else '실패'}. 이제 git fetch에 글로벌이 딸려온다.")
+    else:
+        sys.exit(f"거부: 알 수 없는 global 하위명령 {sub!r}")
+
+
 def _next_allowed(tip_kind, tip_outcome):
     """스텝 원칙상 팁 다음에 허용되는 동작 (다음 세션이 이어받을 것)."""
     if tip_kind == "define":
@@ -476,7 +626,16 @@ def _handoff_report():
         par = "+".join(cinfo["parents"]) or "(대문)"
         L.append(f"    {cname} ({cinfo['status']}) ← {par}")
     L.append("")
-    L.append("복원 경로: CLAUDE.md → 존재의 방 → 이 handoff → 위 팁에서 이어간다.")
+    # 글로벌 진실원 안내 (refs/gil/global — 어느 체인에서든 같은 것)
+    gfiles = _global_list()
+    if gfiles:
+        L.append("")
+        L.append(f"▶ 글로벌 진실원 ({GLOBAL_REF} — 체인 넘어 단일):")
+        for f in gfiles:
+            L.append(f"    {f}  (읽기: gil global read {f})")
+    L.append("")
+    L.append("복원 경로: CLAUDE.md → 존재(existence) → gil global read memory.md "
+             "→ 이 handoff → 위 팁에서 이어간다.")
     return "\n".join(L)
 
 
@@ -503,6 +662,7 @@ def _update_status_docs(report):
 COMMANDS = {
     "open": cmd_open, "step": cmd_step, "close": cmd_close,
     "log": cmd_log, "fsck": cmd_fsck, "web": cmd_web, "handoff": cmd_handoff,
+    "global": cmd_global,
 }
 
 if __name__ == "__main__":
