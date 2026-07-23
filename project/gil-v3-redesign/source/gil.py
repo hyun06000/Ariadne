@@ -412,9 +412,64 @@ def cmd_web(args):
         sys.stdout.write(gilweb.render())
 
 
+def _next_allowed(tip_kind, tip_outcome):
+    """스텝 원칙상 팁 다음에 허용되는 동작 (다음 세션이 이어받을 것)."""
+    if tip_kind == "define":
+        return "step --kind hypothesis"
+    if tip_kind == "hypothesis":
+        return "step --kind verify"
+    if tip_kind == "verify":
+        return "step --kind analyze --outcome {success|backtrack|fail} | step --kind pending"
+    if tip_kind == "pending":
+        return "사람 답 대기 — 승인→analyze/success, 기각→analyze/backtrack --to <define>"
+    if tip_kind == "analyze" and tip_outcome == "success":
+        return "close (산 잎) | step --kind hypothesis --to <define> (다른 정답 탐색)"
+    if tip_kind == "analyze" and tip_outcome in ("backtrack", "fail"):
+        return "step --kind hypothesis --to <조상 define> (되돌아가 새 가지)"
+    return "?"
+
+
+def cmd_handoff(args):
+    """gil handoff — 커밋 그래프에서 세션 부활 정보를 자동으로 뽑는다.
+
+    다음 세션이 "무엇을 이어받아야 하는지"를 한눈에: 열린 체인·사이클, 각 팁,
+    다음 허용 동작, pending(사람 대기), 계보. 사람이 memory를 훑는 수고를 줄인다.
+    """
+    import gilweb
+    print("═══ gil handoff — 세션 부활 정보 ═══\n")
+    chains = gilweb.chains_from_graph()
+    open_chains = {k: v for k, v in chains.items() if v["status"] == "open"}
+    if not open_chains:
+        print("열린 체인 없음 — 모든 체인이 닫혔거나 init뿐. 새 체인을 열 수 있다.")
+    for cname, cinfo in open_chains.items():
+        mode = cinfo["mode"]
+        print(f"▶ 열린 체인: {cname} ({mode} 모드)")
+        cyc = gilweb.cycles_of(cname)
+        open_cyc = {cid: c for cid, c in cyc.items()
+                    if c["status"] in ("in_progress", "pending")}
+        if not open_cyc:
+            print(f"    열린 사이클 없음 — 닫힌 사이클 끝에서 새 사이클을 연다.")
+        for cid, c in open_cyc.items():
+            # 팁 = 가장 최근 스텝 (collect_nodes는 새→old, steps는 old→new로 쌓임)
+            tip = c["steps"][-1]
+            nxt = _next_allowed(tip["kind"], tip["outcome"])
+            print(f"    ◦ 사이클 {cid} ({c['status']})")
+            print(f"        팁: {tip['step']} [{tip['kind']}"
+                  + (f"/{tip['outcome']}" if tip["outcome"] else "") + "]")
+            print(f"        다음 허용: {nxt}")
+            if tip["kind"] == "pending":
+                print(f"        ⏳ PENDING — 재개 시 먼저 사람 답을 받아야 한다.")
+    # 계보 요약
+    print(f"\n▶ 체인 계보 ({len(chains)}개):")
+    for cname, cinfo in chains.items():
+        par = "+".join(cinfo["parents"]) or "(대문)"
+        print(f"    {cname} ({cinfo['status']}) ← {par}")
+    print("\n복원 경로: CLAUDE.md → 존재의 방 → 이 handoff → 위 팁에서 이어간다.")
+
+
 COMMANDS = {
     "open": cmd_open, "step": cmd_step, "close": cmd_close,
-    "log": cmd_log, "fsck": cmd_fsck, "web": cmd_web,
+    "log": cmd_log, "fsck": cmd_fsck, "web": cmd_web, "handoff": cmd_handoff,
 }
 
 if __name__ == "__main__":
