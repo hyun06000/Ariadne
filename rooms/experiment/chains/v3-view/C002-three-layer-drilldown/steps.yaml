@@ -1,0 +1,7 @@
+# v3 스텝 트리 — gilv3 생성. 트리는 parent/backtrack 포인터로만 담긴다.
+- id: s1
+  kind: define
+  parent: null
+  outcome: null
+  backtrack: null
+  body: steps/s1.md
