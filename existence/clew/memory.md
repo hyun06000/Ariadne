@@ -2018,3 +2018,21 @@
 - **⭐ gil help migrate + 명령 표면("v2 이주" 블록) + wiki 포인터 추가.**
 - **⭐ 정직한 경계**: v2 단계별 md 원문 전체 이주는 미구현(지금은 cycle.yaml 무손실+메타 표 머리말). 실데이터에 pending 케이스 0(열린 사이클이 다 템플릿이라 제외됨) — pending 경로는 example test로만 검증. 뷰어 여전히 별도 바이너리(미병합). memory push는 원격 없어 로컬만.
 - **⭐⭐ 다음 세션 순서**: 1) **우리 v2(main) 실이주를 정식 브랜치로**(격리 clone 아닌 실 레포에 v3-migration 브랜치 만들지 상현님 확인 — main 오염 214를 이주가 정화하진 않음, 별개 이슈) + 뷰어로 이주 그래프 관전. 2) v2 단계별 md 원문 이주(확장) 필요성 판단. 3) 이주 무손실 확인되면 v3 로드맵(main 승격) 진전. 4) 뷰어 gil 병합(gil viewer serve). **부활: gil migrate 완주(도구레벨·범용, v2 rooms/cycle.yaml→v3 커밋그래프, 압축5→3매핑, verdict→종결kind, [migrate]표식, 의존성0 YAML리더, parent리스트·경로복원·위상정렬, 실검증 174사이클 보존·fsck0). gil=Go v3.0.0-rc1, 문서=LLM-wiki, 검증=example 65, 실사용=gil-realuse-hackathon. 개발=평범커밋(우리레포=gil빌드전용). 기억=refs/gil/global gil memory append.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐⭐ v3를 main으로 승격 완료 (로드맵 최종 이정표) + migrate 실검증·결함2
+
+이 세션은 저번에 만든 gil migrate를 실 v2로 검증하고, **무손실 확인 뒤 v3를 main으로 승격**한 대이정표 세션이다. 상현님 로드맵("v3 완성→gil-v3를 main으로, 지금 main은 legacy로")을 실행했다.
+
+- **⭐⭐ migrate 실검증(격리 full clone, main→v3-migration)**: 우리 v2(main)의 실사이클 **174개 전부 이주** — 8체인(gateway·genesis·graft·loom(106)·loomlight·tapestry·v3-build·v3-view)·174 define·348 step·170 close·**4 fail**(rejected 이주). **사이클 수 174 보존, migrate 새 fsck 위반 0**(기존 3건은 옛 도그푸딩 gil-v3-viewer/redesign 커밋, migrate 무관 — grep 'v3-'가 접두랑 헷갈리게 매칭했으나 순수 main에도 동일 존재함을 증명). ⭐ 174 vs 저번 182: 저번은 _template·runs/ 포함 오산, isRealV2CyclePath 필터가 정확.
+- **⭐⭐⭐ migrate 실사용 결함 2건 수정 (커밋 e264e829)**: 실이주 착수 중 드러남.
+  1. **브랜치명 충돌**: v2 체인명(loomlight)이 실 저장소 기존 브랜치와 겹쳐 migrate 도중 죽음 + 죽기 전 만든 브랜치 수백 개 잔재(원자성 없음). → **pre-flight 가드**(만들 브랜치 전수 검사, 하나라도 있으면 아무것도 만들기 전 거부) + **--prefix <접두>**(예 v3- → v3-loom, git ref 안전 검증). 접두는 Gil-Chain(=브랜치명)에 반영, 원본은 Gil-Migrated-From 보존.
+  2. example 65→68(+3): 충돌거부·원자성, --prefix 회피, 문법검증. 전체 68/68.
+  - ⭐ 잔재 브랜치 청소 교훈: git ls-remote 118회 호출→타임아웃. 원격 헤드 한 번 캐시(git ls-remote --heads origin >파일)해 로컬 비교. loomlight/loomlight-c002는 원래 있던 v2 작업브랜치(원격에도 있음, 비-migrate) — 삭제 금지, [migrate] subject+원격없음만 삭제(66개).
+- **⭐⭐ 뷰어 관전(상현님 OK)**: 격리 clone에 gilviewer serve --port 8795 → 이주 8체인(v3- 접두) 브라우저 확인. 뷰어는 git log --branches로 모든 로컬 브랜치 스캔 → 이주 산물 자동 포함. fail 죽은잎 4개·사이클 197개(174+옛23) 보임. 상현님 "승격 진행".
+- **⭐⭐⭐⭐ 승격 실행 (커밋 3777b766, origin/main)**: 
+  - **막힘**: 원격 main이 protect-main **ruleset**(id 18902983, rules=non_fast_forward+deletion, bypass 불가)으로 보호 → 강제 push 거부. gil-v3-unified와 옛 main은 갈라진 이력이라 ff도 불가.
+  - **상현님 결정**: default 브랜치 바꾸는 방법 + **이름은 main 유지**(내 추천 — gil은 도구명이라 브랜치명으로 중의적, main이 CI·관례에 맞음).
+  - **해법 = GitHub branch rename API**(강제 push·삭제 아님, 규칙 안 건드림): `gh api -X POST .../branches/main/rename -f new_name=legacy-main` → `.../branches/gil-v3-unified/rename -f new_name=main` → `gh api -X PATCH repos/.. -f default_branch=main`. ⭐ 첫 rename이 default를 legacy-main으로 끌고가서 default 재설정 필요했음. rename API 호출은 자동승인 분류기가 막아 상현님 명시 승인 필요했음.
+  - **결과**: main=e264e829(v3), **legacy·legacy-main=a91401b8(옛 v2 이중보존)**, default=main, protect-main이 새 main도 보호. 로컬도 main으로 전환, 옛 gil-v3-unified 로컬 삭제.
+- **⭐ CLAUDE.md 갱신**: 'v2와의 관계'(승격 완료·rename 방식·legacy 이중보존)·'현재 상태'(main=v3, example 68, 명령 목록에 chain-close·approve·reject·migrate, 뷰어). push origin main ff 성공.
+- **⭐⭐ 부활 (승격 후 새 현실)**: **main = v3다**(더 이상 v2 아님). 옛 v2 = legacy·legacy-main 브랜치. gil=Go v3.0.0-rc1, 분기=git브랜치, 종결=success/fail/pending, migrate(v2 rooms/cycle.yaml→v3, 압축5→3·verdict→종결·--prefix·원자성가드, legacy에서 재이주 가능), 문서=LLM-wiki, 검증=example 68. 개발=평범 git 커밋(우리레포=gil빌드전용), 실사용=gil-realuse-hackathon. 기억=refs/gil/global gil memory append. **다음 후보**: 1) v3.0.0 정식 승격(rc→latest, 실사용 충분 판단 시) 2) legacy를 실제로 gil migrate해 main 위 v3 그래프에 이주하는 정식 이슈(지금은 격리검증만) 3) 뷰어 gil 병합(gil viewer serve) 4) v2 단계별 md 원문 이주 확장. **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
