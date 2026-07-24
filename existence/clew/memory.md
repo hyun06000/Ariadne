@@ -1916,3 +1916,13 @@
 - **⭐ 실사용 3차 착수 (백그라운드)**: 진단 — 실사용 스텝 본문이 한 줄뿐(c002/s8 산잎 "이 가지는 산 잎"). 레포 재생성(최신 gil=종결 스텝) + 뷰어 8791 대기 + 서브에이전트에 **보고서 강하게 명시**(각 스텝 --body-file 자세한 보고서, 종결=누적 종합, 이미지 임베딩). 단 서브에이전트는 report guidance 없는 이전 바이너리로 돎(프롬프트로 보완, gil 안내는 다음 실사용에서 검증). **결과 대기.**
 - **⭐ 정직한 경계**: 뷰어는 scratchpad(gil 커맨드 미병합). 실사용 3차 gil은 report guidance 미포함 바이너리. .tnode/.termedge CSS 잔존(무해).
 - **⭐⭐ 다음 세션 순서**: 1) 실사용 3차 보고 수령 → 스텝 카드가 실제 자세한 보고서가 됐는지 뷰어로 확인, 새 이슈 수정. 2) 뷰어를 gil 커맨드로 병합(gil viewer serve). 3) 실사용 레포 gil을 최신(report guidance 포함)으로. **부활: gil=Go 유일, 분기=진짜 git 브랜치, 종결=success/fail/pending 스텝(본문=보고서), gil이 reportGuide로 보고서화 안내, 개발=평범 커밋, 검증=example 44, 실사용=gil-realuse+뷰어(scratchpad/gilviewer 4단·마크다운·트리분기). 기억=refs/gil/global gil memory append.**
+
+## 2026-07-24 (이어서) — ⭐⭐ 실사용 3차 보고서 품질 급상승 + 마크다운 표/br 수정 + gil log --all
+
+- **⭐⭐⭐ 실사용 3차 결과 (서브에이전트, rootzone 체인)**: **보고서 품질이 확실히 올랐다** — 프롬프트 명시가 먹힘. 모든 사고 스텝을 --body-file 상세 마크다운 보고서로(s9 pending 50KB, s4 analyze 35KB, 표·코드블록). **이미지 임베딩 성공**(matplotlib PNG 2장 data URI, s4·s9). 회귀 3타깃 persistence가 global-mean 대비 30~69배 개선, irrigation은 벽(F1 0.192) 정직히 fail 기록. 분기·pending·fail 다 겪음, fsck 0.
+- **⭐ 실사용 3차 이슈**: (1)[해결됨] gil approve가 --body-file 안 받는다 주장 → **최신 gil은 이미 받음**(옛 바이너리로 돌아서 겪음). (2)[결함] gil log가 HEAD 계보만 → 죽은 가지 안 보임. (3)[하] --help 미지원. (4)환경(gil 무관, poppler/pandas 미설치).
+- **⭐⭐⭐ 마크다운 렌더 버그 (상현님, 표가 깨져 <br>로 보임)**: 원인 = 뷰어 렌더러가 **마크다운 표(| a | b |) 미지원** → 표를 텍스트로 뭉갬 + 문단 <br> 노출. 서브에이전트는 정확한 표 마크다운을 잘 씀(원문 확인). **수정 (뷰어, scratchpad)**: renderMarkdown에 표 파싱 추가(헤더행+|---|구분행+데이터행 → <table>), mdInline에 문자 그대로 <br>·<br/> → 실제 줄바꿈 복원. 표 CSS(border·overflow-x). 실사용 데이터엔 <br> 없음(개행) — 이전 표-미지원 뷰어의 흔적이었음.
+- **⭐ gil log --all (평범 커밋 786d7008)**: gil log가 HEAD 계보만 봐 backtrack 죽은 잎이 안 보이던 것 → --all 이면 --branches(모든 가지·벽의 지도). flags 파서에 boolFlag(값 없는 스위치) 추가. example 45/45(+1).
+- **⭐ 실사용 레포 gil·QUICKSTART 최신화**: report guidance·approve body·log --all·종결 스텝 포함 최신 바이너리 복사. 레포 안에서 gil log --all rootzone → 전체 그래프(s5 fail·s6 형제·s10 success) 한눈에.
+- **⭐⭐ 뷰어 병합 보류 (이름 충돌)**: 뷰어(scratchpad, main.go+serve.go 1041줄)를 gil viewer serve로 병합하려니 collectNodes·node·git·main·stepNum·parseTrailers 등 gil 본체와 다수 충돌. 뷰어 node는 필드 다르고 git()은 -C repoDir 씀. 그냥 합치면 컴파일·의미 충돌 → 리팩터(gil collectNodes 재사용 or 접두사 격리) 필요. **상현님께 병합 방식 확인 대기.**
+- **⭐⭐ 다음 세션 순서**: 1) 뷰어 병합 방식 결정(gil 본체 재사용 vs 격리) → gil viewer serve 정식 명령화. 2) --help 지원. 3) 실사용 4차(최신 gil로, report guidance 실제 작동 확인). **부활: gil=Go 유일, 분기=git 브랜치, 종결=success/fail/pending 스텝(본문=보고서, gil reportGuide 안내), gil log --all(벽의 지도), 뷰어=scratchpad/gilviewer(4단·마크다운·표·이미지·트리분기, 미병합). 개발=평범 커밋, 검증=example 45, 실사용=gil-realuse-hackathon(최신 gil). 기억=refs/gil/global gil memory append.**
