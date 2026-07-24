@@ -25,6 +25,37 @@ func commit(subject, body string, trailers [][2]string, allowEmpty bool) {
 	commitOn("", "", subject, body, trailers, allowEmpty)
 }
 
+// bodyThin — 본문이 보고서라기엔 너무 얇은가. 거부는 안 하고 안내용(경고 톤 결정).
+// 여러 줄(3줄+)이거나 어느 정도 분량(150자+)이면 보고서로 본다 — 둘 다 아니면 얇다.
+func bodyThin(body string) bool {
+	b := strings.TrimSpace(body)
+	return len([]rune(b)) < 150 && strings.Count(b, "\n") < 3
+}
+
+// reportGuide — gil 출력은 LLM 에게 주는 프롬프트다(상현님). 스텝을 새긴 뒤, 그 스텝 본문이
+// 어떤 보고서여야 하는지 강하게 안내한다. 거부하지 않는다 — 다음에 무엇을 담을지 알려줄 뿐.
+// thin 이면 "지금 본문이 얇다"고 콕 집는다.
+func reportGuide(kind string, thin bool) {
+	report := map[string]string{
+		"define":     "이 스텝 본문 = 문제 정의 보고서. 담아라: 무엇을 푸는가·입력/출력·평가 지표·데이터 구조·제약.",
+		"hypothesis": "이 스텝 본문 = 가설 보고서. 담아라: 세운 가설·그 근거(관찰/데이터)·검증 방법·기대 결과.",
+		"verify":     "이 스텝 본문 = 검증 보고서. 담아라: 실행한 절차(코드/명령)·측정 수치(표·코드블록)·관찰.",
+		"analyze":    "이 스텝 본문 = 분석 보고서. 담아라: 결과 해석·수치 비교·왜 이 판단인가. 다음은 success/fail/pending 종결 스텝.",
+		"success":    "이 스텝 본문 = ⭐누적 종합 보고서. 담아라: 문제정의(s1)부터 여기까지 밟아온 지식·검증·수치를 하나로 정리 — 이 사이클이 무엇을 어떻게 풀었는지 이 하나로 다 읽히게. 표·이미지(data URI) 권장.",
+		"fail":       "이 스텝 본문 = 벽 보고서(죽은 잎). 담아라: 무엇에 막혔나·왜 실패했나(수치)·되돌아가 무엇을 다르게 할지. 지도로 영원히 남는다.",
+		"pending":    "이 스텝 본문 = 사람에게 묻는 보고서. 담아라: 지금까지의 근거·물음의 선택지·각 선택의 得失. 사람이 이것만 보고 승인/기각할 수 있게.",
+	}
+	g, ok := report[kind]
+	if !ok {
+		return
+	}
+	if thin {
+		stderr("  ⚠ 본문이 얇다 — " + kind + " 스텝은 보고서여야 한다. `gil step ... --body-file <보고서.md>` 로 채워라.")
+	}
+	stderr("  ▸ " + g)
+	stderr("    (뷰어가 이 본문을 마크다운으로 렌더한다 — 표·코드블록·이미지 ![](data:...) 가능.)")
+}
+
 // commitOn — 지정한 브랜치 위에 커밋한다. 분기는 진짜 git 브랜치로(상현님, SPEC 원칙 3).
 //   branch=="" : 현재 HEAD 에 커밋(브랜치 이동 없음).
 //   createFrom!="" : createFrom 커밋/브랜치에서 새 브랜치 branch 를 파고(checkout -b) 커밋.
@@ -153,6 +184,7 @@ func cmdOpen(args []string) {
 	cb := cycleBranch(chain, cycle)
 	commitOn(cb, "HEAD", subject, body, tr, true)
 	println2("open: " + ref + "/s1 define (브랜치 " + cb + ")")
+	reportGuide("define", bodyThin(body))
 }
 
 // ── gil step ──
@@ -298,6 +330,7 @@ func cmdStep(args []string) {
 		tail = " ⋈merge " + strings.Join(*merge, "+")
 	}
 	println2("step: " + ref + "/" + sid + " " + *kind + " ←" + parent + tail)
+	reportGuide(*kind, bodyThin(stBody))
 }
 
 // pendingTip — 이 사이클의 팁이 pending 이면 그 pending 노드를, 아니면 nil.
@@ -342,6 +375,7 @@ func cmdApprove(args []string) {
 	}
 	commit(subject, stBody, tr, true)
 	println2("approve: " + ref + "/" + sid + " success (사람 승인 ←" + tip.step + ")")
+	reportGuide("success", bodyThin(stBody))
 }
 
 // ── gil reject — pending 에 대한 사람의 명시적 기각. 기각=죽은 잎(analyze/backtrack). ──
@@ -388,6 +422,7 @@ func cmdReject(args []string) {
 	}
 	commit(subject, stBody, tr, true)
 	println2("reject: " + ref + "/" + sid + " fail (사람 기각 ⤳" + *to + ")")
+	reportGuide("fail", bodyThin(stBody))
 }
 
 // ── gil close ──
