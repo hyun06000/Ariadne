@@ -1,0 +1,432 @@
+// commands.go — 쓰기 명령 (커밋 노드를 새긴다, 손 커밋의 코드화).
+//
+// 참조 구현(gil.py)의 cmd_open·cmd_step·cmd_close·cmd_chain·cmd_chain_merge를 옮긴다.
+// 진실원은 커밋 그래프 — 모든 위계는 Gil-* 트레일러로, 본문은 커밋 로그로 산다.
+package main
+
+import (
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// commit — 제목+본문+Gil-* 트레일러로 커밋 하나를 새긴다. 참조: _commit.
+func commit(subject, body string, trailers [][2]string, allowEmpty bool) {
+	msg := subject + "\n\n" + strings.TrimRight(body, "\n \t") + "\n\n"
+	var trs []string
+	for _, t := range trailers {
+		trs = append(trs, t[0]+": "+t[1])
+	}
+	msg += strings.Join(trs, "\n")
+	args := []string{"commit", "-q", "-F", "-"}
+	if allowEmpty {
+		args = append(args, "--allow-empty")
+	}
+	gitInput(msg, args...)
+}
+
+// currentCycle — 이 (chain,cycle)의 스텝들. 참조: _current_cycle. collectNodes는 새→old 순.
+func currentCycle(chain, cycle string) []node {
+	var out []node
+	for _, n := range collectNodes("HEAD") {
+		if n.chain == chain && n.cycle == cycle {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// nextStepID — 참조: _next_step_id.
+func nextStepID(steps []node) string {
+	max := 0
+	for _, s := range steps {
+		if len(s.step) > 1 {
+			if n, err := strconv.Atoi(s.step[1:]); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	return "s" + strconv.Itoa(max+1)
+}
+
+// growingTip — 가장 최근 스텝(팁). 참조: _growing_tip. collectNodes는 새→old 순이므로 [0].
+func growingTip(steps []node) *node {
+	if len(steps) == 0 {
+		return nil
+	}
+	return &steps[0]
+}
+
+// ── gil open ──
+func cmdOpen(args []string) {
+	fs := newFlags("gil open")
+	author := fs.str("author", "")
+	title := fs.str("title", "")
+	purpose := fs.str("purpose", "")
+	parents := fs.strList("parent")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--title T]")
+	}
+	if *author == "" {
+		die("거부: --author 필요")
+	}
+	if *purpose == "" {
+		die("거부: --purpose 필요")
+	}
+	ref := pos[0]
+	if !strings.Contains(ref, "/") {
+		die("거부: <chain>/<cycle> 꼴이어야 함")
+	}
+	chain, cycle, _ := cut(ref, "/")
+	for _, kv := range [][2]string{{"chain", chain}, {"cycle", cycle}} {
+		if !idRe.MatchString(kv[1]) {
+			die("거부: " + kv[0] + " id \"" + kv[1] + "\"는 소문자·숫자·하이픈만")
+		}
+	}
+	if len(currentCycle(chain, cycle)) > 0 {
+		die("거부: " + ref + " 이미 존재 (open은 새 사이클만)")
+	}
+	// 닫힌 부모 체인 사이클 금지 (dev/c002 죽은 잎이 가르친 규칙)
+	if chainClosed(chain, "HEAD") {
+		why := "닫힌 체인"
+		if chainHasChildren(chain, "--all") {
+			why = "자식 체인이 분기함"
+		}
+		die("거부: \"" + chain + "\"은 닫힌 부모 체인(" + why + ") — 그 안에 새 사이클을 열 수 없다. " +
+			"새 자식 체인을 열어라 (gil chain <name> --purpose ...). 닫힌 부모에서 다시 자라면 배포 계보가 꼬인다.")
+	}
+	showPurposeContext(chain, cycle, *purpose)
+
+	subjTitle := *title
+	if subjTitle == "" {
+		subjTitle = *purpose
+	}
+	subject := "gil " + chain + "/" + cycle + "/s1 define: " + subjTitle
+	body := *title
+	if body == "" {
+		body = "(문제 미기술 — 본문을 커밋 수정으로 채우라)"
+	}
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
+		{"Gil-Step", "s1"}, {"Gil-Kind", "define"}, {"Gil-Parent", "null"},
+		{"Gil-Cycle-Author", *author}, {"Gil-Cycle-Purpose", *purpose},
+	}
+	for _, par := range *parents {
+		tr = append(tr, [2]string{"Gil-Cycle-Parent", par})
+	}
+	commit(subject, body, tr, true)
+	println2("open: " + ref + "/s1 define")
+}
+
+// ── gil step ──
+func cmdStep(args []string) {
+	fs := newFlags("gil step")
+	kind := fs.str("kind", "")
+	outcome := fs.str("outcome", "")
+	to := fs.str("to", "")
+	title := fs.str("title", "")
+	body := fs.str("body", "")
+	bodyFile := fs.str("body-file", "")
+	merge := fs.strList("merge")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil step <chain>/<cycle> --kind K [...]")
+	}
+	ref := pos[0]
+	chain, cycle, _ := cut(ref, "/")
+	steps := currentCycle(chain, cycle)
+	if len(steps) == 0 {
+		die("거부: " + ref + " 없음 (먼저 gil open)")
+	}
+	if !kinds[*kind] {
+		die("거부: 알 수 없는 kind \"" + *kind + "\"")
+	}
+	showPurposeContext(chain, cycle, "")
+	if *kind == "analyze" && !outcomes[*outcome] {
+		die("거부: analyze는 --outcome success|backtrack|fail 필요")
+	}
+
+	tip := growingTip(steps)
+	tipID := ""
+	if tip != nil {
+		tipID = tip.step
+	}
+	defineIDs := map[string]bool{}
+	liveLeaves := map[string]bool{}
+	for _, s := range steps {
+		if s.kind == "define" {
+			defineIDs[s.step] = true
+		}
+		if s.kind == "analyze" && s.outcome == "success" {
+			liveLeaves[s.step] = true
+		}
+	}
+
+	var parent string
+	var mergeRest []string
+	switch {
+	case len(*merge) > 0:
+		// 스텝 머지: 한 사이클 안 산 잎들을 합류(역순 머지 맨 아래). 완성만 대상.
+		for _, m := range *merge {
+			if !liveLeaves[m] {
+				die("거부: --merge " + m + "는 산 잎(analyze/success)이어야 함 (완성만 머지 대상, 죽은 잎은 벽의 지도)")
+			}
+		}
+		parent = (*merge)[0]
+		mergeRest = (*merge)[1:]
+	case *kind == "hypothesis" && *to != "":
+		// 되돌아가 새 형제 가지
+		if !defineIDs[*to] {
+			die("거부: --to " + *to + "는 조상 define이어야 함")
+		}
+		parent = *to
+	case *outcome == "backtrack":
+		if *to == "" {
+			die("거부: backtrack은 --to <조상 define> 필요 (되돌아갈 곳)")
+		}
+		if !defineIDs[*to] {
+			die("거부: --to " + *to + "는 조상 define이어야 함")
+		}
+		parent = orNull(tipID)
+	default:
+		parent = orNull(tipID)
+	}
+
+	sid := nextStepID(steps)
+	stTitle := *title
+	if stTitle == "" {
+		stTitle = *kind
+	}
+	subject := "gil " + chain + "/" + cycle + "/" + sid + " " + *kind + ": " + stTitle
+	stBody := resolveBody(*body, *bodyFile)
+	if stBody == "" {
+		stBody = orDefault(*title, *kind)
+	}
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
+		{"Gil-Step", sid}, {"Gil-Kind", *kind}, {"Gil-Parent", parent},
+	}
+	if *outcome != "" {
+		tr = append(tr, [2]string{"Gil-Outcome", *outcome})
+	}
+	if *outcome == "backtrack" {
+		tr = append(tr, [2]string{"Gil-Backtrack", *to})
+	}
+	for _, m := range mergeRest {
+		tr = append(tr, [2]string{"Gil-Merge", m})
+	}
+	commit(subject, stBody, tr, true)
+
+	tail := ""
+	switch {
+	case *outcome == "backtrack":
+		tail = " ⤳backtrack→" + *to
+	case *kind == "hypothesis" && *to != "":
+		tail = " (형제 가지 ←" + *to + ")"
+	case len(*merge) > 0:
+		tail = " ⋈merge " + strings.Join(*merge, "+")
+	}
+	println2("step: " + ref + "/" + sid + " " + *kind + " ←" + parent + tail)
+}
+
+// ── gil close ──
+func cmdClose(args []string) {
+	fs := newFlags("gil close")
+	verdict := fs.str("verdict", "supported")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil close <chain>/<cycle> [--verdict V]")
+	}
+	ref := pos[0]
+	chain, cycle, _ := cut(ref, "/")
+	steps := currentCycle(chain, cycle)
+	if len(steps) == 0 {
+		die("거부: " + ref + " 없음")
+	}
+	var live []string
+	for _, s := range steps {
+		if s.kind == "analyze" && s.outcome == "success" {
+			live = append(live, s.step)
+		}
+	}
+	if len(live) == 0 {
+		die("거부: 산 잎(analyze/success) 없음 — 닫을 수 없다")
+	}
+	sort.Strings(live)
+	subject := "gil " + chain + "/" + cycle + " close: " + *verdict
+	body := "사이클 봉인. 산 잎 [" + strings.Join(live, " ") + "]. 판정: " + *verdict + "."
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
+		{"Gil-Kind", "close"}, {"Gil-Verdict", *verdict},
+	}
+	commit(subject, body, tr, true)
+	println2("close: " + ref + " — " + *verdict)
+}
+
+// ── gil chain ──
+func cmdChain(args []string) {
+	fs := newFlags("gil chain")
+	purpose := fs.str("purpose", "")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil chain <name> --purpose <자연어>")
+	}
+	name := pos[0]
+	if *purpose == "" {
+		die("거부: --purpose 필요")
+	}
+	if !idRe.MatchString(name) {
+		die("거부: 체인 이름 \"" + name + "\"은 소문자·숫자·하이픈만")
+	}
+	if chainPurpose(name, "HEAD") != "" {
+		die("거부: 체인 \"" + name + "\" 이미 목적 선언됨 (chain은 새 체인만)")
+	}
+	subject := "gil " + name + " chain: " + *purpose
+	body := "체인 [" + name + "] 개설. 목적: " + *purpose + "\n\n" +
+		"이 목적은 이후 사이클·스텝 시작 때 떠올라, 그 작업이 이 체인에 정합하는지 판단하는 근거가 된다."
+	tr := [][2]string{
+		{"Gil-Chain", name}, {"Gil-Kind", "chain-root"},
+		{"Gil-Chain-Purpose", *purpose},
+	}
+	commit(subject, body, tr, true)
+	println2("chain: " + name + " 개설 — 목적: " + *purpose)
+}
+
+// ── gil chain-merge ──
+
+// topologicalLeaves — 팁 목록에서 위상적 끝단만 추린다. 참조: topological_leaves.
+func topologicalLeaves(tips []string) []string {
+	shas := map[string]string{}
+	for _, t := range tips {
+		shas[t] = strings.TrimSpace(git("rev-parse", t))
+	}
+	var leaves []string
+	leafShas := map[string]bool{}
+	for _, a := range tips {
+		covered := false
+		for _, b := range tips {
+			if a == b {
+				continue
+			}
+			if gitOK("merge-base", "--is-ancestor", shas[a], shas[b]) && shas[a] != shas[b] {
+				covered = true
+				break
+			}
+		}
+		if !covered && !leafShas[shas[a]] {
+			leaves = append(leaves, a)
+			leafShas[shas[a]] = true
+		}
+	}
+	return leaves
+}
+
+func cmdChainMerge(args []string) {
+	fs := newFlags("gil chain-merge")
+	purpose := fs.str("purpose", "")
+	pos := fs.parse(args)
+	if len(pos) < 2 {
+		die("사용: gil chain-merge <newchain> --purpose <P> <tip>...")
+	}
+	name := pos[0]
+	tips := pos[1:]
+	if *purpose == "" {
+		die("거부: --purpose 필요")
+	}
+	if !idRe.MatchString(name) {
+		die("거부: 체인 이름 \"" + name + "\"은 소문자·숫자·하이픈만")
+	}
+	if chainPurpose(name, "HEAD") != "" {
+		die("거부: 체인 \"" + name + "\" 이미 존재")
+	}
+	if strings.TrimSpace(git("status", "--porcelain", "-uno")) != "" {
+		die("거부: 추적 파일에 미커밋 변경이 있다 — 머지 전 정리하라")
+	}
+
+	leaves := topologicalLeaves(tips)
+	var dropped []string
+	for _, t := range tips {
+		if !contains(leaves, t) {
+			dropped = append(dropped, t)
+		}
+	}
+	stderr("위상적 끝단 " + strconv.Itoa(len(leaves)) + "개: " + strings.Join(leaves, ", "))
+	if len(dropped) > 0 {
+		stderr("조상이라 생략(자동 포함): " + strings.Join(dropped, ", "))
+	}
+
+	head := strings.TrimSpace(git("rev-parse", "HEAD"))
+	var toMerge []string
+	for _, lf := range leaves {
+		s := strings.TrimSpace(git("rev-parse", lf))
+		if !gitOK("merge-base", "--is-ancestor", s, head) {
+			toMerge = append(toMerge, lf)
+		}
+	}
+	if len(toMerge) == 0 {
+		die("거부: 머지할 끝단이 없다 — HEAD가 이미 모두 포함")
+	}
+
+	for i, lf := range toMerge {
+		subject := "gil " + name + " chain-merge (" + strconv.Itoa(i+1) + "/" + strconv.Itoa(len(toMerge)) + "): " + lf + " 병합"
+		if _, err := gitTry("merge", "--no-ff", "-m", subject, lf); err != nil {
+			conflicts := strings.TrimSpace(git("diff", "--name-only", "--diff-filter=U"))
+			rest := "(없음)"
+			if i+1 < len(toMerge) {
+				rest = strings.Join(toMerge[i+1:], ", ")
+			}
+			stderr("⚠ 충돌 — [" + lf + "] 병합에서 멈춤 (" + strconv.Itoa(i+1) + "/" + strconv.Itoa(len(toMerge)) + ").\n" +
+				"충돌 파일:\n" + conflicts + "\n\n" +
+				"충돌 해결 체인을 열어 사이클로 해결하라. 해결 후:\n" +
+				"  git add <해결한 파일> && gil chain-merge-continue " + name + " " + lf + "\n" +
+				"남은 끝단: " + rest)
+			os.Exit(2) // 2 = 충돌로 멈춤 (거부 1과 구분)
+		}
+		// 머지 성공 → Gil-* 트레일러 amend. 첫 머지 커밋이 통합 체인 루트(chain-root).
+		tr := [][2]string{{"Gil-Chain", name}}
+		if i == 0 {
+			tr = append(tr, [2]string{"Gil-Kind", "chain-root"})
+			tr = append(tr, [2]string{"Gil-Chain-Purpose", *purpose})
+		}
+		tr = append(tr, [2]string{"Gil-Merge", lf})
+		cur := strings.TrimRight(git("log", "-1", "--format=%B"), "\n \t")
+		var trs []string
+		for _, t := range tr {
+			trs = append(trs, t[0]+": "+t[1])
+		}
+		msg := cur + "\n\n" + strings.Join(trs, "\n")
+		gitInput(msg, "commit", "--amend", "-q", "-F", "-")
+		stderr("  ✓ " + lf + " 병합 (" + strconv.Itoa(i+1) + "/" + strconv.Itoa(len(toMerge)) + ")")
+	}
+	newHead := strings.TrimSpace(git("rev-parse", "HEAD"))
+	println2("chain-merge: " + name + " 개설 — " + strconv.Itoa(len(toMerge)) + "갈래 순차 병합 완료 (커밋 " + first9(newHead) + ")")
+}
+
+// ── 작은 헬퍼 ──
+
+func resolveBody(body, bodyFile string) string {
+	if bodyFile != "" {
+		b, err := os.ReadFile(bodyFile)
+		if err != nil {
+			die("거부: --body-file 읽기 실패: " + err.Error())
+		}
+		return strings.TrimSpace(string(b))
+	}
+	return body
+}
+
+func orNull(s string) string {
+	if s == "" {
+		return "null"
+	}
+	return s
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}

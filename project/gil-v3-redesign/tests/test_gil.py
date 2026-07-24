@@ -19,6 +19,11 @@ import unittest
 GIL = os.path.join(os.path.dirname(__file__), "..", "source", "gil.py")
 GIL = os.path.abspath(GIL)
 
+# GIL_BIN 환경변수로 다른 구현(예: Go 바이너리)을 물려 같은 17테스트로 동치 검증한다.
+# 없으면 참조 구현(Python gil.py)을 python3로 실행. 동치 검증: GIL_BIN=<go바이너리>.
+GIL_BIN = os.environ.get("GIL_BIN")
+GIL_CMD = [GIL_BIN] if GIL_BIN else ["python3", GIL]
+
 
 class GilFixture(unittest.TestCase):
     """각 테스트마다 깨끗한 임시 git 저장소를 fixture로 만든다."""
@@ -40,7 +45,7 @@ class GilFixture(unittest.TestCase):
 
     def gil(self, *args):
         """gil 명령 실행. 반환: CompletedProcess(returncode, stdout, stderr)."""
-        return subprocess.run(["python3", GIL, *args], cwd=self.repo,
+        return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
                               capture_output=True, text=True)
 
     def commit_file(self, name, content, msg):
