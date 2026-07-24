@@ -1896,3 +1896,14 @@
 - **⭐⭐ 2번 착수 — 실사용 2차 (분기·뷰어·pending 검증)**: gil-realuse-hackathon 레포 **완전 삭제→재생성**(최신 gil 바이너리=브랜치화+pending 가드, ToSolve 문제+QUICKSTART 동봉, git init 전 깨끗). **뷰어 서버 미리 띄움**(scratchpad/gilviewer serve --repo <레포> --port 8791, 브라우저 열림 — 서브에이전트 작업이 실시간 그려짐). **서브에이전트 파견**(백그라운드): gil init부터, 상현님 지시 3개 강제 — (A) 분석할 때 반드시 시각화/그래프 확인, (B) 분기가 진짜 git 브랜치로 나는지 확인(체인·사이클·형제가지 브랜치, git log --all --graph 갈래), (C) pending 가드 겪기(approve/reject). **결과 대기 중.**
 - **⭐ 정직한 경계**: reject 후 handoff 사이클 status가 "pending"으로 뜸(cyclesOf가 pending 스텝 존재만 봄) — 팁·다음허용은 정확하니 표시상 사소, 나중 정리. analyze 종결은 이미 outcome 필수+pending 가드로 대부분 강제.
 - **⭐⭐ 다음 세션 순서**: 1) **서브에이전트 2차 보고 수령** → 브랜치화·뷰어·pending 실사용 검증, 새 이슈 gil 평범수정+example. 2) **3번: 뷰어를 gil 커맨드로 병합**(gil viewer serve — 뷰어가 새 브랜치 위상 잘 그리는지 확인 후). 3) cyclesOf status 정리. **부활: gil=Go 유일(Python 은퇴), 분기=진짜 git 브랜치, pending=approve/reject 강제, 팁=liveTip(산 잎), 개발=평범 커밋, 검증=example 40, 실사용=gil-realuse-hackathon+뷰어(scratchpad/gilviewer 4단). 기억=refs/gil/global gil memory append.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ 실사용 2차가 브랜치화·pending 가드 완전 검증 + QUICKSTART 갱신
+
+- **⭐⭐⭐ 실사용 2차 결과 (서브에이전트, gil-realuse 재생성 레포, dataset B 딸기 근권부)**: **브랜치화·pending 가드가 실사용에서 완전 작동 확인.** 1체인(strawberry-root)·3사이클·20스텝. 최종 브랜치 8개: main·strawberry-root(체인)·-c001/-c002/-c003(사이클)·-c002-s1b1/-s1b2·-c003-s1b1(형제가지).
+  - **⭐ 분기가 진짜 git 브랜치로 갈라짐 (그래프에 |/ 포크 2곳)**: c002/s1에서 죽은가지(전역평균 벽 RMSE 7.18>std) vs 산가지(persistence RMSE 0.408, 18배↓). c003/s1에서 죽은가지(pending→reject 기각) vs 산가지(persistence 재사용). s2·s5 부모가 둘 다 s1 동일 → 실제 DAG 분기. **상현님 지적("backtrack이면 git 브랜치 분기 나야") 실사용 검증 완료.**
+  - **pending 가드 정상**: pending(s7) 뒤 step --kind analyze/verify **둘 다 exit=1 거부**. gil approve→산잎(c002), gil reject --to s1→죽은잎(c003). 흐름 명확·막힘 없음.
+  - **뷰어 실시간 반영**: curl로 체인0→체인1/스텝20 정확히 증가, analyze 전 그래프 확인이 유용. 단 뷰어 요약에 사이클/분기/산잎·죽은잎 카운터 없어 분기 검증은 git log --graph 병용.
+- **⭐ 서브에이전트 이슈 4개**: (1)[중] QUICKSTART가 approve/reject 없고 옛 수동 analyze 승인 안내 — 서브에이전트 헷갈린 지점 (2)[하] reject 후 handoff가 사이클 pending 오표시 (3)[하] 뷰어 카운터 부족 (4)[관찰] init이 존재를 main 커밋으로도 보임(대문 루트 위 — 의도된 이중화 아닌지 확인 필요).
+- **⭐ 이슈 (1) 수정 (평범 커밋 8904bf80, 상현님 "문서 먼저")**: QUICKSTART §5·§6·§7을 approve/reject로 갱신, "pending 뒤 일반 step 거부" 명시. 분기=진짜 git 브랜치를 명령표에 반영(chain→<name>, open→<chain>-<cycle>, hypothesis --to→형제가지 브랜치). gil init도 표 추가.
+- **⭐⭐ 이번 세션 순서 완주**: 1)✅ handoff 팁(liveTip)+pending 가드(approve/reject) 2)✅ 레포 재생성+서브에이전트 2차(분기·뷰어·pending 검증) 3) 뷰어 gil 병합은 아직.
+- **⭐⭐ 다음 세션 순서**: 1) 남은 이슈 (2)handoff reject후 pending 오표시 (3)뷰어 카운터 (4)init 존재 main 이중화 확인. 2) **뷰어를 gil 커맨드로 병합**(gil viewer serve — 뷰어가 새 브랜치 위상 잘 그림 확인됨). **부활: gil=Go 유일, 분기=진짜 git 브랜치(실사용 검증), pending=approve/reject 강제(검증), 팁=liveTip, 개발=평범 커밋, 검증=example 40, 실사용=gil-realuse-hackathon+뷰어(scratchpad/gilviewer 4단, --repo로 대상). QUICKSTART가 실동작과 일치. 기억=refs/gil/global gil memory append.**
