@@ -852,6 +852,41 @@ class TestMigrate(GilFixture):
         self.assertEqual(
             self.trailer(s1, "Gil-Cycle-Lineage"), "alpha/C001-seed")
 
+    def test_migrate_rejects_branch_collision(self):
+        """이주 브랜치명이 기존 브랜치와 충돌하면 아무것도 만들기 전에 거부(원자성)."""
+        v2root = self._seed_v2()
+        self._git("checkout", "-q", "-b", "v3-migration")
+        # v2 체인 'alpha' 와 같은 이름의 브랜치를 미리 만들어 충돌 유발.
+        self._git("branch", "alpha")
+        out = self.gil("migrate", "--from", v2root)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("충돌", out.stderr)
+        self.assertIn("--prefix", out.stderr)
+        # 원자성: 거부됐으니 사이클 브랜치(alpha-c001-seed 등)는 생기지 않았다.
+        self.assertNotIn("alpha-c001-seed", self.branches())
+        self.assertNotIn("beta", self.branches())
+
+    def test_migrate_prefix_avoids_collision(self):
+        """--prefix 로 네임스페이스를 주면 기존 브랜치와 충돌 없이 이주한다."""
+        v2root = self._seed_v2()
+        self._git("checkout", "-q", "-b", "v3-migration")
+        self._git("branch", "alpha")  # 충돌원
+        out = self.gil("migrate", "--from", v2root, "--prefix", "v3-")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        br = self.branches()
+        self.assertIn("v3-alpha", br)             # 접두 붙은 체인 브랜치
+        self.assertIn("v3-alpha-c001-seed", br)   # 접두 붙은 사이클 브랜치
+        self.assertIn("alpha", br)                # 기존 브랜치는 그대로
+        # 접두는 Gil-Chain(=브랜치명)에 반영, 원본은 Gil-Migrated-From 에 보존.
+        self.assertEqual(self.trailer("v3-alpha", "Gil-Migrated-From"), "alpha")
+
+    def test_migrate_prefix_rejects_bad_chars(self):
+        v2root = self._seed_v2()
+        self._git("checkout", "-q", "-b", "v3-migration")
+        out = self.gil("migrate", "--from", v2root, "--prefix", "V3/")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("prefix", out.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

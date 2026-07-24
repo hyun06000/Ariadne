@@ -96,9 +96,11 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/existence.md",
 	},
 	"migrate": {
-		"gil migrate --from <v2-ref> [--room <room>] [--dry-run]\n" +
+		"gil migrate --from <v2-ref> [--room <room>] [--prefix <접두>] [--dry-run]\n" +
 			"  v2(폴더·cycle.yaml) 이력을 현재 브랜치 위에 v3 커밋 그래프로 이주한다.\n" +
 			"  먼저 v2 루트에서 이주 브랜치를 파고(git checkout -b) 실행하라. --dry-run 으로 먼저 확인.\n" +
+			"  --prefix: 이주 브랜치에 접두(예 v3-)를 붙여 기존 브랜치와 충돌 회피. 충돌 시 아무것도\n" +
+			"  만들지 않고 거부(원자성) — --prefix 로 다시 돌려라.\n" +
 			"  5단계 압축(hypothesis+design→define, verification→verify, analysis+report→종결),\n" +
 			"  verdict→종결 kind(supported→success, rejected→fail, null&open→pending). [migrate] 표식.",
 		"docs/gil/lifecycle.md · docs/gil/concepts.md",

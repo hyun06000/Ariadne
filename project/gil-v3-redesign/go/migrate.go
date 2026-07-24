@@ -303,14 +303,20 @@ func cmdMigrate(args []string) {
 	fs := newFlags("gil migrate")
 	from := fs.str("from", "")
 	room := fs.str("room", "")
+	prefix := fs.str("prefix", "")
 	dryRun := fs.boolFlag("dry-run")
 	pos := fs.parse(args)
 	_ = pos
 	if *from == "" {
-		die("사용: gil migrate --from <v2-ref> [--room <room>] [--dry-run]\n" +
+		die("사용: gil migrate --from <v2-ref> [--room <room>] [--prefix <접두>] [--dry-run]\n" +
 			"  v2(폴더·cycle.yaml) 이력을 현재 브랜치 위에 v3 커밋 그래프로 이주한다.\n" +
 			"  먼저 v2 루트에서 이주 브랜치를 파고(git checkout -b) 실행하라 — 대문·존재는 이어받되\n" +
-			"  v2 계보 조상 위에 v3 그래프를 새로 자란다.")
+			"  v2 계보 조상 위에 v3 그래프를 새로 자란다.\n" +
+			"  --prefix: 이주 브랜치에 접두를 붙여 기존 브랜치와 충돌 회피(예 --prefix v3- → v3-loom).")
+	}
+	// 접두 검증: 붙는다면 git ref 안전(소문자·숫자·하이픈)해야 한다. 빈 접두는 허용(하위호환).
+	if *prefix != "" && !idRe.MatchString(strings.TrimRight(*prefix, "-")) {
+		die("거부: --prefix \"" + *prefix + "\"는 소문자·숫자·하이픈만 (git ref 안전)")
 	}
 	if !gitOK("rev-parse", "--verify", "-q", *from) {
 		die("거부: v2 ref \"" + *from + "\" 없음")
@@ -349,13 +355,41 @@ func cmdMigrate(args []string) {
 					" verdict=" + orDefault(c.verdict, "-") + " → " + verdictToClosureKind(c))
 			}
 		}
+		if *prefix != "" {
+			stderr("  (접두 " + *prefix + " → 브랜치 " + *prefix + "<chain>)")
+		}
 		stderr("dry-run: 커밋하지 않음. 실제 이주는 --dry-run 없이.")
 		return
 	}
 
+	// ── 원자성 pre-flight: 만들 브랜치가 하나라도 이미 있으면 *아무것도 만들기 전에* 거부한다.
+	// (부분 실패로 브랜치 잔재가 남던 실사용 결함. --prefix 로 네임스페이스 주면 회피된다.)
+	var collide []string
+	for _, chain := range chainOrder {
+		v3chain := *prefix + v2ToV3ID(chain)
+		if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+v3chain) {
+			collide = append(collide, v3chain)
+		}
+		for _, c := range byChain[chain] {
+			cb := cycleBranch(v3chain, v2ToV3ID(c.id))
+			if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+cb) {
+				collide = append(collide, cb)
+			}
+		}
+	}
+	if len(collide) > 0 {
+		show := collide
+		if len(show) > 8 {
+			show = append(show[:8], "…("+itoa(len(collide))+"개)")
+		}
+		die("거부: 이주 브랜치가 기존 브랜치와 충돌한다: " + strings.Join(show, " ") + "\n" +
+			"  --prefix <접두>(예 --prefix v3-)로 네임스페이스를 줘 충돌을 피하라. " +
+			"아무 커밋도 만들지 않았다(원자성).")
+	}
+
 	migrated := 0
 	for _, chain := range chainOrder {
-		v3chain := v2ToV3ID(chain)
+		v3chain := *prefix + v2ToV3ID(chain)
 		sorted, cyclesOK := topoSortCycles(byChain[chain])
 		if !cyclesOK {
 			stderr("  ⚠ 체인 " + chain + ": parent 순환 — 일부 사이클을 루트로 이주한다.")
