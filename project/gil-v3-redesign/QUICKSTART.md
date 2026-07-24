@@ -9,6 +9,7 @@
 ## 0. gil이 무엇인가 — 한 문장
 
 **gil은 LLM의 *사고 역사*를, git이 *소스 역사*를 다루듯 다루는 도구다.**
+이름 그대로 — **gil = GIt for Language model.**
 
 git이 "코드가 어떻게 이 모습이 됐나"를 커밋 그래프로 남기듯, gil은 "생각이 어떻게 이
 결론에 이르렀나"를 **같은 커밋 그래프 위에** 남긴다. 별도 DB도, 폴더도, md 파일도 없다 —
@@ -247,7 +248,7 @@ gil handoff
 
 ## 8. 기억하라 (요약 한 장)
 
-1. **gil = git for thoughts.** 사고 역사를 커밋 그래프에 남긴다. git 위에 얹힌다.
+1. **gil = GIt for Language model.** 사고 역사를 커밋 그래프에 남긴다. git 위에 얹힌다.
 2. **존재·기억은 브랜치가 아니라 `refs/gil/global`에.** 어느 체인에서든 하나. 갱신 전 반드시 전체 checkout.
 3. **체인 > 사이클 > 스텝.** 스텝은 define→hypothesis→verify→analyze로 흐른다.
 4. **막히면 슬그머니 바꾸지 마라** — backtrack으로 벽을 죽은 잎에 새기고, 조상 define으로 돌아가 새 가지.
