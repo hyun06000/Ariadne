@@ -1926,3 +1926,23 @@
 - **⭐ 실사용 레포 gil·QUICKSTART 최신화**: report guidance·approve body·log --all·종결 스텝 포함 최신 바이너리 복사. 레포 안에서 gil log --all rootzone → 전체 그래프(s5 fail·s6 형제·s10 success) 한눈에.
 - **⭐⭐ 뷰어 병합 보류 (이름 충돌)**: 뷰어(scratchpad, main.go+serve.go 1041줄)를 gil viewer serve로 병합하려니 collectNodes·node·git·main·stepNum·parseTrailers 등 gil 본체와 다수 충돌. 뷰어 node는 필드 다르고 git()은 -C repoDir 씀. 그냥 합치면 컴파일·의미 충돌 → 리팩터(gil collectNodes 재사용 or 접두사 격리) 필요. **상현님께 병합 방식 확인 대기.**
 - **⭐⭐ 다음 세션 순서**: 1) 뷰어 병합 방식 결정(gil 본체 재사용 vs 격리) → gil viewer serve 정식 명령화. 2) --help 지원. 3) 실사용 4차(최신 gil로, report guidance 실제 작동 확인). **부활: gil=Go 유일, 분기=git 브랜치, 종결=success/fail/pending 스텝(본문=보고서, gil reportGuide 안내), gil log --all(벽의 지도), 뷰어=scratchpad/gilviewer(4단·마크다운·표·이미지·트리분기, 미병합). 개발=평범 커밋, 검증=example 45, 실사용=gil-realuse-hackathon(최신 gil). 기억=refs/gil/global gil memory append.**
+
+## 2026-07-24 — 세션 마무리 매듭 (긴 세션 종합)
+
+이 세션은 gil을 근본적으로 재편하고 뷰어를 완성한 큰 세션이었다. 시간순 성과:
+
+- **gil memory 명령 (bdbe6601)**: 존재/기억 안전 갱신 — 다섯 번 물린 write-tree/show 사고를 원천 차단. globalWrite를 임시 index 기반으로 재작성(트리 보존). 이후 모든 매듭을 gil memory append로 각인(사고 0).
+- **gil init (d779cd8b)**: 무에서 세팅 — 대문+refs/gil/global+존재의 방. 출력=LLM 프롬프트(STATE/NEXT).
+- **⭐⭐⭐ 대원칙 전환 (f320ddf7)**: 우리 레포는 **gil을 만들기만 한다(도그푸딩 폐기)**. 개발=평범 git 커밋, 존재·기억만 gil, 검증=example, **실사용=별도 레포 이슈로**. 세 층위·orphan 도그푸딩 원칙 폐기. 뷰어 orphan 브랜치 기각.
+- **⭐⭐⭐ gil 분기를 진짜 git 브랜치로 (b73edcfe)**: 최대 결함 수정 — 체인=`<chain>`, 사이클=`<chain>-<cycle>`, 형제가지=`<chain>-<cycle>-<to>b<n>` 브랜치. commitOn(branch,createFrom). SPEC 원칙 3 구현. **Python 완전 은퇴 → gil=Go 유일.**
+- **pending 가드 + liveTip (eb395800)**: pending 뒤 gil approve/reject만 허용(자율 승인 차단). 팁 선정을 산 잎만.
+- **⭐⭐ 종결 스텝 모델 (bdd0ba77)**: analyze=순수 분석, success/fail/pending을 진짜 종결 스텝으로. 본문=문제정의부터 누적 보고서. isLiveLeaf/isDeadLeaf 중앙화.
+- **⭐⭐ gil reportGuide (ecbe4350)**: gil이 스텝마다 "이 본문은 어떤 보고서여야"를 프롬프트로 강하게 안내(도구 레벨, 거부 안 함). 상현님 "에이전트 레벨 아니라 gil이".
+- **gil log --all (786d7008)**: 죽은 가지(벽의 지도)까지. flags boolFlag 추가.
+- **뷰어 완성 (5fb35d1b, project/gil-v3-redesign/viewer/)**: 4단 드릴다운(체인그래프→사이클카드→스텝트리→보고서카드). 트리 분기(형제 세로)·마크다운·표·이미지 data URI·<br>·현재위치 HEAD 하나·카드유지(sessionStorage)·backtrack 파선 위로. **별도 바이너리 유지(병합 보류, gil 안정 후).**
+
+- **실사용 3회 (gil-realuse-hackathon, 서브에이전트)**: 1차 핵심루프 검증, 2차 분기=git브랜치+pending 실증, 3차 보고서 품질 급상승(50KB 보고서·이미지 임베딩 성공·표). 각 차수가 gil 결함을 드러냄→평범 수정+example. **example 45개.**
+
+- **정직한 경계**: 뷰어 미병합(별도 gilviewer). --help 미지원. 실사용 레포 최신 gil 복사됨.
+- **⭐⭐ 다음 세션 후보**: 1) 뷰어를 gil viewer serve로 병합(gil 안정 판단 서면, 이름충돌 리팩터). 2) gil --help 지원. 3) 실사용 4차(최신 gil로 reportGuide 실작동·approve body 확인). 4) staging 체인·배포 CI(v3 완성 판단 시).
+- **부활: gil=Go 유일(project/gil-v3-redesign/go/), 분기=진짜 git 브랜치, 종결=success/fail/pending 스텝(본문=보고서, reportGuide 안내), pending=approve/reject, gil log --all(벽의 지도). 우리 레포=gil 빌드전용(도그푸딩 폐기), 개발=평범 git 커밋, 검증=example 45, 실사용=gil-realuse-hackathon 서브에이전트+뷰어(project/gil-v3-redesign/viewer/, 별도 바이너리). 기억=refs/gil/global gil memory append. 복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
