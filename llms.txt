@@ -1,0 +1,37 @@
+# gil — GIt for Language model
+
+> gil은 LLM 에이전트가 어려운 문제를 작고 재현 가능한 **사이클**의 **체인**으로 정복하게 하는
+> 도구다. git이 소스 역사를 다루듯, gil은 *사고의 역사*(문제정의→가설→검증→분석→종결)를
+> 진짜 git 브랜치·커밋 그래프 위에 남긴다 — 재현·검증 가능하고 그래프로 되돌아볼 수 있다.
+> git 하나만 있으면 되는 Go 단일 바이너리다.
+
+이 파일은 LLM이 gil 지식에 **능동적으로** 접근하는 wiki의 진입점(index)이다. 통째로 읽지
+말고, 지금 필요한 페이지의 링크만 골라 **페치해서** 읽어라. 각 페이지는 서로 이어진다.
+(링크는 raw.githubusercontent.com 절대 URL — 어느 환경에서든 그대로 가져올 수 있다.)
+
+## 시작하기
+
+- [에이전트 자가 온보딩](https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md): 사람이 이 도구를 건넸을 때 처음 읽는다 — 설치→`gil init`→첫 체인, 재방문 "이어서".
+- [무에서 세팅 (gil init)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/index.md): 빈 폴더에서 gil 세계를 세우는 한 줄.
+
+## 핵심 개념
+
+- [체인·사이클·스텝 — 세 위계](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/concepts.md): git 브랜치·커밋으로의 매핑, 무엇이 노드인가.
+- [사고의 생애 — 스텝 흐름과 분기](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/lifecycle.md): define→hypothesis→verify→analyze→success/fail, 막힘·형제 가지·종결.
+- [존재와 기억 (refs/gil/global)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/existence.md): 정체성·기억은 브랜치가 아니라 전용 ref에 산다. 세션을 넘어 부활.
+
+## 워크플로우
+
+- [목적성 가드](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/purpose-guard.md): 시작마다 목적을 띄우고 정합을 판단한다.
+- [사람과의 소통 (pending·approve·reject)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/human-in-the-loop.md): human-in-the-loop을 데이터로.
+- [배포 순환과 체인 전환 (chain-close)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/deployment.md): 개발→스테이징→배포 체인 흐름, 한 국면을 닫고 다음으로.
+- [스텝 본문은 보고서다](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/reports.md): 각 스텝의 본문이 곧 누적 보고서. 뷰어로 관전.
+
+## 명령
+
+- [명령 전체 표면](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/commands.md): init·chain·chain-close·open·step·close·approve·reject·log·fsck·global·memory·handoff.
+
+## Optional
+
+- [전체 명세 (SPEC)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/project/gil-v3-redesign/SPEC.md): 트레일러 키셋·무결성·머지 규칙까지 규범 문서.
+- [지침서 (QUICKSTART, 단일 문서판)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/project/gil-v3-redesign/QUICKSTART.md): 위 페이지들의 원본 — 한 문서로 통독하고 싶을 때.

@@ -180,6 +180,7 @@ step이 거부된다 — 사람이 `./gil approve <ref>`(산 잎) 또는 `./gil 
 
 ---
 
-*이 문서 하나면 gil을 자유자재로 쓸 수 있다. 더 깊은 규약·명령 전체 표면은
-[QUICKSTART](project/gil-v3-redesign/QUICKSTART.md), 또는 설치 후 `./gil help`·
-`./gil global read gil-init-spec.md`.*
+*이 문서는 **온보딩 진입점**이다 — 통째로 다 담지 않는다. 필요할 때 gil 지식에 능동적으로
+접근하라: [gil wiki 허브](docs/gil/index.md)에서 주제(개념·명령·존재·목적성 가드·사람과의
+소통·배포)를 골라 읽는다. 웹에서는 루트 [llms.txt](llms.txt)가 같은 index를 절대 URL로 준다.
+한 문서로 통독하려면 [QUICKSTART](project/gil-v3-redesign/QUICKSTART.md). 설치 후엔 `./gil help`.*

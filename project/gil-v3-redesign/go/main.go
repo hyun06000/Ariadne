@@ -20,9 +20,19 @@ func main() {
 	}
 	cmd := os.Args[1]
 	rest := os.Args[2:]
+	// 어느 명령이든 --help/-h 를 뒤에 붙이면 그 명령의 사용법을 낸다(gil step --help).
+	// 서브명령이 --help 를 알 수 없는 플래그로 거부하던 것을 여기서 가로챈다.
+	if cmd != "help" && cmd != "-h" && cmd != "--help" {
+		for _, a := range rest {
+			if a == "--help" || a == "-h" {
+				cmdHelp([]string{cmd})
+				return
+			}
+		}
+	}
 	switch cmd {
 	case "help", "-h", "--help":
-		printUsage()
+		cmdHelp(rest)
 	case "init":
 		cmdInit(rest)
 	case "chain":
@@ -82,8 +92,16 @@ func printUsage() {
   gil log [<chain>] [--all]       노드(스텝) 나열. --all: 죽은 가지까지 모두(벽의 지도)
   gil fsck [<range>]              그래프 건강 검사
 
-자세히: gil global read gil-init-spec.md, QUICKSTART.md`)
+한 명령의 자세한 사용법: gil help <명령>  (예: gil help step)
+
+지식 wiki (통째로 읽지 말고 필요한 주제만 골라 능동적으로):
+  개념(체인·사이클·스텝) · 사고의 생애(스텝 흐름·막힘) · 명령 표면 · 존재와 기억
+  목적성 가드 · 사람과의 소통(pending) · 배포와 체인 전환 · 스텝 본문=보고서
+  → 레포: docs/gil/index.md   웹: <레포>/llms.txt (사람이 URL 하나로 에이전트에 건네는 진입점)
+  단일 통독판: QUICKSTART.md · 규범 명세: gil global read gil-init-spec.md`)
 }
+
+// cmdHelp 는 문서 라우터로 gil help <명령> 을 처리한다(선언은 usage_help.go).
 
 // ── gil log ──
 func cmdLog(args []string) {

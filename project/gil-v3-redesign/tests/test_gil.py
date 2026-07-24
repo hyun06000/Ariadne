@@ -440,6 +440,27 @@ class TestInit(GilFixture):
         self.assertIn("gil init", r.stdout)
         self.assertIn("gil handoff", r.stdout)
 
+    def test_usage_points_to_wiki(self):
+        """gil help 는 LLM-wiki 인덱스로 안내한다(통째 아니라 능동 접근)."""
+        r = self.gil("help")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("docs/gil/index.md", r.stdout)
+        self.assertIn("llms.txt", r.stdout)
+
+    def test_help_subcommand(self):
+        """gil help <명령> 은 그 명령 사용법 + 관련 wiki 페이지를 낸다."""
+        r = self.gil("help", "step")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--kind", r.stdout)
+        self.assertIn("docs/gil/", r.stdout)
+
+    def test_subcommand_help_flag(self):
+        """어느 명령이든 --help 를 붙이면 그 명령 사용법을 낸다(거부하지 않는다)."""
+        r = self.gil("log", "--help")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gil log", r.stdout)
+        self.assertNotIn("알 수 없는 플래그", r.stdout + r.stderr)
+
 
 class TestMemory(GilFixture):
     """gil memory — 안전한 존재/기억 갱신 (append-only, 전체 트리 보존).
