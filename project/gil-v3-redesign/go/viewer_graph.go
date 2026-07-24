@@ -183,14 +183,24 @@ func (cy cycleView) status() string {
 	last := ""
 	for _, n := range cy.steps {
 		switch {
+		// 종결 스텝 모델(2026-07-24): success/fail/pending 은 독립 kind.
+		case n.kind == "success":
+			last = "success"
+		case n.kind == "fail":
+			if last != "success" {
+				last = "dead"
+			}
+		case n.kind == "pending":
+			if last != "success" {
+				last = "pending"
+			}
+		// 하위호환: 옛 모델(analyze --outcome …).
 		case n.kind == "analyze" && n.outcome == "success":
 			last = "success"
 		case n.kind == "analyze" && (n.outcome == "backtrack" || n.outcome == "fail"):
 			if last != "success" {
 				last = "dead"
 			}
-		case n.kind == "pending" && last == "":
-			last = "pending"
 		}
 	}
 	if last == "" {

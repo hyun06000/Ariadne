@@ -5,6 +5,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -50,7 +51,8 @@ func reportGuide(kind string, thin bool) {
 		return
 	}
 	if thin {
-		stderr("  ⚠ 본문이 얇다 — " + kind + " 스텝은 보고서여야 한다. `gil step ... --body-file <보고서.md>` 로 채워라.")
+		stderr("  ⚠ 본문이 얇다 — " + kind + " 스텝은 보고서여야 한다. 임시 .md 파일 만들지 말고 stdin 으로 바로 넘겨라:")
+		stderr("      gil step … --body-file - <<'EOF'  …보고서…  EOF   (또는 파이프)")
 		stderr("    스텝 본문은 커밋이라 나중에 못 고친다(append-only) — 지금 이 스텝을 만들 때 채워라. 얇게 두면 얇은 채로 영원히 남는다.")
 	}
 	stderr("  ▸ " + g)
@@ -667,6 +669,15 @@ func cmdChainMerge(args []string) {
 // ── 작은 헬퍼 ──
 
 func resolveBody(body, bodyFile string) string {
+	if bodyFile == "-" {
+		// stdin 으로 본문을 받는다 — 임시 .md 파일을 만들지 않고 heredoc·파이프로 바로
+		// 넘길 수 있게(잉여 파일 방지). 예: gil step … --body-file - <<'EOF' … EOF
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			die("거부: --body-file - (stdin) 읽기 실패: " + err.Error())
+		}
+		return strings.TrimSpace(string(b))
+	}
 	if bodyFile != "" {
 		b, err := os.ReadFile(bodyFile)
 		if err != nil {

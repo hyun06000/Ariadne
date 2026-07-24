@@ -47,14 +47,15 @@ class GilFixture(unittest.TestCase):
         return subprocess.run(["git", *args], cwd=self.repo,
                               capture_output=True, text=True)
 
-    def gil(self, *args):
+    def gil(self, *args, input=None):
         """gil 명령 실행. 반환: CompletedProcess(returncode, stdout, stderr).
 
+        input: 주면 stdin 으로 전달한다(--body-file - 검증용).
         GIL_NO_VIEWER: gil init 이 관전 서버(뷰어)를 백그라운드로 띄우는 것을 억제한다 —
         테스트가 포트를 점유하거나 프로세스를 남기지 않도록 격리한다."""
         env = dict(os.environ, GIL_NO_VIEWER="1")
         return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
-                              capture_output=True, text=True, env=env)
+                              capture_output=True, text=True, env=env, input=input)
 
     def commit_file(self, name, content, msg):
         """일반 파일 커밋 하나 (fixture 셋업용)."""
@@ -1049,6 +1050,39 @@ class TestViewer(GilFixture):
         msg = r.stderr + r.stdout
         self.assertIn("얇다", msg)
         self.assertIn("append-only", msg, "본문 불변성(나중에 못 고침) 안내가 없다")
+
+    def test_cycle_status_success_on_new_model(self):
+        """success 종결 스텝(새 모델)이 있으면 사이클 status 가 success — open 으로 남지 않는다.
+
+        결함: status() 가 옛 모델(analyze --outcome)만 봐서, kind=success 스텝을
+        만들어도 사이클이 계속 '열림'으로 보였다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서")
+        self.gil("step", "d/c001", "--kind", "success", "--title", "됨", "--body", "종합 보고서")
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn('"status":"success"', html)
+        self.assertNotIn('"status":"open"', html, "종결됐는데 사이클이 open 으로 남음")
+
+    def test_body_file_dash_reads_stdin(self):
+        """--body-file - 는 stdin 에서 본문을 읽는다 — 임시 .md 파일 없이 잉여 방지."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        body = "# 검증 보고서\n\nstdin 으로 넘긴 본문 마커 XYZZY.\n"
+        r = self.gil("step", "d/c001", "--kind", "verify", "--title", "V",
+                     "--body-file", "-", input=body)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 커밋 본문에 stdin 내용이 들어갔는지 확인.
+        show = subprocess.run(["git", "-C", self.repo, "log", "--branches", "--format=%B"],
+                              capture_output=True, text=True)
+        self.assertIn("XYZZY", show.stdout, "stdin 본문이 커밋에 안 들어감")
 
 
 if __name__ == "__main__":

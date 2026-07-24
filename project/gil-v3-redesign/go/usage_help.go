@@ -43,6 +43,7 @@ var helpTable = map[string]helpEntry{
 			"  스텝(커밋 노드) 하나. --kind: define|hypothesis|verify|analyze | success|fail|pending\n" +
 			"  --to <define>  (fail·backtrack 되돌아갈 곳 / hypothesis 형제 가지 뿌리)\n" +
 			"  --title <요약>  --body <본문> | --body-file <경로>(마크다운·이미지, 뷰어 렌더)\n" +
+			"    --body-file - 이면 stdin 에서 읽는다 — 임시 .md 파일 없이 heredoc·파이프로 바로 넘겨 잉여 파일을 안 남긴다.\n" +
 			"  --merge <산잎 스텝id>...  (한 사이클 안 산 잎들 합류)\n" +
 			"  ※ 본문은 한 줄이 아니라 보고서다 — 아래 wiki 참조.",
 		"docs/gil/lifecycle.md · docs/gil/reports.md",

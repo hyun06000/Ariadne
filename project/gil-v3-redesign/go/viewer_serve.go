@@ -178,7 +178,7 @@ func renderHTML(g graphView, static bool) string {
 		b.WriteString(fmt.Sprintf(
 			`<svg id="graph" viewBox="0 0 %d %d" width="%d" height="%d"><g id="edges">%s</g><g id="nodes">%s</g></svg>`,
 			w, h, w, h, edges.String(), nodes.String()))
-		b.WriteString(`<p class="hint">동그라미 = 체인(숫자는 사이클 수), 선 = 계보(부모→자식). 주황 = 현재위치. <b>노드 클릭 → 사이클 카드.</b></p>`)
+		b.WriteString(`<p class="hint">동그라미 = 체인(숫자는 사이클 수), 선 = 계보(부모→자식). 주황 = 현재위치(스텝에선 <b>▼HEAD</b> 표시). <b>노드 클릭 → 사이클 카드.</b></p>`)
 		b.WriteString(`<div id="card" hidden></div>`)       // 체인 클릭 → 사이클 카드
 		b.WriteString(`<div id="stepcard" hidden></div>`)   // 사이클 클릭 → 스텝 카드
 		b.WriteString(`<div id="reportcard" hidden></div>`) // 스텝 클릭 → 상세 보고서
@@ -334,6 +334,8 @@ svg.cygraph{display:block}
 .snode.dead circle{stroke:#ff6b6b}.snode.dead .sid{fill:#ff6b6b}
 .snode.pending circle{stroke:#ffd166}.snode.pending .sid{fill:#ffd166}
 .snode.here circle{stroke:var(--here);stroke-width:3}
+.snode .headlbl{text-anchor:middle;font-size:10px;font-weight:800;fill:var(--here);letter-spacing:.5px}
+.snode .headarrow{fill:var(--here)}
 .snode{cursor:pointer}
 .snode.sel circle{fill:var(--node);fill-opacity:.18}
 /* 종결 노드 (analyze/pending 잎의 결말: 성공/실패·기각/대기) */
@@ -436,6 +438,7 @@ function openCard(chain){
   const cy=d.cycles;
   const card=document.getElementById('card');
   card.replaceChildren();
+  collapseStep(); // 다른 체인을 열면 이전 사이클/스텝/보고서 카드를 닫는다.
 
   // 헤더.
   const head=document.createElement('div');
@@ -492,6 +495,7 @@ function stepClass(n){
 function openStepCard(chain,cyc){
   const sc=document.getElementById('stepcard');
   sc.replaceChildren();
+  collapseReport(); // 다른 사이클을 열면 이전 스텝 보고서 카드를 닫는다.
   const steps=cyc.nodes||[];
 
   const head=document.createElement('div');
@@ -555,6 +559,10 @@ function openStepCard(chain,cyc){
     g.appendChild(t);
     g.appendChild(svgEl('text',{class:'sid',dy:3},n.id));
     g.appendChild(svgEl('text',{class:'skind',dy:r+16},n.kind));
+    if(n.here){ // 현재위치(HEAD) — 색만이 아니라 ▼HEAD 라벨+화살표로 직관화(피드백 5)
+      g.appendChild(svgEl('text',{class:'headlbl',dy:-r-14},'HEAD'));
+      g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
+    }
     g.addEventListener('click',ev=>{
       ev.stopPropagation();
       document.querySelectorAll('.snode.sel').forEach(x=>x.classList.remove('sel'));
