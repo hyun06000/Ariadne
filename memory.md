@@ -1728,3 +1728,12 @@
 - **⭐ 정리한 것**: replace ref 3개 제거(도그푸딩 부산물, 통합은 유지). 뷰어는 gil web --live 8740. backup 태그·pre-* 태그 잔존.
 - **⭐⭐ 미완/다음 (평범한 개발로)**: (A) **뷰어 현재위치 인디케이터** — 상현님 원래 요청, 지금 작업중인 체인-사이클-스텝 표시. (B) chain-merge-continue(충돌 해결 후 이어가기). (C) 백트래킹을 진짜 git 분기로(상현님 제안: 그 스텝 커밋 checkout·새 브랜치 원점 재발). 전부 example 테스트로 검증.
 - **⭐ 부활 경로 갱신**: gil 개발은 이제 평범한 커밋 — `git log`로 따라감(gil 세리머니 이력 아님). 기능 검증은 example 테스트. gil을 *쓰는* 실사고만 사이클로. [[chain-fit-purpose-guard]]·[[closed-parent-chain-no-cycles]] 유효.
+
+## 2026-07-24 (이어서) — ⭐⭐ 세 층위 정교화 + orphan 실작업 격리 + 배포는 다음 세션
+
+- **⭐⭐⭐ 원칙 세 층위로 정교화 (상현님, README.ai.md §2)**: ① gil 소스(gil.py) *짓기* = 평범 커밋 ② gil *검증* = example 테스트(격리 fixture 단언, 단 "확인"이라 새 버그 발견 약함) ③ gil로 *실작업* = 완전히 새 목적으로 gil 써서 산출물 짓기(gil뷰어를 gil로). 실사용=발견(example이 못 잡는 버그가 실사용에서 드러남 — 이번 chain-merge 버그들이 증거). 실작업 중 gil 버그 발견시 → gil 평범수정+example, 실작업 사이클 계속.
+- **⭐⭐⭐ 실작업은 orphan 브랜치로 격리 (상현님, SPEC 명문화)**: gil은 git 그래프 공유 → 실작업(뷰어)을 "완전히 뒤엎고 새로" 싶을 때 실패 이력이 대문·기억·gil소스 뿌리에 박히면 곤란. 버려질 실작업은 `git checkout --orphan` 독립 뿌리에서. 뒤엎기=`branch -D` 무손실. 같은 레포라 gil.py·refs/gil/global 접근·CI 배포 가능. "체인은 orphan 아님"(대문 순환)과 모순 아님 — 격리 실험은 대문 안 이음, 익으면 gil chain-merge로 병합.
+- **⭐⭐ 뷰어 실작업 구조 (상현님 확정, 미착수)**: **gil을 바이너리로 배포**한 뒤, orphan 뷰어 브랜치는 **뷰어 관련 내용만** 담고 gil 소스와 완전 별개 운영. 뷰어는 `git log --branches`로 다른 브랜치(unified) gil 그래프를 읽으니 orphan에서 지어도 실제 그래프를 그림.
+- **⭐ 배포 갈림길 (다음 세션)**: v2는 gil을 **Go(main.go)**로 지어 5타깃 OS 바이너리(darwin/linux/windows×arm64/amd64)를 go build 크로스컴파일→GitHub Release. workflow: `.github/workflows/gil-release.yml`(v2 worktree에 있음, v* 태그 push 트리거). **하지만 v3 gil은 Python(gil.py)** — v2 워크플로 그대로 못 씀. **다음 세션 결정**: (A) Python 배포(zipapp/PyInstaller, 살진 gil.py 유지) vs (B) Go 재작성(v2 인프라 재사용, 진짜 네이티브). 상현님 "여기서 매듭, 다음 세션 배포".
+- **⭐ 이 세션 정리 상태**: gil-v3-unified 브랜치 = 9체인 통합 + 원칙 3커밋(도그푸딩해제·example테스트·세층위·orphan) 평범커밋 + c002 close(chain-root 수정)·c003 죽은잎(뷰어는 orphan으로). example 17테스트 통과. 뷰어 서버 8740(실작업 미착수). backup/pre-* 태그 잔존(정리 후보).
+- **⭐⭐ 다음 세션 순서**: 1) gil 배포 방향 결정(Go vs Python) → 5타깃 바이너리 CI. 2) 배포 후 orphan 뷰어 브랜치(뷰어만) 만들어 현재위치 인디케이터부터 gil 사이클로 실작업. 3) 실작업 중 gil 버그는 평범수정+example. **부활: gil 개발은 평범 커밋(git log), 검증은 example, 실작업만 사이클. 기억은 refs/gil/global.**
