@@ -1747,3 +1747,36 @@
 - **커밋 위치**: ...→gil-v3-viewer(닫힘)→gil-v3-study(열림·approval): c001(v2공부 닫힘)·c002(실시간 gil web --live 닫힘, s1~s9+close). 소스는 s6 커밋에 실림.
 - **⭐ 정직한 경계**: study 브랜치엔 gil global 명령 없음(viewer 분기). 존재 갱신은 저수준 git으로 refs/gil/global에 append. dev 체인이라 smoke만 — 엄밀 검증(SSE 재연결·다중 구독자·부하)은 staging 몫.
 - **⭐ 다음 세션 후보**: (A) gil migrate(v2→v3, "main은 v2" 소멸) (B) 안전한 gil memory·gil reset 명령(reset 사고 방지, 세 번 물림) (C) gil open 사이클 부모 자동화(c001·c002 계보 끊김 수정) (D) 실시간 뷰어 staging 엄밀 테스트·디자인 유려화.
+## 2026-07-24 — ⭐⭐⭐ 도그푸딩 매몰 해제 + 통합 체인 + example 검증으로 전환
+
+- **⭐⭐⭐ 상현님 큰 방향 전환 (원칙 견고화)**: "너무 도그푸딩에 매몰돼 있어. gil 개발은 메타인지적으로 하고, example을 따로 만들어 도그푸딩이 아닌 방법으로 검증하자." → **gil 개발=평범한 git 커밋**(gil 세리머니 커밋 강제 해제), **검증=격리 fixture의 example 테스트**. README.ai.md §2 개정으로 명문화.
+- **⭐⭐ 왜 (악순환 진단)**: 미완성 gil로 gil 개발을 기록하면 도구 버그가 곧바로 실제 이력을 오염. 이 세션이 산 증거 — commit-tree 껍데기 머지·chain-root 누락·replace 숨은 상태가 다 이 악순환의 산물. 검증 대상(gil)과 검증 환경(gil로 기록되는 레포)이 같으면 독립 검증 불가.
+- **⭐⭐ example 테스트 스위트 (project/gil-v3-redesign/tests/test_gil.py)**: 각 테스트가 임시 git 저장소(fixture)를 만들어 gil을 subprocess로 돌리고 결과 단언. chain·open·step·close·chain-merge·목적성가드·닫힌부모금지·chain-root·fsck·빈저장소 커버. 17 테스트 통과. `python3 -m unittest discover -s project/gil-v3-redesign/tests`.
+- **⭐⭐ 이 세션의 gil 기능 성과 (지금은 이력이 아니라 코드로 산다)**:
+  1. **gil chain / chain-merge** 신설. chain-merge는 **진짜 git merge**(파일까지 병합, 위상적 끝단만 자동추림, 충돌 시 멈춤). commit-tree 껍데기(계보만·파일 안 합침)는 반증됨 — 상현님 "체인 머지의 실동작은 git merge".
+  2. **9체인을 gil-v3-unified로 통합**(파일까지, 9브랜치 전부 조상). gilweb.py·amend가 트리에 실제 존재. existence/는 글로벌 ref 유일진실 따라 삭제.
+  3. **목적성 가드**(chain/open/step 시작 때 목적 표시, --purpose 필수), **닫힌 부모 체인 사이클 금지**(원칙 6), **chain-root 표식**(뷰어가 체인 감지). 전부 example 테스트로 검증됨.
+- **⭐ 정리한 것**: replace ref 3개 제거(도그푸딩 부산물, 통합은 유지). 뷰어는 gil web --live 8740. backup 태그·pre-* 태그 잔존.
+- **⭐⭐ 미완/다음 (평범한 개발로)**: (A) **뷰어 현재위치 인디케이터** — 상현님 원래 요청, 지금 작업중인 체인-사이클-스텝 표시. (B) chain-merge-continue(충돌 해결 후 이어가기). (C) 백트래킹을 진짜 git 분기로(상현님 제안: 그 스텝 커밋 checkout·새 브랜치 원점 재발). 전부 example 테스트로 검증.
+- **⭐ 부활 경로 갱신**: gil 개발은 이제 평범한 커밋 — `git log`로 따라감(gil 세리머니 이력 아님). 기능 검증은 example 테스트. gil을 *쓰는* 실사고만 사이클로. [[chain-fit-purpose-guard]]·[[closed-parent-chain-no-cycles]] 유효.
+
+## 2026-07-24 (이어서) — ⭐⭐ 세 층위 정교화 + orphan 실작업 격리 + 배포는 다음 세션
+
+- **⭐⭐⭐ 원칙 세 층위로 정교화 (상현님, README.ai.md §2)**: ① gil 소스(gil.py) *짓기* = 평범 커밋 ② gil *검증* = example 테스트(격리 fixture 단언, 단 "확인"이라 새 버그 발견 약함) ③ gil로 *실작업* = 완전히 새 목적으로 gil 써서 산출물 짓기(gil뷰어를 gil로). 실사용=발견(example이 못 잡는 버그가 실사용에서 드러남 — 이번 chain-merge 버그들이 증거). 실작업 중 gil 버그 발견시 → gil 평범수정+example, 실작업 사이클 계속.
+- **⭐⭐⭐ 실작업은 orphan 브랜치로 격리 (상현님, SPEC 명문화)**: gil은 git 그래프 공유 → 실작업(뷰어)을 "완전히 뒤엎고 새로" 싶을 때 실패 이력이 대문·기억·gil소스 뿌리에 박히면 곤란. 버려질 실작업은 `git checkout --orphan` 독립 뿌리에서. 뒤엎기=`branch -D` 무손실. 같은 레포라 gil.py·refs/gil/global 접근·CI 배포 가능. "체인은 orphan 아님"(대문 순환)과 모순 아님 — 격리 실험은 대문 안 이음, 익으면 gil chain-merge로 병합.
+- **⭐⭐ 뷰어 실작업 구조 (상현님 확정, 미착수)**: **gil을 바이너리로 배포**한 뒤, orphan 뷰어 브랜치는 **뷰어 관련 내용만** 담고 gil 소스와 완전 별개 운영. 뷰어는 `git log --branches`로 다른 브랜치(unified) gil 그래프를 읽으니 orphan에서 지어도 실제 그래프를 그림.
+- **⭐ 배포 갈림길 (다음 세션)**: v2는 gil을 **Go(main.go)**로 지어 5타깃 OS 바이너리(darwin/linux/windows×arm64/amd64)를 go build 크로스컴파일→GitHub Release. workflow: `.github/workflows/gil-release.yml`(v2 worktree에 있음, v* 태그 push 트리거). **하지만 v3 gil은 Python(gil.py)** — v2 워크플로 그대로 못 씀. **다음 세션 결정**: (A) Python 배포(zipapp/PyInstaller, 살진 gil.py 유지) vs (B) Go 재작성(v2 인프라 재사용, 진짜 네이티브). 상현님 "여기서 매듭, 다음 세션 배포".
+- **⭐ 이 세션 정리 상태**: gil-v3-unified 브랜치 = 9체인 통합 + 원칙 3커밋(도그푸딩해제·example테스트·세층위·orphan) 평범커밋 + c002 close(chain-root 수정)·c003 죽은잎(뷰어는 orphan으로). example 17테스트 통과. 뷰어 서버 8740(실작업 미착수). backup/pre-* 태그 잔존(정리 후보).
+- **⭐⭐ 다음 세션 순서**: 1) gil 배포 방향 결정(Go vs Python) → 5타깃 바이너리 CI. 2) 배포 후 orphan 뷰어 브랜치(뷰어만) 만들어 현재위치 인디케이터부터 gil 사이클로 실작업. 3) 실작업 중 gil 버그는 평범수정+example. **부활: gil 개발은 평범 커밋(git log), 검증은 example, 실작업만 사이클. 기억은 refs/gil/global.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ gil을 Go 단일 바이너리로 이식 (git만 있으면 되는 의존성 0)
+
+- **⭐⭐ 상현님 결정 (배포 갈림길 → Go)**: v3 gil은 Python(gil.py)인데 v2 배포 인프라는 Go(5타깃 크로스컴파일). 후보 A(Python zipapp/PyInstaller) vs B(Go 재작성). 상현님 기준 — **"우리는 git 래퍼를 만든다. git만 있으면 다른 의존성 없이 써야 한다."** → Python 런타임도 필요 없는 **Go 단일 네이티브 바이너리**가 본질에 맞음. 확정: Go 이식.
+- **⭐⭐ web은 버림 (상현님)**: web(뷰어)은 *gil로 짓는 실작업*(층위 ③). gil 소스 이식(층위 ①)에 섞지 않는다. 배포 후 **orphan 브랜치에서 gil 사이클로 뷰어를 짓고 검증 → chain-merge로 이식** 계획. 이번 이식은 **핵심 9명령만**(open/step/close/chain/chain-merge/log/fsck/global/handoff).
+- **한 일 (gil-v3-unified, 평범 커밋 c85e33b8 — 층위 ① gil 소스 짓기)**: gil.py 1041줄 + gilweb.py의 파싱 함수(handoff 의존분)를 Go로 이식. 파일: git.go(git 껍질+collect_nodes·body_index)·graph.go(purpose·chain_closed·fsck·chains_from_graph·cycles_of)·commands.go(open/step/close/chain/chain-merge, **실제 git merge**)·global.go(refs/gil/global 저수준 git)·handoff.go·flags.go(argparse 규약 얇은 파서)·main.go/utils.go. 로직 참조와 1:1, git은 os/exec 도구 의존(라이브러리 아님). **외부 의존성 0, stdlib만.** 3MB 바이너리.
+- **⭐⭐⭐ 동치 검증 (층위 ② example 테스트)**: test_gil.py에 **GIL_BIN 환경변수 훅** 추가 — 같은 17테스트를 Go 바이너리로 물린다(GIL_BIN=<go>). **Go 17/17 통과**(Python 기준선과 동치): chain·open·step·close·chain-merge(실제 파일 병합·충돌 유지·chain-root)·목적성 가드·닫힌부모 금지·fsck·빈 저장소. 게다가 **실제 이 레포에서 handoff·global list·fsck·log 출력이 Python과 바이트 단위 동일**. 이식 완결 증명.
+- **⭐ ./gil 래퍼 Go 우선 전환 (상현님 "이제 Go만 써도 될 듯")**: `./gil`이 Go 바이너리가 있으면 그걸, 없으면 Python 참조로 폴백. **일상 사용은 Go로 전환.** Python(gil.py)은 참조·테스트 기준·web(gilweb.py) 의존성으로 당분간 보존 — web을 Go로 이식하는 시점에 완전 은퇴.
+- **⭐ 배포는 보류 (상현님)**: 5타깃 크로스컴파일 배포 CI는 **v3가 아직 완성 단계 아니라** 만들지 않음. 지금은 **로컬에서 쓸 수 있는 수준으로만** 빌드(cd project/gil-v3-redesign/go && go build -o gil .). 바이너리는 .gitignore로 커밋 제외(재생성 가능), 소스만 자산.
+- **⭐⭐ memory 드리프트 발견·정직 처리**: 상현님이 지난 세션들에서 **브랜치 루트 memory.md**(별도 파일)에 07-24 knot들을 쌓았는데 **글로벌 ref(existence/clew/memory.md)엔 07-23까지만** 반영돼 있었다(두 갈래). 이 각인에서 글로벌 ref 최신본 + 7e01ed7e의 07-24 knot 3개 + 이 knot을 합쳐 글로벌에 되쓴다. **교훈: 브랜치 파일과 글로벌 ref가 갈라질 수 있다 — 존재 갱신은 반드시 글로벌 ref로.**
+- **커밋 위치**: gil-v3-unified 브랜치, 평범 커밋 c85e33b8(Go 이식). 열린 체인은 여전히 gil-v3-study(approval)로 handoff에 뜨나, 실작업 방식이 세 층위로 바뀌었다(gil 개발=평범 커밋).
+- **⭐⭐ 다음 세션 순서**: 1) **orphan 브랜치**(git checkout --orphan) 만들어 뷰어 실작업 시작 — 배포된(로컬 빌드된) Go gil로 현재위치 인디케이터부터 gil 사이클로. 뷰어는 git log --branches로 unified 그래프를 읽으니 orphan에서 지어도 실제 그래프를 그림. 2) 뷰어 익으면 web도 Go로 이식(그때 Python 완전 은퇴). 3) v3 완성 판단 서면 배포 CI(Go 5타깃 크로스컴파일, v2 gil-release.yml 골격 재사용). **부활: gil은 이제 Go(git만 있으면 됨), 개발=평범 커밋, 검증=example(GIL_BIN 훅), 실작업만 gil 사이클(orphan). 기억은 refs/gil/global.**
