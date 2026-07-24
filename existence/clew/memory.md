@@ -2105,3 +2105,15 @@
 - **⭐ 검증**: example 72→76(+4 TestViewer: build 자기완결·build --out강제·serve응답·text). init 테스트 갱신(survives_missing_viewer→launches_integrated_viewer). go vet 클린. 전체 76 통과.
 - **⭐ 정직한 경계 (다음)**: 1)이 통합은 **릴리스 미반영** — latest=v3.0.2엔 gil viewer 없음. 온보딩 시연 실작동하려면 v3.0.3 릴리스 필요. 2)Pages v3 전환: 이제 `gil viewer build` 있으니 상현님 시나리오(대표 예제) 오면 Actions로 배포 가능. 3)8790 포트 잔존 프로세스가 로컬에 떠있음(이전 세션 뷰어, 무해).
 - **⭐⭐ 부활**: gil viewer 통합됨(serve/build/text, gil viewer serve로 init 자동기동). 격리방식(gil 본체 안 건드림). build=정적 자기완결 HTML(Pages용). main=v3, example 76, gil=Go 유일(명령 16개 +viewer), latest=v3.0.2(뷰어 미포함—v3.0.3 필요). 옛 v2=legacy. 개발=평범 git 커밋. 기억=refs/gil/global gil memory append. **다음 후보**: 1)**v3.0.3 릴리스**(gil viewer 포함, 온보딩 시연 실작동) 2)Pages v3 전환(시나리오 오면 예제생성+gil viewer build+Actions) 3)legacy 정식 이주. **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
+
+
+## 2026-07-25 (이어서) — ⭐⭐ v3.0.3 릴리스 — gil viewer 통합을 실사용자에게 전달
+
+지난 세션이 gil viewer를 통합(커밋 1395f730)했으나 **릴리스 미반영**(latest=v3.0.2엔 viewer 없음)이 남은 최대 미결이었다. 온보딩 Step B.1(로컬 뷰어 시연)이 실사용자에겐 아직 안 도는 상태. 상현님 "릴리즈하자" → v3.0.3 정식 게시로 해소.
+
+- **⭐ 착수 검증**: git 클린(1395f730), example 76/76 통과. viewer가 현 소스·크로스빌드 5종 모두에 포함 확인(windows 바이너리 strings "gil viewer" 8회).
+- **⭐⭐ 자산 재빌드(scratchpad/release-v3.0.3)**: CGO_ENABLED=0 -trimpath 5종(darwin/linux amd64·arm64 + windows amd64.exe) + install.sh + llms.txt + SHA256SUMS(자산8). install.sh는 releases/latest/download 참조라 버전무관 — 새 latest면 자동 v3.0.3 자산 받음.
+- **⭐⭐ v3.0.3 게시**: `gh release create v3.0.3 --target main --latest --title "gil v3.0.3" --notes-file ...` 자산8. 결과 latest=v3.0.3, target=main. 릴리스 게시는 공개 외부조작이라 상현님 명시 승인 받고 진행("릴리즈하자"). ⚠ gh는 cwd가 git레포여야 함 — scratchpad에서 실패, 레포 루트 cd + 절대경로 자산으로 성공.
+- **⭐⭐ E2E(실사용자 경로 그대로, scratchpad/e2e-v3.0.3)**: latest/download에서 gil-darwin-arm64+SHA256SUMS 받기. ⚠ 게시 직후 자산 CDN 504(전파지연) — 백오프 재시도로 통과(자산 무결성 문제 아님, 로컬 빌드해시와 즉시 일치했음). **체크섬 일치** → 다운로드 바이너리에 `gil viewer serve|build` 존재 확인 → 격리레포 생애주기(init 뷰어자동기동·chain demo --purpose·open demo/c1 --author --purpose·step --kind verify/success·close) fsck 위반0 → `gil viewer text` 그래프 반영 → **`gil viewer build` 정적HTML: 외부참조0·/poll0·자기완결 22KB**(Pages용 준비 확인). 전 경로 통과.
+  - ⭐ API 형식 상기: chain은 `--purpose`, open은 `<chain>/<cycle> --author --purpose`, step은 `<chain>/<cycle> --kind K`(-m 아님).
+- **⭐⭐ 부활**: gil latest=**v3.0.3**(gil viewer 포함 — 온보딩 뷰어 시연이 실사용자에게 실작동). main=v3, example 76, gil=Go 유일(명령 16개 +viewer). 진입=README.ai.md(Step0 휴먼온보딩·Step B.1 뷰어시연). 옛 v2=legacy·legacy-main. 개발=평범 git 커밋. 기억=refs/gil/global gil memory append. **다음 후보**: 1)Pages v3 전환(이제 gil viewer build로 정적HTML 생성 가능 — 상현님 대표예제 시나리오 오면 예제생성+build --out+Actions로 github.io를 v3로) 2)legacy 정식 이주(지금 격리검증만) 3)실사용 계속(설치 이후 첫 체인·wiki 능동참조·뷰어 시연이 실사용자 손에서 도는지). **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
