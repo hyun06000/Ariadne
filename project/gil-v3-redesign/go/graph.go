@@ -345,6 +345,34 @@ type cycleAgg struct {
 	steps   []node
 }
 
+// liveTip — 사이클의 "살아있는 팁". 다중 브랜치(형제 가지)에서 죽은 잎(analyze/backtrack·
+// analyze/fail)을 팁으로 잡던 결함 수정. 잎(다른 스텝의 부모로 안 쓰인 스텝) 중 죽은 잎이
+// 아닌 마지막(가장 최근)을 고른다. 살아있는 잎이 없으면(전부 죽음) 마지막 스텝을 반환.
+func (c *cycleAgg) liveTip() node {
+	referenced := map[string]bool{}
+	for _, s := range c.steps {
+		if s.parent != "" && s.parent != "null" {
+			referenced[s.parent] = true
+		}
+	}
+	var best *node
+	for i := range c.steps {
+		s := c.steps[i]
+		if referenced[s.step] {
+			continue // 잎 아님(자식이 있음)
+		}
+		dead := s.kind == "analyze" && (s.outcome == "backtrack" || s.outcome == "fail")
+		if dead {
+			continue // 죽은 잎은 팁 아님
+		}
+		best = &c.steps[i] // steps는 old→new, 뒤로 갈수록 최신 → 마지막 산 잎이 남는다
+	}
+	if best != nil {
+		return *best
+	}
+	return c.steps[len(c.steps)-1] // 전부 죽었으면 마지막(벽)
+}
+
 // cyclesOf — 한 체인 안의 사이클 집계. 참조: gilweb.cycles_of.
 func cyclesOf(chain string) (map[string]*cycleAgg, []string) {
 	cyc := map[string]*cycleAgg{}

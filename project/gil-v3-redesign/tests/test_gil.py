@@ -454,5 +454,65 @@ class TestBranching(GilFixture):
         self.assertEqual(self.branches(), before, "backtrack 은 브랜치를 새로 만들지 않는다")
 
 
+class TestPendingGuard(GilFixture):
+    """pending 뒤에는 사람의 명시적 승인/기각만 허용 (2026-07-24 상현님).
+
+    서브에이전트가 pending 직후 스스로 analyze 로 넘어가던 것을 gil 이 구조로 막는다.
+    """
+
+    def _to_pending(self, cycle="c001"):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "gh", "--purpose", "P")
+        self.gil("open", f"gh/{cycle}", "--author", "clew", "--purpose", "Q")
+        self.gil("step", f"gh/{cycle}", "--kind", "hypothesis", "--title", "H")
+        self.gil("step", f"gh/{cycle}", "--kind", "verify", "--title", "V")
+        self.gil("step", f"gh/{cycle}", "--kind", "pending", "--title", "승인 요청")
+
+    def test_step_after_pending_rejected(self):
+        self._to_pending()
+        r = self.gil("step", "gh/c001", "--kind", "analyze", "--outcome", "success", "--title", "자율승인")
+        self.assertNotEqual(r.returncode, 0, "pending 뒤 analyze 는 거부돼야 한다")
+        self.assertIn("pending", r.stderr + r.stdout)
+
+    def test_approve_makes_live_leaf(self):
+        self._to_pending()
+        r = self.gil("approve", "gh/c001", "--title", "승인")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Outcome"), "success")
+        self.assertEqual(self.trailer("HEAD", "Gil-Approval"), "approved")
+        # 승인 후 close 가능(산 잎).
+        self.assertEqual(self.gil("close", "gh/c001", "--verdict", "supported").returncode, 0)
+
+    def test_reject_makes_dead_leaf(self):
+        self._to_pending()
+        r = self.gil("reject", "gh/c001", "--to", "s1", "--title", "기각")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Outcome"), "backtrack")
+        self.assertEqual(self.trailer("HEAD", "Gil-Approval"), "rejected")
+
+    def test_approve_without_pending_rejected(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "gh", "--purpose", "P")
+        self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
+        r = self.gil("approve", "gh/c001")
+        self.assertNotEqual(r.returncode, 0, "pending 없는데 approve 는 거부")
+
+
+class TestLiveTip(GilFixture):
+    """handoff 팁 선정: 다중 브랜치에서 죽은 잎을 팁으로 잡지 않는다 (2026-07-24)."""
+
+    def test_tip_skips_dead_leaf(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "gh", "--purpose", "P")
+        self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "가설A")
+        self.gil("step", "gh/c001", "--kind", "analyze", "--outcome", "backtrack", "--to", "s1", "--title", "벽")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--to", "s1", "--title", "가설B")
+        out = self.gil("handoff").stdout
+        # 팁은 죽은 잎(s3 backtrack)이 아니라 산 형제 가지(s4 hypothesis).
+        self.assertIn("팁: s4 [hypothesis]", out)
+        self.assertNotIn("팁: s3", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

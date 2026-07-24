@@ -35,6 +35,10 @@ func main() {
 		cmdStep(rest)
 	case "close":
 		cmdClose(rest)
+	case "approve":
+		cmdApprove(rest)
+	case "reject":
+		cmdReject(rest)
 	case "log":
 		cmdLog(rest)
 	case "fsck":
@@ -46,7 +50,7 @@ func main() {
 	case "handoff":
 		cmdHandoff(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-merge open step close log fsck global memory handoff]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-merge open step close approve reject log fsck global memory handoff]")
 	}
 }
 

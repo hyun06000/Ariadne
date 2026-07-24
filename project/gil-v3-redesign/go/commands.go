@@ -188,6 +188,12 @@ func cmdStep(args []string) {
 	if tip != nil {
 		tipID = tip.step
 	}
+	// pending 가드(상현님): pending 스텝 뒤에는 사람의 명시적 승인/기각만 허용한다.
+	// 서브에이전트가 pending 직후 스스로 analyze 로 넘어가던 것을 구조로 막는다.
+	if tip != nil && tip.kind == "pending" {
+		die("거부: " + ref + " 팁이 pending(" + tip.step + ") — 사람의 답을 먼저 받아야 한다. " +
+			"승인: gil approve " + ref + "  |  기각: gil reject " + ref + " --to <조상 define>")
+	}
 	defineIDs := map[string]bool{}
 	liveLeaves := map[string]bool{}
 	for _, s := range steps {
@@ -279,6 +285,96 @@ func cmdStep(args []string) {
 		tail = " ⋈merge " + strings.Join(*merge, "+")
 	}
 	println2("step: " + ref + "/" + sid + " " + *kind + " ←" + parent + tail)
+}
+
+// pendingTip — 이 사이클의 팁이 pending 이면 그 pending 노드를, 아니면 nil.
+// approve/reject 는 pending 팁에서만 동작한다(사람의 답이 필요한 지점).
+func pendingTip(chain, cycle string) *node {
+	steps := currentCycle(chain, cycle)
+	tip := growingTip(steps)
+	if tip != nil && tip.kind == "pending" {
+		return tip
+	}
+	return nil
+}
+
+// ── gil approve — pending 에 대한 사람의 명시적 승인. 승인=산 잎(analyze/success). ──
+func cmdApprove(args []string) {
+	fs := newFlags("gil approve")
+	title := fs.str("title", "")
+	body := fs.str("body", "")
+	bodyFile := fs.str("body-file", "")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil approve <chain>/<cycle> [--title T]")
+	}
+	ref := pos[0]
+	chain, cycle, _ := cut(ref, "/")
+	tip := pendingTip(chain, cycle)
+	if tip == nil {
+		die("거부: " + ref + " 팁이 pending 이 아니다 — 승인할 대기가 없다")
+	}
+	steps := currentCycle(chain, cycle)
+	sid := nextStepID(steps)
+	stTitle := orDefault(*title, "승인 — "+tip.step+" 의 대기를 사람이 승인")
+	subject := "gil " + chain + "/" + cycle + "/" + sid + " analyze: " + stTitle
+	stBody := resolveBody(*body, *bodyFile)
+	if stBody == "" {
+		stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 가지는 산 잎."
+	}
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
+		{"Gil-Step", sid}, {"Gil-Kind", "analyze"}, {"Gil-Parent", tip.step},
+		{"Gil-Outcome", "success"}, {"Gil-Approval", "approved"},
+	}
+	commit(subject, stBody, tr, true)
+	println2("approve: " + ref + "/" + sid + " analyze=success (사람 승인 ←" + tip.step + ")")
+}
+
+// ── gil reject — pending 에 대한 사람의 명시적 기각. 기각=죽은 잎(analyze/backtrack). ──
+func cmdReject(args []string) {
+	fs := newFlags("gil reject")
+	to := fs.str("to", "")
+	title := fs.str("title", "")
+	body := fs.str("body", "")
+	bodyFile := fs.str("body-file", "")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil reject <chain>/<cycle> --to <조상 define> [--title T]")
+	}
+	ref := pos[0]
+	chain, cycle, _ := cut(ref, "/")
+	tip := pendingTip(chain, cycle)
+	if tip == nil {
+		die("거부: " + ref + " 팁이 pending 이 아니다 — 기각할 대기가 없다")
+	}
+	if *to == "" {
+		die("거부: reject 는 --to <조상 define> 필요 (되돌아갈 곳)")
+	}
+	steps := currentCycle(chain, cycle)
+	defineIDs := map[string]bool{}
+	for _, s := range steps {
+		if s.kind == "define" {
+			defineIDs[s.step] = true
+		}
+	}
+	if !defineIDs[*to] {
+		die("거부: --to " + *to + "는 조상 define이어야 함")
+	}
+	sid := nextStepID(steps)
+	stTitle := orDefault(*title, "기각 — "+tip.step+" 의 대기를 사람이 기각")
+	subject := "gil " + chain + "/" + cycle + "/" + sid + " analyze: " + stTitle
+	stBody := resolveBody(*body, *bodyFile)
+	if stBody == "" {
+		stBody = "사람이 pending(" + tip.step + ")을 기각했다 — 죽은 잎. " + *to + " 로 되돌아간다."
+	}
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
+		{"Gil-Step", sid}, {"Gil-Kind", "analyze"}, {"Gil-Parent", tip.step},
+		{"Gil-Outcome", "backtrack"}, {"Gil-Backtrack", *to}, {"Gil-Approval", "rejected"},
+	}
+	commit(subject, stBody, tr, true)
+	println2("reject: " + ref + "/" + sid + " analyze=backtrack (사람 기각 ⤳" + *to + ")")
 }
 
 // ── gil close ──

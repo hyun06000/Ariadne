@@ -16,7 +16,7 @@ func nextAllowed(tipKind, tipOutcome string) string {
 	case tipKind == "verify":
 		return "step --kind analyze --outcome {success|backtrack|fail} | step --kind pending"
 	case tipKind == "pending":
-		return "사람 답 대기 — 승인→analyze/success, 기각→analyze/backtrack --to <define>"
+		return "사람 답 대기 — gil approve <ref> (승인) | gil reject <ref> --to <define> (기각). 다른 step 은 거부됨."
 	case tipKind == "analyze" && tipOutcome == "success":
 		return "close (산 잎) | step --kind hypothesis --to <define> (다른 정답 탐색)"
 	case tipKind == "analyze" && (tipOutcome == "backtrack" || tipOutcome == "fail"):
@@ -57,7 +57,7 @@ func handoffReport() string {
 				continue
 			}
 			hasOpen = true
-			tip := c.steps[len(c.steps)-1]
+			tip := c.liveTip()
 			nxt := nextAllowed(tip.kind, tip.outcome)
 			oc := ""
 			if tip.outcome != "" {
