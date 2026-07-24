@@ -1829,3 +1829,14 @@
   2. **⭐⭐⭐ 체인명=디렉토리명 → git log exit 128 (참조·Go 공통 진짜 결함, 평범 커밋 d8805910)**: viewer/ 디렉토리 + viewer 브랜치가 공존하면 git log <br> 가 "--" 없이 호출돼 revision/path ambiguity 로 죽음. handoff 가 "git log --format=%H viewer 실패: exit 128" 뱉으며 viewer 체인 정보 못 냄. **orphan 실작업은 소스 디렉토리명과 체인명이 겹치기 쉬워 직격**. 수정: rev 넘기는 모든 git log 뒤 "--" 확정(collectNodes·bodyIndex·branchShas, Go+Python). 회귀 테스트(동명 디렉토리+체인). **example 31/31 양쪽 통과, 실제 레포 exit 128 소멸, fsck 0.**
 - **⭐ 정직한 경계**: 뷰어는 텍스트 트리 최소 골격만 — HTML·사이클 계보 선·죽은 잎 시각 구분·--live 는 다음 사이클. dev 라 smoke. 뷰어 바이너리는 viewer/.gitignore.
 - **⭐⭐ 다음 세션 순서**: 1) **뷰어 다음 사이클(viewer/c002)** — HTML 출력, 사이클 부모-자식 계보 선/들여쓰기, 죽은 잎(fail/backtrack) 시각 구분, 실시간 --live. 2) gil chain --orphan 일급화 검토(SPEC 메모). 3) 빈 gil log(chain-root만) 개선. 4) 뷰어 익으면 gil chain-merge 로 대문 병합. **부활: 뷰어는 viewer orphan 브랜치(viewer/main.go), 절대경로 Go 바이너리로 gil 실행(./gil 삭제됨). 개발=평범 커밋, 검증=example(31), 실작업=gil 사이클(orphan). 기억은 refs/gil/global, gil memory append 로 각인.**
+
+## 2026-07-24 (이어서) — ⭐⭐ 뷰어 HTML 서버 모드 완성 (보면서 작업) — viewer/c002
+
+- **⭐ 상현님 요청**: "뷰어 띄워줘, 보면서 작업하고 싶다." + **유의점**: "결국 뷰어 완성하면 gil 커맨드에 합칠 거라 그 점 유의." → 파싱 로직은 gil 본체(graph.go)와 중복이니 병합 시 통일 대상, 진입점은 gil viewer/web serve 가 될 것, stdlib만/의존성 0 유지.
+- **한 일 (viewer orphan 브랜치, gil 사이클 viewer/c002 — define→hypothesis→verify→analyze→close supported)**:
+  1. **뷰어 리팩터**: 렌더 로직을 buildGraph()(체인>사이클>스텝 모델) + renderText()/renderHTML() 공용으로 분리. main 이 `serve` 서브커맨드 디스패치.
+  2. **HTML 서버 모드 (serve.go)**: `gilviewer serve --port 8790` → net/http 로컬 서버. `/`=그래프 HTML, `/poll`=브랜치 팁 시그니처. **1.5s 폴링으로 팁 변하면 location.reload()** — 실시간 갱신. 산잎(초록)/죽은잎(fail·backtrack 빨강, 흐리게)/pending(노랑) 색 구분, 현재위치 outline 강조, 라이트/다크 테마 CSS 변수. stdlib만(net/http+html+os/exec).
+- **⭐⭐ 실시간 자기지시 실증**: 서버 띄운 채 gil step viewer/c002/s2 만들자 → viewer 팁 sha 변화(eda8f911→e19c6725) → /poll 시그니처 바뀜 → 브라우저 자동 리로드 → 새 스텝이 `live here` + "◀ 현재위치 (viewer)"로 강조. **상현님이 이 뷰어를 짓는 과정 자체가 브라우저에 실시간으로 그려짐.** 브라우저 open http://127.0.0.1:8790/ 로 띄움, 서버 계속 상주(PID 92765).
+- **⭐ 병합 유의(상현님)**: 뷰어 완성 시 gil chain-merge 로 대문 병합 → gil viewer/web serve 서브커맨드로. collectNodes·트레일러 파싱은 graph.go 와 중복 → 병합 때 gil 것으로 통일. 지금은 orphan 독립이되 트레일러 규약 일치 유지.
+- **⭐ 정직한 경계**: dev 라 smoke만(엄밀 SSE 재연결·다중 구독자·부하는 staging). 폴링은 1.5s 간격(즉시성 낮음) — SSE push 는 다음 후보. 뷰어 바이너리 viewer/.gitignore.
+- **⭐⭐ 다음 세션 후보 (viewer/c003+)**: 1) 사이클 부모-자식 계보 선(Gil-Cycle-Parent·Gil-Merge 엣지). 2) 스텝 클릭 → 커밋 본문 카드. 3) --live SSE(폴링→push, 즉시성). 4) 뷰어 익으면 gil chain-merge 로 대문 병합 + gil viewer/web 서브커맨드화. **부활: 뷰어=viewer orphan(viewer/main.go+serve.go), gilviewer serve 로 브라우저에서 봄. gil=Go(절대경로, ./gil 삭제됨), 개발=평범 커밋, 검증=example(31), 실작업=gil 사이클(orphan). 기억=refs/gil/global, gil memory append.**
