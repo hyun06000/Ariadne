@@ -1079,20 +1079,38 @@ class TestViewer(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out_html, encoding="utf-8") as f:
             html = f.read()
-        # 전체 스텝맵 탭·DAG 렌더 함수.
+        # 전체 스텝맵·DAG 렌더 함수(탭 없이 항상 렌더).
         self.assertIn("buildStepMap", html)
         self.assertIn("view-map", html)
         self.assertIn("전체 스텝맵", html)
+        # 탭은 제거됐다 — 세로 스택 pane 구조.
+        self.assertNotIn('id="tab-map"', html)
+        self.assertIn("panehead", html)
+        self.assertIn("pane-report", html)
         # DAG 데이터(커밋 부모로 이어진 노드 리스트) 임베드.
         self.assertIn("dagdata", html)
         self.assertIn('"parents":', html)
-        # swimlane: 체인 밴드·사이클 박스 렌더(체인·사이클을 스텝 DAG 와 함께 보임).
-        self.assertIn("bandlabel", html)
+        # 전체맵: 체인 이름을 사이클 박스 위 라벨로, 사이클=박스.
+        self.assertIn("chlabel", html)
         self.assertIn("cycbox", html)
         # 지식 전파 계보 함수.
         self.assertIn("function lineage", html)
         # 맵/DAG JS 는 Go 의 esc() 가 아니라 JS mdEsc 를 써야 한다(esc 미정의 회귀 방지).
         self.assertNotIn("esc(chain)", html)
+
+    def test_head_arrow_on_all_graphs(self):
+        """현재위치(HEAD)를 모든 그래프의 팁 노드 위에 ▼(headarrow)로 표시한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "a/c001", "--kind", "verify", "--title", "V", "--body", "b")
+        # 닫지 않음 → HEAD 가 이 스텝 팁. 체인 그래프 노드에 headarrow(정적 렌더)가 있어야.
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        html = open(out_html, encoding="utf-8").read()
+        # 체인 노드(here)에 headarrow SVG 가 인라인된다.
+        self.assertIn("headarrow", html)
+        self.assertIn("현재위치 1개", html)  # 헤더에 현재위치 카운트
 
     def test_dag_connects_cycles_across_chain_boundary(self):
         """DAG 는 사이클·체인 경계를 넘는 지식 전수를 진짜 엣지로 잇는다 —
