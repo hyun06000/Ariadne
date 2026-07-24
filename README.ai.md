@@ -112,8 +112,17 @@ Move-Item -Force gil-dl.exe gil.exe
 어느 쪽이든 **진입 실패로 끝내지 마라** — 폴백 경로를 사람에게 명확히 제시하는 것까지가 Step A다.
 
 **git이 필요하다.** v3 gil은 위계 전체를 진짜 git 브랜치·커밋으로 남긴다 — git 없이는 동작하지
-않는다. 사람 컴퓨터에 git이 없으면 https://git-scm.com 에서 설치하게 안내하라. (`gil init`이
-빈 폴더에서 `git init`까지 해주지만, git 실행파일 자체는 있어야 한다.)
+않는다. `gil`을 처음 실행할 때 git이 없으면 gil이 이 OS 용 설치 명령을 콕 집어 알려주고 멈춘다
+(그 안내를 그대로 따르면 된다). git이 없으면 **먼저 설치부터** 안내하라 — 가능하면 자동으로:
+
+- **Windows**: `winget install --id Git.Git -e` 를 시도하라. winget이 없으면(구형 Windows) —
+  https://git-scm.com/download/win 에서 설치 프로그램을 받게 사람에게 안내하라. (설치 후 새
+  PowerShell 창을 열어야 PATH가 갱신된다.)
+- **macOS**: `brew install git` (Homebrew 있으면) 또는 `xcode-select --install`.
+- **Linux**: `sudo apt-get install -y git` / `sudo dnf install -y git` / `apk add git` 등 배포판 패키지.
+
+설치 뒤 `git --version` 으로 확인하고 같은 명령을 다시 실행하라. (`gil init`이 빈 폴더에서
+`git init`까지 해주지만, git 실행파일 자체는 있어야 한다.)
 
 ## Step B — 무에서 세팅 (`gil init` 한 줄)
 

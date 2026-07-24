@@ -9,6 +9,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -17,14 +18,25 @@ import (
 // 프롬프트다 — Go 런타임의 날것 에러("exec: git ... not found") 대신, AI 가 곧장 사람에게
 // "git 을 설치하라"고 안내할 수 있게 원인·해결을 콕 집어 준다.
 func requireGit() {
-	if _, err := exec.LookPath("git"); err != nil {
-		die("거부: git 실행파일을 찾을 수 없다 (PATH 에 git 없음).\n" +
-			"  gil 은 사고 이력을 진짜 git 브랜치·커밋으로 남기므로 git 이 반드시 필요하다.\n" +
-			"  사람에게 git 설치를 안내하라: https://git-scm.com/downloads\n" +
-			"    macOS: xcode-select --install (또는 brew install git)\n" +
-			"    Debian/Ubuntu: sudo apt-get install git   |   Fedora: sudo dnf install git\n" +
-			"  설치 뒤 같은 명령을 다시 실행하면 된다.")
+	if _, err := exec.LookPath("git"); err == nil {
+		return
 	}
+	// 실행 중인 OS 에 맞는 설치법을 앞세운다 — AI 가 곧장 그 명령으로 자동 설치를 시도할 수 있게.
+	// (실사용: Windows 사용자의 에이전트가 winget 을 시도했으나 힌트가 없어 헤맴.)
+	var primary string
+	switch runtime.GOOS {
+	case "windows":
+		primary = "  Windows: winget install --id Git.Git -e   (winget 없으면 https://git-scm.com/download/win 에서 설치)\n"
+	case "darwin":
+		primary = "  macOS: brew install git   (또는 xcode-select --install)\n"
+	default:
+		primary = "  Debian/Ubuntu: sudo apt-get install -y git   |   Fedora: sudo dnf install -y git   |   Alpine: apk add git\n"
+	}
+	die("거부: git 실행파일을 찾을 수 없다 (PATH 에 git 없음).\n" +
+		"  gil 은 사고 이력을 진짜 git 브랜치·커밋으로 남기므로 git 이 반드시 필요하다.\n" +
+		"  git 을 설치하라 (아래는 이 OS 용). 설치 뒤 같은 명령을 다시 실행하면 된다:\n" +
+		primary +
+		"  전체 안내: https://git-scm.com/downloads")
 }
 
 func main() {
