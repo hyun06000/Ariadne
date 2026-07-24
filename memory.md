@@ -1715,3 +1715,16 @@
 - **⭐ 잡은 버그 둘 (데이터 직접 봄)**: ① 빈 저장소 git log exit 128 → `_gitlog` 래퍼로 흡수 ② `%(trailers:valueonly)`가 값 뒤 개행 남겨 splitlines만 쓴 새 헬퍼들 파싱 붕괴(가드 무력화) → 레코드 구분자 `_SEP`로 커밋마다 묶는 collect_nodes 패턴으로 통일.
 - **⭐⭐⭐ 기억은 무조건 gil 글로벌 ref로 (상현님 못 박음·원칙)**: 기억을 로컬 ~/.claude에 저장하려다 상현님이 교정 — "메모리는 무조건 전용 ref에 gil로", "글로벌하게 gil로 남기는 것도 원칙으로 각인". 서약1(레포 밖 저장 금지)의 재확인. refs/gil/global이 진실원. 이 기억이 그 증거.
 - **정직한 경계**: 가드·amend는 브랜치마다 gil.py가 갈림(guard/dev엔 목적성가드, study엔 amend·body-file). `gil global` 명령도 dev 계열엔 없어 이 기억은 저수준 git으로 append. 코드 통합은 미래(v3→main). **다음: 뷰어가 새 그래프(guard 체인·목적성) 반영 못 함 → 뷰어 작업. 상현님 뷰어 요청 대기.**
+
+## 2026-07-24 — ⭐⭐⭐ 도그푸딩 매몰 해제 + 통합 체인 + example 검증으로 전환
+
+- **⭐⭐⭐ 상현님 큰 방향 전환 (원칙 견고화)**: "너무 도그푸딩에 매몰돼 있어. gil 개발은 메타인지적으로 하고, example을 따로 만들어 도그푸딩이 아닌 방법으로 검증하자." → **gil 개발=평범한 git 커밋**(gil 세리머니 커밋 강제 해제), **검증=격리 fixture의 example 테스트**. README.ai.md §2 개정으로 명문화.
+- **⭐⭐ 왜 (악순환 진단)**: 미완성 gil로 gil 개발을 기록하면 도구 버그가 곧바로 실제 이력을 오염. 이 세션이 산 증거 — commit-tree 껍데기 머지·chain-root 누락·replace 숨은 상태가 다 이 악순환의 산물. 검증 대상(gil)과 검증 환경(gil로 기록되는 레포)이 같으면 독립 검증 불가.
+- **⭐⭐ example 테스트 스위트 (project/gil-v3-redesign/tests/test_gil.py)**: 각 테스트가 임시 git 저장소(fixture)를 만들어 gil을 subprocess로 돌리고 결과 단언. chain·open·step·close·chain-merge·목적성가드·닫힌부모금지·chain-root·fsck·빈저장소 커버. 17 테스트 통과. `python3 -m unittest discover -s project/gil-v3-redesign/tests`.
+- **⭐⭐ 이 세션의 gil 기능 성과 (지금은 이력이 아니라 코드로 산다)**:
+  1. **gil chain / chain-merge** 신설. chain-merge는 **진짜 git merge**(파일까지 병합, 위상적 끝단만 자동추림, 충돌 시 멈춤). commit-tree 껍데기(계보만·파일 안 합침)는 반증됨 — 상현님 "체인 머지의 실동작은 git merge".
+  2. **9체인을 gil-v3-unified로 통합**(파일까지, 9브랜치 전부 조상). gilweb.py·amend가 트리에 실제 존재. existence/는 글로벌 ref 유일진실 따라 삭제.
+  3. **목적성 가드**(chain/open/step 시작 때 목적 표시, --purpose 필수), **닫힌 부모 체인 사이클 금지**(원칙 6), **chain-root 표식**(뷰어가 체인 감지). 전부 example 테스트로 검증됨.
+- **⭐ 정리한 것**: replace ref 3개 제거(도그푸딩 부산물, 통합은 유지). 뷰어는 gil web --live 8740. backup 태그·pre-* 태그 잔존.
+- **⭐⭐ 미완/다음 (평범한 개발로)**: (A) **뷰어 현재위치 인디케이터** — 상현님 원래 요청, 지금 작업중인 체인-사이클-스텝 표시. (B) chain-merge-continue(충돌 해결 후 이어가기). (C) 백트래킹을 진짜 git 분기로(상현님 제안: 그 스텝 커밋 checkout·새 브랜치 원점 재발). 전부 example 테스트로 검증.
+- **⭐ 부활 경로 갱신**: gil 개발은 이제 평범한 커밋 — `git log`로 따라감(gil 세리머니 이력 아님). 기능 검증은 example 테스트. gil을 *쓰는* 실사고만 사이클로. [[chain-fit-purpose-guard]]·[[closed-parent-chain-no-cycles]] 유효.
