@@ -51,6 +51,7 @@ func reportGuide(kind string, thin bool) {
 	}
 	if thin {
 		stderr("  ⚠ 본문이 얇다 — " + kind + " 스텝은 보고서여야 한다. `gil step ... --body-file <보고서.md>` 로 채워라.")
+		stderr("    스텝 본문은 커밋이라 나중에 못 고친다(append-only) — 지금 이 스텝을 만들 때 채워라. 얇게 두면 얇은 채로 영원히 남는다.")
 	}
 	stderr("  ▸ " + g)
 	stderr("    (뷰어가 이 본문을 마크다운으로 렌더한다 — 표·코드블록·이미지 ![](data:...) 가능.)")

@@ -357,12 +357,19 @@ func renderText(g graphView) {
 		fmt.Printf("● 체인 %s\n", ch.name)
 		for _, cy := range ch.cycles {
 			fmt.Printf("  ◆ 사이클 %s\n", cy.name)
+			prevStep := ""
 			for _, n := range cy.steps {
 				marker := "  "
 				if _, ok := g.here[posKey(n)]; ok {
 					marker = "▶ "
 				}
 				line := fmt.Sprintf("    %s%s [%s]", marker, n.step, n.kind)
+				// 부모가 직전 스텝이 아니면(=분기·backtrack) 부모를 표기한다 —
+				// 죽은 잎(fail)과 조상 define 으로 되돌아간 형제 가지가 드러나게.
+				if n.parent != "" && n.parent != "null" && n.parent != prevStep {
+					line += " ←" + n.parent
+				}
+				prevStep = n.step
 				if n.outcome != "" {
 					line += " =" + n.outcome
 				}

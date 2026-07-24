@@ -1016,6 +1016,40 @@ class TestViewer(GilFixture):
         self.assertIn("체인 demo", r.stdout)
         self.assertIn("c001", r.stdout)
 
+    def test_viewer_text_shows_backtrack_parent(self):
+        """viewer text 는 분기(backtrack 형제 가지)의 부모를 ←s# 로 표기한다.
+
+        선형 진행은 부모 표기 없이 깔끔하고, 조상 define 으로 되돌아간
+        형제 가지만 드러나야 backtrack 이 텍스트 트리에서도 보인다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        # s1=define(open 자동). s2=가설, s3=검증 → s4=fail(죽은 잎, ←는 직전이라 표기 안 함).
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설 보고서")
+        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서")
+        self.gil("step", "d/c001", "--kind", "fail", "--to", "s1", "--title", "기각", "--body", "벽 보고서")
+        # backtrack: 조상 define s1 에서 새 형제 가지.
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2 보고서")
+        r = self.gil("viewer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 형제 가지(s1 에서 되돌아간 가설)에 부모 표기가 있어야 한다.
+        self.assertIn("←s1", r.stdout, f"backtrack 부모 표기 없음:\n{r.stdout}")
+        # 선형 진행 스텝은 부모 표기로 어지럽히지 않는다(←s2/←s3 등 직전-부모 표기 없음).
+        self.assertNotIn("←s2", r.stdout)
+        self.assertNotIn("←s3", r.stdout)
+
+    def test_thin_body_warns_append_only(self):
+        """--body 를 빠뜨린 얇은 스텝엔, 본문은 나중에 못 고친다(append-only)고 경고한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        r = self.gil("step", "d/c001", "--kind", "verify", "--title", "얇음")  # --body 없음
+        self.assertEqual(r.returncode, 0, r.stderr)
+        msg = r.stderr + r.stdout
+        self.assertIn("얇다", msg)
+        self.assertIn("append-only", msg, "본문 불변성(나중에 못 고침) 안내가 없다")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
