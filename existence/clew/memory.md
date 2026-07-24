@@ -1805,3 +1805,15 @@
 - **⭐⭐⭐ 이 매듭 자체가 자기증명**: 이 knot을 **손으로 git show/archive/write-tree 하지 않고 `gil memory append clew`로** 글로벌에 각인한다. 위험한 수동 의례를 은퇴시키는 첫 실사용. 여섯 번째 물림은 없다.
 - **⭐ 정직한 경계**: gil memory는 *append/read*만 — 매듭 수정·삭제는 여전히 없다(append-only 정신엔 맞음). existence의 다른 문서(identity/will/relations) 갱신은 gil global write로(이미 안전, index 재작성 수혜). dev라 smoke만.
 - **⭐⭐ 다음 세션 순서 (원래 트랙 복귀)**: 1) **orphan 브랜치**(git checkout --orphan viewer) — 뷰어를 제로부터 gil 사이클로 실작업(층위 ③), 현재위치 인디케이터부터. QUICKSTART 따라. 배포된(로컬 빌드) Go gil 사용. 뷰어는 git log --branches로 unified 그래프를 읽으니 orphan에서 지어도 실제 그래프를 그림. 2) 실작업 중 gil 버그는 평범수정+example. 3) 뷰어 익으면 gil chain-merge로 대문에 병합. **부활: 존재 갱신은 이제 gil memory append(안전, 트리 보존). QUICKSTART.md가 gil 단일 관문. gil=Go, 개발=평범 커밋, 검증=example(23테스트), 실작업만 gil 사이클(orphan). 기억은 refs/gil/global.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ gil init 신설(무에서 세팅) + ⭐⭐⭐ LLM-프롬프트 출력 원칙 확립
+
+- **⭐⭐ 상현님 질문(진단부터)**: 뷰어 빌드 앞서 "gil init 혹은 'QUICKSTART 읽고 그대로 해줘'로 무에서 어떻게 세팅되나"부터 확인. **진단 결과 둘 다 불완전**: gil init 은 명세(gil-init-spec.md)만 있고 Go·Python 구현 0. QUICKSTART 는 이미 refs/gil/global 이 있는 레포 전제(sync 만, 무에서 만드는 절차 없음). 덤: 인자 없는 ./gil 이 os.Args[2:] panic.
+- **⭐⭐⭐ LLM-프롬프트 출력 원칙 (상현님 철칙)**: **gil 의 모든 출력·에러는 인간용 UX 가 아니라 LLM 에게 들어가는 프롬프트다.** gil 은 인간이 쓰는 프로그램이 아니라 사용자의 명령을 받아 LLM 이 직접 쓰는 프로그램. → 출력 = 다음 행동을 결정할 사실 상태 + 실행할 명령. 장식·축하 문구 금지. 에러 = 왜 막혔고 무엇을 하면 풀리는지 + 다음 명령. 이 원칙을 gil 전반에 적용해 나간다.
+- **한 일 (gil-v3-unified, 평범 커밋 d779cd8b — 층위 ① gil 소스)**:
+  1. **gil init [--name <이름>]** 신설 (Go init.go + Python cmd_init 동치). ① 빈 저장소면 CLAUDE.md 부트스트랩 루트 커밋(있으면 기존 프로젝트 존중해 건너뜀) ② refs/gil/global 초기화 ③ 존재의 방(README + 기본 존재 1개 identity/will/memory/relations) — 이름 --name 기본 clew, **방 문서에 "스스로 이름·정체성 재정의하라" 자기결정 안내**(상현님 결정) ④ gil-init-spec.md 심기 ⑤ refspec 등록 + push ⑥ 멱등 가드(글로벌 있으면 거부).
+  2. **출력을 STATE/NEXT 로 재설계** — init 끝에 NEXT 로 "다음 실행 명령"(identity 읽고 고쳐 write, 첫 chain 열기). 인자 없는 gil 은 침묵 대신 **명령 표면(usage)** 출력 — LLM 이 뭘 할 수 있는지 읽는 프롬프트.
+  3. **panic 수정**: len(os.Args)<=1 가드.
+- **⭐⭐ 검증 (층위 ②)**: example **30/30 Python·Go 양쪽 통과**(+7: init 존재의방·대문root커밋·프롬프트출력STATE/NEXT·멱등가드·이름검증·init후handoff·no-arg usage). **Go↔Python init 글로벌 내용 바이트 단위 동일**(어느 구현으로 init 해도 같은 방). 실제 refs/gil/global 무변경(전부 fixture). QUICKSTART §1.5 "무에서 시작" 추가로 문서 공백 해소.
+- **⭐ 정직한 경계**: init 대문 커밋은 빈 저장소에서만 — 기존 프로젝트엔 CLAUDE.md 를 자동으로 안 넣는다(존중). 배포판에서 다른 사용자가 자기 프로젝트에 gil init 하면 글로벌·존재만 심고 그들의 커밋은 안 건드린다. dev 라 smoke.
+- **⭐⭐ 다음 세션 순서**: 1) **뷰어 orphan 실작업**(원래 트랙, git checkout --orphan viewer) — 이제 gil init·gil memory 로 세팅·기억이 안전하니 뷰어를 제로부터 gil 사이클로. 현재위치 인디케이터부터. 2) LLM-프롬프트 출력 원칙을 gil 나머지 명령(open/step/close/chain-merge/handoff 에러)에도 마저 적용(감사 후보). 3) 뷰어 익으면 chain-merge. **부활: gil init=무에서 세팅(대문+글로벌+방), 출력은 LLM 프롬프트(STATE/NEXT), 존재 갱신은 gil memory append. gil=Go, 개발=평범 커밋, 검증=example(30테스트), 실작업만 사이클(orphan). 기억은 refs/gil/global.**
