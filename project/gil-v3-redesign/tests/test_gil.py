@@ -16,13 +16,16 @@ import tempfile
 import shutil
 import unittest
 
-GIL = os.path.join(os.path.dirname(__file__), "..", "source", "gil.py")
-GIL = os.path.abspath(GIL)
-
-# GIL_BIN 환경변수로 다른 구현(예: Go 바이너리)을 물려 같은 17테스트로 동치 검증한다.
-# 없으면 참조 구현(Python gil.py)을 python3로 실행. 동치 검증: GIL_BIN=<go바이너리>.
-GIL_BIN = os.environ.get("GIL_BIN")
-GIL_CMD = [GIL_BIN] if GIL_BIN else ["python3", GIL]
+# gil 은 Go 단일 바이너리가 유일 구현이다(Python 참조 은퇴, 2026-07-24 상현님).
+# 기본은 빌드된 Go 바이너리. GIL_BIN 으로 다른 경로를 물릴 수 있다.
+_DEFAULT_BIN = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "go", "gil"))
+GIL_BIN = os.environ.get("GIL_BIN", _DEFAULT_BIN)
+if not os.path.exists(GIL_BIN):
+    raise SystemExit(
+        f"gil 바이너리 없음: {GIL_BIN}\n"
+        "먼저 빌드하라: (cd project/gil-v3-redesign/go && go build -o gil .)")
+GIL_CMD = [GIL_BIN]
 
 
 class GilFixture(unittest.TestCase):
@@ -63,6 +66,14 @@ class GilFixture(unittest.TestCase):
 
     def subject(self, ref="HEAD"):
         return self._git("log", "-1", ref, "--format=%s").stdout.strip()
+
+    def branches(self):
+        """로컬 브랜치 이름 집합."""
+        r = self._git("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+        return set(r.stdout.split())
+
+    def head_branch(self):
+        return self._git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
 
 
 class TestChain(GilFixture):
@@ -379,6 +390,68 @@ class TestMemory(GilFixture):
         r = self.gil("memory", "append", "sheen", "_knot")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("## first", self.gil("memory", "read", "sheen").stdout)
+
+
+class TestBranching(GilFixture):
+    """분기는 진짜 git 브랜치로 표현된다 (SPEC 원칙 3, 2026-07-24 상현님).
+
+    체인=브랜치 <chain>, 사이클=<chain>-<cycle>, 형제 가지=<chain>-<cycle>-<to>b<n>.
+    backtrack 은 죽은 잎을 현 가지에 박고, 이어지는 hypothesis --to 가 실제 git 분기를 만든다.
+    """
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "greenhouse", "--purpose", "테스트")
+        self.gil("open", "greenhouse/c001", "--author", "clew", "--purpose", "베이스라인")
+
+    def test_chain_creates_branch(self):
+        self.gil("init", "--name", "clew")
+        r = self.gil("chain", "greenhouse", "--purpose", "P")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("greenhouse", self.branches())
+        self.assertEqual(self.head_branch(), "greenhouse")
+
+    def test_open_creates_cycle_branch(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "greenhouse", "--purpose", "P")
+        r = self.gil("open", "greenhouse/c001", "--author", "clew", "--purpose", "Q")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("greenhouse-c001", self.branches())
+        self.assertEqual(self.head_branch(), "greenhouse-c001")
+
+    def test_sibling_branch_is_real_git_fork(self):
+        """hypothesis --to 는 그 define 커밋에서 실제 git 브랜치를 분기한다."""
+        self._seed()
+        self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--title", "가설 A")
+        self.gil("step", "greenhouse/c001", "--kind", "verify", "--title", "검증 A")
+        self.gil("step", "greenhouse/c001", "--kind", "analyze",
+                 "--outcome", "backtrack", "--to", "s1", "--title", "벽")
+        r = self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--to", "s1", "--title", "가설 B")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 형제 가지 브랜치가 생겼다.
+        self.assertIn("greenhouse-c001-s1b1", self.branches())
+        # 그 브랜치는 s1 define 을 조상으로 갖되, 죽은 가지(s4 벽)는 조상이 아니다.
+        s1 = self._git("log", "--all", "--format=%H %s").stdout
+        # s5(가설 B) 커밋과 s4(벽) 커밋을 찾는다.
+        def sha_of(marker):
+            for ln in s1.splitlines():
+                if marker in ln:
+                    return ln.split()[0]
+            return None
+        s5, s4 = sha_of("가설 B"), sha_of("벽")
+        self.assertTrue(s5 and s4)
+        # s4(벽)는 s5(형제 가지)의 조상이 아니다 — 진짜로 갈라졌다.
+        anc = self._git("merge-base", "--is-ancestor", s4, s5)
+        self.assertNotEqual(anc.returncode, 0, "형제 가지가 죽은 가지를 조상으로 가지면 안 됨")
+
+    def test_backtrack_dead_leaf_stays_on_cycle_branch(self):
+        """backtrack analyze(죽은 잎)는 새 브랜치를 만들지 않고 현 사이클 가지에 박힌다."""
+        self._seed()
+        self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--title", "가설 A")
+        before = self.branches()
+        self.gil("step", "greenhouse/c001", "--kind", "analyze",
+                 "--outcome", "backtrack", "--to", "s1", "--title", "벽")
+        self.assertEqual(self.branches(), before, "backtrack 은 브랜치를 새로 만들지 않는다")
 
 
 if __name__ == "__main__":

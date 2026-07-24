@@ -11,8 +11,41 @@ import (
 	"strings"
 )
 
-// commit — 제목+본문+Gil-* 트레일러로 커밋 하나를 새긴다. 참조: _commit.
+// 브랜치 네이밍 (D/F 충돌 회피: 슬래시 대신 하이픈). 위상은 git 브랜치, 의미는 트레일러.
+//   체인       = <chain>
+//   사이클     = <chain>-<cycle>
+//   스텝 가지  = <chain>-<cycle>-<to>b<n>  (형제/backtrack 분기 시에만)
+func cycleBranch(chain, cycle string) string { return chain + "-" + cycle }
+func stepBranch(chain, cycle, to string, n int) string {
+	return chain + "-" + cycle + "-" + to + "b" + strconv.Itoa(n)
+}
+
+// commit — 현재 HEAD 위에 커밋 하나를 새긴다(브랜치 이동 없음). 참조: _commit.
 func commit(subject, body string, trailers [][2]string, allowEmpty bool) {
+	commitOn("", "", subject, body, trailers, allowEmpty)
+}
+
+// commitOn — 지정한 브랜치 위에 커밋한다. 분기는 진짜 git 브랜치로(상현님, SPEC 원칙 3).
+//   branch=="" : 현재 HEAD 에 커밋(브랜치 이동 없음).
+//   createFrom!="" : createFrom 커밋/브랜치에서 새 브랜치 branch 를 파고(checkout -b) 커밋.
+//   createFrom=="" && branch!="" : 기존 브랜치 branch 로 checkout 후 커밋(이어가기).
+// git 브랜치가 위상의 진실원, Gil-* 트레일러가 의미의 진실원 — 한 커밋에 둘 다 실린다.
+func commitOn(branch, createFrom, subject, body string, trailers [][2]string, allowEmpty bool) {
+	if branch != "" {
+		if createFrom != "" {
+			if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+branch) {
+				die("거부: 브랜치 " + branch + " 이미 있음 (분기 지점 중복)")
+			}
+			// 커밋이 하나도 없는 빈 저장소면 HEAD(createFrom)가 없다 — 시작점 없이 브랜치만 만든다.
+			if gitOK("rev-parse", "--verify", "-q", createFrom) {
+				git("checkout", "-q", "-b", branch, createFrom)
+			} else {
+				git("checkout", "-q", "-b", branch)
+			}
+		} else if cur, _ := gitTry("rev-parse", "--abbrev-ref", "HEAD"); strings.TrimSpace(cur) != branch {
+			git("checkout", "-q", branch)
+		}
+	}
 	msg := subject + "\n\n" + strings.TrimRight(body, "\n \t") + "\n\n"
 	var trs []string
 	for _, t := range trailers {
@@ -116,8 +149,10 @@ func cmdOpen(args []string) {
 	for _, par := range *parents {
 		tr = append(tr, [2]string{"Gil-Cycle-Parent", par})
 	}
-	commit(subject, body, tr, true)
-	println2("open: " + ref + "/s1 define")
+	// 사이클 = 체인 안의 git 가지. 현재 위치(체인 팁/닫힌 사이클 끝)에서 분기.
+	cb := cycleBranch(chain, cycle)
+	commitOn(cb, "HEAD", subject, body, tr, true)
+	println2("open: " + ref + "/s1 define (브랜치 " + cb + ")")
 }
 
 // ── gil step ──
@@ -164,8 +199,15 @@ func cmdStep(args []string) {
 		}
 	}
 
+	// stepSHA — 이 사이클에서 특정 스텝 id 의 커밋 sha(형제 가지 분기 지점).
+	stepSHA := map[string]string{}
+	for _, s := range steps {
+		stepSHA[s.step] = s.sha
+	}
+
 	var parent string
 	var mergeRest []string
+	var branch, createFrom string // 분기할 때만 채움(진짜 git 브랜치)
 	switch {
 	case len(*merge) > 0:
 		// 스텝 머지: 한 사이클 안 산 잎들을 합류(역순 머지 맨 아래). 완성만 대상.
@@ -177,11 +219,18 @@ func cmdStep(args []string) {
 		parent = (*merge)[0]
 		mergeRest = (*merge)[1:]
 	case *kind == "hypothesis" && *to != "":
-		// 되돌아가 새 형제 가지
+		// 되돌아가 새 형제 가지 — 조상 define 커밋에서 진짜 git 브랜치를 분기.
 		if !defineIDs[*to] {
 			die("거부: --to " + *to + "는 조상 define이어야 함")
 		}
 		parent = *to
+		// 그 define 에서 이미 몇 개의 형제 가지가 났는지 세어 유일한 이름을 만든다.
+		n := 1
+		for gitOK("rev-parse", "--verify", "-q", "refs/heads/"+stepBranch(chain, cycle, *to, n)) {
+			n++
+		}
+		branch = stepBranch(chain, cycle, *to, n)
+		createFrom = stepSHA[*to]
 	case *outcome == "backtrack":
 		if *to == "" {
 			die("거부: backtrack은 --to <조상 define> 필요 (되돌아갈 곳)")
@@ -189,7 +238,7 @@ func cmdStep(args []string) {
 		if !defineIDs[*to] {
 			die("거부: --to " + *to + "는 조상 define이어야 함")
 		}
-		parent = orNull(tipID)
+		parent = orNull(tipID) // 죽은 잎은 현재 가지 tip 에 그대로 박는다(벽의 지도)
 	default:
 		parent = orNull(tipID)
 	}
@@ -217,7 +266,8 @@ func cmdStep(args []string) {
 	for _, m := range mergeRest {
 		tr = append(tr, [2]string{"Gil-Merge", m})
 	}
-	commit(subject, stBody, tr, true)
+	// 형제 가지면 새 브랜치 분기(createFrom), 아니면 현재 사이클 가지에 이어서.
+	commitOn(branch, createFrom, subject, stBody, tr, true)
 
 	tail := ""
 	switch {
@@ -283,6 +333,9 @@ func cmdChain(args []string) {
 	if chainPurpose(name, "HEAD") != "" {
 		die("거부: 체인 \"" + name + "\" 이미 목적 선언됨 (chain은 새 체인만)")
 	}
+	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+name) {
+		die("거부: 브랜치 " + name + " 이미 있음 (체인은 새 브랜치만)")
+	}
 	subject := "gil " + name + " chain: " + *purpose
 	body := "체인 [" + name + "] 개설. 목적: " + *purpose + "\n\n" +
 		"이 목적은 이후 사이클·스텝 시작 때 떠올라, 그 작업이 이 체인에 정합하는지 판단하는 근거가 된다."
@@ -290,8 +343,9 @@ func cmdChain(args []string) {
 		{"Gil-Chain", name}, {"Gil-Kind", "chain-root"},
 		{"Gil-Chain-Purpose", *purpose},
 	}
-	commit(subject, body, tr, true)
-	println2("chain: " + name + " 개설 — 목적: " + *purpose)
+	// 체인 = git 브랜치. 현재 위치(대문/닫힌 체인 끝)에서 분기해 대문을 이어받는다(orphan 아님).
+	commitOn(name, "HEAD", subject, body, tr, true)
+	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
 }
 
 // ── gil chain-merge ──
