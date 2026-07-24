@@ -553,6 +553,25 @@ class TestTerminalSteps(GilFixture):
         self.assertIn("RMSE 0.4", body)
 
 
+class TestLogAll(GilFixture):
+    """gil log --all 은 죽은 가지(형제 가지 fail)까지 보여준다 — 벽의 지도 (2026-07-24)."""
+
+    def test_log_all_shows_dead_branch(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "gh", "--purpose", "P")
+        self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "HA")
+        self.gil("step", "gh/c001", "--kind", "analyze", "--title", "AA")
+        self.gil("step", "gh/c001", "--kind", "fail", "--to", "s1", "--title", "죽은 잎")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--to", "s1", "--title", "HB")
+        # 기본 log: HEAD 계보라 죽은 가지(s2~s3, fail)가 안 보인다.
+        base = self.gil("log", "gh").stdout
+        self.assertNotIn("[fail]", base)
+        # --all: 죽은 가지도 보인다.
+        allout = self.gil("log", "--all", "gh").stdout
+        self.assertIn("[fail]", allout)
+
+
 class TestLiveTip(GilFixture):
     """handoff 팁 선정: 다중 브랜치에서 죽은 잎을 팁으로 잡지 않는다 (2026-07-24)."""
 

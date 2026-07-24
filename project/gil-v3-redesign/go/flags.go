@@ -11,10 +11,11 @@ type flagSet struct {
 	prog  string
 	strs  map[string]*string
 	lists map[string]*[]string
+	bools map[string]*bool
 }
 
 func newFlags(prog string) *flagSet {
-	return &flagSet{prog: prog, strs: map[string]*string{}, lists: map[string]*[]string{}}
+	return &flagSet{prog: prog, strs: map[string]*string{}, lists: map[string]*[]string{}, bools: map[string]*bool{}}
 }
 
 // str 은 --name value 단일값 플래그를 등록한다.
@@ -22,6 +23,13 @@ func (f *flagSet) str(name, def string) *string {
 	v := def
 	f.strs[name] = &v
 	return f.strs[name]
+}
+
+// boolFlag 는 값 없는 스위치(--name)를 등록한다 — 다음 토큰을 값으로 삼지 않는다.
+func (f *flagSet) boolFlag(name string) *bool {
+	v := false
+	f.bools[name] = &v
+	return f.bools[name]
 }
 
 // strList 는 --name value 를 여러 번 받는 반복 플래그를 등록한다(argparse append).
@@ -43,6 +51,11 @@ func (f *flagSet) parse(args []string) []string {
 				val := name[eq+1:]
 				name = name[:eq]
 				f.assign(name, val)
+				continue
+			}
+			// bool 스위치: 값을 소비하지 않는다.
+			if p, ok := f.bools[name]; ok {
+				*p = true
 				continue
 			}
 			// --key value: 다음 토큰을 값으로

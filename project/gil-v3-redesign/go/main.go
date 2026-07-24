@@ -76,7 +76,7 @@ func printUsage() {
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
   gil close <chain>/<cycle> --verdict <v>               사이클 닫기
   gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)
-  gil log [<chain>]               노드(스텝) 나열
+  gil log [<chain>] [--all]       노드(스텝) 나열. --all: 죽은 가지까지 모두(벽의 지도)
   gil fsck [<range>]              그래프 건강 검사
 
 자세히: gil global read gil-init-spec.md, QUICKSTART.md`)
@@ -84,11 +84,19 @@ func printUsage() {
 
 // ── gil log ──
 func cmdLog(args []string) {
+	fs := newFlags("gil log")
+	all := fs.boolFlag("all") // 모든 가지(죽은 잎 형제 가지 포함) — 벽의 지도
+	pos := fs.parse(args)
 	var ch string
-	if len(args) > 0 {
-		ch = args[0]
+	if len(pos) > 0 {
+		ch = pos[0]
 	}
-	nodes := collectNodes("HEAD")
+	// 기본은 HEAD 계보. --all 이면 모든 브랜치(죽은 가지도) — gil log 에서 벽의 지도를 본다.
+	rng := "HEAD"
+	if *all {
+		rng = "--branches"
+	}
+	nodes := collectNodes(rng)
 	// collectNodes는 새→old. 트리 순서(old→new)로 출력.
 	for i := len(nodes) - 1; i >= 0; i-- {
 		n := nodes[i]
