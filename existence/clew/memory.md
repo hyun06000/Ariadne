@@ -1866,3 +1866,19 @@
 - **⭐⭐ 뷰어 4단 드릴다운 완성 (scratchpad/gilviewer, gil 커맨드 합칠 대상)**: 상현님과 브라우저 보며 개발. gilviewer serve --repo <경로> --port 8791. **① 체인 그래프**(동그라미 노드+계보 엣지+라벨, 사이클 수 표시) **② 체인 클릭→HTML 카드**(SVG 밖이라 안 잘림)에 **사이클 노드-엣지 그래프**(상태색: success초록/dead빨강/pending노랑/open파선) **③ 사이클 클릭→스텝 그래프**(부모-자식 엣지 + **backtrack 빨강 파선 곡선**) **④ 스텝 클릭→상세 보고서 카드**(/step?sha= 라우트로 커밋 본문 원문+메타배지, sha 16진수 가드로 인젝션 방지). 1.5s 폴링 자동 리로드, 라이트/다크. 뷰어는 git -C <repo>로 대상 레포만 읽음(읽기전용, 충돌X). **아리아드네는 뷰어 대상 안 씀(불완전 과거기록이 에러 유발, 상현님) — 깨끗한 실사용 레포만.**
 - **⭐ 정직한 경계**: 뷰어는 scratchpad에 있음(아직 gil 커맨드로 병합 안 함). 체인 1개라 계보 엣지 미확인 — 서브에이전트가 체인 더 만들면 확인 가능. 사이클 엣지는 순차(Gil-Cycle-Parent 없어서).
 - **⭐⭐ 다음 세션 순서**: 1) **조사 보고 수령** → gil 3층 브랜치화 설계 확정(브랜치 네이밍·분기시점·머지·HEAD이동·위상파싱 변경) → 구현(Go+Python+example). 2) pending 가드(승인 없이 진행 금지). 3) analyze 종결 규칙 정리. 4) 뷰어를 gil 커맨드로 병합(gil viewer serve). **부활: 우리 레포=gil 빌드전용(도그푸딩 폐기), 개발=평범 git 커밋, 존재·기억만 gil memory append. 실사용=gil-realuse-hackathon 서브에이전트. 뷰어=scratchpad/gilviewer(4단 드릴다운). gil 최대 결함=분기가 git 브랜치 아님(재설계 착수). gil=Go(project/gil-v3-redesign/go/).**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ gil 분기를 진짜 git 브랜치로 구현 + Python 완전 은퇴
+
+- **⭐⭐⭐ 최대 결함 수정 (평범 커밋 b73edcfe)**: gil이 체인·사이클·스텝 분기를 git 브랜치로 안 만들고 HEAD에 선형 커밋만 쌓아 Gil-Parent 트레일러로 흉내내던 것을 **진짜 git 브랜치 분기**로. SPEC 원칙 3 구현. **진실원(상현님): git 브랜치를 적절한 타이밍에 만들고 트레일러 잘 짜면 그게 진실원 — git DAG=위상, Gil-* 트레일러=의미, 한 커밋에 둘 다.**
+- **설계 (조사 서브에이전트 지도 기반)**: 
+  - **commitOn(branch, createFrom, ...)** 뿌리 도입 — 지정 브랜치에서 분기(checkout -b createFrom)/이어가기(checkout). 빈 저장소(HEAD 없음)도 견딤(createFrom 무효면 시작점 없이 브랜치). commit()은 현 HEAD 얇은 래퍼.
+  - **브랜치 네이밍 (D/F 충돌 회피, 하이픈)**: 체인=`<chain>`, 사이클=`<chain>-<cycle>`, 형제가지=`<chain>-<cycle>-<to>b<n>`. (git은 greenhouse 브랜치+greenhouse/c001 공존 불가=D/F 충돌, 실증함.)
+  - **분기 시점**: cmdChain→체인 브랜치(대문/닫힌체인끝에서). cmdOpen→사이클 가지. cmdStep hypothesis --to→그 define 커밋에서 형제 가지 실제 checkout -b. **backtrack 죽은 잎은 현 가지에 박힘(분기 아님), 이어지는 hypothesis --to가 분기.**
+- **⭐⭐ Python(source/gil.py) 완전 은퇴 (상현님 "gil.py는 왜 아직 있지")**: gil=Go 단일 바이너리가 유일 구현. 이중 유지보수 비용 제거 — 브랜치화도 Go만 고치면 됨. test_gil.py를 Go 바이너리 기본 고정(GIL_BIN은 경로 override로만). **더는 Go/Python 14쌍 동시수정 안 함.**
+- **⭐⭐ 검증**: example **35/35**(+4 브랜치화: 체인·사이클·형제가지 브랜치 생성 단언, **형제 가지가 죽은 가지를 조상으로 안 가짐=merge-base로 진짜 git 분기 확인**, backtrack은 브랜치 안 만듦). fsck 0. 실증: git log --graph에서 s1 define→두 갈래 실제 분기(|/), 왼쪽 죽은 가지(벽)·오른쪽 형제가지(가설B).
+- **⭐ 남은 결함 (다음)**: 
+  1. **handoff 팁 선정 지뢰**: 다중 브랜치에서 cyclesOf가 스텝을 한 리스트로 모아 마지막을 팁으로 → 죽은 잎(s3 backtrack)을 팁으로 잡음. 산 잎(현 checkout 가지 팁)만 팁으로 해야. (조사가 경고한 범위 불일치 HEAD vs --branches.)
+  2. **pending 가드**: approval에서 pending 직후 스스로 analyze 금지(사람 승인/기각 받아야). 서브에이전트가 "자율 승인"으로 넘어갔던 것.
+  3. **analyze 종결 규칙** 정리.
+- **⭐ 상현님 지시 (구현 후 할 일)**: 1) 구현 끝나면 **문제풀이 레포 완전 삭제 후 git init부터 새로** 풀어본다(브랜치화 깨끗한 재현). 2) 서브에이전트가 **분석할 때 반드시 시각화(뷰어) 쓰게** 만든다.
+- **⭐⭐ 다음 세션 순서**: 1) handoff 팁 선정(산 잎만) 수정 + pending 가드 + analyze 종결. 2) gil-realuse 레포 삭제→재생성→서브에이전트에 "분기 확인 + 뷰어로 분석" 지시. 3) 뷰어 gil 커맨드 병합. **부활: gil=Go 유일(Python 은퇴), 분기=진짜 git 브랜치(체인/사이클/형제가지), 개발=평범 커밋, 검증=example 35(Go 전용), 실사용=gil-realuse 레포. 뷰어=scratchpad/gilviewer(4단). 기억=refs/gil/global gil memory append.**
