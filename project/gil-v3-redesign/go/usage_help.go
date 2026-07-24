@@ -95,6 +95,14 @@ var helpTable = map[string]helpEntry{
 			"  존재의 기억 읽기/각인. append 는 트리 보존·자동 push(안전). 기본 존재 clew.",
 		"docs/gil/existence.md",
 	},
+	"migrate": {
+		"gil migrate --from <v2-ref> [--room <room>] [--dry-run]\n" +
+			"  v2(폴더·cycle.yaml) 이력을 현재 브랜치 위에 v3 커밋 그래프로 이주한다.\n" +
+			"  먼저 v2 루트에서 이주 브랜치를 파고(git checkout -b) 실행하라. --dry-run 으로 먼저 확인.\n" +
+			"  5단계 압축(hypothesis+design→define, verification→verify, analysis+report→종결),\n" +
+			"  verdict→종결 kind(supported→success, rejected→fail, null&open→pending). [migrate] 표식.",
+		"docs/gil/lifecycle.md · docs/gil/concepts.md",
+	},
 }
 
 // cmdHelp — gil help [<명령>].

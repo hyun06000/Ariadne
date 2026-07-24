@@ -712,5 +712,146 @@ class TestLiveTip(GilFixture):
         self.assertNotIn("팁: s3", out)
 
 
+class TestMigrate(GilFixture):
+    """gil migrate — v2(폴더·cycle.yaml) 이력을 v3 커밋 그래프로 이주 (2026-07-24, 상현님).
+
+    도구 레벨·범용: 격리 fixture 에 미니 v2 rooms 트리를 심고 migrate → v3 그래프 단언.
+    매핑 확정: 5단계 압축(hypothesis+design→define, verification→verify,
+    analysis+report+verdict→종결), verdict→종결 kind(supported/success→success,
+    rejected→fail, null&open→pending, verdict없음&closed→success)."""
+
+    def _write(self, relpath, content):
+        """중첩 경로에 파일 하나 쓴다(디렉토리 생성). 커밋은 별도."""
+        full = os.path.join(self.repo, relpath)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as f:
+            f.write(content)
+
+    def _v2cycle(self, chain, cid, **fields):
+        """미니 v2 cycle.yaml 을 rooms/experiment/chains/<chain>/<cid>/ 에 심는다."""
+        lines = [f"id: {cid}", f"chain: {chain}"]
+        for k, v in fields.items():
+            lines.append(f"{k}: {v}")
+        path = f"rooms/experiment/chains/{chain}/{cid}/cycle.yaml"
+        self._write(path, "\n".join(lines) + "\n")
+
+    def _seed_v2(self):
+        """대문 + 여러 케이스의 v2 사이클을 심고 하나의 v2 커밋으로 봉인 → ref 'v2root'."""
+        self._write("CLAUDE.md", "# 대문\n")  # orphan 아님 — 이어받을 대문
+        # 정상 성공(supported), parent 체인
+        self._v2cycle("alpha", "C001-seed", parent="null",
+                      status="closed", verdict="supported", title="첫 사이클")
+        self._v2cycle("alpha", "C002-grow", parent="C001-seed",
+                      status="closed", verdict="supported", title="둘째 사이클")
+        # verdict 없음 + closed → success
+        self._v2cycle("alpha", "C003-quiet", parent="C002-grow",
+                      status="closed", title="verdict 없는 닫힌 사이클")
+        # rejected → fail
+        self._v2cycle("beta", "C001-wall", parent="null",
+                      status="closed", verdict="rejected", title="기각된 가설")
+        # null verdict + open → pending
+        self._v2cycle("beta", "C002-waiting", parent="null",
+                      status="open", verdict="null", title="사람 대기")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "v2 seed")
+        return self._git("rev-parse", "HEAD").stdout.strip()
+
+    def _migrate(self):
+        v2root = self._seed_v2()
+        # v2 루트에서 이주 브랜치를 파고(대문 이어받음) migrate.
+        self._git("checkout", "-q", "-b", "v3-migration")
+        return self.gil("migrate", "--from", v2root)
+
+    def test_dry_run_counts_and_kinds(self):
+        v2root = self._seed_v2()
+        out = self.gil("migrate", "--from", v2root, "--dry-run")
+        self.assertEqual(out.returncode, 0)
+        # 실사이클 5개, 체인 2개.
+        self.assertIn("실사이클 5개", out.stderr)
+        self.assertIn("체인 2개", out.stderr)
+        # verdict → 종결 kind 매핑.
+        self.assertRegex(out.stderr, r"c001-seed .*→ success")
+        self.assertRegex(out.stderr, r"c003-quiet .*→ success")   # verdict 없음+closed
+        self.assertRegex(out.stderr, r"c001-wall .*→ fail")       # rejected
+        self.assertRegex(out.stderr, r"c002-waiting .*→ pending") # null+open
+        # dry-run 은 커밋하지 않는다.
+        self.assertIn("커밋하지 않음", out.stderr)
+
+    def test_migrate_creates_v3_graph(self):
+        r = self._migrate()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("5 사이클을 v3 그래프로 이주", r.stderr)
+        # 체인 = git 브랜치.
+        br = self.branches()
+        self.assertIn("alpha", br)
+        self.assertIn("beta", br)
+        self.assertIn("alpha-c001-seed", br)  # 사이클 = 체인 안 가지
+
+    def test_migrate_marks_migrate_trailer(self):
+        self._migrate()
+        # 체인 루트에 Gil-Migrate: chain, Gil-Migrated-From.
+        self.assertEqual(self.trailer("alpha", "Gil-Migrate"), "chain")
+        self.assertEqual(self.trailer("alpha", "Gil-Migrated-From"), "alpha")
+        # 사이클 define 에 Gil-Migrate: cycle + 원본 id.
+        self.assertEqual(self.trailer("alpha-c001-seed", "Gil-Kind"), "close")  # 팁=close
+        # subject 에 [migrate] 표식.
+        self.assertIn("[migrate]", self.subject("alpha"))
+
+    def test_verdict_to_closure_kind(self):
+        self._migrate()
+        # rejected → fail 스텝(죽은 잎), close 없음.
+        beta_wall_s3 = self._git(
+            "log", "--all", "--format=%H %s",
+        ).stdout
+        self.assertIn("beta/c001-wall/s3 fail", beta_wall_s3)
+        # null+open → pending 스텝, close 없음.
+        self.assertIn("beta/c002-waiting/s3 pending", beta_wall_s3)
+        # supported → success 스텝 + close.
+        self.assertIn("alpha/c001-seed/s3 success", beta_wall_s3)
+        self.assertIn("alpha/c001-seed close", beta_wall_s3)
+
+    def test_migrate_preserves_cycle_count(self):
+        self._migrate()
+        # 이주된 사이클(cycle 트레일러) 수 = v2 실사이클 수(5).
+        out = self._git("log", "--all",
+                        "--format=%(trailers:key=Gil-Migrate,valueonly)").stdout
+        cycle_roots = [l for l in out.splitlines() if l.strip() == "cycle"]
+        self.assertEqual(len(cycle_roots), 5)
+
+    def test_migrate_no_new_fsck_violations(self):
+        """이주 그래프 자체는 fsck 무결(격리 fixture 는 기존 오염 없음)."""
+        self._migrate()
+        out = self.gil("fsck", "--all")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("위반 0", out.stdout)  # 건강 — 위반 0건
+
+    def test_migrate_rejects_missing_from(self):
+        out = self.gil("migrate")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("--from", out.stderr)
+
+    def test_migrate_lineage_preserved(self):
+        # 교훈계승(lineage)이 Gil-Cycle-Lineage 트레일러로 이주되는가.
+        self._write("CLAUDE.md", "# 대문\n")
+        self._v2cycle("alpha", "C001-seed", parent="null",
+                      status="closed", verdict="supported", title="첫")
+        self._v2cycle("beta", "C001-sprout", parent="null",
+                      status="closed", verdict="supported", title="계승",
+                      lineage="[alpha/C001-seed]")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "v2 seed")
+        v2root = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("checkout", "-q", "-b", "v3-migration")
+        self.gil("migrate", "--from", v2root)
+        # 계승은 s1 define 커밋에 실린다(브랜치 팁=close 아님). define 커밋을 찾아 읽는다.
+        define_sha = self._git(
+            "log", "beta-c001-sprout", "--format=%H %s",
+        ).stdout
+        s1 = [l.split()[0] for l in define_sha.splitlines()
+              if "/s1 define" in l][0]
+        self.assertEqual(
+            self.trailer(s1, "Gil-Cycle-Lineage"), "alpha/C001-seed")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

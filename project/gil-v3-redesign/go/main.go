@@ -61,8 +61,10 @@ func main() {
 		cmdMemory(rest)
 	case "handoff":
 		cmdHandoff(rest)
+	case "migrate":
+		cmdMigrate(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close approve reject log fsck global memory handoff]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close approve reject log fsck global memory handoff migrate]")
 	}
 }
 
@@ -91,6 +93,9 @@ func printUsage() {
   gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)
   gil log [<chain>] [--all]       노드(스텝) 나열. --all: 죽은 가지까지 모두(벽의 지도)
   gil fsck [<range>]              그래프 건강 검사
+
+v2 이주:
+  gil migrate --from <v2-ref> [--dry-run]   v2(폴더·cycle.yaml) 이력 → v3 커밋 그래프
 
 한 명령의 자세한 사용법: gil help <명령>  (예: gil help step)
 
