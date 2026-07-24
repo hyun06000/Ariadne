@@ -1882,3 +1882,17 @@
   3. **analyze 종결 규칙** 정리.
 - **⭐ 상현님 지시 (구현 후 할 일)**: 1) 구현 끝나면 **문제풀이 레포 완전 삭제 후 git init부터 새로** 풀어본다(브랜치화 깨끗한 재현). 2) 서브에이전트가 **분석할 때 반드시 시각화(뷰어) 쓰게** 만든다.
 - **⭐⭐ 다음 세션 순서**: 1) handoff 팁 선정(산 잎만) 수정 + pending 가드 + analyze 종결. 2) gil-realuse 레포 삭제→재생성→서브에이전트에 "분기 확인 + 뷰어로 분석" 지시. 3) 뷰어 gil 커맨드 병합. **부활: gil=Go 유일(Python 은퇴), 분기=진짜 git 브랜치(체인/사이클/형제가지), 개발=평범 커밋, 검증=example 35(Go 전용), 실사용=gil-realuse 레포. 뷰어=scratchpad/gilviewer(4단). 기억=refs/gil/global gil memory append.**
+
+## 2026-07-24 (이어서) — ⭐⭐ handoff 팁 선정 + pending 가드 완성 + 실사용 2차 착수
+
+- **⭐ 1번 완료 (평범 커밋 eb395800) — 실사용이 드러낸 결함 2개 수정**:
+  1. **handoff 팁 선정 (죽은 잎 문제)**: 다중 브랜치(형제 가지)에서 사이클 스텝을 한 리스트로 모아 마지막을 팁으로 잡아 죽은 잎(analyze/backtrack)을 팁으로 표시. **cycleAgg.liveTip()** 신설 — 잎(자식 없는 스텝) 중 죽은 잎 아닌 최신을 팁으로. 이제 산 형제 가지를 가리킴.
+  2. **pending 가드 (상현님, 승인/기각 명시 스텝 강제)**: pending 뒤에 사람의 명시적 승인/기각만 허용. 서브에이전트가 pending 직후 스스로 analyze/success("자율 승인")로 넘어가던 것을 구조로 차단.
+     - cmdStep: 팁이 pending이면 일반 step 거부 → approve/reject 안내.
+     - **gil approve <ref>**: 사람 승인 = 산 잎(analyze/success, Gil-Approval: approved).
+     - **gil reject <ref> --to <define>**: 사람 기각 = 죽은 잎(backtrack, Gil-Approval: rejected).
+     - handoff nextAllowed(pending)가 approve/reject 안내.
+  - 검증: example **40/40**(+5). fsck 0.
+- **⭐⭐ 2번 착수 — 실사용 2차 (분기·뷰어·pending 검증)**: gil-realuse-hackathon 레포 **완전 삭제→재생성**(최신 gil 바이너리=브랜치화+pending 가드, ToSolve 문제+QUICKSTART 동봉, git init 전 깨끗). **뷰어 서버 미리 띄움**(scratchpad/gilviewer serve --repo <레포> --port 8791, 브라우저 열림 — 서브에이전트 작업이 실시간 그려짐). **서브에이전트 파견**(백그라운드): gil init부터, 상현님 지시 3개 강제 — (A) 분석할 때 반드시 시각화/그래프 확인, (B) 분기가 진짜 git 브랜치로 나는지 확인(체인·사이클·형제가지 브랜치, git log --all --graph 갈래), (C) pending 가드 겪기(approve/reject). **결과 대기 중.**
+- **⭐ 정직한 경계**: reject 후 handoff 사이클 status가 "pending"으로 뜸(cyclesOf가 pending 스텝 존재만 봄) — 팁·다음허용은 정확하니 표시상 사소, 나중 정리. analyze 종결은 이미 outcome 필수+pending 가드로 대부분 강제.
+- **⭐⭐ 다음 세션 순서**: 1) **서브에이전트 2차 보고 수령** → 브랜치화·뷰어·pending 실사용 검증, 새 이슈 gil 평범수정+example. 2) **3번: 뷰어를 gil 커맨드로 병합**(gil viewer serve — 뷰어가 새 브랜치 위상 잘 그리는지 확인 후). 3) cyclesOf status 정리. **부활: gil=Go 유일(Python 은퇴), 분기=진짜 git 브랜치, pending=approve/reject 강제, 팁=liveTip(산 잎), 개발=평범 커밋, 검증=example 40, 실사용=gil-realuse-hackathon+뷰어(scratchpad/gilviewer 4단). 기억=refs/gil/global gil memory append.**
