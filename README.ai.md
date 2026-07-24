@@ -54,9 +54,8 @@
 os=$(uname -s | tr '[:upper:]' '[:lower:]'); [ "$os" = darwin ] || os=linux
 arch=$(uname -m); case "$arch" in arm64|aarch64) arch=arm64;; *) arch=amd64;; esac
 sha() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
-# 이 문서(v3)에 맞는 빌드는 v3 프리릴리스다. GitHub의 latest 는 아직 안정판 v2 라,
-# v3 를 받으려면 rc 태그를 명시한다. (정식 v3.0.0 승격 후에는 latest/download 로 바꾼다.)
-base=https://github.com/hyun06000/Ariadne/releases/download/v3.0.0-rc1
+# v3.0.0 이 정식 릴리스(latest)다 — 설치는 latest/download 로 받는다.
+base=https://github.com/hyun06000/Ariadne/releases/latest/download
 curl -fsSL -O "$base/gil-${os}-${arch}"
 curl -fsSL -O "$base/SHA256SUMS"
 grep " gil-${os}-${arch}\$" SHA256SUMS | sha -c - && mv "gil-${os}-${arch}" gil && chmod +x gil
@@ -71,8 +70,8 @@ grep " gil-${os}-${arch}\$" SHA256SUMS | sha -c - && mv "gil-${os}-${arch}" gil 
 감지하고 PowerShell로, 같은 필수 체크섬 게이트를 써라(해시가 맞아야만 `gil.exe` 생성):
 
 ```powershell
-Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/download/v3.0.0-rc1/gil-windows-amd64.exe -OutFile gil-dl.exe
-Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/download/v3.0.0-rc1/SHA256SUMS -OutFile SHA256SUMS
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/gil-windows-amd64.exe -OutFile gil-dl.exe
+Invoke-WebRequest https://github.com/hyun06000/Ariadne/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
 $want = ((Select-String -Path SHA256SUMS -Pattern 'gil-windows-amd64\.exe$').Line -split '\s+')[0]
 $got  = (Get-FileHash gil-dl.exe -Algorithm SHA256).Hash.ToLower()
 if ($got -ne $want) { Remove-Item gil-dl.exe; throw "checksum mismatch — CDN이 따라잡게 ~60초 뒤 재시도; 절대 건너뛰지 말 것" }
