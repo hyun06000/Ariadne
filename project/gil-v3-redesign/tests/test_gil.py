@@ -888,5 +888,39 @@ class TestMigrate(GilFixture):
         self.assertIn("prefix", out.stderr)
 
 
+class TestGitMissing(GilFixture):
+    """git 실행파일이 PATH 에 없을 때 gil 이 친절히 안내하는가 (2026-07-24, 상현님 질문).
+
+    설치는 git 없이 되지만 gil *실행*은 git 이 필수다. git 없으면 Go 런타임의 날것 에러
+    대신 사람 언어(설치 안내)로 멈춰야 한다 — 출력은 LLM 프롬프트이므로 AI 가 곧장 사람에게
+    git 설치를 안내할 수 있게."""
+
+    def _run_without_git(self, *args):
+        """PATH 를 gil 바이너리가 든 디렉토리 하나로 좁혀 git 을 못 찾게 하고 실행."""
+        gil_dir = os.path.dirname(GIL_BIN)
+        env = dict(os.environ, GIL_NO_VIEWER="1", PATH=gil_dir)
+        return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
+                              capture_output=True, text=True, env=env)
+
+    def test_init_without_git_is_guided(self):
+        out = self._run_without_git("init", "--name", "clew")
+        self.assertEqual(out.returncode, 1)              # 실패로 멈춘다
+        self.assertIn("git", out.stderr)                 # git 이 원인임을 밝힌다
+        self.assertIn("git-scm.com", out.stderr)         # 설치처를 준다
+        self.assertNotIn("exec:", out.stderr)            # Go 날것 에러가 새 나오지 않는다
+
+    def test_lifecycle_command_without_git_is_guided(self):
+        out = self._run_without_git("chain", "demo", "--purpose", "P")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("git-scm.com", out.stderr)
+
+    def test_help_works_without_git(self):
+        # help 류는 git 이 필요 없다 — 안내가 아니라 실제 사용법이 나와야 한다.
+        out = self._run_without_git("help")
+        self.assertEqual(out.returncode, 0)
+        self.assertNotIn("git-scm.com", out.stdout)      # 설치 안내가 아니라 사용법
+        self.assertIn("gil", out.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

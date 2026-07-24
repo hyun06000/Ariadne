@@ -8,8 +8,24 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 )
+
+// requireGit — git 실행파일이 PATH 에 없으면 사람 언어로 안내하고 멈춘다. gil 은 위계 전체를
+// 진짜 git 브랜치·커밋으로 남기므로 git 없이는 아무 명령도 못 돈다. 이 출력은 LLM 에게 들어가는
+// 프롬프트다 — Go 런타임의 날것 에러("exec: git ... not found") 대신, AI 가 곧장 사람에게
+// "git 을 설치하라"고 안내할 수 있게 원인·해결을 콕 집어 준다.
+func requireGit() {
+	if _, err := exec.LookPath("git"); err != nil {
+		die("거부: git 실행파일을 찾을 수 없다 (PATH 에 git 없음).\n" +
+			"  gil 은 사고 이력을 진짜 git 브랜치·커밋으로 남기므로 git 이 반드시 필요하다.\n" +
+			"  사람에게 git 설치를 안내하라: https://git-scm.com/downloads\n" +
+			"    macOS: xcode-select --install (또는 brew install git)\n" +
+			"    Debian/Ubuntu: sudo apt-get install git   |   Fedora: sudo dnf install git\n" +
+			"  설치 뒤 같은 명령을 다시 실행하면 된다.")
+	}
+}
 
 func main() {
 	// 인자 없이 호출되면 사용법을 낸다 — 출력은 LLM 에게 들어가는 프롬프트이므로,
@@ -29,6 +45,11 @@ func main() {
 				return
 			}
 		}
+	}
+	// help 류는 git 없이도 답한다(무엇을 할 수 있는지 알려주는 순수 텍스트). 그 외 모든
+	// 명령은 git 을 실제로 부르므로, 여기서 git 존재를 먼저 확인해 친절히 안내한다.
+	if cmd != "help" && cmd != "-h" && cmd != "--help" {
+		requireGit()
 	}
 	switch cmd {
 	case "help", "-h", "--help":
