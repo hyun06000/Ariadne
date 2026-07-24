@@ -232,5 +232,24 @@ class TestFsck(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class TestHandoff(GilFixture):
+    def test_handoff_detects_pending_cycle(self):
+        """handoff는 체인명이 브랜치명과 달라도 열린 사이클·pending을 띄운다.
+
+        결함(참조·Go 공통, gil-v3-unified에서 잡음): cycles_of가 git log <chain>으로
+        체인 이름을 ref처럼 썼다 → 격리 저장소(브랜치=main, 체인=appr)에선 log가 실패해
+        사이클을 통째로 놓쳤다(handoff가 "열린 사이클 없음"만). --branches 범위에서
+        chain으로 필터링하도록 고쳐, ref 존재에 의존하지 않게 했다.
+        """
+        self.gil("chain", "appr", "--purpose", "승인 모드")
+        self.gil("open", "appr/c001", "--author", "clew", "--purpose", "승인 필요")
+        self.gil("step", "appr/c001", "--kind", "verify", "--title", "검증")
+        self.gil("step", "appr/c001", "--kind", "pending", "--title", "승인 요청")
+        r = self.gil("handoff")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("사이클 c001", r.stdout)
+        self.assertIn("PENDING", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

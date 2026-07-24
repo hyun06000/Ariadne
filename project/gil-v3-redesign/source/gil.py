@@ -681,38 +681,121 @@ def cmd_fsck(args):
     sys.exit(1)
 
 
-def cmd_web(args):
-    """gil web [-o out.html] [--live [--port P] [--interval S] [--no-open]]
+# ── 체인·사이클 집계 (handoff가 쓰는 순수 그래프 파싱) ─────────────────────
+# 옛 gilweb.py(뷰어)에 있던 파싱 함수를 여기로 이관했다 — 뷰어(web)는 gil로 짓는
+# 실작업이라 완전히 삭제됐고(gil-v3-unified), handoff가 자립하도록 렌더와 무관한
+# 파싱만 가져왔다. Go 구현(graph.go)과 동치.
 
-    -o     : 정적 자기완결 번들(file://로 열림). 지금까지의 동작.
-    --live : ThreadingHTTPServer + SSE. 커밋 그래프가 자라면 브라우저 자동 갱신.
-    (인자 없음): 정적 문서를 stdout으로.
+_IDX_KEYS = ["Gil-Chain", "Gil-Kind", "Gil-Mode", "Gil-Cycle-Parent", "Gil-Merge"]
+
+
+def _branches():
+    """로컬 브랜치 목록."""
+    out = _git("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+    return [b.strip() for b in out.splitlines() if b.strip()]
+
+
+def commit_index():
+    """단일 git log --branches로 모든 커밋의 subject·주요 트레일러를 인덱스."""
+    parts = ["%H", "%s"]
+    for k in _IDX_KEYS[:3]:
+        parts.append(f"%(trailers:key={k},valueonly)")
+    for k in _IDX_KEYS[3:]:
+        parts.append(f"%(trailers:key={k},valueonly,separator=%x00)")
+    fmt = _FSEP.join(parts) + _SEP
+    out = _git("log", "--branches", "--format=" + fmt)
+    idx = {}
+    for rec in out.split(_SEP):
+        rec = rec.strip("\n")
+        if not rec:
+            continue
+        f = rec.split(_FSEP)
+        if len(f) < 7:
+            continue
+        idx[f[0][:9]] = {
+            "subject": f[1],
+            "chain": f[2].strip() or None,
+            "kind": f[3].strip() or None,
+            "mode": f[4].strip() or None,
+            "cycle_parents": [x for x in f[5].split("\x00") if x.strip()],
+            "merges": [x for x in f[6].split("\x00") if x.strip()],
+        }
+    return idx
+
+
+def _branch_shas(br):
+    """한 브랜치의 커밋 sha(9자) 리스트."""
+    return [s[:9] for s in _git("log", "--format=%H", br).split()]
+
+
+def chains_from_graph():
+    """커밋 그래프에서 체인 단위로 집계.
+
+    반환: {chain: {parents, mode, status, cycles, subject}}. 삽입순 dict.
+    체인 = Gil-Kind가 init 또는 chain-root인 커밋으로 선언. 부모는 Gil-Cycle-Parent.
     """
-    import gilweb
-    rest = list(args)
+    idx = commit_index()
+    all_nodes = collect_nodes("--branches")
+    chains = {}
+    for br in _branches():
+        shas = _branch_shas(br)
+        head = idx.get(shas[0]) if shas else None
+        chain_name = head["chain"] if head else None
+        root = None
+        closed = False
+        for sha in shas:
+            info = idx.get(sha)
+            if not info:
+                continue
+            kind = info["kind"]
+            ch = info["chain"]
+            if kind in ("init", "chain-root") and ch == chain_name and root is None:
+                parents = info["cycle_parents"] or info["merges"]
+                root = {"parents": parents,
+                        "mode": info["mode"] or "autonomous",
+                        "kind": kind, "subject": info["subject"]}
+            if kind == "chain-close" and ch == chain_name:
+                closed = True
+        if not chain_name or not root:
+            continue
+        br_shas = set(shas)
+        cyc = {n["cycle"] for n in all_nodes
+               if n["chain"] == chain_name and n["cycle"] and n["sha"] in br_shas}
+        status = "init" if root["kind"] == "init" else (
+            "closed" if closed else "open")
+        chains[chain_name] = {
+            "parents": root["parents"], "mode": root["mode"],
+            "status": status, "cycles": len(cyc), "subject": root["subject"]}
+    return chains
 
-    if "--live" in rest:
-        rest.remove("--live")
-        port, interval, open_browser = 8737, 1.0, True
-        if "--port" in rest:
-            i = rest.index("--port"); port = int(rest[i + 1]); del rest[i:i + 2]
-        if "--interval" in rest:
-            i = rest.index("--interval"); interval = float(rest[i + 1]); del rest[i:i + 2]
-        if "--no-open" in rest:
-            rest.remove("--no-open"); open_browser = False
-        gilweb.serve_live(port=port, interval=interval, open_browser=open_browser)
-        return
 
-    dst = None
-    if "-o" in rest:
-        i = rest.index("-o")
-        dst = rest[i + 1]
-        del rest[i:i + 2]
-    if dst:
-        size, n = gilweb.write_bundle(dst)  # 메인 HTML + 사이드 번들(지연 로드)
-        print(f"wrote {dst} ({size} bytes) + {gilweb.DATA_DIR}/ ({n} step pages)")
-    else:
-        sys.stdout.write(gilweb.render())
+def cycles_of(chain):
+    """한 체인 안의 사이클 집계. 반환 {cid:{parents,status,steps}}.
+
+    체인 이름을 git ref로 쓰지 않는다(git log <chain>) — 체인명≠브랜치명이거나 브랜치가
+    없으면(격리·orphan) log가 실패해 사이클을 놓친다(handoff pending 결함). --branches
+    범위에서 chain으로 필터링해 ref 존재에 의존하지 않는다.
+    """
+    cyc = {}
+    for n in reversed(collect_nodes("--branches")):  # old→new
+        if n["chain"] != chain or not n["cycle"]:
+            continue
+        c = cyc.setdefault(n["cycle"], {"parents": [], "steps": []})
+        c["steps"].append(n)
+        for p in n["cycle_parents"]:
+            if p != chain and p not in c["parents"]:
+                c["parents"].append(p)
+    for cid, c in cyc.items():
+        ks = [(s["kind"], s["outcome"]) for s in c["steps"]]
+        if any(k == "analyze" and o == "success" for k, o in ks):
+            c["status"] = "solved"
+        elif any(k == "analyze" and o == "fail" for k, o in ks):
+            c["status"] = "dead"
+        elif any(k == "pending" for k, o in ks):
+            c["status"] = "pending"
+        else:
+            c["status"] = "in_progress"
+    return cyc
 
 
 # ── 글로벌 진실원 (refs/gil/global — 브랜치 아닌 전용 ref, 모든 체인 공유) ──
@@ -965,15 +1048,14 @@ def cmd_handoff(args):
 
 def _handoff_report():
     """세션 부활 정보를 문자열로 (print·문서 삽입 공용)."""
-    import gilweb
     L = ["═══ gil handoff — 세션 부활 정보 ═══", ""]
-    chains = gilweb.chains_from_graph()
+    chains = chains_from_graph()
     open_chains = {k: v for k, v in chains.items() if v["status"] == "open"}
     if not open_chains:
         L.append("열린 체인 없음 — 모든 체인이 닫혔거나 init뿐. 새 체인을 열 수 있다.")
     for cname, cinfo in open_chains.items():
         L.append(f"▶ 열린 체인: {cname} ({cinfo['mode']} 모드)")
-        cyc = gilweb.cycles_of(cname)
+        cyc = cycles_of(cname)
         open_cyc = {cid: c for cid, c in cyc.items()
                     if c["status"] in ("in_progress", "pending")}
         if not open_cyc:
@@ -1029,7 +1111,7 @@ def _update_status_docs(report):
 COMMANDS = {
     "chain": cmd_chain, "chain-merge": cmd_chain_merge,
     "open": cmd_open, "step": cmd_step, "close": cmd_close,
-    "log": cmd_log, "fsck": cmd_fsck, "web": cmd_web, "handoff": cmd_handoff,
+    "log": cmd_log, "fsck": cmd_fsck, "handoff": cmd_handoff,
     "global": cmd_global,
 }
 

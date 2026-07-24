@@ -349,7 +349,11 @@ type cycleAgg struct {
 func cyclesOf(chain string) (map[string]*cycleAgg, []string) {
 	cyc := map[string]*cycleAgg{}
 	var order []string
-	nodes := collectNodes(chain)
+	// 체인 이름을 git ref(git log <chain>)로 쓰지 않는다 — 체인 이름이 브랜치 이름과
+	// 다르거나 브랜치가 아직 없으면(격리 저장소·orphan) git log가 실패해 사이클을 통째로
+	// 놓친다(handoff가 pending을 못 띄우던 결함). 전체 그래프(--branches)에서 chain으로
+	// 필터링해 ref 존재에 의존하지 않는다.
+	nodes := collectNodes("--branches")
 	for i := len(nodes) - 1; i >= 0; i-- { // old→new
 		n := nodes[i]
 		if n.chain != chain || n.cycle == "" {
