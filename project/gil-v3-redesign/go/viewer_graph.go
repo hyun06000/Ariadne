@@ -27,16 +27,18 @@ type viewerNode struct {
 	sha, full, subject       string
 	chain, cycle, step, kind string
 	outcome, verdict         string
-	parent, backtrack        string // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
-	body                     string // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
+	parent, backtrack        string   // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
+	gitParents               []string // 실제 커밋 부모 SHA(9자) — 진짜 DAG 그래프용(%P).
+	body                     string   // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
 }
 
 func viewerCollectNodes() []viewerNode {
 	const rs = "\x1e"
 	const fs = "\x1f"
-	// 필드: sha · subject · trailers · body(%B). body 는 정적 build 시 스텝 보고서를 인라인
-	// 임베드하려고 싣는다. %B 가 여러 줄·trailers 포함이라 마지막 필드에 두고 SplitN(…,4).
-	format := "%H" + fs + "%s" + fs + "%(trailers:only=true,unfold=true)" + fs + "%B" + rs
+	// 필드: sha · subject · 커밋부모(%P) · trailers · body(%B). %P 는 진짜 DAG 그래프용
+	// (스텝을 커밋 부모로 연결). body 는 정적 build 시 스텝 보고서를 인라인 임베드하려고
+	// 싣는다. %B 가 여러 줄·trailers 포함이라 마지막 필드에 두고 SplitN(…,5).
+	format := "%H" + fs + "%s" + fs + "%P" + fs + "%(trailers:only=true,unfold=true)" + fs + "%B" + rs
 	out, err := viewerGit("log", "--branches", "--format="+format)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "거부: git log 실패(레포 경로·gil 그래프 확인) —", err)
@@ -48,23 +50,61 @@ func viewerCollectNodes() []viewerNode {
 		if strings.TrimSpace(rec) == "" {
 			continue
 		}
-		parts := strings.SplitN(rec, fs, 4)
-		if len(parts) < 4 {
+		parts := strings.SplitN(rec, fs, 5)
+		if len(parts) < 5 {
 			continue
 		}
-		tr := parseTrailers(parts[2])
+		tr := parseTrailers(parts[3])
 		if tr["Gil-Step"] == "" {
 			continue
+		}
+		// %P = 공백구분 커밋 부모 SHA(40자) → 9자로 줄여 노드 sha 와 맞춘다.
+		var gp []string
+		for _, p := range strings.Fields(parts[2]) {
+			if len(p) >= 9 {
+				gp = append(gp, p[:9])
+			}
 		}
 		nodes = append(nodes, viewerNode{
 			sha: parts[0][:9], full: parts[0], subject: parts[1],
 			chain: tr["Gil-Chain"], cycle: tr["Gil-Cycle"], step: tr["Gil-Step"],
 			kind: tr["Gil-Kind"], outcome: tr["Gil-Outcome"], verdict: tr["Gil-Verdict"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
-			body: strings.TrimRight(parts[3], "\n"),
+			gitParents: gp,
+			body:       strings.TrimRight(parts[4], "\n"),
 		})
 	}
 	return nodes
+}
+
+// commitParentMap — 모든 커밋(gil 스텝이든 아니든)의 부모 사슬(9자 SHA). dagJSON 이
+// 비-gil 커밋(chain/close/chain-close/init)을 건너뛰어 조상 gil 스텝을 찾을 때 쓴다.
+func commitParentMap() map[string][]string {
+	const fs = "\x1f"
+	const rs = "\x1e"
+	out, err := viewerGit("log", "--branches", "--format=%H"+fs+"%P"+rs)
+	if err != nil {
+		return nil
+	}
+	m := map[string][]string{}
+	for _, rec := range strings.Split(string(out), rs) {
+		rec = strings.TrimSpace(rec)
+		if rec == "" {
+			continue
+		}
+		sha, parents, ok := strings.Cut(rec, fs)
+		if !ok || len(sha) < 9 {
+			continue
+		}
+		var ps []string
+		for _, p := range strings.Fields(parents) {
+			if len(p) >= 9 {
+				ps = append(ps, p[:9])
+			}
+		}
+		m[sha[:9]] = ps
+	}
+	return m
 }
 
 func parseTrailers(s string) map[string]string {
@@ -157,6 +197,7 @@ type graphView struct {
 	here                map[string]string // "chain/cycle/step" → HEAD 스텝 위치
 	hereCyc             map[string]string // "chain/cycle" → HEAD 가 이 사이클(스텝 팁 아닐 때)
 	parents             map[string]string // 체인 계보 엣지: 자식→부모
+	allNodes            []viewerNode      // 전체 스텝 노드(진짜 커밋 DAG 그래프용)
 	nodeCount, tipCount int
 }
 
@@ -283,7 +324,7 @@ func buildGraph() graphView {
 			chainOrder = append(chainOrder, ch)
 		}
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, nodeCount: len(nodes), tipCount: tipCount}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}

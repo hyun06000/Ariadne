@@ -188,6 +188,7 @@ func renderHTML(g graphView, static bool) string {
 		b.WriteString(`<div id="reportcard" hidden></div>`) // 스텝 클릭 → 상세 보고서
 		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g, static) + `</script>`)
 		b.WriteString(`<script id="parentdata" type="application/json">` + parentsJSON(g) + `</script>`)
+		b.WriteString(`<script id="dagdata" type="application/json">` + dagJSON(g, static) + `</script>`)
 	}
 	script := js
 	if !static {
@@ -256,6 +257,71 @@ func cycleJSON(g graphView, static bool) string {
 		sb.WriteString("]}")
 	}
 	sb.WriteString("}")
+	return sb.String()
+}
+
+// dagJSON — 전체 스텝을 진짜 커밋 DAG(포도송이)로 넘긴다. 각 노드는 실제 커밋 부모 SHA
+// 중 gil 스텝인 것만 엣지로 잇는다(init 대문 등 비-gil 부모는 제외). 사이클·체인 경계를
+// 넘는 연결(예: staging/s1 의 부모가 dev chain-close 계열)도 이 커밋 부모로 그대로 살아있다.
+func dagJSON(g graphView, static bool) string {
+	// gil 스텝 커밋 sha 집합(엣지가 이 안의 노드로만 향하게).
+	stepSHA := map[string]bool{}
+	for _, n := range g.allNodes {
+		stepSHA[n.sha] = true
+	}
+	// 비-gil 커밋(chain/open/close/chain-close/init 대문)의 부모 사슬 — 이들을 건너뛰어
+	// 가장 가까운 조상 gil 스텝을 찾으려고. 사이클·체인 경계를 넘는 지식 전수(부모 사이클의
+	// 종결 스텝 → 자식 사이클 첫 스텝)가 이 건너뛰기로 진짜 엣지가 된다.
+	nonStepParents := commitParentMap()
+	// nearestStep — sha 조상에서 가장 가까운 gil 스텝 sha 들(비-스텝은 뚫고 올라감).
+	var nearestStep func(sha string, seen map[string]bool) []string
+	nearestStep = func(sha string, seen map[string]bool) []string {
+		if stepSHA[sha] {
+			return []string{sha}
+		}
+		if seen[sha] {
+			return nil
+		}
+		seen[sha] = true
+		var out []string
+		for _, p := range nonStepParents[sha] {
+			out = append(out, nearestStep(p, seen)...)
+		}
+		return out
+	}
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, n := range g.allNodes {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		_, nhere := g.here[posKey(n)]
+		// 부모: 커밋 부모가 gil 스텝이면 그대로, 아니면(chain/close 등) 건너뛰어 조상 스텝.
+		seenP := map[string]bool{}
+		var ps []string
+		for _, p := range n.gitParents {
+			if stepSHA[p] {
+				ps = append(ps, p)
+			} else {
+				ps = append(ps, nearestStep(p, seenP)...)
+			}
+		}
+		sb.WriteString(fmt.Sprintf(
+			`{"sha":%q,"chain":%q,"cycle":%q,"step":%q,"kind":%q,"outcome":%q,"here":%t,"parents":[`,
+			n.sha, n.chain, n.cycle, n.step, n.kind, n.outcome, nhere))
+		for j, p := range ps {
+			if j > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString(fmt.Sprintf("%q", p))
+		}
+		sb.WriteString(fmt.Sprintf(`],"subj":%q`, n.subject))
+		if static {
+			sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body))
+		}
+		sb.WriteString("}")
+	}
+	sb.WriteString("]")
 	return sb.String()
 }
 
@@ -410,14 +476,21 @@ button.lchip:hover{border-color:var(--node);color:var(--node)}
 .mapstatus.s-dead{border-color:#ff6b6b;color:#ff6b6b}
 .mapstatus.s-pending{border-color:#ffd166;color:#ffd166}
 .mapstatus.s-open{border-color:var(--node);color:var(--node)}
-.maprow{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
-.maparrow{color:var(--dim);font-size:12px}
-.mapstep{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:3px 9px;background:var(--bg);color:var(--fg);cursor:pointer;font-family:inherit}
-.mapstep:hover{border-color:var(--node)}
-.mapstep .mk{color:var(--dim);font-size:10px}
-.mapstep.k-alive{border-color:#3ddc84}.mapstep.k-dead{border-color:#ff6b6b}.mapstep.k-pending{border-color:#ffd166}
-.mapstep.here{border-color:var(--here);border-width:2px}
-.mapstep .mhead{color:var(--here);font-weight:800;font-size:9px}
+/* 진짜 커밋 DAG(전체 스텝맵) */
+.dagwrap{overflow-x:auto;padding:4px 0 8px}
+svg.dag{display:block}
+.dag .dedge{stroke:var(--edge);stroke-width:2}
+.dag .dedge.branch{stroke:#ff6b6b;stroke-dasharray:5 4}
+.dag .dnode{cursor:pointer}
+.dag .dnode circle{fill:var(--card);stroke:var(--node);stroke-width:2}
+.dag .dnode .dsid{text-anchor:middle;font-size:11px;font-weight:700;fill:var(--fg)}
+.dag .dnode .dlabel{text-anchor:middle;font-size:9px;fill:var(--dim)}
+.dag .dnode.k-dead circle{stroke:#ff6b6b;fill:#ff6b6b22}.dag .dnode.k-dead .dsid{fill:#ff6b6b}
+.dag .dnode.k-alive.leaf circle{stroke:#3ddc84;stroke-width:3;fill:#3ddc8422}.dag .dnode.k-alive .dsid{fill:#3ddc84}
+.dag .dnode.k-pending circle{stroke:#ffd166}
+.dag .dnode.here circle{stroke:var(--here);stroke-width:3.5}
+.dag .dnode:hover circle{filter:brightness(1.25)}
+.hint .lg-branch{color:#ff6b6b}.hint .lg-dead{color:#ff6b6b}.hint .lg-alive{color:#3ddc84}
 .report{margin:10px 16px 16px;padding:14px 16px;background:var(--bg);border:1px solid var(--line);
  border-radius:8px;font-size:13px;line-height:1.65;max-height:60vh;overflow:auto;word-break:break-word}
 /* 마크다운 렌더 */
@@ -457,6 +530,7 @@ const js = `
 const SVGNS='http://www.w3.org/2000/svg';
 const DATA=JSON.parse(document.getElementById('cycledata')?.textContent||'{}');
 const PARENTS=JSON.parse(document.getElementById('parentdata')?.textContent||'{}');
+const DAG=JSON.parse(document.getElementById('dagdata')?.textContent||'[]');
 let openChain=null;
 
 // 열린 카드 경로를 세션에 저장 — 폴링 리로드 후 복원해 카드가 닫히지 않게(피드백 1).
@@ -639,58 +713,70 @@ function openStepCard(chain,cyc){
   sc.hidden=false;
 }
 
-// lineage — 이 스텝의 지식 전파를 한 줄로: (들어오는) 부모 → [이 스텝] → 자식들 (나가는).
-// 부모/자식 칩은 클릭하면 그 스텝 보고서로 이동. 사이클 첫 스텝(define)이면 부모 체인을
-// "이어받음"으로 표시(체인 계보 = 이전 국면의 지식 상속).
+// lineage — 이 스텝의 지식 전파를 진짜 커밋 부모/자식으로: (들어옴) 부모 → [이 스텝] → 자식(낳음).
+// DAG(커밋 부모)를 써서 사이클·체인 경계를 넘는 전수도 보인다 — 부모 사이클/체인의 종결
+// 스텝에서 태어난 첫 스텝이면 그 부모 노드를 그대로 가리킨다. 칩 클릭 → 그 스텝 보고서로.
 function lineage(chain,cycle,n){
   const wrap=document.createElement('div');
   wrap.className='lineage';
-  const cyc=(DATA[chain]?.cycles||[]).find(c=>c.name===cycle);
-  const nodes=cyc?cyc.nodes:[];
-  const byId={}; nodes.forEach(x=>byId[x.id]=x);
-  const jump=(sid)=>{ const t=byId[sid]; if(t) openReport(chain,cycle,t); };
-  const chip=(label,cls,onclick,title)=>{
-    const s=document.createElement(onclick?'button':'span');
+  // DAG 에서 이 스텝 노드를 찾는다(sha 우선, 없으면 chain/cycle/step 로).
+  const self=DAG.find(d=>d.sha===n.sha)||DAG.find(d=>d.chain===chain&&d.cycle===cycle&&d.step===n.id);
+  const bySha={}; DAG.forEach(d=>bySha[d.sha]=d);
+  const chip=(label,cls,target,title)=>{
+    const s=document.createElement(target?'button':'span');
     s.className='lchip '+(cls||''); s.textContent=label;
     if(title)s.title=title;
-    if(onclick){ s.addEventListener('click',ev=>{ev.stopPropagation();onclick();}); }
+    if(target){ s.addEventListener('click',ev=>{ev.stopPropagation();jumpToNode(target);}); }
     return s;
   };
-  // 들어오는(부모).
+  // 다른 사이클/체인이면 라벨에 그 위치를 밝힌다(경계 넘는 전수를 드러냄).
+  const label=(d)=> (d.chain!==chain||d.cycle!==cycle) ? (d.chain+'/'+d.cycle+'/'+d.step+' '+d.kind) : (d.step+' '+d.kind);
+  const crossHint=(d)=> (d.chain!==chain) ? '부모 체인 '+d.chain+' 의 종결 스텝에서 이어받음'
+                      : (d.cycle!==cycle) ? '부모 사이클 '+d.cycle+' 의 스텝에서 이어받음' : '부모 스텝';
+  // 들어옴(부모들).
   wrap.appendChild(chip('들어옴','lhead'));
   const inbox=document.createElement('span'); inbox.className='lgroup';
-  const parent=(n.parent&&n.parent!=='null')?n.parent:null;
-  if(parent && byId[parent]){
-    inbox.appendChild(chip(parent+' '+byId[parent].kind,'lin',()=>jump(parent),'부모 스텝'));
-  }else if(n.id==='s1'){
-    // 사이클 첫 스텝 — 체인 계보(부모 체인)를 이어받음으로.
-    const pc=PARENTS[chain];
-    if(pc) inbox.appendChild(chip('체인 '+pc+' 에서 이어받음','lchain',null,'이전 국면(닫힌 부모 체인)의 대문·지식·판정을 상속'));
-    else inbox.appendChild(chip('시작점(대문에서)','lchain'));
+  const parents=(self&&self.parents||[]).map(p=>bySha[p]).filter(Boolean);
+  if(parents.length){
+    parents.forEach(p=>{
+      const cross=(p.chain!==chain||p.cycle!==cycle);
+      inbox.appendChild(chip(label(p),'lin'+(cross?' lchain':''),p,crossHint(p)));
+    });
   }else{
-    inbox.appendChild(chip('—','ldim'));
+    inbox.appendChild(chip('시작점(대문에서)','lchain',null,'이 체인의 첫 스텝 — 대문(루트)에서 시작'));
   }
   wrap.appendChild(inbox);
   // 이 스텝.
   wrap.appendChild(chip('→',''));
   wrap.appendChild(chip(n.id+' '+n.kind,'lself k-'+stepClass(n)));
   wrap.appendChild(chip('→',''));
-  // 나가는(자식들) — 같은 사이클에서 parent===n.id 인 스텝. backtrack 형제가지 포함.
+  // 낳음(자식들) — DAG 에서 parents 에 self.sha 를 포함하는 노드(경계 넘는 자식 포함).
   wrap.appendChild(chip('낳음','lhead'));
   const outbox=document.createElement('span'); outbox.className='lgroup';
-  const kids=nodes.filter(x=>x.parent===n.id);
+  const kids=self?DAG.filter(d=>d.parents.includes(self.sha)):[];
   if(kids.length){
-    kids.forEach(k=>outbox.appendChild(chip(k.id+' '+k.kind,'lout'+(k.parent!==prevOf(nodes,k)?' lbranch':''),()=>jump(k.id),
-      k.backtrack?'되돌아온 형제 가지':'다음 스텝')));
+    kids.forEach(k=>{
+      const cross=(k.chain!==chain||k.cycle!==cycle);
+      const branch=(k.parent&&k.parent!=='null'&&k.parent!==n.id); // backtrack 형제가지
+      outbox.appendChild(chip(label(k),'lout'+(branch?' lbranch':'')+(cross?' lchain':''),k,
+        cross?'자식 '+(k.chain!==chain?'체인 '+k.chain:'사이클 '+k.cycle)+' 이 여기서 이어받음':(branch?'되돌아온 형제 가지':'다음 스텝')));
+    });
   }else{
-    outbox.appendChild(chip(n.backtrack?'죽은 잎(벽) — 여기서 끝, ⤳'+n.backtrack+' 로 되돌아감':'잎(여기서 끝)','ldim',null,
-      n.backtrack?'이 가지는 여기서 죽고, 조상 define 으로 되돌아가 다른 가지를 폈다':''));
+    outbox.appendChild(chip(n.kind==='fail'?'죽은 잎(벽) — 여기서 끝':'잎(여기서 끝)','ldim',null,
+      n.kind==='fail'?'이 가지는 여기서 죽었다 — 조상 define 으로 되돌아가 다른 가지를 폈다':'이 사이클의 결말 노드'));
   }
   wrap.appendChild(outbox);
   return wrap;
 }
-// prevOf — nodes 배열에서 k 의 직전 스텝 id(선형 판정용). 없으면 ''.
-function prevOf(nodes,k){ const i=nodes.indexOf(k); return i>0?nodes[i-1].id:''; }
+// jumpToNode — DAG 노드 d 로 이동: 그 체인 선택 → 사이클 카드 → 스텝 보고서.
+function jumpToNode(d){
+  showView('chain'); selectChain(d.chain);
+  const cyc=DATA[d.chain]?.cycles.find(c=>c.name===d.cycle);
+  if(!cyc)return;
+  openStepCard(d.chain,cyc);
+  const sn=(cyc.nodes||[]).find(x=>x.id===d.step);
+  if(sn)openReport(d.chain,d.cycle,sn);
+}
 
 // 스텝 노드 클릭 → 그 스텝의 상세 보고서(커밋 본문 원문)를 /step 에서 가져와 카드로.
 async function openReport(chain,cycle,n){
@@ -834,42 +920,77 @@ function selectChain(chain){
   openCard(chain);
 }
 
-// 전체 스텝맵(피드백 4): 체인·사이클도 보이되 모든 스텝을 한 화면에 펼친다.
-// DATA(이미 로드됨)만으로 렌더 — 서버 왕복 없음. 스텝 클릭 → 그 보고서 카드.
+// 전체 스텝맵(피드백 4): 모든 스텝을 진짜 커밋 DAG(포도송이)로 — git 그래프처럼.
+// 실제 커밋 부모(DAG[].parents)로 노드를 잇는다. 사이클·체인 경계를 넘는 연결도 그대로.
+// 왼→오른쪽 시간 흐름(x=위상깊이), 분기는 레인(y)으로 겹치지 않게. 죽은 잎/산 잎/HEAD 표시.
 function buildStepMap(){
   const host=document.getElementById('view-map');
   host.replaceChildren();
-  for(const chain of Object.keys(DATA)){
-    const d=DATA[chain];
-    const ch=document.createElement('section'); ch.className='mapchain';
-    const pc=PARENTS[chain];
-    const h=document.createElement('div'); h.className='mapchain-h';
-    h.innerHTML='<span class="mapdot">●</span> 체인 <b>'+mdEsc(chain)+'</b>'+(pc?' <span class="mapfrom">← '+mdEsc(pc)+' 에서 이어받음</span>':'');
-    ch.appendChild(h);
-    for(const cy of d.cycles){
-      const cyd=document.createElement('div'); cyd.className='mapcyc';
-      const ch2=document.createElement('div'); ch2.className='mapcyc-h';
-      ch2.innerHTML='◆ 사이클 <b>'+mdEsc(cy.name)+'</b> <span class="mapstatus s-'+cy.status+'">'+cy.status+'</span>';
-      cyd.appendChild(ch2);
-      const row=document.createElement('div'); row.className='maprow';
-      (cy.nodes||[]).forEach((n,idx)=>{
-        if(idx>0){ const a=document.createElement('span'); a.className='maparrow';
-          a.textContent=(n.parent&&n.parent!==(cy.nodes[idx-1]?.id))?'⤴':'→'; row.appendChild(a); }
-        const s=document.createElement('button');
-        s.className='mapstep k-'+stepClass(n)+(n.here?' here':'');
-        s.innerHTML=mdEsc(n.id)+' <span class="mk">'+mdEsc(n.kind)+'</span>'+(n.here?' <span class="mhead">◀HEAD</span>':'');
-        s.title=n.subj||'';
-        s.addEventListener('click',()=>{ showView('chain'); selectChain(chain);
-          const cyc=DATA[chain].cycles.find(c=>c.name===cy.name);
-          openStepCard(chain,cyc); openReport(chain,cy.name,n); });
-        row.appendChild(s);
-      });
-      cyd.appendChild(row);
-      ch.appendChild(cyd);
+  if(!DAG.length){ host.textContent='아직 스텝이 없다.'; return; }
+  const byId={}; DAG.forEach(n=>byId[n.sha]=n);
+  // 자식 목록(부모→자식). depth(위상) 계산용.
+  const kids={}; DAG.forEach(n=>{ n.parents.forEach(p=>{ (kids[p]=kids[p]||[]).push(n.sha); }); });
+  // depth = 부모들의 max depth + 1 (부모 없으면 0). 커밋은 이미 시간 위상순이라 메모로 충분.
+  const depth={};
+  function dep(sha){ if(sha in depth)return depth[sha]; const n=byId[sha]; if(!n){return 0;}
+    let d=0; n.parents.forEach(p=>{ if(byId[p])d=Math.max(d,dep(p)+1); }); depth[sha]=d; return d; }
+  DAG.forEach(n=>dep(n.sha));
+  // 레인 배정(y): depth 오름차순으로 순회, 부모의 레인을 물려받되 이미 쓰였으면 새 레인.
+  const order=[...DAG].sort((a,b)=>depth[a.sha]-depth[b.sha]||0);
+  const lane={}; const laneBusyAt={}; // laneBusyAt[lane] = 그 레인을 마지막 점유한 depth
+  let maxLane=0;
+  order.forEach(n=>{
+    const d=depth[n.sha];
+    // 선호 레인 = 첫 부모의 레인(선형 연속성). 없으면 0.
+    let want=0; const gp=n.parents.filter(p=>byId[p]);
+    if(gp.length) want=lane[gp[0]]!==undefined?lane[gp[0]]:0;
+    // 그 레인이 이 depth 에서 비었나? 부모가 그 레인의 직전 점유자면 이어받기 OK.
+    let L=want;
+    const parentOwnsWant = gp.some(p=>lane[p]===want);
+    if(!parentOwnsWant || (laneBusyAt[want]!==undefined && laneBusyAt[want]>=d)){
+      // 자리 다툼 → 빈 레인 찾기.
+      L=0; while(laneBusyAt[L]!==undefined && laneBusyAt[L]>=d) L++;
     }
-    host.appendChild(ch);
-  }
+    lane[n.sha]=L; laneBusyAt[L]=d; if(L>maxLane)maxLane=L;
+  });
+  // 좌표.
+  const colW=118, rowH=54, padX=40, padY=34, r=15;
+  let maxD=0; DAG.forEach(n=>{ if(depth[n.sha]>maxD)maxD=depth[n.sha]; });
+  const W=padX*2+maxD*colW+r*2, H=padY*2+maxLane*rowH+r*2;
+  const X=sha=>padX+r+depth[sha]*colW, Y=sha=>padY+r+lane[sha]*rowH;
+  const svg=svgEl('svg',{class:'dag',viewBox:'0 0 '+W+' '+H,width:W,height:H});
+  // 엣지(부모→자식) 먼저. backtrack 형제가지 = 트레일러 부모(n.parent)가 이 커밋부모의
+  // step 과 달라 조상 define 으로 되돌아간 경우 → 빨강 파선.
+  DAG.forEach(n=>{ n.parents.forEach(p=>{ if(!byId[p])return;
+    const x1=X(p),y1=Y(p),x2=X(n.sha),y2=Y(n.sha);
+    const branch=n.parent&&n.parent!=='null'&&byId[p].step!==n.parent;
+    const cls='dedge'+(branch?' branch':'');
+    const mx=(x1+x2)/2;
+    svg.appendChild(svgEl('path',{class:cls,fill:'none',d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
+  }); });
+  // 노드.
+  DAG.forEach(n=>{
+    const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
+    g.appendChild(svgEl('title',{},n.chain+'/'+n.cycle+'/'+n.step+' '+n.kind+'\n'+n.subj));
+    g.appendChild(svgEl('circle',{r:r}));
+    g.appendChild(svgEl('text',{class:'dsid',dy:3},n.step));
+    g.appendChild(svgEl('text',{class:'dlabel',dy:r+13},n.chain+'/'+n.cycle));
+    if(n.here){ g.appendChild(svgEl('text',{class:'headlbl',dy:-r-9},'HEAD'));
+      g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-6)+' l -5 -8 l 10 0 z'})); }
+    g.addEventListener('click',()=>{ showView('chain'); selectChain(n.chain);
+      const cyc=DATA[n.chain].cycles.find(c=>c.name===n.cycle);
+      if(cyc){ openStepCard(n.chain,cyc);
+        const sn=(cyc.nodes||[]).find(x=>x.id===n.step); if(sn)openReport(n.chain,n.cycle,sn); } });
+    svg.appendChild(g);
+  });
+  const wrap=document.createElement('div'); wrap.className='dagwrap'; wrap.appendChild(svg);
+  host.appendChild(wrap);
+  const leg=document.createElement('p'); leg.className='hint';
+  leg.innerHTML='진짜 커밋 그래프 — 모든 스텝이 부모 커밋으로 이어진다. <b class="lg-branch">빨강 파선</b>=backtrack 분기, <b class="lg-dead">붉은 노드</b>=죽은 잎(벽), <b class="lg-alive">초록 테두리</b>=산 잎(사이클 결말). 노드 클릭 → 보고서.';
+  host.appendChild(leg);
 }
+// isLeaf — 이 노드를 부모로 삼는 gil 스텝이 없으면 잎(사이클 결말: 산 잎 or 죽은 잎).
+function isLeaf(n,kids){ return !(kids[n.sha]&&kids[n.sha].length); }
 function showView(which){
   const chainOn=which==='chain';
   document.getElementById('view-chain').hidden=!chainOn;

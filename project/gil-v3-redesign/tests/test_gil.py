@@ -1070,25 +1070,54 @@ class TestViewer(GilFixture):
         self.assertIn('"status":"success"', html)
         self.assertNotIn('"status":"open"', html, "종결됐는데 사이클이 open 으로 남음")
 
-    def test_viewer_build_has_stepmap_and_lineage(self):
-        """build HTML 에 전체 스텝맵(피드백4)·지식전파 계보(피드백3) 렌더 코드와
-        체인 계보 데이터가 임베드된다."""
+    def test_viewer_build_has_dag_and_lineage(self):
+        """build HTML 에 진짜 커밋 DAG(전체 스텝맵)·지식전파 계보 렌더 코드와
+        DAG 데이터(커밋 부모)가 임베드된다."""
         self._seed_graph()
         out_html = os.path.join(self.repo, "g.html")
         r = self.gil("viewer", "build", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out_html, encoding="utf-8") as f:
             html = f.read()
-        # 전체 스텝맵 탭·렌더 함수.
+        # 전체 스텝맵 탭·DAG 렌더 함수.
         self.assertIn("buildStepMap", html)
         self.assertIn("view-map", html)
         self.assertIn("전체 스텝맵", html)
-        # 지식 전파 계보(들어오는/나가는) 함수.
+        # DAG 데이터(커밋 부모로 이어진 노드 리스트) 임베드.
+        self.assertIn("dagdata", html)
+        self.assertIn('"parents":', html)
+        # 지식 전파 계보 함수.
         self.assertIn("function lineage", html)
-        # 체인 계보 데이터 임베드(자식→부모).
-        self.assertIn("parentdata", html)
-        # 맵 JS 는 Go 의 esc() 가 아니라 JS mdEsc 를 써야 한다(esc 미정의 회귀 방지).
+        # 맵/DAG JS 는 Go 의 esc() 가 아니라 JS mdEsc 를 써야 한다(esc 미정의 회귀 방지).
         self.assertNotIn("esc(chain)", html)
+
+    def test_dag_connects_cycles_across_chain_boundary(self):
+        """DAG 는 사이클·체인 경계를 넘는 지식 전수를 진짜 엣지로 잇는다 —
+        자식 체인의 첫 스텝이 부모 체인의 종결 스텝(산 잎)을 부모로 갖는다.
+
+        비-gil 커밋(chain/close/chain-close)을 건너뛰어 조상 스텝을 찾는 게 핵심.
+        """
+        self.gil("init", "--name", "clew")
+        # dev 체인: verify → success → close → chain-close.
+        self.gil("chain", "dev", "--purpose", "P")
+        self.gil("open", "dev/c1", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "dev/c1", "--kind", "verify", "--title", "V", "--body", "검증")
+        self.gil("step", "dev/c1", "--kind", "success", "--title", "됨", "--body", "종합")
+        self.gil("close", "dev/c1", "--verdict", "supported")
+        self.gil("chain-close", "dev", "--verdict", "supported")
+        # staging 체인: 닫힌 dev 끝에서 열린다.
+        self.gil("chain", "stg", "--purpose", "P2")
+        self.gil("open", "stg/c1", "--author", "clew", "--purpose", "Q2")
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        import json, re
+        html = open(out_html, encoding="utf-8").read()
+        dag = json.loads(re.search(r'"dagdata"[^>]*>(\[.*?\])</script>', html).group(1))
+        by = {(d["chain"], d["step"]): d for d in dag}
+        dev_success = next(d for d in dag if d["chain"] == "dev" and d["kind"] == "success")
+        stg_s1 = by[("stg", "s1")]
+        self.assertIn(dev_success["sha"], stg_s1["parents"],
+                      "staging 첫 스텝이 dev 종결 스텝을 부모로 갖지 않음 — 경계 넘는 전수 끊김")
 
     def test_body_file_dash_reads_stdin(self):
         """--body-file - 는 stdin 에서 본문을 읽는다 — 임시 .md 파일 없이 잉여 방지."""
