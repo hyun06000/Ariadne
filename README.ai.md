@@ -50,7 +50,11 @@
 
 플랫폼을 감지해 맞는 바이너리를 받는다. Python도, 툴체인도 필요 없다.
 
-**가장 짧게 (POSIX 셸)** — 설치 스크립트 한 줄. 플랫폼 감지·다운로드·체크섬 검증을 다 한다:
+> **먼저 플랫폼을 가른다.** macOS·Linux(및 WSL) → 아래 POSIX 블록. **Windows(PowerShell)
+> → 맨 아래 Windows 블록으로 곧장 가라.** POSIX 한 줄·손 블록은 Windows 기본 셸에선 안 돈다
+> (Git Bash 로 돌리면 리눅스 바이너리를 잘못 받는다 — install.sh 가 이를 감지해 막는다).
+
+**macOS·Linux — 가장 짧게** — 설치 스크립트 한 줄. 플랫폼 감지·다운로드·체크섬 검증을 다 한다:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hyun06000/Ariadne/main/install.sh | sh
@@ -60,7 +64,9 @@ curl -fsSL https://raw.githubusercontent.com/hyun06000/Ariadne/main/install.sh |
 또는 **한 단계씩 (같은 동작을 손으로)**:
 
 ```bash
-os=$(uname -s | tr '[:upper:]' '[:lower:]'); [ "$os" = darwin ] || os=linux
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$os" in darwin) os=darwin;; linux) os=linux;;
+  mingw*|msys*|cygwin*) echo "Windows 다 — 아래 PowerShell 블록을 써라"; exit 2;; *) os=linux;; esac
 arch=$(uname -m); case "$arch" in arm64|aarch64) arch=arm64;; *) arch=amd64;; esac
 sha() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
 base=https://github.com/hyun06000/Ariadne/releases/latest/download

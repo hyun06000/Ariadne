@@ -22,7 +22,18 @@ done
 
 # 플랫폼 감지
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
-[ "$os" = darwin ] || os=linux
+case "$os" in
+	darwin) os=darwin ;;
+	linux) os=linux ;;
+	# Windows 의 POSIX 환경(Git Bash·MSYS·Cygwin). 이 스크립트는 POSIX 바이너리만 받으므로
+	# Windows 에서 돌리면 엉뚱한 리눅스 ELF 를 받게 된다 — 막고 PowerShell 경로로 안내한다.
+	mingw*|msys*|cygwin*|windows*)
+		echo "✗ 이 설치 스크립트는 macOS/Linux 전용이다 (POSIX)." >&2
+		echo "  Windows 에서는 PowerShell 로 gil-windows-amd64.exe 를 받아라(체크섬 검증 포함):" >&2
+		echo "  https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md 의 'Windows' 블록 참조." >&2
+		exit 2 ;;
+	*) os=linux ;;  # 알 수 없으면 linux 로 가정(가장 흔함)
+esac
 arch=$(uname -m)
 case "$arch" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
 asset="gil-${os}-${arch}"
