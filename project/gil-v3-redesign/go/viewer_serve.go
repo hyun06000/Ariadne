@@ -25,7 +25,7 @@ func serve(args []string) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(renderHTML(buildGraph())))
+		w.Write([]byte(renderHTML(buildGraph(), false)))
 	})
 	http.HandleFunc("/poll", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -39,7 +39,7 @@ func serve(args []string) {
 			http.Error(w, "bad sha", http.StatusBadRequest)
 			return
 		}
-		out, err := git("show", "-s", "--format=%B", sha)
+		out, err := viewerGit("show", "-s", "--format=%B", sha)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -47,7 +47,7 @@ func serve(args []string) {
 		w.Write(out)
 	})
 	addr := "127.0.0.1:" + port
-	fmt.Println("gil 뷰어 서버 → http://" + addr + "  (관전 레포: " + repoDir + ")")
+	fmt.Println("gil 뷰어 서버 → http://" + addr + "  (관전 레포: " + viewerRepoDir + ")")
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "거부: 서버 실패 —", err)
 		os.Exit(1)
@@ -56,7 +56,7 @@ func serve(args []string) {
 
 func tipSignature() string {
 	const fs = "\x1f"
-	out, err := git("for-each-ref", "--format=%(refname:short)"+fs+"%(objectname)", "refs/heads/")
+	out, err := viewerGit("for-each-ref", "--format=%(refname:short)"+fs+"%(objectname)", "refs/heads/")
 	if err != nil {
 		return "err"
 	}
@@ -65,7 +65,7 @@ func tipSignature() string {
 	return strings.Join(lines, "\n")
 }
 
-func kindClass(n node) string {
+func kindClass(n viewerNode) string {
 	if n.outcome == "fail" || n.outcome == "backtrack" || (n.kind == "analyze" && n.outcome != "success") {
 		return "dead"
 	}
@@ -128,7 +128,9 @@ func chainLayout(g graphView) (map[string]xy, int, int) {
 
 // renderHTML — 체인 그래프(동그라미 노드 + 계보 엣지 + 라벨). 노드 클릭 시 확장(사이클)은
 // 다음 단계 — 지금은 클릭하면 그 체인이 선택 표시되고 사이클 목록을 옆 패널에 편다.
-func renderHTML(g graphView) string {
+// renderHTML — 그래프를 자기완결 HTML 로. static=true 면 서버 없이 도는 정적 페이지
+// (폴링 비활성 + 스텝 본문 인라인 — Pages 등 정적 호스팅용). false 면 serve 용(폴링·본문 페치).
+func renderHTML(g graphView, static bool) string {
 	pos, w, h := chainLayout(g)
 	hc := g.hereChains()
 
@@ -168,7 +170,7 @@ func renderHTML(g graphView) string {
 <style>` + css + `</style></head><body>
 <header><h1>gil 그래프 뷰어 — 체인 그래프</h1>
 <span class="meta">체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
-		itoa(g.tipCount) + `개 · <span id="live">● live</span></span></header>
+		itoa(g.tipCount) + `개 · ` + liveIndicator(static) + `</span></header>
 <main>`)
 	if len(g.chains) == 0 {
 		b.WriteString(`<p class="empty">아직 gil 체인이 없다. 체인을 만들면 여기 노드로 나타난다.</p>`)
@@ -180,10 +182,22 @@ func renderHTML(g graphView) string {
 		b.WriteString(`<div id="card" hidden></div>`)       // 체인 클릭 → 사이클 카드
 		b.WriteString(`<div id="stepcard" hidden></div>`)   // 사이클 클릭 → 스텝 카드
 		b.WriteString(`<div id="reportcard" hidden></div>`) // 스텝 클릭 → 상세 보고서
-		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g) + `</script>`)
+		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g, static) + `</script>`)
 	}
-	b.WriteString(`</main><script>` + js + `</script></body></html>`)
+	script := js
+	if !static {
+		script = jsPoll + js // serve 모드에만 폴링을 앞에 붙인다
+	}
+	b.WriteString(`</main><script>` + script + `</script></body></html>`)
 	return b.String()
+}
+
+// liveIndicator — serve 모드면 폴링 상태 표시(● live), 정적 build 면 스냅샷 표시.
+func liveIndicator(static bool) string {
+	if static {
+		return `<span class="meta">정적 스냅샷</span>`
+	}
+	return `<span id="live">● live</span>`
 }
 
 // nodes SVG 를 edges 뒤 별도 <g id="nodes"> 에 넣기 위해 renderHTML 의 svg 조립을
@@ -192,7 +206,9 @@ func renderHTML(g graphView) string {
 
 // cycleJSON — 체인별 사이클 데이터를 JS 로 넘긴다(추가 요청 없이 클릭 확장용).
 // 각 체인의 노드 좌표도 함께 실어 확장 패널을 그 자리에 띄운다.
-func cycleJSON(g graphView) string {
+// static=true 면 각 노드에 "body"(스텝 커밋 본문)를 임베드 — 서버 /step 페치 없이 보고서를
+// 바로 렌더한다. serve(static=false)면 본문은 클릭 시 /step 으로 페치(HTML 을 가볍게 유지).
+func cycleJSON(g graphView, static bool) string {
 	pos, _, _ := chainLayout(g)
 	var sb strings.Builder
 	sb.WriteString("{")
@@ -223,8 +239,12 @@ func cycleJSON(g graphView) string {
 				}
 				_, nhere := g.here[posKey(n)]
 				sb.WriteString(fmt.Sprintf(
-					`{"id":%q,"kind":%q,"outcome":%q,"parent":%q,"backtrack":%q,"here":%t,"sha":%q,"subj":%q}`,
+					`{"id":%q,"kind":%q,"outcome":%q,"parent":%q,"backtrack":%q,"here":%t,"sha":%q,"subj":%q`,
 					n.step, n.kind, n.outcome, n.parent, n.backtrack, nhere, n.full, n.subject))
+				if static {
+					sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body)) // 정적: 본문 인라인
+				}
+				sb.WriteString("}")
 			}
 			sb.WriteString("]}")
 		}
@@ -235,7 +255,6 @@ func cycleJSON(g graphView) string {
 }
 
 func esc(s string) string { return html.EscapeString(s) }
-func itoa(n int) string   { return fmt.Sprintf("%d", n) }
 
 // validSHA — git 인자 주입 방지: 16진수 7~40자만 허용.
 func validSHA(s string) bool {
@@ -357,7 +376,8 @@ svg.cygraph{display:block}
 .md tbody tr:nth-child(even){background:rgba(127,127,127,.06)}
 `
 
-const js = `
+// jsPoll — 자동 새로고침 폴링. serve 모드에만 붙인다(정적 build 엔 서버가 없어 뺀다).
+const jsPoll = `
 let sig=null;
 async function poll(){
   try{
@@ -365,11 +385,13 @@ async function poll(){
     const t=await r.text();
     if(sig===null){sig=t;}
     else if(t!==sig){location.reload();}
-    document.getElementById('live').classList.remove('stale');
-  }catch(e){document.getElementById('live').classList.add('stale');}
+    const l=document.getElementById('live'); if(l)l.classList.remove('stale');
+  }catch(e){const l=document.getElementById('live'); if(l)l.classList.add('stale');}
 }
 poll();setInterval(poll,1500);
+`
 
+const js = `
 const SVGNS='http://www.w3.org/2000/svg';
 const DATA=JSON.parse(document.getElementById('cycledata')?.textContent||'{}');
 let openChain=null;
@@ -581,6 +603,11 @@ async function openReport(chain,cycle,n){
   body.textContent='(불러오는 중…)';
   rc.appendChild(body);
   rc.hidden=false;
+  // 정적 build: 본문이 노드에 인라인 임베드돼 있으면 서버 페치 없이 바로 렌더.
+  if(typeof n.body==='string'){
+    body.innerHTML=renderMarkdown(stripTrailers(n.body));
+    return;
+  }
   try{
     const res=await fetch('/step?sha='+encodeURIComponent(n.sha),{cache:'no-store'});
     if(res.ok){

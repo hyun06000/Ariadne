@@ -105,6 +105,14 @@ var helpTable = map[string]helpEntry{
 			"  verdict→종결 kind(supported→success, rejected→fail, null&open→pending). [migrate] 표식.",
 		"docs/gil/lifecycle.md · docs/gil/concepts.md",
 	},
+	"viewer": {
+		"gil viewer serve [--repo <경로>] [--port <포트>]   브라우저 관전 서버(자동 새로고침)\n" +
+			"gil viewer build --out <파일> [--repo <경로>]     정적 자기완결 HTML 1회 출력(Pages 등)\n" +
+			"gil viewer [text] [--repo <경로>]                텍스트 트리 1회 출력\n" +
+			"  사고 그래프(체인>사이클>스텝)를 읽어 그린다. gil init 이 serve 를 자동 기동한다.\n" +
+			"  build 는 서버 없이 도는 정적 HTML(스텝 본문 인라인·폴링 없음) — 정적 호스팅용.",
+		"docs/gil/reports.md",
+	},
 }
 
 // cmdHelp — gil help [<명령>].

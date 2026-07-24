@@ -16,48 +16,52 @@ import (
 	"strings"
 )
 
-var repoDir = "." // --repo 로 지정. git 을 이 레포에서 실행.
+var viewerRepoDir = "." // --repo 로 지정. git 을 이 레포에서 실행.
 
-func git(args ...string) ([]byte, error) {
-	full := append([]string{"-C", repoDir}, args...)
+func viewerGit(args ...string) ([]byte, error) {
+	full := append([]string{"-C", viewerRepoDir}, args...)
 	return exec.Command("git", full...).Output()
 }
 
-type node struct {
+type viewerNode struct {
 	sha, full, subject       string
 	chain, cycle, step, kind string
 	outcome, verdict         string
 	parent, backtrack        string // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
+	body                     string // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
 }
 
-func collectNodes() []node {
+func viewerCollectNodes() []viewerNode {
 	const rs = "\x1e"
 	const fs = "\x1f"
-	format := "%H" + fs + "%s" + fs + "%(trailers:only=true,unfold=true)" + rs
-	out, err := git("log", "--branches", "--format="+format)
+	// 필드: sha · subject · trailers · body(%B). body 는 정적 build 시 스텝 보고서를 인라인
+	// 임베드하려고 싣는다. %B 가 여러 줄·trailers 포함이라 마지막 필드에 두고 SplitN(…,4).
+	format := "%H" + fs + "%s" + fs + "%(trailers:only=true,unfold=true)" + fs + "%B" + rs
+	out, err := viewerGit("log", "--branches", "--format="+format)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "거부: git log 실패(레포 경로·gil 그래프 확인) —", err)
 		return nil
 	}
-	var nodes []node
+	var nodes []viewerNode
 	for _, rec := range strings.Split(string(out), rs) {
 		rec = strings.TrimLeft(rec, "\n")
 		if strings.TrimSpace(rec) == "" {
 			continue
 		}
-		parts := strings.SplitN(rec, fs, 3)
-		if len(parts) < 3 {
+		parts := strings.SplitN(rec, fs, 4)
+		if len(parts) < 4 {
 			continue
 		}
 		tr := parseTrailers(parts[2])
 		if tr["Gil-Step"] == "" {
 			continue
 		}
-		nodes = append(nodes, node{
+		nodes = append(nodes, viewerNode{
 			sha: parts[0][:9], full: parts[0], subject: parts[1],
 			chain: tr["Gil-Chain"], cycle: tr["Gil-Cycle"], step: tr["Gil-Step"],
 			kind: tr["Gil-Kind"], outcome: tr["Gil-Outcome"], verdict: tr["Gil-Verdict"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
+			body: strings.TrimRight(parts[3], "\n"),
 		})
 	}
 	return nodes
@@ -76,7 +80,7 @@ func parseTrailers(s string) map[string]string {
 
 func tipSHAs() map[string]string {
 	const fs = "\x1f"
-	out, err := git("for-each-ref", "--format=%(refname:short)"+fs+"%(objectname)", "refs/heads/")
+	out, err := viewerGit("for-each-ref", "--format=%(refname:short)"+fs+"%(objectname)", "refs/heads/")
 	if err != nil {
 		return nil
 	}
@@ -100,7 +104,7 @@ func chainParents() map[string]string {
 	// "\n" split 이 한 레코드를 쪼개 chain 필드가 빈 값이 된다(상현님: 새 체인 hackathon-a
 	// 가 뷰어에 안 뜸 — Gil-Chain-Purpose 가 길어 파싱이 밀렸다). valueonly 대신 -z 대체로
 	// rs 로 확정한다.
-	out, err := git("log", "--branches", "--format=%H"+fs+"%(trailers:key=Gil-Kind,valueonly,unfold=true)"+fs+
+	out, err := viewerGit("log", "--branches", "--format=%H"+fs+"%(trailers:key=Gil-Kind,valueonly,unfold=true)"+fs+
 		"%(trailers:key=Gil-Chain,valueonly,unfold=true)"+fs+"%P"+rs)
 	if err != nil {
 		return nil
@@ -142,7 +146,7 @@ func chainParents() map[string]string {
 
 type cycleView struct {
 	name  string
-	steps []node
+	steps []viewerNode
 }
 type chainView struct {
 	name   string
@@ -172,7 +176,7 @@ func (g graphView) hereChains() map[string]bool {
 	return m
 }
 
-func posKey(n node) string { return n.chain + "/" + n.cycle + "/" + n.step }
+func posKey(n viewerNode) string { return n.chain + "/" + n.cycle + "/" + n.step }
 
 // status — 사이클의 결말 요약. 마지막 analyze 의 outcome, 또는 pending/열림.
 func (cy cycleView) status() string {
@@ -197,7 +201,7 @@ func (cy cycleView) status() string {
 
 // currentBranch — HEAD 가 가리키는 브랜치(현재 작업위치). detached 면 "".
 func currentBranch() string {
-	out, err := git("symbolic-ref", "--quiet", "--short", "HEAD")
+	out, err := viewerGit("symbolic-ref", "--quiet", "--short", "HEAD")
 	if err != nil {
 		return ""
 	}
@@ -207,7 +211,7 @@ func currentBranch() string {
 // headChainCycle — HEAD 커밋의 Gil-Chain/Gil-Cycle 트레일러(팁이 스텝이 아닐 때 현재 사이클).
 func headChainCycle() (string, string) {
 	const fs = "\x1f"
-	out, err := git("log", "-1", "HEAD",
+	out, err := viewerGit("log", "-1", "HEAD",
 		"--format=%(trailers:key=Gil-Chain,valueonly)"+fs+"%(trailers:key=Gil-Cycle,valueonly)")
 	if err != nil {
 		return "", ""
@@ -217,7 +221,7 @@ func headChainCycle() (string, string) {
 }
 
 func buildGraph() graphView {
-	nodes := collectNodes()
+	nodes := viewerCollectNodes()
 	tips := tipSHAs()
 	posBySHA := map[string]string{}
 	for _, n := range nodes {
@@ -245,7 +249,7 @@ func buildGraph() graphView {
 	chainParent := chainParents()
 	chainOrder := []string{}
 	seenChain := map[string]bool{}
-	byChain := map[string][]node{}
+	byChain := map[string][]viewerNode{}
 	for i := len(nodes) - 1; i >= 0; i-- {
 		n := nodes[i]
 		if !seenChain[n.chain] {
@@ -274,7 +278,7 @@ func buildGraph() graphView {
 		cv := chainView{name: ch}
 		cycOrder := []string{}
 		seenCyc := map[string]bool{}
-		byCyc := map[string][]node{}
+		byCyc := map[string][]viewerNode{}
 		for _, n := range byChain[ch] {
 			if !seenCyc[n.cycle] {
 				seenCyc[n.cycle] = true
@@ -292,25 +296,58 @@ func buildGraph() graphView {
 	return g
 }
 
-func main() {
-	args := os.Args[1:]
-	serveMode := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "serve":
-			serveMode = true
+// cmdViewer — gil viewer <serve|build|text> 디스패치. gil main.go 의 case "viewer" 에서 불린다.
+// 뷰어는 격리 유지를 위해 gil flags 대신 자체 수동 파서를 쓴다(의존성 0).
+func cmdViewer(args []string) {
+	sub := ""
+	out := ""
+	port := "8790"
+	rest := args
+	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		sub = rest[0]
+		rest = rest[1:]
+	}
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
 		case "--repo":
-			if i+1 < len(args) {
-				repoDir = args[i+1]
+			if i+1 < len(rest) {
+				viewerRepoDir = rest[i+1]
+				i++
+			}
+		case "--port":
+			if i+1 < len(rest) {
+				port = rest[i+1]
+				i++
+			}
+		case "--out":
+			if i+1 < len(rest) {
+				out = rest[i+1]
 				i++
 			}
 		}
 	}
-	if serveMode {
-		serve(args)
-		return
+	switch sub {
+	case "serve":
+		serve([]string{"--port", port})
+	case "build":
+		if out == "" {
+			die("사용: gil viewer build --out <파일> [--repo <경로>]")
+		}
+		runViewerBuild(out)
+	case "", "text":
+		renderText(buildGraph())
+	default:
+		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve build text]")
 	}
-	renderText(buildGraph())
+}
+
+// runViewerBuild — 정적 HTML 을 파일 하나로 굳힌다(서버 없이 자기완결). Pages 등 정적 호스팅용.
+func runViewerBuild(out string) {
+	html := renderHTML(buildGraph(), true)
+	if err := os.WriteFile(out, []byte(html), 0644); err != nil {
+		die("거부: 정적 HTML 쓰기 실패: " + err.Error())
+	}
+	println2("viewer build → " + out + " (정적 자기완결 HTML)")
 }
 
 func renderText(g graphView) {

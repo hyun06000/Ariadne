@@ -421,18 +421,21 @@ class TestInit(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("뷰어", r.stdout)
 
-    def test_init_survives_missing_viewer(self):
-        """뷰어 바이너리를 못 찾아도 init 은 깨지지 않고 수동 안내만 낸다."""
-        # 억제 훅을 끄고, gilviewer 를 찾을 수 없는 최소 PATH 로 실행한다.
-        env = dict(os.environ, PATH="/usr/bin:/bin")
-        env.pop("GIL_NO_VIEWER", None)
+    def test_init_launches_integrated_viewer(self):
+        """뷰어가 gil 에 통합됐다 — init 은 gil 자기 자신을 뷰어로 띄우고(또는 이미 떠 있으면
+        그 URL 안내), 어느 경우든 깨지지 않는다. 별도 gilviewer 바이너리는 필요 없다."""
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)   # 억제 끄기 → 실제 기동 시도
         env.pop("GIL_VIEWER", None)
         r = subprocess.run([*GIL_CMD, "init", "--name", "aria"], cwd=self.repo,
-                           capture_output=True, text=True, env=env)
+                           capture_output=True, text=True, env=env, timeout=15)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("STATE", r.stdout)
-        # 뷰어를 못 찾으면 수동 안내를 낸다(못 찾음 또는 이미 관전 중 — 포트 상태 무관하게 init 은 산다).
-        self.assertIn("뷰어", r.stdout)
+        self.assertIn("뷰어", r.stdout)          # 관전 안내를 낸다
+        self.assertNotIn("gilviewer", r.stdout)  # 옛 별도 바이너리 언급 없음(통합됨)
+        # init 이 띄운 뷰어 프로세스가 남았으면 정리(포트 8790).
+        subprocess.run(["pkill", "-f", "viewer serve --repo"],
+                       capture_output=True)
 
     def test_no_args_prints_usage(self):
         """인자 없는 gil 은 침묵이 아니라 명령 표면(프롬프트)을 낸다."""
@@ -931,6 +934,87 @@ class TestGitMissing(GilFixture):
         self.assertEqual(out.returncode, 0)
         self.assertNotIn("git-scm.com", out.stdout)      # 설치 안내가 아니라 사용법
         self.assertIn("gil", out.stdout)
+
+
+class TestViewer(GilFixture):
+    """gil viewer — 뷰어가 gil 에 통합됨(별도 gilviewer 폐지, 2026-07-25 상현님).
+
+    serve(관전 서버)·build(정적 자기완결 HTML)·text(트리) 세 서브명령. 격리 방식으로
+    통합돼 gil 본체는 안 건드린다. 여기선 build 자기완결성과 serve 기동을 검증."""
+
+    def _seed_graph(self):
+        """작은 데모 그래프 하나(체인·사이클·스텝·본문)를 만든다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "demo", "--purpose", "뷰어 테스트")
+        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "합 100")
+        self.gil("step", "demo/c001", "--kind", "verify",
+                 "--body", "검증 보고서 본문. 40+60=100.", "--title", "검증")
+        self.gil("step", "demo/c001", "--kind", "success", "--title", "찾음")
+        self.gil("close", "demo/c001", "--verdict", "supported")
+
+    def test_viewer_build_is_self_contained(self):
+        self._seed_graph()
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        # 자기완결: 외부 http(s) 리소스 참조 없음(w3.org 네임스페이스·색상 힌트는 예외).
+        import re
+        externals = [u for u in re.findall(r'https?://[^\s"\'<>]+', html)
+                     if "w3.org" not in u]
+        self.assertEqual(externals, [], f"외부 참조 있음: {externals}")
+        # 정적: 폴링 비활성(서버 없음).
+        self.assertNotIn("/poll", html)
+        self.assertNotIn("setInterval(poll", html)
+        # 스텝 본문이 인라인 임베드됨(서버 페치 없이 보고서 렌더).
+        self.assertIn('"body":', html)
+        self.assertIn("demo", html)          # 데모 체인이 그래프에 들어감
+        self.assertIn("정적 스냅샷", html)   # live 대신 스냅샷 표시
+
+    def test_viewer_build_requires_out(self):
+        self._seed_graph()
+        r = self.gil("viewer", "build")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--out", r.stderr)
+
+    def test_viewer_serve_responds(self):
+        self._seed_graph()
+        # 여유 포트로 격리 기동(병렬 테스트 안전).
+        import socket, time, urllib.request
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo,
+                              "--port", str(port)], env=env,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            base = f"http://127.0.0.1:{port}"
+            ok = False
+            for _ in range(40):  # 최대 ~2s 대기
+                try:
+                    body = urllib.request.urlopen(base + "/", timeout=1).read().decode()
+                    ok = True
+                    break
+                except Exception:
+                    time.sleep(0.05)
+            self.assertTrue(ok, "serve 가 뜨지 않음")
+            self.assertIn("gil 그래프 뷰어", body)
+            self.assertIn("/poll", body)  # serve HTML 엔 폴링이 있다(정적과 반대)
+            self.assertEqual(
+                urllib.request.urlopen(base + "/poll", timeout=1).getcode(), 200)
+        finally:
+            p.terminate()
+            try:
+                p.wait(timeout=3)
+            except Exception:
+                p.kill()
+
+    def test_viewer_text_output(self):
+        self._seed_graph()
+        r = self.gil("viewer")   # 서브명령 없으면 텍스트 트리
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("체인 demo", r.stdout)
+        self.assertIn("c001", r.stdout)
 
 
 if __name__ == "__main__":

@@ -96,8 +96,10 @@ func main() {
 		cmdHandoff(rest)
 	case "migrate":
 		cmdMigrate(rest)
+	case "viewer":
+		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close approve reject log fsck global memory handoff migrate]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close approve reject log fsck global memory handoff migrate viewer]")
 	}
 }
 
@@ -129,6 +131,10 @@ func printUsage() {
 
 v2 이주:
   gil migrate --from <v2-ref> [--dry-run]   v2(폴더·cycle.yaml) 이력 → v3 커밋 그래프
+
+관전 뷰어:
+  gil viewer serve [--port <포트>]          브라우저 관전 서버(init 이 자동 기동)
+  gil viewer build --out <파일>             정적 자기완결 HTML(Pages 등 정적 호스팅용)
 
 한 명령의 자세한 사용법: gil help <명령>  (예: gil help step)
 
