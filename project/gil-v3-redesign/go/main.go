@@ -119,11 +119,15 @@ func cmdLog(args []string) {
 
 // ── gil fsck ──
 func cmdFsck(args []string) {
-	rng := "HEAD"
+	// 기본 범위는 전체 그래프(--branches) — HEAD 계보만 보면 죽은 가지(형제 벽)의
+	// 미종결 잎·backtrack 결함을 통째로 놓친다(상현님 실사용: c001 s5 analyze 잎이
+	// HEAD 밖 죽은 가지라 fsck HEAD 가 못 잡음). 인자로 명시하면 그 범위를 존중한다.
+	rng := "--branches"
 	if len(args) > 0 {
 		rng = args[0]
 	}
-	v := fsck(collectNodes(rng), declaredChains("HEAD"), collectNodes("HEAD"))
+	universe := collectNodes("--branches")
+	v := fsck(collectNodes(rng), declaredChains("--branches"), universe, closedCycles("--branches"))
 	if len(v) == 0 {
 		println2("fsck: 위반 0 — 커밋 그래프 건강")
 		return

@@ -108,6 +108,25 @@ func chainClosed(chain, revRange string) bool {
 	return false
 }
 
+// closedCycles — Gil-Kind: close 커밋으로 봉인된 사이클들의 (chain,cycle) 키 집합.
+// fsck 가 "닫힌 사이클은 모든 잎이 종결(산/죽은/pending)이어야" 를 강제하는 데 쓴다.
+func closedCycles(revRange string) map[string]bool {
+	fmt := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep + trailer("Gil-Kind") + sep
+	out := gitlog("--format="+fmt, revRange)
+	set := map[string]bool{}
+	for _, rec := range strings.Split(out, sep) {
+		parts := strings.SplitN(rec, fsep, 3)
+		if len(parts) < 3 {
+			continue
+		}
+		ch, cy, kind := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
+		if kind == "close" && ch != "" && cy != "" {
+			set[ch+"\x01"+cy] = true
+		}
+	}
+	return set
+}
+
 // chainHasChildren — 이 체인을 부모로 선언한 다른 체인이 있는가. 참조: chain_has_children.
 func chainHasChildren(chain, revRange string) bool {
 	out := gitlog("--format="+trailer("Gil-Chain-Parent"), revRange)
@@ -124,7 +143,7 @@ func stepKey(c, cy, s string) string { return c + "\x01" + cy + "\x01" + s }
 
 // fsck — SPEC §3 무결성 검사. 위반 문자열 리스트(빈=건강). 참조: fsck.
 // nodes=검사 대상, universe=참조 실재 확인용 전체(부모가 범위 밖이어도 실재하면 통과).
-func fsck(nodes []node, chainsKnown map[string]bool, universe []node) []string {
+func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map[string]bool) []string {
 	var violations []string
 	if universe == nil {
 		universe = nodes
@@ -135,6 +154,7 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node) []string {
 	}
 	cycles := map[string]string{} // cycle id -> chain
 	stepKeys := map[string]bool{}
+	hasChild := map[string]bool{} // 부모로 참조된 스텝키 — 잎 판정용(전체 그래프 기준)
 
 	for _, n := range universe {
 		if n.chain != "" {
@@ -143,6 +163,9 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node) []string {
 		stepKeys[stepKey(n.chain, n.cycle, n.step)] = true
 		if n.cycle != "" && n.kind == "define" && (n.parent == "" || n.parent == "null") {
 			cycles[n.cycle] = n.chain
+		}
+		if p := n.parent; p != "" && p != "null" {
+			hasChild[stepKey(n.chain, n.cycle, p)] = true
 		}
 	}
 
@@ -180,6 +203,16 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node) []string {
 		// 죽은 잎(backtrack outcome 또는 fail 종결 스텝)은 되돌아갈 곳(Gil-Backtrack)이 있어야.
 		if (n.outcome == "backtrack" || n.kind == "fail") && n.backtrack == "" {
 			violations = append(violations, "스텝순환: "+cc+" — 죽은 잎(backtrack/fail)은 Gil-Backtrack (조상 define) 필요")
+		}
+		// 5b. 미종결 매달린 잎 — 닫힌 사이클에서 잎(자식 없는 스텝)은 반드시 종결이어야
+		//     (산 잎 success / 죽은 잎 fail·backtrack / pending). analyze·verify·hypothesis·
+		//     define 로 매달려 끝나면 안 된다(상현님 실사용: analyze 뒤 종결 노드 없음).
+		//     열린 사이클의 잎은 진행 중일 수 있어 검사에서 뺀다.
+		if n.cycle != "" && closed[n.chain+"\x01"+n.cycle] &&
+			!hasChild[stepKey(n.chain, n.cycle, n.step)] &&
+			!isLiveLeaf(n) && !isDeadLeaf(n) && n.kind != "pending" {
+			violations = append(violations, "스텝순환: "+cc+" — 미종결 잎 (kind="+n.kind+
+				"). 닫힌 사이클의 잎은 success/fail/pending 으로 마감돼야 (analyze 로 끝내지 말 것)")
 		}
 		// 6. 계보 참조 무결성 — 스텝 머지(같은 사이클 산 잎)는 실재로 이미 확인, 나머지가 체인/사이클 머지.
 		var cycChainMerges []string

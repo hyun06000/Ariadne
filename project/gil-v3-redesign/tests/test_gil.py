@@ -47,9 +47,13 @@ class GilFixture(unittest.TestCase):
                               capture_output=True, text=True)
 
     def gil(self, *args):
-        """gil 명령 실행. 반환: CompletedProcess(returncode, stdout, stderr)."""
+        """gil 명령 실행. 반환: CompletedProcess(returncode, stdout, stderr).
+
+        GIL_NO_VIEWER: gil init 이 관전 서버(뷰어)를 백그라운드로 띄우는 것을 억제한다 —
+        테스트가 포트를 점유하거나 프로세스를 남기지 않도록 격리한다."""
+        env = dict(os.environ, GIL_NO_VIEWER="1")
         return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, env=env)
 
     def commit_file(self, name, content, msg):
         """일반 파일 커밋 하나 (fixture 셋업용)."""
@@ -177,6 +181,28 @@ class TestClosedParentGuard(GilFixture):
         r = self.gil("open", "c/c002", "--author", "a", "--purpose", "P")
         self.assertNotEqual(r.returncode, 0, "닫힌 부모 체인 사이클은 거부돼야")
 
+    def test_open_rejects_unclosed_parent_cycle(self):
+        """원칙: 사이클은 닫힌 사이클의 끝에서만. 열린 사이클을 --parent 로 삼으면 거부.
+
+        실사용(상현님)이 드러낸 결함 — 열린 사이클이 부모가 되어도 gil 이 안 막았다."""
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h")  # 안 닫음
+        r = self.gil("open", "c/c002", "--author", "a", "--purpose", "P",
+                     "--parent", "c001")
+        self.assertNotEqual(r.returncode, 0, "열린 부모 사이클은 거부돼야")
+        self.assertIn("닫히지 않", r.stderr + r.stdout)
+
+    def test_open_allows_closed_parent_cycle(self):
+        """--parent 가 닫힌 사이클이면 허용 (계보 정상)."""
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "c/c001", "--kind", "success", "--title", "ok")
+        self.gil("close", "c/c001")
+        r = self.gil("open", "c/c002", "--author", "a", "--purpose", "P",
+                     "--parent", "c001")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
 
 class TestChainMerge(GilFixture):
     """체인 머지 = 실제 git merge (파일까지 병합), 위상적 끝단만."""
@@ -243,6 +269,33 @@ class TestFsck(GilFixture):
         # setUp이 init만 함 (커밋 없음)
         r = self.gil("chain", "c", "--purpose", "P")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_unterminated_leaf_in_closed_cycle(self):
+        """닫힌 사이클의 미종결 잎(analyze 로 매달림)을 위반으로 잡는다.
+
+        실사용(상현님)이 뷰어에서 드러낸 결함 — analyze 잎 뒤 종결 노드(success/fail)가
+        없는데 fsck 가 못 잡았다. 원칙: 닫힌 사이클의 잎은 success/fail/pending 으로 마감."""
+        # 실사용 s5 구조 재현: 한 가지가 analyze 로 매달려 끝(미종결 잎)나고,
+        # 형제 가지(--to s1 로 분기)에서 success 로 마감해 사이클을 닫는다.
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "a", "--purpose", "P")  # s1 define
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h1")  # s2
+        self.gil("step", "c/c001", "--kind", "verify", "--title", "v1")      # s3
+        self.gil("step", "c/c001", "--kind", "analyze", "--title", "벽")     # s4 = 미종결 잎
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h2", "--to", "s1")  # 형제 분기
+        self.gil("step", "c/c001", "--kind", "success", "--title", "산 잎")  # 형제에서 성공
+        self.gil("close", "c/c001")
+        r = self.gil("fsck")
+        self.assertNotEqual(r.returncode, 0, "미종결 analyze 잎은 위반이어야")
+        self.assertIn("미종결 잎", r.stdout)
+
+    def test_unterminated_leaf_open_cycle_ok(self):
+        """열린 사이클의 잎은 진행 중일 수 있어 미종결이어도 위반이 아니다."""
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "c/c001", "--kind", "analyze", "--title", "진행 중 분석")
+        r = self.gil("fsck")
+        self.assertEqual(r.returncode, 0, "열린 사이클 잎은 면제: " + r.stdout)
 
 
 class TestHandoff(GilFixture):
@@ -329,6 +382,25 @@ class TestInit(GilFixture):
         self.gil("init", "--name", "aria")
         r = self.gil("handoff")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_init_viewer_suppressed_by_env(self):
+        """GIL_NO_VIEWER 면 관전 서버를 띄우지 않는다(테스트·CI 격리). init 은 정상."""
+        r = self.gil("init", "--name", "aria")  # gil() 헬퍼가 GIL_NO_VIEWER=1 주입
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("뷰어", r.stdout)
+
+    def test_init_survives_missing_viewer(self):
+        """뷰어 바이너리를 못 찾아도 init 은 깨지지 않고 수동 안내만 낸다."""
+        # 억제 훅을 끄고, gilviewer 를 찾을 수 없는 최소 PATH 로 실행한다.
+        env = dict(os.environ, PATH="/usr/bin:/bin")
+        env.pop("GIL_NO_VIEWER", None)
+        env.pop("GIL_VIEWER", None)
+        r = subprocess.run([*GIL_CMD, "init", "--name", "aria"], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("STATE", r.stdout)
+        # 뷰어를 못 찾으면 수동 안내를 낸다(못 찾음 또는 이미 관전 중 — 포트 상태 무관하게 init 은 산다).
+        self.assertIn("뷰어", r.stdout)
 
     def test_no_args_prints_usage(self):
         """인자 없는 gil 은 침묵이 아니라 명령 표면(프롬프트)을 낸다."""

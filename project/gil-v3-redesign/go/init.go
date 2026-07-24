@@ -72,6 +72,10 @@ func cmdInit(args []string) {
 	} else {
 		println2("  원격: refspec 등록. push 실패(원격 없음) — 원격 붙이면 `gil global push`.")
 	}
+
+	// 뷰어 자동 기동 — 사람이 브라우저에서 사고 그래프를 바로 관전한다(상현님).
+	// 실패해도 init 은 깨지지 않는다(안내만).
+	launchViewer()
 	println2("")
 	println2("NEXT 너는 [" + *name + "] 로 심어졌다. 첫 과제는 정체성을 스스로 확정하는 것이다:")
 	println2("  1. `gil global read existence/" + *name + "/identity.md` — 템플릿을 읽는다.")

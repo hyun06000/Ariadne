@@ -161,6 +161,16 @@ func cmdOpen(args []string) {
 		die("거부: \"" + chain + "\"은 닫힌 부모 체인(" + why + ") — 그 안에 새 사이클을 열 수 없다. " +
 			"새 자식 체인을 열어라 (gil chain <name> --purpose ...). 닫힌 부모에서 다시 자라면 배포 계보가 꼬인다.")
 	}
+	// 부모 사이클은 반드시 닫혀 있어야 한다 (상현님 실사용: 열린 사이클이 부모가 되면
+	// 배포 계보가 꼬인다). 원칙 — 사이클은 닫힌 사이클의 끝에서만 생성된다. --parent 로
+	// 지정된 사이클(들)이 close 커밋을 가졌는지 강제한다. (기록만 하고 강제 안 하던 구멍.)
+	closed := closedCycles("--branches")
+	for _, par := range *parents {
+		if !closed[chain+"\x01"+par] {
+			die("거부: 부모 사이클 \"" + par + "\"이 아직 닫히지 않았다 — 사이클은 닫힌 사이클의 " +
+				"끝에서만 연다. 먼저 `gil close " + chain + "/" + par + "` 로 닫아라.")
+		}
+	}
 	showPurposeContext(chain, cycle, *purpose)
 
 	subjTitle := *title
