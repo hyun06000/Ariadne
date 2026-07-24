@@ -14,12 +14,14 @@ func nextAllowed(tipKind, tipOutcome string) string {
 	case tipKind == "hypothesis":
 		return "step --kind verify"
 	case tipKind == "verify":
-		return "step --kind analyze --outcome {success|backtrack|fail} | step --kind pending"
+		return "step --kind analyze (분석) | step --kind pending (사람에게 물음)"
+	case tipKind == "analyze":
+		return "step --kind success (산 잎, 보고서) | step --kind fail --to <define> (죽은 잎) | step --kind pending"
 	case tipKind == "pending":
 		return "사람 답 대기 — gil approve <ref> (승인) | gil reject <ref> --to <define> (기각). 다른 step 은 거부됨."
-	case tipKind == "analyze" && tipOutcome == "success":
+	case tipKind == "success" || (tipKind == "analyze" && tipOutcome == "success"):
 		return "close (산 잎) | step --kind hypothesis --to <define> (다른 정답 탐색)"
-	case tipKind == "analyze" && (tipOutcome == "backtrack" || tipOutcome == "fail"):
+	case tipKind == "fail" || (tipKind == "analyze" && (tipOutcome == "backtrack" || tipOutcome == "fail")):
 		return "step --kind hypothesis --to <조상 define> (되돌아가 새 가지)"
 	}
 	return "?"

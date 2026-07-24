@@ -179,8 +179,14 @@ func cmdStep(args []string) {
 		die("거부: 알 수 없는 kind \"" + *kind + "\"")
 	}
 	showPurposeContext(chain, cycle, "")
-	if *kind == "analyze" && !outcomes[*outcome] {
-		die("거부: analyze는 --outcome success|backtrack|fail 필요")
+	// analyze 는 순수 분석 — 종결(성공/실패/대기)은 별도 스텝(success/fail/pending)으로(상현님).
+	// 하위호환: analyze --outcome 도 여전히 허용(옛 데이터·간단 사용).
+	if *kind == "analyze" && *outcome != "" && !outcomes[*outcome] {
+		die("거부: analyze --outcome 은 success|backtrack|fail 중 하나(생략 가능)")
+	}
+	// fail 종결 스텝은 죽은 잎 — 되돌아갈 곳을 --to 로 기록(벽의 지도).
+	if *kind == "fail" && *to == "" {
+		die("거부: fail 은 --to <조상 define> 필요 (되돌아갈 곳, 벽의 지도)")
 	}
 
 	tip := growingTip(steps)
@@ -200,7 +206,7 @@ func cmdStep(args []string) {
 		if s.kind == "define" {
 			defineIDs[s.step] = true
 		}
-		if s.kind == "analyze" && s.outcome == "success" {
+		if isLiveLeaf(s) {
 			liveLeaves[s.step] = true
 		}
 	}
@@ -245,7 +251,14 @@ func cmdStep(args []string) {
 			die("거부: --to " + *to + "는 조상 define이어야 함")
 		}
 		parent = orNull(tipID) // 죽은 잎은 현재 가지 tip 에 그대로 박는다(벽의 지도)
+	case *kind == "fail":
+		// 종결 죽은 잎 — 현재 가지 tip 에 박고, 되돌아갈 조상 define 을 --to 로 기록.
+		if !defineIDs[*to] {
+			die("거부: --to " + *to + "는 조상 define이어야 함")
+		}
+		parent = orNull(tipID)
 	default:
+		// success·analyze·verify 등 선형 진행: 현재 가지 tip 에 이어서.
 		parent = orNull(tipID)
 	}
 
@@ -266,8 +279,8 @@ func cmdStep(args []string) {
 	if *outcome != "" {
 		tr = append(tr, [2]string{"Gil-Outcome", *outcome})
 	}
-	if *outcome == "backtrack" {
-		tr = append(tr, [2]string{"Gil-Backtrack", *to})
+	if *outcome == "backtrack" || *kind == "fail" {
+		tr = append(tr, [2]string{"Gil-Backtrack", *to}) // 되돌아갈 곳(벽의 지도)
 	}
 	for _, m := range mergeRest {
 		tr = append(tr, [2]string{"Gil-Merge", m})
@@ -317,18 +330,18 @@ func cmdApprove(args []string) {
 	steps := currentCycle(chain, cycle)
 	sid := nextStepID(steps)
 	stTitle := orDefault(*title, "승인 — "+tip.step+" 의 대기를 사람이 승인")
-	subject := "gil " + chain + "/" + cycle + "/" + sid + " analyze: " + stTitle
+	subject := "gil " + chain + "/" + cycle + "/" + sid + " success: " + stTitle
 	stBody := resolveBody(*body, *bodyFile)
 	if stBody == "" {
 		stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 가지는 산 잎."
 	}
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
-		{"Gil-Step", sid}, {"Gil-Kind", "analyze"}, {"Gil-Parent", tip.step},
-		{"Gil-Outcome", "success"}, {"Gil-Approval", "approved"},
+		{"Gil-Step", sid}, {"Gil-Kind", "success"}, {"Gil-Parent", tip.step},
+		{"Gil-Approval", "approved"},
 	}
 	commit(subject, stBody, tr, true)
-	println2("approve: " + ref + "/" + sid + " analyze=success (사람 승인 ←" + tip.step + ")")
+	println2("approve: " + ref + "/" + sid + " success (사람 승인 ←" + tip.step + ")")
 }
 
 // ── gil reject — pending 에 대한 사람의 명시적 기각. 기각=죽은 잎(analyze/backtrack). ──
@@ -363,18 +376,18 @@ func cmdReject(args []string) {
 	}
 	sid := nextStepID(steps)
 	stTitle := orDefault(*title, "기각 — "+tip.step+" 의 대기를 사람이 기각")
-	subject := "gil " + chain + "/" + cycle + "/" + sid + " analyze: " + stTitle
+	subject := "gil " + chain + "/" + cycle + "/" + sid + " fail: " + stTitle
 	stBody := resolveBody(*body, *bodyFile)
 	if stBody == "" {
 		stBody = "사람이 pending(" + tip.step + ")을 기각했다 — 죽은 잎. " + *to + " 로 되돌아간다."
 	}
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
-		{"Gil-Step", sid}, {"Gil-Kind", "analyze"}, {"Gil-Parent", tip.step},
-		{"Gil-Outcome", "backtrack"}, {"Gil-Backtrack", *to}, {"Gil-Approval", "rejected"},
+		{"Gil-Step", sid}, {"Gil-Kind", "fail"}, {"Gil-Parent", tip.step},
+		{"Gil-Backtrack", *to}, {"Gil-Approval", "rejected"},
 	}
 	commit(subject, stBody, tr, true)
-	println2("reject: " + ref + "/" + sid + " analyze=backtrack (사람 기각 ⤳" + *to + ")")
+	println2("reject: " + ref + "/" + sid + " fail (사람 기각 ⤳" + *to + ")")
 }
 
 // ── gil close ──
@@ -393,12 +406,12 @@ func cmdClose(args []string) {
 	}
 	var live []string
 	for _, s := range steps {
-		if s.kind == "analyze" && s.outcome == "success" {
+		if isLiveLeaf(s) {
 			live = append(live, s.step)
 		}
 	}
 	if len(live) == 0 {
-		die("거부: 산 잎(analyze/success) 없음 — 닫을 수 없다")
+		die("거부: 산 잎(success 스텝) 없음 — 닫을 수 없다")
 	}
 	sort.Strings(live)
 	subject := "gil " + chain + "/" + cycle + " close: " + *verdict

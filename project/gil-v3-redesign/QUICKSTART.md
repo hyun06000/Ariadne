@@ -112,17 +112,44 @@ gil의 사고 구조는 **3층**이다. 큰 것부터 작은 것으로:
 한 사이클은 스텝들이 이어지며 굴러간다. 스텝에는 **종류(kind)** 가 있고, **정해진 순서**로 흐른다:
 
 ```
-define ──▶ hypothesis ──▶ verify ──▶ analyze
-(문제정의)   (가설)         (검증)      (분석·판정)
+define ──▶ hypothesis ──▶ verify ──▶ analyze ──▶ success (산 잎)
+(문제정의)   (가설)         (검증)      (분석)      └▶ fail   (죽은 잎)
+                                                  └▶ pending(사람 대기)
 ```
 
 - **define** (s1): 이 사이클이 풀 문제를 정의. `gil open`이 자동으로 만든다.
 - **hypothesis**: 가설을 세운다. **가설 없는 공부는 스텝이 아니다** — 능동적으로 가설을 세워라.
 - **verify**: 가설을 검증한다(실행·실험·테스트).
-- **analyze**: 결과를 분석하고 **판정(outcome)** 을 낸다. analyze는 반드시 outcome이 있다:
-  - `--outcome success` → **산 잎** (성공. 이 가지가 정답에 닿음)
-  - `--outcome backtrack` → **죽은 잎** (막힘. 되돌아간다)
-  - `--outcome fail` → **죽은 잎** (실패)
+- **analyze**: 결과를 **분석**한다(순수 분석 — 판정은 다음 종결 스텝에서).
+- **종결 스텝** — 분석 다음, 이 가지가 어떻게 끝나는지를 *별도 스텝*으로 커밋한다:
+  - `--kind success` → **산 잎** (성공. 정답에 닿음). **본문에 문제정의부터 누적한 보고서를 담는다.**
+  - `--kind fail --to <조상 define>` → **죽은 잎** (실패·벽). 되돌아갈 곳을 `--to`로.
+  - `--kind pending` → **사람 대기**. 이후 `gil approve`/`gil reject`만 허용(§5).
+
+> 종결(success/fail/pending)은 뷰어 그래프에 **일반 스텝 노드로** 그려진다 — 클릭하면 그
+> 스텝의 보고서(누적 지식·검증·개발 내용)가 마크다운으로 렌더된다(§3-1-1).
+> (하위호환: 옛 `analyze --outcome success|backtrack|fail` 도 계속 인정된다.)
+
+### 3-1-1. ⭐ 스텝 본문은 *보고서*다 — 짧게 쓰지 마라
+
+스텝의 제목(`--title`)은 한 줄 요약이지만, **본문(`--body` / `--body-file`)은 그 스텝의
+보고서**다. 뷰어는 스텝 노드를 클릭하면 이 본문을 **마크다운으로 렌더**한다(제목·리스트·
+표·코드블록·인용·**이미지**까지). 그러니 본문을 한두 줄로 때우지 말고, 다음을 담아라:
+
+- **무엇을·왜**: 이 스텝에서 무엇을 했고 왜 그렇게 판단했는가.
+- **근거·수치**: 관찰한 데이터·측정값(예: `RMSE 7.18`, 자기상관 0.997). 표·코드블록 활용.
+- **그림**: 분석이라면 **시각화 자료를 임베딩**한다 — 마크다운 이미지로, 파일을 data URI 로:
+  `![성능 비교](data:image/png;base64,iVBORw0KG...)`. 뷰어가 카드 안에 그려준다.
+- **결론·다음**: 이 스텝이 이끄는 판정(다음 가설/벽/산 잎).
+
+긴 본문은 파일로 두고 `--body-file` 로 싣는 게 편하다:
+
+```
+gil step demo/c001 --kind verify --title "홀드아웃 성능 측정" --body-file report.md
+```
+
+**분석(analyze) 스텝은 특히 보고서를 충실히.** "왜 산 잎/죽은 잎인가"가 그래프의 실을
+따라가는 사람에게 그대로 읽혀야 한다.
 
 ### 3-2. 막혔을 때 — 방식을 슬그머니 바꾸지 마라 (철칙)
 
@@ -225,12 +252,13 @@ gil open <chain>/<cycle> --author <who> --purpose <자연어> [--parent <cyc>...
     --author·--purpose 필수. --parent: 이 사이클이 계보로 잇는 이전 사이클/체인.
 
 gil step <chain>/<cycle> --kind <K> [옵션]
-    스텝(커밋 노드) 하나를 새긴다. --kind: define|hypothesis|verify|analyze|pending
-    --outcome success|backtrack|fail   (analyze엔 필수)
-    --to <define>                       (backtrack의 되돌아갈 곳 / hypothesis 형제 가지 뿌리)
+    스텝(커밋 노드) 하나를 새긴다.
+    --kind: define|hypothesis|verify|analyze | success|fail|pending(종결)
+    --to <define>                       (fail·backtrack의 되돌아갈 곳 / hypothesis 형제 가지 뿌리)
     --title <짧은 요약>                  (커밋 제목)
-    --body <긴 본문> | --body-file <경로> (스텝 디테일, 마크다운. git log로 읽힘)
+    --body <보고서 본문> | --body-file <경로> (마크다운·이미지. 뷰어가 렌더. §3-1-1)
     --merge <산잎 스텝id>...             (한 사이클 안 산 잎들을 합류)
+    --outcome success|backtrack|fail   (하위호환: analyze 에 붙이는 옛 방식)
     ※ hypothesis --to <define> 는 그 define 커밋에서 **형제 가지 브랜치**
       (<chain>-<cycle>-<define>b<n>)를 실제로 분기한다. backtrack 은 죽은 잎을 현 가지에 박는다.
 

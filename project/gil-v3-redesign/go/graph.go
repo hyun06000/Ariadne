@@ -19,6 +19,18 @@ var kinds = map[string]bool{
 }
 var outcomes = map[string]bool{"success": true, "backtrack": true, "fail": true}
 
+// 종결 스텝(상현님, 2026-07-24): 분석(analyze) 다음에 성공/실패/대기를 *별도 스텝*으로
+// 커밋한다. success=산 잎, fail=죽은 잎, pending=사람 대기. 이 종결 스텝의 본문이
+// 문제정의부터 누적된 보고서를 담는다. (하위호환: 옛 analyze --outcome success/fail/backtrack
+// 도 각각 산/죽은 잎으로 계속 인정한다.)
+func isLiveLeaf(n node) bool {
+	return n.kind == "success" || (n.kind == "analyze" && n.outcome == "success")
+}
+func isDeadLeaf(n node) bool {
+	return n.kind == "fail" ||
+		(n.kind == "analyze" && (n.outcome == "backtrack" || n.outcome == "fail"))
+}
+
 // declaredChains — Gil-Chain 트레일러를 가진 모든 커밋의 체인 이름(루트 포함).
 // 참조: declared_chains. 체인 루트는 Gil-Step이 없어 collectNodes가 안 잡으므로 따로.
 func declaredChains(revRange string) map[string]bool {
@@ -161,12 +173,13 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node) []string {
 				violations = append(violations, "위계: "+cc+" — 부모 스텝 "+p+" 실재 안 함 (dangling parent)")
 			}
 		}
-		// 5. analyze는 outcome 강제
-		if n.kind == "analyze" && !outcomes[n.outcome] {
-			violations = append(violations, "스텝순환: "+cc+" — analyze는 Gil-Outcome (success|backtrack|fail) 필요")
+		// 5. analyze --outcome 은 주어졌으면 유효값이어야(생략은 허용 — 종결은 success/fail 스텝).
+		if n.kind == "analyze" && n.outcome != "" && !outcomes[n.outcome] {
+			violations = append(violations, "스텝순환: "+cc+" — analyze --outcome 은 success|backtrack|fail")
 		}
-		if n.outcome == "backtrack" && n.backtrack == "" {
-			violations = append(violations, "스텝순환: "+cc+" — backtrack은 Gil-Backtrack (조상 define) 필요")
+		// 죽은 잎(backtrack outcome 또는 fail 종결 스텝)은 되돌아갈 곳(Gil-Backtrack)이 있어야.
+		if (n.outcome == "backtrack" || n.kind == "fail") && n.backtrack == "" {
+			violations = append(violations, "스텝순환: "+cc+" — 죽은 잎(backtrack/fail)은 Gil-Backtrack (조상 define) 필요")
 		}
 		// 6. 계보 참조 무결성 — 스텝 머지(같은 사이클 산 잎)는 실재로 이미 확인, 나머지가 체인/사이클 머지.
 		var cycChainMerges []string
@@ -361,8 +374,7 @@ func (c *cycleAgg) liveTip() node {
 		if referenced[s.step] {
 			continue // 잎 아님(자식이 있음)
 		}
-		dead := s.kind == "analyze" && (s.outcome == "backtrack" || s.outcome == "fail")
-		if dead {
+		if isDeadLeaf(s) {
 			continue // 죽은 잎은 팁 아님
 		}
 		best = &c.steps[i] // steps는 old→new, 뒤로 갈수록 최신 → 마지막 산 잎이 남는다
@@ -401,25 +413,20 @@ func cyclesOf(chain string) (map[string]*cycleAgg, []string) {
 		}
 	}
 	for _, c := range cyc {
-		hasSuccess, hasFail, hasPending := false, false, false
+		hasLive := false
 		for _, s := range c.steps {
-			if s.kind == "analyze" && s.outcome == "success" {
-				hasSuccess = true
-			}
-			if s.kind == "analyze" && s.outcome == "fail" {
-				hasFail = true
-			}
-			if s.kind == "pending" {
-				hasPending = true
+			if isLiveLeaf(s) {
+				hasLive = true
 			}
 		}
+		tip := c.liveTip()
 		switch {
-		case hasSuccess:
-			c.status = "solved"
-		case hasFail:
-			c.status = "dead"
-		case hasPending:
-			c.status = "pending"
+		case hasLive:
+			c.status = "solved" // 산 잎이 하나라도 있으면 풀림
+		case tip.kind == "pending":
+			c.status = "pending" // 현재 팁이 대기(소비 후엔 팁이 아니므로 여기 안 걸림)
+		case isDeadLeaf(tip):
+			c.status = "dead" // 살아있는 팁 없고 마지막이 죽은 잎
 		default:
 			c.status = "in_progress"
 		}

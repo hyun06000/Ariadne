@@ -125,10 +125,12 @@ class TestCycleAndStep(GilFixture):
         self.assertEqual(self.trailer("HEAD", "Gil-Step"), "s2")
         self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "hypothesis")
 
-    def test_analyze_requires_outcome(self):
+    def test_analyze_no_longer_requires_outcome(self):
+        """analyze 는 순수 분석 — outcome 없이 허용(종결은 success/fail 스텝, 2026-07-24)."""
+        self.gil("chain", "c", "--purpose", "P")
         self.gil("open", "c/c001", "--author", "clew", "--purpose", "P")
-        r = self.gil("step", "c/c001", "--kind", "analyze")
-        self.assertNotEqual(r.returncode, 0)
+        r = self.gil("step", "c/c001", "--kind", "analyze", "--title", "분석")
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_close_requires_live_leaf(self):
         """산 잎(analyze/success) 없으면 close 거부."""
@@ -474,20 +476,22 @@ class TestPendingGuard(GilFixture):
         self.assertNotEqual(r.returncode, 0, "pending 뒤 analyze 는 거부돼야 한다")
         self.assertIn("pending", r.stderr + r.stdout)
 
-    def test_approve_makes_live_leaf(self):
+    def test_approve_makes_success_step(self):
+        """approve → success 종결 스텝(산 잎). 2026-07-24 종결 스텝 모델."""
         self._to_pending()
         r = self.gil("approve", "gh/c001", "--title", "승인")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.trailer("HEAD", "Gil-Outcome"), "success")
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "success")
         self.assertEqual(self.trailer("HEAD", "Gil-Approval"), "approved")
-        # 승인 후 close 가능(산 잎).
         self.assertEqual(self.gil("close", "gh/c001", "--verdict", "supported").returncode, 0)
 
-    def test_reject_makes_dead_leaf(self):
+    def test_reject_makes_fail_step(self):
+        """reject → fail 종결 스텝(죽은 잎, Gil-Backtrack)."""
         self._to_pending()
         r = self.gil("reject", "gh/c001", "--to", "s1", "--title", "기각")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.trailer("HEAD", "Gil-Outcome"), "backtrack")
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "fail")
+        self.assertEqual(self.trailer("HEAD", "Gil-Backtrack"), "s1")
         self.assertEqual(self.trailer("HEAD", "Gil-Approval"), "rejected")
 
     def test_approve_without_pending_rejected(self):
@@ -496,6 +500,57 @@ class TestPendingGuard(GilFixture):
         self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
         r = self.gil("approve", "gh/c001")
         self.assertNotEqual(r.returncode, 0, "pending 없는데 approve 는 거부")
+
+
+class TestTerminalSteps(GilFixture):
+    """성공/실패/대기를 진짜 gil 스텝으로 커밋 (2026-07-24 상현님).
+
+    analyze=순수 분석, success=산 잎, fail=죽은 잎(Gil-Backtrack). 종결 스텝 본문이
+    문제정의부터 누적된 보고서를 담는다.
+    """
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "gh", "--purpose", "P")
+        self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "H")
+        self.gil("step", "gh/c001", "--kind", "verify", "--title", "V")
+        self.gil("step", "gh/c001", "--kind", "analyze", "--title", "분석")
+
+    def test_success_step_is_live_leaf(self):
+        self._seed()
+        r = self.gil("step", "gh/c001", "--kind", "success", "--title", "산 잎: 보고서")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "success")
+        # success 스텝이 있으면 close 가능.
+        self.assertEqual(self.gil("close", "gh/c001", "--verdict", "supported").returncode, 0)
+
+    def test_fail_step_requires_to(self):
+        self._seed()
+        r = self.gil("step", "gh/c001", "--kind", "fail", "--title", "죽은 잎")
+        self.assertNotEqual(r.returncode, 0, "fail 은 --to 필요")
+
+    def test_fail_step_is_dead_leaf(self):
+        self._seed()
+        r = self.gil("step", "gh/c001", "--kind", "fail", "--to", "s1", "--title", "벽")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "fail")
+        self.assertEqual(self.trailer("HEAD", "Gil-Backtrack"), "s1")
+        # 죽은 잎뿐이면 close 거부.
+        self.assertNotEqual(self.gil("close", "gh/c001").returncode, 0)
+
+    def test_report_body_via_file(self):
+        """종결 스텝 본문을 파일로 실어 보고서를 담는다."""
+        self._seed()
+        import tempfile as _tf
+        p = os.path.join(self.repo, "report.md")
+        with open(p, "w") as f:
+            f.write("# 보고서\n\n- 관찰: RMSE 0.4\n\n결론: 채택.")
+        r = self.gil("step", "gh/c001", "--kind", "success", "--title", "산 잎", "--body-file", p)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        body = self._git("log", "-1", "HEAD", "--format=%b").stdout
+        self.assertIn("# 보고서", body)
+        self.assertIn("RMSE 0.4", body)
 
 
 class TestLiveTip(GilFixture):
