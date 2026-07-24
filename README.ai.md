@@ -50,16 +50,24 @@
 
 플랫폼을 감지해 맞는 바이너리를 받는다. Python도, 툴체인도 필요 없다.
 
+**가장 짧게 (POSIX 셸)** — 설치 스크립트 한 줄. 플랫폼 감지·다운로드·체크섬 검증을 다 한다:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hyun06000/Ariadne/main/install.sh | sh
+./gil help                           # ← 이 빌드가 실제로 뭘 하는지 도구에 물어라. 문서로 추측 말 것.
+```
+
+또는 **한 단계씩 (같은 동작을 손으로)**:
+
 ```bash
 os=$(uname -s | tr '[:upper:]' '[:lower:]'); [ "$os" = darwin ] || os=linux
 arch=$(uname -m); case "$arch" in arm64|aarch64) arch=arm64;; *) arch=amd64;; esac
 sha() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
-# v3.0.0 이 정식 릴리스(latest)다 — 설치는 latest/download 로 받는다.
 base=https://github.com/hyun06000/Ariadne/releases/latest/download
 curl -fsSL -O "$base/gil-${os}-${arch}"
 curl -fsSL -O "$base/SHA256SUMS"
 grep " gil-${os}-${arch}\$" SHA256SUMS | sha -c - && mv "gil-${os}-${arch}" gil && chmod +x gil
-./gil help                           # ← 이 빌드가 실제로 뭘 하는지 도구에 물어라. 문서로 추측 말 것.
+./gil help
 ```
 
 **체크섬 단계는 필수 — 건너뛰지도, "간소화"하지도 마라.** 해시가 어긋나면 `&&` 사슬이 끊겨
@@ -79,9 +87,23 @@ Move-Item -Force gil-dl.exe gil.exe
 .\gil.exe help
 ```
 
-웹에서 받은 바이너리 실행을 네 런타임 권한 모드가 막으면, 여기서 **기술적 확인 한 번**이 뜰 수
-있다(Step 0의 동의와 별개 — 네 샌드박스가 묻는 것). 한 번 승인하고 이어가라. *"진행할까요?"*를
-다시 따지지 마라.
+### 권한이 막으면 (자주 있는 일 — 여기서 멈추지 마라)
+
+`curl`·바이너리 실행을 네 런타임 권한/샌드박스가 막을 수 있다(Step 0의 사람 동의와 별개 — 네
+환경이 거는 기술적 게이트다). 두 갈래로 갈린다:
+
+- **대화형이라 승인 프롬프트가 뜨면** — 한 번 승인하고 이어가라. *"진행할까요?"*를 다시 따지지 마라.
+- **프롬프트 없이 그냥 거부되거나(자동승인 분류기) 비대화형이라 승인 경로가 없으면** — 재시도로는
+  안 뚫린다. 우회하지 말고 **아래 둘 중 하나로 폴백하라**:
+  1. **사람에게 권한 규칙을 요청** — 프로젝트의 `.claude/settings.local.json` 에 아래를 넣고
+     세션을 다시 시작하게 안내하라(이 파일은 네가 대신 써줘도 된다):
+     ```json
+     { "permissions": { "allow": ["Bash(curl:*)", "Bash(./gil:*)", "Bash(shasum:*)", "Bash(chmod:*)", "Bash(git:*)"] } }
+     ```
+  2. **사람이 직접 설치** — 위 설치 한 줄(또는 손 단계 블록)을 사람이 터미널에서 직접 실행하고,
+     "됐다"고 하면 너는 **Step B(`./gil init`)부터 이어받아라**. 설치만 사람 손을 빌리고 나머지는 네가 운전한다.
+
+어느 쪽이든 **진입 실패로 끝내지 마라** — 폴백 경로를 사람에게 명확히 제시하는 것까지가 Step A다.
 
 **git이 필요하다.** v3 gil은 위계 전체를 진짜 git 브랜치·커밋으로 남긴다 — git 없이는 동작하지
 않는다. 사람 컴퓨터에 git이 없으면 https://git-scm.com 에서 설치하게 안내하라. (`gil init`이
