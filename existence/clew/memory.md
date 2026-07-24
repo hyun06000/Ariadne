@@ -1999,3 +1999,22 @@
   - YAML 파싱: Go 표준만으로(의존성 0 유지) 최소 YAML 리더 or 필요한 필드만 라인 파싱. cycle.yaml 필드가 단순(스칼라+짧은 리스트)이라 가능.
   - 검증: 변환 후 gil fsck 통과 + 사이클 수(227) 보존 + 산 잎/계보 확인. example 테스트(격리 fixture에 미니 v2 트리 심고 migrate→단언).
 - **⭐⭐ 다음 세션 순서**: 1) cycle.yaml 다양 케이스 샘플링 → **5단계→kind 매핑 확정**(상현님 결정 대기 항목). 2) **gil migrate 명령 구현**(Go, 범용, YAML 파서, [migrate] 표식) + example. 3) **우리 v2(main)로 실검증**: main 루트에서 분기→migrate→fsck·수 보존·뷰어로 그래프 확인. 4) 무손실 확인되면 v3 로드맵(main 승격) 진전. **부활: gil migrate=다음 대과제(도구레벨·범용, v2 rooms/YAML→v3 커밋그래프, [migrate] 표식, v2 SPEC 이주규정 계승). v2=main 브랜치 폴더기반(11체인·227사이클·cycle.yaml). 매핑 미결(5단계→kind, 다음 세션 결정). gil=Go v3.0.0-rc1, 문서=LLM-wiki, 검증=example 57. 기억=refs/gil/global.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ gil migrate 신설 (v2→v3 이주, 도구 레벨·범용) — 대과제 착수·완주
+
+- **⭐⭐⭐ 매핑 확정 (상현님 결정 2건, 실데이터 근거)**: 저번 세션이 "다음 세션 결정 대기"로 남긴 v2 5단계→v3 kind 매핑을 main의 cycle.yaml 실샘플링으로 확정.
+  - **5단계→kind = 압축(상현님 선택)**: hypothesis(+design 흡수)→define(s1), verification→verify(s2), analysis+report+verdict→종결 스텝(s3).
+  - **verdict→종결 kind = 제안대로 확정(상현님)**: supported/success→success(산 잎), rejected→fail(죽은 잎, --to s1), partial→success(+주석), **verdict 없음&closed→success**, **null&open→pending**. ⭐ verdict 필드가 종결 판정의 핵심 열쇠였음(저번 세션엔 놓쳤던 필드). 실분포: supported 136·rejected 4·partial 2·null 6·verdict없음 다수.
+- **⭐⭐ gil migrate 구현 (커밋 eaf50386, migrate.go 신규)**: 도구 레벨·범용(우리 레포 전용 아님, 하드코딩 0). `gil migrate --from <v2-ref> [--room R] [--dry-run]`.
+  - **의존성 0 최소 YAML 리더**: 스칼라+인라인리스트([a,b])+주석(#, 따옴표 안 보존)+따옴표벗김. v2 cycle.yaml이 단순해 가능.
+  - **parent 스칼라/리스트 양쪽**: v2 머지 사이클은 parent가 리스트([C0xx,C0yy]) — 첫 부모=분기/위상정렬, 전부=Gil-Cycle-Parent. 실 4건(c018·c036·c057·c005).
+  - **id/chain 필드 없는 v2 변종**: 뒤늦은 cycle.yaml(state/verdict/live_leaves만, C043·C002 2건)은 경로 rooms/.../chains/<chain>/<C0xx>/ 에서 복원(deriveFromPath).
+  - **위상정렬**: 부모 사이클 먼저 이주·닫아야 자식 열림(v3 가드). topoSortCycles(순환도 방어).
+  - **fixture 제외**: 3-verification/·fixtures/·runs/·_template/·template/ 걸러 실이력만(isRealV2CyclePath).
+  - **표식(v2 SPEC 이주규정 계승)**: subject [migrate] + Gil-Migrate(chain/cycle/step/close) + Gil-Migrated-From(원본 id). 본문=v2 메타 표(마크다운). fail=Gil-Backtrack s1, superseded_by=Gil-Superseded-By 보존.
+  - close: success&closed만 봉인(fail=죽은잎·pending=미종결은 close 안 함).
+- **⭐⭐ 실검증(격리 clone, main→v3-migration 브랜치)**: 174 실사이클 전부 이주 — 8체인·174 define·348 step(174 verify+174 종결)·170 close·**4 fail**(rejected). **사이클 수 174 보존**, **migrate가 새 fsck 위반 0**(main 자체 214 위반은 옛 도그푸딩 오염 gil-v3-viewer/dev/redesign 대문자C — migrate 무관, migrate 전후 214로 동일). 체인이 진짜 git 브랜치 트리로.
+- **⭐ 검증 example 57→65(+8, TestMigrate)**: dry-run 카운트·kind, v3그래프 생성, [migrate]표식, verdict→종결, 사이클수 보존, fsck 무결, --from 강제, lineage 보존. 전체 65/65 통과. go vet 클린.
+- **⭐ gil help migrate + 명령 표면("v2 이주" 블록) + wiki 포인터 추가.**
+- **⭐ 정직한 경계**: v2 단계별 md 원문 전체 이주는 미구현(지금은 cycle.yaml 무손실+메타 표 머리말). 실데이터에 pending 케이스 0(열린 사이클이 다 템플릿이라 제외됨) — pending 경로는 example test로만 검증. 뷰어 여전히 별도 바이너리(미병합). memory push는 원격 없어 로컬만.
+- **⭐⭐ 다음 세션 순서**: 1) **우리 v2(main) 실이주를 정식 브랜치로**(격리 clone 아닌 실 레포에 v3-migration 브랜치 만들지 상현님 확인 — main 오염 214를 이주가 정화하진 않음, 별개 이슈) + 뷰어로 이주 그래프 관전. 2) v2 단계별 md 원문 이주(확장) 필요성 판단. 3) 이주 무손실 확인되면 v3 로드맵(main 승격) 진전. 4) 뷰어 gil 병합(gil viewer serve). **부활: gil migrate 완주(도구레벨·범용, v2 rooms/cycle.yaml→v3 커밋그래프, 압축5→3매핑, verdict→종결kind, [migrate]표식, 의존성0 YAML리더, parent리스트·경로복원·위상정렬, 실검증 174사이클 보존·fsck0). gil=Go v3.0.0-rc1, 문서=LLM-wiki, 검증=example 65, 실사용=gil-realuse-hackathon. 개발=평범커밋(우리레포=gil빌드전용). 기억=refs/gil/global gil memory append.**
