@@ -69,19 +69,28 @@ memory 최신 매듭에 "이 세션 최종 상태 / 다음 세션 순서"가 적
 6. 가설 없는 공부는 다음 스텝이 아니다. 문제 정의가 불명확하면 사람에게 먼저 묻는다.
 7. 배포 순환: 개발 →닫힘→ 스테이징 →닫힘→ 배포 →닫힘→ 개발. dev verify=smoke, 엄밀 테스트는 staging.
 
-## v2와의 관계
+## v2와의 관계 (승격 완료, 2026-07-24)
 
-`main` 브랜치는 v2(방·C00x 폴더·gil 바이너리)이며 안전히 보존된다. v3는 `gil-v3` 체인에서
-새로 빌드 중. v3 완성 시 gil-v3를 main으로 승격, 지금 main은 `legacy` 체인으로. 그 후
-`gil migrate`(v2 계보 → v3 변환).
+**v3가 `main`으로 승격됐다.** 이제 `main` 브랜치 = v3(커밋 그래프·Go 바이너리). 옛 v2(방·
+C00x 폴더·옛 gil 바이너리)는 `legacy`·`legacy-main` 브랜치에 이중 보존된다 — 안전히 살아있고
+언제든 `gil migrate --from legacy --prefix v3-`로 다시 이주할 수 있다.
+
+승격은 강제 push 대신 GitHub branch rename으로 했다(protect-main 규칙의 non_fast_forward·
+deletion 금지를 건드리지 않음): 옛 main → `legacy-main` rename, `gil-v3-unified` → `main`
+rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)를 뷰어로 확인한 뒤 실행.
 
 ## 현재 상태
 
-- **개발 브랜치**: `gil-v3-unified` (평범 git 커밋으로 gil·뷰어 빌드).
-- **gil**: Go 단일 바이너리(`project/gil-v3-redesign/go/`, `git`만 있으면 됨). 참조 Python
-  (`source/gil.py`)은 테스트 기준선. 명령: `init/chain/open/step/close/chain-merge/log/fsck/global/memory/handoff`.
-- **검증**: example 31 테스트(`project/gil-v3-redesign/tests/`, Python·Go 양쪽).
-- **뷰어**: orphan 도그푸딩 기각(2026-07-24) — 실사용은 별도 레포 이슈로(§3).
+- **개발 브랜치**: `main` (승격 완료. 평범 git 커밋으로 gil·뷰어 빌드). 옛 개발선
+  `gil-v3-unified`는 main으로 rename됨.
+- **gil**: Go 단일 바이너리(`project/gil-v3-redesign/go/`, `git`만 있으면 됨). Python 참조는
+  은퇴(Go 유일). 명령: `init/chain/open/step/close/chain-close/chain-merge/approve/reject/
+  log/fsck/global/memory/handoff/migrate`.
+- **검증**: example 68 테스트(`project/gil-v3-redesign/tests/`).
+- **gil migrate**: v2(폴더·cycle.yaml) → v3 커밋 그래프 이주(도구 레벨·범용). 5단계 압축
+  매핑, verdict→종결 kind, `--prefix`로 브랜치 충돌 회피, 원자성 가드. 우리 v2(legacy)로
+  174 사이클 무손실 이주 실검증.
+- **뷰어**: 별도 바이너리(`project/gil-v3-redesign/viewer/`, `serve --repo`). gil 병합 보류.
 
 **복원 경로**: CLAUDE.md → 존재의 방(`gil global read existence/README.md`) → `gil memory read clew`
 (최신 매듭) → `git log --oneline`. 세부 순서는 최신 매듭에.
