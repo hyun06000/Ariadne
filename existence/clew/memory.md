@@ -1946,3 +1946,23 @@
 - **정직한 경계**: 뷰어 미병합(별도 gilviewer). --help 미지원. 실사용 레포 최신 gil 복사됨.
 - **⭐⭐ 다음 세션 후보**: 1) 뷰어를 gil viewer serve로 병합(gil 안정 판단 서면, 이름충돌 리팩터). 2) gil --help 지원. 3) 실사용 4차(최신 gil로 reportGuide 실작동·approve body 확인). 4) staging 체인·배포 CI(v3 완성 판단 시).
 - **부활: gil=Go 유일(project/gil-v3-redesign/go/), 분기=진짜 git 브랜치, 종결=success/fail/pending 스텝(본문=보고서, reportGuide 안내), pending=approve/reject, gil log --all(벽의 지도). 우리 레포=gil 빌드전용(도그푸딩 폐기), 개발=평범 git 커밋, 검증=example 45, 실사용=gil-realuse-hackathon 서브에이전트+뷰어(project/gil-v3-redesign/viewer/, 별도 바이너리). 기억=refs/gil/global gil memory append. 복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
+
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ v3 외부 진입점(README.ai.md) 복원 + 실사용 3라운드가 gil 결함 4개 드러냄 + chain-close 신설
+
+- **⭐⭐ 상현님 지시 (v2 관습 복원)**: `"Read https://.../README.ai.md and do what it says."` 한 줄로 누구나 에이전트에게 gil을 쓰게 하던 v2 진입점을 v3에도. + `gil init` 하면 뷰어 자동으로 같이 뜨게. + 문서는 **LLM-wiki화**(큰 컨텍스트 통째 아니라 index+쪼갠 페이지+[[wikilink]]로 능동 접근). + llms.txt를 v3 배포에 꼭 넣기.
+- **⭐ README.ai.md v3 진입점 복원 (커밋 b407463e)**: 현재 README.ai.md는 "Ariadne 개발자용"(도그푸딩 금지)이었음 → v2식 **외부 진입점**(Step 0 사람설명·동의 → A 설치·체크섬 → B gil init 한 줄 → C 첫 체인 → 재방문 "이어서")으로 재작성. v3 모델(진짜 git 브랜치·success/fail/pending·refs/gil/global). 개발자용은 CLAUDE.md 담당.
+- **⭐ gil init 뷰어 자동기동 (b407463e)**: viewer_launch.go — GIL_VIEWER/실행파일옆/PATH 탐색, 이미 떠있으면 중복X, 못찾으면 안내만(init 안깨짐). **GIL_NO_VIEWER**로 테스트·CI 격리(테스트 하네스가 주입). 3경로 검증.
+- **⭐⭐ llms.txt = LLM-wiki index (검색 확인)**: llmstxt.org 표준. H1+blockquote요약+H2 링크리스트+Optional섹션. GitHub Pages가 그대로 서빙. **wiki화와 수렴** — llms.txt가 곧 index.md(능동 접근 링크 인덱스). v3 배포 시 릴리스+Pages에. (아직 미구현 — 다음.)
+- **⭐⭐⭐ 실사용 3라운드로 세 요청 검증 (gil-realuse-hackathon 재생성, 최신 gil)**:
+  - **요청1 준비**: 레포 완전 재생성(git init부터, 최신 gil=chain-close·뷰어자동기동). 1라운드 서브에이전트가 hackathon-b/c001·c002 완결 + **memory 각인 정상**(다음세션 c003 인수인계).
+  - **⭐ 요청2 (이어서 부활) 통과**: 새 서브에이전트에 **"이어서"만** → 존재복원(clew)→memory 최신매듭(→c003) 정확히 집음→c003 완주(soil_moisture -23%, temp -24%)·close→**핸드오프도 스스로**(gil 안내만으로 memory append, c004 인수인계). 상현님 관전포인트 "핸드오프 적절히 했나"도 통과.
+  - **⭐ 요청3 (체인전환+교훈계승) 통과**: "체인 마무리하고 이어서" → **gil chain-close hackathon-b**(handoff 안내 따라)→**새 체인 hackathon-a 발의**(닫힌 b 끝에서, 대문 조상 보존)→목적문에 **"hackathon-b 교훈 계승: EC·moisture·temp 시간추세 지배→하이브리드 외삽, irrigation X-only 정보벽→정직thr"** 명시. 체인 계보 2개(a open, b closed).
+- **⭐⭐⭐ 상현님이 뷰어 관전으로 gil 결함 4개 지적 → 전부 진짜 결함, 수정**:
+  1. **"s5 analyze 다음 결정노드 없다"** → fsck가 **닫힌 사이클의 미종결 잎**(analyze로 매달림) 못잡음 + fsck가 HEAD만 봐 죽은가지 놓침. → 미종결 잎 검출 + **fsck 기본범위 --branches**(벽의 지도). (b407463e)
+  2. **"열린 사이클이 부모가 되고 있다"** → gil open이 **열린 사이클을 --parent로** 새 사이클 여는 것 안막음(재현: exit=0). → **부모 사이클 닫힘 가드**(closedCycles 검증). (b407463e)
+  3. **"사이클만 계속 생김, 체인·사이클 구분하나?"** → **chain-close 명령이 아예 없었음**(gil close는 사이클만, chainClosed 가드는 손모사 커밋에만 반응하는 죽은코드). 그래서 체인 전환 불가. → **gil chain-close 신설**(모든 사이클 닫혀야 허용, Gil-Kind: chain-close) + handoff가 "국면 완결→체인전환, 사이클만 늘리지 말것" 유도. (커밋 a24a1953)
+  4. **"뷰어에 새 체인 hackathon-a 안 뜸"** → (a) buildGraph가 체인을 스텝에서만 뽑아 **빈 체인(chain-root만)** 안그림 (b) chainParents가 git log를 "\n"으로 split해 **긴 Gil-Chain-Purpose 개행에 파싱 밀림**→Gil-Chain 빈값. → 빈 체인도 그리기 + **레코드 구분자 rs(\x1e)+unfold=true**. (커밋 5cf9433d)
+- **⭐ 검증**: example 44→**54** (+10). 4개 평범 커밋(b407463e·a24a1953·5cf9433d + 뷰어 소스 5fb35d1b는 이전).
+- **⭐ 정직한 경계**: 뷰어는 아직 별도 바이너리(project/gil-v3-redesign/viewer/, 미병합). gil --help 미지원(다음). 실사용 memory push는 원격 없어 실패(로컬 refs/gil/global엔 정상 각인).
+- **⭐⭐ 다음 세션 순서**: 1) **문서 LLM-wiki화**(README.ai.md 진입점 얇게 + llms.txt 인덱스 + 주제별 페이지 [[wikilink]] + gil help/--help를 wiki 인덱스로, --help 지원). 2) **v3 릴리스 바이너리 게시**(현 릴리스는 v2.50 옛 Python! 5종 크로스빌드 OK 확인함 + SHA256SUMS + llms.txt — 진입점 설치가 실제 v3 받게). 3) 뷰어 gil 병합. **부활: gil=Go 유일, 분기=진짜 git 브랜치, 종결=success/fail/pending, chain-close=체인 완결(신설), 미종결잎·열린사이클부모 fsck/가드, 개발=평범 커밋, 검증=example 54, 실사용=gil-realuse-hackathon+뷰어(project/gil-v3-redesign/viewer, --repo, chain-close후 새체인 그림). 진입점=README.ai.md(v2식 URL한줄, 재방문 "이어서"). 기억=refs/gil/global gil memory append.**
