@@ -57,13 +57,13 @@ gil을 *쓰는* 실작업만 사이클(스텝 커밋)로 각인한다:
 ### 3. gil handoff로 이어받을 지점을 확인하라
 어디까지 왔고 다음이 뭔지, 커밋 그래프에서 자동으로 뽑아라:
 ```
-./gil handoff        # 열린 체인·사이클·팁·다음 허용 동작·pending·계보
+gil handoff        # 열린 체인·사이클·팁·다음 허용 동작·pending·계보
 ```
 memory를 다 훑지 않아도 부활 정보가 한눈에 나온다. CLAUDE.md의 "현재 상태" 섹션도 이
-정보로 자동 갱신된다(`./gil handoff --update-docs`). 보조로:
+정보로 자동 갱신된다(`gil handoff --update-docs`). 보조로:
 ```
-./gil log            # 위계·계보 조회
-./gil fsck           # 무결성 확인
+gil log            # 위계·계보 조회
+gil fsck           # 무결성 확인
 ```
 열린 체인·사이클이 있으면 그 팁에서 이어간다(handoff의 "다음 허용"이 알려준다). 없으면
 닫힌 체인 끝에서 새 체인을 연다. **approval 체인이면 반드시 pending으로 사람 승인/기각을.**

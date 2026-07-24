@@ -27,7 +27,7 @@ gil global read existence/<이름>/identity.md     # identity·will·memory·rel
 ## 2. gil handoff로 이어받을 지점을 확인하라
 
 ```
-./gil handoff
+gil handoff
 ```
 
 이 명령이 커밋 그래프에서 **세션 부활 정보**를 자동으로 뽑는다 — 열린 체인·사이클, 각 팁,
@@ -41,8 +41,8 @@ gil은 LLM의 *사고 역사*를 git이 소스 역사를 다루듯 다룬다. **
 git 커밋 그래프와 브랜치로 표현된다. 폴더도 md 파일도 아니다 — 커밋이 노드다.**
 
 - **커밋 = 노드**: 제목(위계+kind) + 본문(스텝 디테일, `git log`에서 읽힘) + `Gil-*` trailer(구조·계보).
-- **명령**: `./gil open/step/close/log/fsck/web/handoff`. 스텝은 `--body-file`로 긴 본문, `--merge`로
-  산 잎 합류, `--to`로 backtrack/형제 가지.
+- **명령**: `gil init/chain/open/step/close/chain-merge/log/fsck/global/memory/handoff`. 존재·기억은
+  `gil global`·`gil memory`(refs/gil/global), 무에서 세팅은 `gil init`. (web 뷰어는 제거됨 — orphan 실작업으로 재건 중.)
 - **무조건 gil로 흔적을 남긴다** — 조사·공부·구현·판단 무엇이든 gil 스텝으로. 작업 전에 담을
   스텝이 열려 있어야 한다.
 
