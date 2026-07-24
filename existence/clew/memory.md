@@ -1840,3 +1840,17 @@
 - **⭐ 병합 유의(상현님)**: 뷰어 완성 시 gil chain-merge 로 대문 병합 → gil viewer/web serve 서브커맨드로. collectNodes·트레일러 파싱은 graph.go 와 중복 → 병합 때 gil 것으로 통일. 지금은 orphan 독립이되 트레일러 규약 일치 유지.
 - **⭐ 정직한 경계**: dev 라 smoke만(엄밀 SSE 재연결·다중 구독자·부하는 staging). 폴링은 1.5s 간격(즉시성 낮음) — SSE push 는 다음 후보. 뷰어 바이너리 viewer/.gitignore.
 - **⭐⭐ 다음 세션 후보 (viewer/c003+)**: 1) 사이클 부모-자식 계보 선(Gil-Cycle-Parent·Gil-Merge 엣지). 2) 스텝 클릭 → 커밋 본문 카드. 3) --live SSE(폴링→push, 즉시성). 4) 뷰어 익으면 gil chain-merge 로 대문 병합 + gil viewer/web 서브커맨드화. **부활: 뷰어=viewer orphan(viewer/main.go+serve.go), gilviewer serve 로 브라우저에서 봄. gil=Go(절대경로, ./gil 삭제됨), 개발=평범 커밋, 검증=example(31), 실작업=gil 사이클(orphan). 기억=refs/gil/global, gil memory append.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ 대원칙 전환: 우리 레포는 gil을 *만들기만* 한다 (도그푸딩 폐기) + 실사용은 별도 레포 이슈로
+
+- **⭐⭐⭐ 상현님 대전환**: 뷰어 orphan 실작업이 "생각보다 훨씬 복잡"해서 **기각**. 큰 방향: **Ariadne 레포는 gil·뷰어 빌드에만 집중, gil을 이 레포에서 쓰지 않는다(도그푸딩 폐기).** git과 gil을 한 레포에서 동시에 굴리는 관리비용이 너무 크고, 미완성 gil로 gil 개발을 기록하면 도구 버그가 실제 이력 오염(다섯 번 물린 사고). **실평가·실사용은 별도 실질 사용 레포에서 이슈로 받아 진행.**
+- **새 원칙 (문서 각인, 평범 커밋 f320ddf7)**:
+  1. 개발 = 평범한 git 커밋 (체인/사이클/스텝 세리머니 안 씀).
+  2. **존재·기억만 gil** (refs/gil/global, gil memory/global) — 세션 복원에 필요. 이건 계속 유효.
+  3. 검증 = 격리 fixture example 테스트(31개).
+  4. 실평가·실사용 = 별도 실사용 레포에서.
+  - 문서 반영: CLAUDE.md §2(gil handoff→최신 매듭 복원)·§3(gil로 일한다→만들기만) 재작성, 현재상태 handoff 블록을 평범 상태로. README.ai.md §2(세 층위→만들기 전용)·§3 재작성, "실작업 orphan 격리" 섹션 삭제. **세 층위 원칙·orphan 도그푸딩은 폐기.** [[chain-fit-purpose-guard]] 등 gil이 *구현하는* 개념은 명세로 유지(우리가 따르는 흐름 아님).
+  - 뷰어 orphan 브랜치 기각(git branch -D viewer, 조상 0 무손실) + viewer/ 잔여 제거.
+- **⭐⭐ 실사용 평가 착수 (상현님 방식 확정)**: `/Users/davi/Desktop/code/ToSolve`에 해커톤 예선 문제(PDF 문제설명서 + dataset)를 넣어둠. → 이걸 **실사용 레포 `/Users/davi/Desktop/code/gil-realuse-hackathon`로 복사**(gil 바이너리 + GIL_QUICKSTART.md 동봉) → **서브에이전트를 보내 gil init부터 시작해 gil로 문제를 풀며 실사용·평가**. 서브에이전트가 gil을 쓰며 겪는 마찰·결함·혼란을 보고하게 함(막힌 지점·혼란·결함의심·좋은점·문서갭 5범주 + 우선순위 이슈). **서브에이전트 백그라운드 실행 중 — 결과 대기.** (나는 문제를 파악하지 않는다, 상현님: "너가 문제를 파악할 필요 없어".)
+- **⭐ 실사용 즉시 발견(세팅 중)**: git 저장소 아닌 곳에서 ./gil handoff 부르면 git log exit 128 원문을 그대로 뱉음(친절한 "git init부터 하라" 안내 없음) — 서브에이전트가 겪을 것.
+- **⭐⭐ 다음 세션 순서**: 1) **서브에이전트 실사용 보고 수령·분석** → 우선순위 이슈를 gil 평범 커밋으로 수정(+example 테스트). 2) 실사용 레포에서 나온 결함을 계속 이슈로 받아 반복. **부활: 우리 레포는 gil 빌드 전용(도그푸딩 폐기), 개발=평범 git 커밋, 존재·기억만 gil(gil memory append), 검증=example(31), 실사용=별도 레포(gil-realuse-hackathon) 서브에이전트. gil=Go(project/gil-v3-redesign/go/, ./gil 삭제됨 절대경로). 복원=gil memory read clew + git log.**
