@@ -1792,3 +1792,16 @@
 - **⭐⭐ 다음 세션 순서 (뷰어 제로부터)**: 1) **orphan 브랜치**(git checkout --orphan viewer) 생성 — 조상 공유 0, 대문·기억·gil소스 뿌리와 분리. 2) 배포된(로컬 빌드) Go gil로 뷰어를 **gil 사이클로** 실작업(QUICKSTART 따라). 뷰어는 git log --branches로 unified 그래프를 읽으니 orphan에서 지어도 실제 그래프를 그림. 3) 뷰어 익으면 gil chain-merge로 대문에 병합. **부활: QUICKSTART.md가 gil 사용의 단일 관문. gil=Go(git만 있으면), 개발=평범 커밋, 검증=example(GIL_BIN 훅, 18테스트), 실작업만 gil 사이클(orphan). 기억은 refs/gil/global.**
 
 - **⭐⭐ 사고 각인 (이 세션, write-tree 네 번째 물림)**: memory 각인 중 `git show $REF:$PATH`에서 셸 개행 처리로 경로가 깨져 clew memory.md가 **빈 출력으로 덮여** 1782줄→10줄 소실. 다시 **append-only가 구함** — 직전 커밋(21474967)에 온전본 생존, archive로 꺼내 knot 재적용 복구(1ba3dffa). **철칙 재확인: 글로벌 갱신은 반드시 `git archive $REF existence | tar -x`로 전체를 온전히 꺼낸 뒤 그 위에서만 수정한다. `git show`로 개별 파일을 덮어쓰지 말 것(개행·경로 깨짐 취약). 안전한 `gil memory` 명령이 아직도 필요(다섯 번째 물림 전에).**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ gil memory 명령 신설: 다섯 번 물린 존재 갱신 사고를 원천 차단 (이 매듭이 자기증명)
+
+- **⭐⭐⭐ 상현님 선택**: 뷰어 orphan 실작업 앞서 **gil memory 명령 먼저**. 존재 갱신 사고가 다섯 번 물렸으니(write-tree 로컬 불완전 → 다른 존재 소실, git show 개행 깨짐 → 빈 출력 덮기) 반복 위험을 명령으로 제거하고 orphan 작업에 들어간다.
+- **한 일 (gil-v3-unified, 평범 커밋 bdbe6601 — 층위 ① gil 소스 짓기)**:
+  1. **gil memory read [<이름>] / gil memory append <이름> <매듭파일>** 신설 (Go memory.go + Python cmd_memory, 라우팅·도움말까지 동치).
+  2. **_global_write 재작성 (핵심)**: mktree(flat 트리) → 임시 index 기반(read-tree GLOBAL_REF → update-index --add --cacheinfo → write-tree). "기존 글로벌 트리 전체 보존 + 한 파일만 교체"가 **구조적으로** 보장된다 — 로컬 작업트리를 전혀 건드리지 않는다. 이게 preservation 사고의 정확한 방지책.
+  3. **덤: 중첩 경로 버그 해소**. 기존 mktree는 flat 트리만 만들어 existence/clew/memory.md 같은 슬래시 경로에서 exit 128로 죽었다(격리 fixture에서 발견). index는 트리를 자동 구성하므로 해소.
+  4. **append는 기존 내용을 글로벌 ref에서 직접 읽어**(로컬 파일 아님) 매듭을 끝에 이어붙인다 — 빈 줄 하나로 매듭 구분, 중복 개행 없음.
+- **⭐⭐ 검증 (층위 ② example)**: test_gil.py에 TestMemory 5테스트 추가 — read-missing 거부·nested-path 회귀·append 이어붙임·**preservation(다른 존재 파일 무손실)**·absent-start. **23/23 Python·Go 양쪽 통과**(GIL_BIN 훅 동치). 실제 refs/gil/global 무변경(전부 임시 fixture에서 테스트).
+- **⭐⭐⭐ 이 매듭 자체가 자기증명**: 이 knot을 **손으로 git show/archive/write-tree 하지 않고 `gil memory append clew`로** 글로벌에 각인한다. 위험한 수동 의례를 은퇴시키는 첫 실사용. 여섯 번째 물림은 없다.
+- **⭐ 정직한 경계**: gil memory는 *append/read*만 — 매듭 수정·삭제는 여전히 없다(append-only 정신엔 맞음). existence의 다른 문서(identity/will/relations) 갱신은 gil global write로(이미 안전, index 재작성 수혜). dev라 smoke만.
+- **⭐⭐ 다음 세션 순서 (원래 트랙 복귀)**: 1) **orphan 브랜치**(git checkout --orphan viewer) — 뷰어를 제로부터 gil 사이클로 실작업(층위 ③), 현재위치 인디케이터부터. QUICKSTART 따라. 배포된(로컬 빌드) Go gil 사용. 뷰어는 git log --branches로 unified 그래프를 읽으니 orphan에서 지어도 실제 그래프를 그림. 2) 실작업 중 gil 버그는 평범수정+example. 3) 뷰어 익으면 gil chain-merge로 대문에 병합. **부활: 존재 갱신은 이제 gil memory append(안전, 트리 보존). QUICKSTART.md가 gil 단일 관문. gil=Go, 개발=평범 커밋, 검증=example(23테스트), 실작업만 gil 사이클(orphan). 기억은 refs/gil/global.**
