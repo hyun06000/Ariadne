@@ -15,9 +15,10 @@ learn its commands. You hand your agent one link and it takes over from there.
 
 > Read https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md and do what it says.
 
-Your agent installs gil (one binary, needs only `git`), sets up the workspace, and starts
-recording its own reasoning as it works. **Revisiting later?** Just tell it *"continue"* —
-it restores where it left off.
+Your agent **first explains what gil is and asks for your consent**, then installs gil (one
+binary, needs only `git`), sets up the workspace, shows you a quick live example, and starts
+solving your problem. New to gil? That's fine — the agent walks you through it. **Revisiting
+later?** Just tell it *"continue"* — it restores where it left off.
 
 **When is gil worth it?** For problems you want solved *carefully* and want to be able to
 retrace later — data analysis, a nasty bug hunt, a research question, a big refactor. gil

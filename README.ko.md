@@ -14,11 +14,14 @@ gil은 당신의 **AI 코딩 에이전트**(Claude Code 등)가 운전하는 도
 
 **시작하려면:** 이 한 줄을 당신의 AI 에이전트에게 붙여넣으세요 —
 
-> Read https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md and do what it says.
+> https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md 를 읽고 그대로 해줘.
 
-에이전트가 gil을 설치하고(바이너리 하나, `git`만 있으면 됨), 작업 공간을 세팅하고, 일하면서
-자기 사고 과정을 스스로 기록하기 시작합니다. **나중에 다시 오셨나요?** *"이어서"* 한 마디면
-됩니다 — 멈춘 지점을 복원합니다.
+<sub>영어가 편하면: *Read https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md and do what it says.* — 둘 중 아무거나 괜찮습니다.</sub>
+
+에이전트가 **먼저 gil이 뭔지 설명하고 동의를 구한 뒤**, gil을 설치하고(바이너리 하나, `git`만
+있으면 됨), 작업 공간을 세팅하고, 간단한 예제를 눈앞에서 보여준 다음, 당신의 문제를 풀기
+시작합니다. gil을 처음 써도 됩니다 — 에이전트가 차근차근 안내합니다. **나중에 다시 오셨나요?**
+*"이어서"* 한 마디면 멈춘 지점을 복원합니다.
 
 **언제 gil이 값할까요?** *신중히* 풀고 나중에 되짚고 싶은 문제 — 데이터 분석, 까다로운 버그
 사냥, 연구 질문, 큰 리팩터. gil은 에이전트의 가설·검증·막다른 길의 자취를, 세션이 끝나면
