@@ -3,7 +3,30 @@
 > **git이 역사를 정복했듯, LLM 에이전트가 복잡한 문제를 작고 재현 가능한 사이클의 체인으로 —
 > 커밋 그래프에 직접 새기며 — 정복하게 하는 방법론이자 도구.**
 
-**문서**: [English (README.md)](README.md) · [AI 에이전트용 (README.ai.md)](README.ai.md)
+**문서**: [English (README.md)](README.md) · [당신의 AI 에이전트에게 (README.ai.md)](README.ai.md)
+
+---
+
+## 👋 처음이세요? 30초면 시작 (gil은 당신이 아니라 당신의 AI가 배웁니다)
+
+gil은 당신의 **AI 코딩 에이전트**(Claude Code 등)가 운전하는 도구입니다 — *당신*은 명령을
+외울 필요가 없습니다. 링크 하나를 에이전트에게 건네면 나머지는 에이전트가 합니다.
+
+**시작하려면:** 이 한 줄을 당신의 AI 에이전트에게 붙여넣으세요 —
+
+> Read https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md and do what it says.
+
+에이전트가 gil을 설치하고(바이너리 하나, `git`만 있으면 됨), 작업 공간을 세팅하고, 일하면서
+자기 사고 과정을 스스로 기록하기 시작합니다. **나중에 다시 오셨나요?** *"이어서"* 한 마디면
+됩니다 — 멈춘 지점을 복원합니다.
+
+**언제 gil이 값할까요?** *신중히* 풀고 나중에 되짚고 싶은 문제 — 데이터 분석, 까다로운 버그
+사냥, 연구 질문, 큰 리팩터. gil은 에이전트의 가설·검증·막다른 길의 자취를, 세션이 끝나면
+증발시키는 대신 재현 가능한 지도로 남깁니다.
+
+**전제:** `git`, 그리고 AI 코딩 에이전트. 그게 전부입니다.
+
+<sub>내부가 어떻게 도는지 궁금하면 계속 읽으세요. 하지만 쓰는 데는 아래 내용이 전혀 필요 없습니다.</sub>
 
 ---
 
@@ -52,7 +75,9 @@
 
 ## 상태
 
-gil **v3 개발 진행 중** (`gil-v3` 체인). 이 루트는 `gil init` 뼈대다. 규약은
+gil **v3 정식 릴리스됨** — `v3.0.0`이 현재 `latest`이고, v3가 곧 `main` 브랜치다. 옛
+폴더 기반 v2는 `legacy`·`legacy-main` 브랜치에 보존되며, `gil migrate`가 v2 이력을 v3
+커밋 그래프로 변환한다. 규약은
 [project/gil-v3-redesign/SPEC.md](project/gil-v3-redesign/SPEC.md)에.
 
 라이선스: [MIT](LICENSE)

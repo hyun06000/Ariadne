@@ -27,7 +27,7 @@ gil은 git을 대체하지 않는다. **git 위에 얹힌다.** gil이 만드는
 gil의 사고 구조는 3층이다. 큰 것부터 작은 것으로, 각각이 git의 무엇에 매핑되는지:
 
 ```
-체인 (chain)   ─ 작업의 큰 줄기.  git 브랜치 <name> 에 매핑.        예: gil-v3-unified
+체인 (chain)   ─ 작업의 큰 줄기.  git 브랜치 <name> 에 매핑.        예: analysis, refactor
   └ 사이클 (cycle) ─ 하나의 문제를 푸는 한 바퀴.  git 브랜치 <chain>-<cycle>.  예: c001, c002
       └ 스텝 (step)  ─ 한 번의 생각.  커밋 하나.                     예: s1, s2, s3
 ```

@@ -2,7 +2,31 @@
 
 > **A methodology and toolchain that lets LLM agents conquer complex problems the way git conquered history — as chains of small, reproducible cycles, written directly onto the commit graph.**
 
-**Docs**: [한국어 (README.ko.md)](README.ko.md) · [For AI agents (README.ai.md)](README.ai.md)
+**Docs**: [한국어 (README.ko.md)](README.ko.md) · [Deep dive for your AI agent (README.ai.md)](README.ai.md)
+
+---
+
+## 👋 New here? Start in 30 seconds (you don't learn gil — your AI agent does)
+
+gil is a tool your **AI coding agent** (Claude Code, etc.) drives — *you* never have to
+learn its commands. You hand your agent one link and it takes over from there.
+
+**To start:** paste this to your AI agent —
+
+> Read https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md and do what it says.
+
+Your agent installs gil (one binary, needs only `git`), sets up the workspace, and starts
+recording its own reasoning as it works. **Revisiting later?** Just tell it *"continue"* —
+it restores where it left off.
+
+**When is gil worth it?** For problems you want solved *carefully* and want to be able to
+retrace later — data analysis, a nasty bug hunt, a research question, a big refactor. gil
+keeps the agent's trail of hypotheses, checks, and dead ends as a reproducible map instead
+of letting it evaporate when the session ends.
+
+**Prerequisites:** `git`, and an AI coding agent. That's it.
+
+<sub>Curious how it works under the hood? Read on. But you don't need any of this to use it.</sub>
 
 ---
 
@@ -54,7 +78,9 @@ There is no static "room" classification — *which chain is currently open* is 
 
 ## Status
 
-gil **v3 is under active development** on the `gil-v3` chain. This root is the `gil init`
-skeleton. The spec lives in [project/gil-v3-redesign/SPEC.md](project/gil-v3-redesign/SPEC.md).
+gil **v3 is released** — `v3.0.0` is the current `latest`, and v3 *is* the `main` branch.
+The old folder-based v2 is preserved on the `legacy` / `legacy-main` branches; `gil migrate`
+converts a v2 history into the v3 commit graph. The spec lives in
+[project/gil-v3-redesign/SPEC.md](project/gil-v3-redesign/SPEC.md).
 
 License: [MIT](LICENSE)

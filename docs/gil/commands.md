@@ -112,6 +112,13 @@ gil memory read <이름> | append <이름> <매듭파일>
 ```
 기억은 append-only 로만 갱신한다. `read` 는 최신 매듭(맨 끝)부터 읽고, `append` 는 트리 전체를 보존하며 새 매듭을 이어붙인다(자동 push). 손으로 git show/write-tree 조합 금지.
 
+## v2 이주
+
+```
+gil migrate --from <v2-ref> [--room <room>] [--prefix <접두>] [--dry-run]
+```
+옛 **v2**(폴더·`cycle.yaml` 기반) 이력을 **v3 커밋 그래프**로 이주한다. 도구 레벨·범용 — 임의의 v2 필드 저장소가 쓴다. 먼저 v2 루트에서 이주 브랜치를 파고(`git checkout -b`) 실행하라. 매핑: v2 5단계를 압축(hypothesis+design→define, verification→verify, analysis+report+verdict→종결 스텝)하고, `verdict`→종결 kind(supported→success, rejected→fail, null&open→pending)로 옮긴다. `--prefix`(예 `v3-`)로 기존 브랜치와의 충돌을 피하며(충돌 시 아무것도 만들지 않고 거부 — 원자성), `--dry-run` 으로 먼저 확인한다. 이주 커밋엔 `[migrate]` 표식(Gil-Migrate·Gil-Migrated-From)이 붙는다.
+
 ## 관련
 
 - 위계 개념과 순서 규칙: [개념](concepts.md)
