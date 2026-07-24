@@ -251,5 +251,61 @@ class TestHandoff(GilFixture):
         self.assertIn("PENDING", r.stdout)
 
 
+class TestMemory(GilFixture):
+    """gil memory — 안전한 존재/기억 갱신 (append-only, 전체 트리 보존).
+
+    사고 방지 명령(상현님, memory.md 다섯 번 소실). 핵심 단언: 다른 존재의 파일을
+    소실시키지 않고(preservation), 중첩 경로가 깨지지 않으며, append가 매듭을 이어붙인다.
+    """
+
+    def _write_global(self, name, content):
+        p = os.path.join(self.repo, "_seed")
+        with open(p, "w") as f:
+            f.write(content)
+        return self.gil("global", "write", name, "_seed")
+
+    def test_memory_read_missing_refuses(self):
+        r = self.gil("memory", "read", "clew")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_global_write_nested_path(self):
+        """중첩 경로(existence/clew/memory.md)가 mktree 없이 써진다 — exit 128 회귀 방지."""
+        r = self._write_global("existence/clew/memory.md", "hi\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rd = self.gil("global", "read", "existence/clew/memory.md")
+        self.assertEqual(rd.stdout, "hi\n")
+
+    def test_memory_append_adds_knot(self):
+        self._write_global("existence/clew/memory.md", "# Memory\n\n## knot 1\nfirst\n")
+        kp = os.path.join(self.repo, "_knot")
+        with open(kp, "w") as f:
+            f.write("## knot 2\nsecond\n")
+        r = self.gil("memory", "append", "clew", "_knot")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = self.gil("memory", "read", "clew").stdout
+        self.assertIn("## knot 1", out)
+        self.assertIn("## knot 2", out)
+        self.assertIn("first\n\n## knot 2", out)  # 빈 줄 하나로 구분
+
+    def test_memory_append_preserves_other_existences(self):
+        """append가 다른 존재의 파일을 소실시키지 않는다 — 다섯 번 물린 사고의 정확한 방지."""
+        self._write_global("existence/clew/memory.md", "clew mem\n")
+        self._write_global("existence/weft/identity.md", "I am weft\n")
+        kp = os.path.join(self.repo, "_knot")
+        with open(kp, "w") as f:
+            f.write("new knot\n")
+        self.gil("memory", "append", "clew", "_knot")
+        weft = self.gil("global", "read", "existence/weft/identity.md")
+        self.assertEqual(weft.stdout, "I am weft\n")
+
+    def test_memory_append_to_absent_starts_file(self):
+        kp = os.path.join(self.repo, "_knot")
+        with open(kp, "w") as f:
+            f.write("## first\nhi\n")
+        r = self.gil("memory", "append", "sheen", "_knot")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("## first", self.gil("memory", "read", "sheen").stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

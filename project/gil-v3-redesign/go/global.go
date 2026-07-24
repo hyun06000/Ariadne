@@ -38,31 +38,32 @@ func globalList() []string {
 }
 
 // globalWrite — 글로벌 ref의 파일 하나를 갱신(추가/덮어쓰기). checkout 없이 저수준 git.
-// 참조: _global_write. 기존 트리에 name→새 blob을 얹어 새 트리·커밋(append-only).
+// 기존 글로벌 트리 전체를 임시 index에 얹은 뒤 name 하나만 교체해 write-tree 한다 —
+// 나머지 파일은 구조적으로 보존되고(append-only), 작업트리는 전혀 건드리지 않는다.
+//
+// 중첩 경로(existence/clew/memory.md 등)도 index가 트리를 자동 구성하므로 안전하다.
+// (이전 mktree 구현은 flat 트리만 만들어 슬래시 경로에서 exit 128로 죽었다.)
 func globalWrite(name, content, message string) string {
 	blob := strings.TrimSpace(gitInput(content, "hash-object", "-w", "--stdin"))
-	entries := map[string]string{} // fn -> "100644 blob <sha>"
-	if out, err := gitTry("ls-tree", globalRef); err == nil {
-		for _, ln := range strings.Split(out, "\n") {
-			meta, fn, ok := cut(ln, "\t")
-			if ok && fn != "" {
-				entries[fn] = meta
-			}
-		}
+
+	idxFile, err := os.CreateTemp("", "*.gilidx")
+	if err != nil {
+		die("거부: 임시 index 생성 실패: " + err.Error())
 	}
-	entries[name] = "100644 blob " + blob
-	var keys []string
-	for fn := range entries {
-		keys = append(keys, fn)
+	idxPath := idxFile.Name()
+	idxFile.Close()
+	os.Remove(idxPath) // git이 새로 만들게 (빈 파일이면 bad index)
+	defer os.Remove(idxPath)
+
+	env := append(os.Environ(), "GIT_INDEX_FILE="+idxPath)
+	if gitOK("rev-parse", "--verify", "-q", globalRef) {
+		runEnv(env, "read-tree", globalRef)
 	}
-	sortStrings(keys)
-	var tb strings.Builder
-	for _, fn := range keys {
-		tb.WriteString(entries[fn] + "\t" + fn + "\n")
-	}
-	tree := strings.TrimSpace(gitInput(tb.String(), "mktree"))
+	runEnv(env, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+name)
+	tree := strings.TrimSpace(runEnvOut(env, "write-tree"))
+
 	args := []string{"commit-tree", tree}
-	if p, err := gitTry("rev-parse", globalRef); err == nil {
+	if p, err := gitTry("rev-parse", "-q", "--verify", globalRef); err == nil {
 		args = append(args, "-p", strings.TrimSpace(p))
 	}
 	commitSha := strings.TrimSpace(gitInput(message, args...))

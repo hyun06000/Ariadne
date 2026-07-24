@@ -34,10 +34,12 @@ func main() {
 		cmdFsck(rest)
 	case "global":
 		cmdGlobal(rest)
+	case "memory":
+		cmdMemory(rest)
 	case "handoff":
 		cmdHandoff(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [chain chain-merge open step close log fsck global handoff]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [chain chain-merge open step close log fsck global memory handoff]")
 	}
 }
 

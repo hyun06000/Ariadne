@@ -827,35 +827,35 @@ def _global_list():
 def _global_write(name, content, message):
     """글로벌 ref의 파일 하나를 갱신(추가/덮어쓰기). checkout 없이 저수준 git으로.
 
-    기존 트리에 name→새 blob을 얹어 새 트리·커밋을 만들고 refs/gil/global을 옮긴다.
-    다른 파일은 보존된다.
+    기존 글로벌 트리 전체를 임시 index에 얹은 뒤 name 하나만 교체해 write-tree 한다 —
+    나머지 파일은 구조적으로 보존되고(append-only), 작업트리는 전혀 건드리지 않는다.
+    중첩 경로(existence/clew/memory.md 등)도 index가 트리를 자동 구성하므로 안전하다.
+    (이전 mktree 구현은 flat 트리만 만들어 슬래시 경로에서 exit 128로 죽었다.)
     """
+    import tempfile
+    import os as _os
     blob = subprocess.run(["git", "hash-object", "-w", "--stdin"],
                           input=content, text=True, capture_output=True,
                           check=True).stdout.strip()
-    # 기존 트리 항목 수집 (있으면)
-    entries = {}
+    idx = tempfile.NamedTemporaryFile(delete=False, suffix=".gilidx").name
+    _os.remove(idx)  # git이 새로 만들게 (빈 파일이면 bad index)
+    env = dict(_os.environ, GIT_INDEX_FILE=idx)
     try:
-        out = subprocess.run(["git", "ls-tree", GLOBAL_REF],
-                             capture_output=True, text=True, check=True).stdout
-        for ln in out.splitlines():
-            meta, _, fn = ln.partition("\t")
-            if fn:
-                entries[fn] = meta  # "100644 blob <sha>"
-    except subprocess.CalledProcessError:
-        pass
-    entries[name] = f"100644 blob {blob}"
-    tree_input = "".join(f"{meta}\t{fn}\n" for fn, meta in sorted(entries.items()))
-    tree = subprocess.run(["git", "mktree"], input=tree_input, text=True,
-                          capture_output=True, check=True).stdout.strip()
-    # 부모(있으면)로 커밋 연쇄 — 글로벌도 append-only 히스토리
+        if subprocess.run(["git", "rev-parse", "--verify", "-q", GLOBAL_REF],
+                          capture_output=True).returncode == 0:
+            subprocess.run(["git", "read-tree", GLOBAL_REF], env=env, check=True)
+        subprocess.run(["git", "update-index", "--add", "--cacheinfo",
+                        f"100644,{blob},{name}"], env=env, check=True)
+        tree = subprocess.run(["git", "write-tree"], env=env,
+                              capture_output=True, text=True, check=True).stdout.strip()
+    finally:
+        if _os.path.exists(idx):
+            _os.remove(idx)
     parent = []
-    try:
-        p = subprocess.run(["git", "rev-parse", GLOBAL_REF],
-                           capture_output=True, text=True, check=True).stdout.strip()
-        parent = ["-p", p]
-    except subprocess.CalledProcessError:
-        pass
+    p = subprocess.run(["git", "rev-parse", "-q", "--verify", GLOBAL_REF],
+                       capture_output=True, text=True)
+    if p.returncode == 0:
+        parent = ["-p", p.stdout.strip()]
     commit = subprocess.run(["git", "commit-tree", tree, *parent],
                             input=message, text=True, capture_output=True,
                             check=True).stdout.strip()
@@ -1108,11 +1108,56 @@ def _update_status_docs(report):
     open(path, "w", encoding="utf-8").write(pre + block + post)
 
 
+def cmd_memory(args):
+    """gil memory <read|append> — 존재/기억을 안전하게 갱신(글로벌 ref).
+
+      gil memory read [<이름>]           — 존재의 memory.md 출력 (기본 clew)
+      gil memory append <이름> <매듭파일> — 새 매듭을 기억 끝에 이어붙임 (+자동 push)
+
+    왜 있는가(상현님, 사고 다섯 번): 손으로 git show/archive + write-tree 를 조합하면
+    로컬 불완전·개행 깨짐으로 memory.md 가 통째로 소실됐다. 이 명령은 _global_write 를
+    재사용해 "기존 글로벌 트리 전체 보존 + 한 파일만 교체"를 구조적으로 보장한다 —
+    로컬 작업트리를 건드리지 않고, 기존 내용을 ref 에서 직접 읽어 매듭을 append 한다.
+    """
+    if not args:
+        sys.exit("사용: gil memory <read|append> [<이름>] ...")
+    sub = args[0]
+    path = lambda name: f"existence/{name}/memory.md"
+    if sub == "read":
+        name = args[1] if len(args) > 1 else "clew"
+        c = _global_read(path(name))
+        if c is None:
+            sys.exit(f"거부: 글로벌에 {path(name)} 없음")
+        sys.stdout.write(c)
+    elif sub == "append":
+        if len(args) < 3:
+            sys.exit("사용: gil memory append <이름> <매듭파일>")
+        name, kpath = args[1], args[2]
+        knot = open(kpath, encoding="utf-8").read()
+        prev = _global_read(path(name)) or ""
+        nxt = prev
+        if nxt and not nxt.endswith("\n"):
+            nxt += "\n"
+        # 매듭 사이 빈 줄 하나 보장(중복 개행은 안 만든다)
+        if nxt and not nxt.endswith("\n\n"):
+            nxt += "\n"
+        nxt += knot
+        if not nxt.endswith("\n"):
+            nxt += "\n"
+        sha = _global_write(path(name), nxt, f"gil memory append: {name}\n")
+        pushed = _global_push()
+        note = " + 원격 push" if pushed else " (원격 push 실패/없음 — gil global push 재시도)"
+        lines = knot.count("\n") + 1
+        print(f"기억 각인: {name} ← {lines}줄 매듭 → {GLOBAL_REF} ({sha}){note}")
+    else:
+        sys.exit(f"거부: 알 수 없는 memory 하위명령 {sub!r} — [read append]")
+
+
 COMMANDS = {
     "chain": cmd_chain, "chain-merge": cmd_chain_merge,
     "open": cmd_open, "step": cmd_step, "close": cmd_close,
     "log": cmd_log, "fsck": cmd_fsck, "handoff": cmd_handoff,
-    "global": cmd_global,
+    "global": cmd_global, "memory": cmd_memory,
 }
 
 if __name__ == "__main__":
