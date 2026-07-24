@@ -1070,6 +1070,26 @@ class TestViewer(GilFixture):
         self.assertIn('"status":"success"', html)
         self.assertNotIn('"status":"open"', html, "종결됐는데 사이클이 open 으로 남음")
 
+    def test_viewer_build_has_stepmap_and_lineage(self):
+        """build HTML 에 전체 스텝맵(피드백4)·지식전파 계보(피드백3) 렌더 코드와
+        체인 계보 데이터가 임베드된다."""
+        self._seed_graph()
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        # 전체 스텝맵 탭·렌더 함수.
+        self.assertIn("buildStepMap", html)
+        self.assertIn("view-map", html)
+        self.assertIn("전체 스텝맵", html)
+        # 지식 전파 계보(들어오는/나가는) 함수.
+        self.assertIn("function lineage", html)
+        # 체인 계보 데이터 임베드(자식→부모).
+        self.assertIn("parentdata", html)
+        # 맵 JS 는 Go 의 esc() 가 아니라 JS mdEsc 를 써야 한다(esc 미정의 회귀 방지).
+        self.assertNotIn("esc(chain)", html)
+
     def test_body_file_dash_reads_stdin(self):
         """--body-file - 는 stdin 에서 본문을 읽는다 — 임시 .md 파일 없이 잉여 방지."""
         self.gil("init", "--name", "clew")

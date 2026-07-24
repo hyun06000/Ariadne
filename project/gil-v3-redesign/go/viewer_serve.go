@@ -175,14 +175,19 @@ func renderHTML(g graphView, static bool) string {
 	if len(g.chains) == 0 {
 		b.WriteString(`<p class="empty">아직 gil 체인이 없다. 체인을 만들면 여기 노드로 나타난다.</p>`)
 	} else {
+		b.WriteString(`<div class="tabs"><button id="tab-chain" class="tab on">체인 그래프</button><button id="tab-map">전체 스텝맵</button></div>`)
+		b.WriteString(`<div id="view-chain">`)
 		b.WriteString(fmt.Sprintf(
 			`<svg id="graph" viewBox="0 0 %d %d" width="%d" height="%d"><g id="edges">%s</g><g id="nodes">%s</g></svg>`,
 			w, h, w, h, edges.String(), nodes.String()))
 		b.WriteString(`<p class="hint">동그라미 = 체인(숫자는 사이클 수), 선 = 계보(부모→자식). 주황 = 현재위치(스텝에선 <b>▼HEAD</b> 표시). <b>노드 클릭 → 사이클 카드.</b></p>`)
+		b.WriteString(`</div>`)
+		b.WriteString(`<div id="view-map" hidden></div>`) // 전체 스텝맵(JS 로 DATA 에서 렌더)
 		b.WriteString(`<div id="card" hidden></div>`)       // 체인 클릭 → 사이클 카드
 		b.WriteString(`<div id="stepcard" hidden></div>`)   // 사이클 클릭 → 스텝 카드
 		b.WriteString(`<div id="reportcard" hidden></div>`) // 스텝 클릭 → 상세 보고서
 		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g, static) + `</script>`)
+		b.WriteString(`<script id="parentdata" type="application/json">` + parentsJSON(g) + `</script>`)
 	}
 	script := js
 	if !static {
@@ -249,6 +254,26 @@ func cycleJSON(g graphView, static bool) string {
 			sb.WriteString("]}")
 		}
 		sb.WriteString("]}")
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+// parentsJSON — 체인 계보(자식→부모)를 JS 로 넘긴다. 사이클 첫 스텝(define)을 열 때
+// "이 체인이 무엇을 이어받았는지"(들어오는 계보)를 보고서 카드에 보이려고.
+func parentsJSON(g graphView) string {
+	var sb strings.Builder
+	sb.WriteString("{")
+	first := true
+	for child, par := range g.parents {
+		if par == "" {
+			continue
+		}
+		if !first {
+			sb.WriteString(",")
+		}
+		first = false
+		sb.WriteString(fmt.Sprintf("%q:%q", child, par))
 	}
 	sb.WriteString("}")
 	return sb.String()
@@ -358,6 +383,41 @@ svg.cygraph{display:block}
 .badge.k-dead{border-color:#ff6b6b;color:#ff6b6b}
 .badge.k-pending{border-color:#ffd166;color:#ffd166}
 .badge.k-here{border-color:var(--here);color:var(--here);font-weight:700}
+.lineage{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 16px 0;padding:8px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font-size:11px}
+.lineage .lgroup{display:inline-flex;flex-wrap:wrap;gap:4px}
+.lchip{font-size:11px;border:1px solid var(--line);border-radius:5px;padding:1px 7px;color:var(--fg);background:var(--card);font-family:inherit}
+.lchip.lhead{border:none;background:none;color:var(--dim);font-weight:700;padding:1px 2px}
+.lchip.lself{font-weight:700;border-width:2px}
+button.lchip{cursor:pointer}
+button.lchip:hover{border-color:var(--node);color:var(--node)}
+.lchip.lin{border-color:var(--node)}
+.lchip.lout{border-color:#3ddc84}
+.lchip.lbranch{border-color:#ff6b6b;border-style:dashed}
+.lchip.lchain{border-color:var(--here);color:var(--here);background:none}
+.lchip.ldim{border:none;background:none;color:var(--dim)}
+.tabs{display:flex;gap:4px;margin:0 0 12px}
+.tab{font-size:13px;padding:5px 14px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--dim);cursor:pointer;font-family:inherit}
+.tab.on{border-color:var(--node);color:var(--node);font-weight:700}
+#view-map{display:flex;flex-direction:column;gap:16px}
+.mapchain{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--card)}
+.mapchain-h{font-size:14px;margin-bottom:8px}
+.mapchain-h .mapdot{color:var(--node)}
+.mapfrom{font-size:11px;color:var(--here)}
+.mapcyc{margin:8px 0 4px;padding-left:8px;border-left:2px solid var(--line)}
+.mapcyc-h{font-size:12px;color:var(--dim);margin-bottom:6px}
+.mapstatus{font-size:10px;border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-left:4px}
+.mapstatus.s-success{border-color:#3ddc84;color:#3ddc84}
+.mapstatus.s-dead{border-color:#ff6b6b;color:#ff6b6b}
+.mapstatus.s-pending{border-color:#ffd166;color:#ffd166}
+.mapstatus.s-open{border-color:var(--node);color:var(--node)}
+.maprow{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.maparrow{color:var(--dim);font-size:12px}
+.mapstep{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:3px 9px;background:var(--bg);color:var(--fg);cursor:pointer;font-family:inherit}
+.mapstep:hover{border-color:var(--node)}
+.mapstep .mk{color:var(--dim);font-size:10px}
+.mapstep.k-alive{border-color:#3ddc84}.mapstep.k-dead{border-color:#ff6b6b}.mapstep.k-pending{border-color:#ffd166}
+.mapstep.here{border-color:var(--here);border-width:2px}
+.mapstep .mhead{color:var(--here);font-weight:800;font-size:9px}
 .report{margin:10px 16px 16px;padding:14px 16px;background:var(--bg);border:1px solid var(--line);
  border-radius:8px;font-size:13px;line-height:1.65;max-height:60vh;overflow:auto;word-break:break-word}
 /* 마크다운 렌더 */
@@ -396,6 +456,7 @@ poll();setInterval(poll,1500);
 const js = `
 const SVGNS='http://www.w3.org/2000/svg';
 const DATA=JSON.parse(document.getElementById('cycledata')?.textContent||'{}');
+const PARENTS=JSON.parse(document.getElementById('parentdata')?.textContent||'{}');
 let openChain=null;
 
 // 열린 카드 경로를 세션에 저장 — 폴링 리로드 후 복원해 카드가 닫히지 않게(피드백 1).
@@ -578,6 +639,59 @@ function openStepCard(chain,cyc){
   sc.hidden=false;
 }
 
+// lineage — 이 스텝의 지식 전파를 한 줄로: (들어오는) 부모 → [이 스텝] → 자식들 (나가는).
+// 부모/자식 칩은 클릭하면 그 스텝 보고서로 이동. 사이클 첫 스텝(define)이면 부모 체인을
+// "이어받음"으로 표시(체인 계보 = 이전 국면의 지식 상속).
+function lineage(chain,cycle,n){
+  const wrap=document.createElement('div');
+  wrap.className='lineage';
+  const cyc=(DATA[chain]?.cycles||[]).find(c=>c.name===cycle);
+  const nodes=cyc?cyc.nodes:[];
+  const byId={}; nodes.forEach(x=>byId[x.id]=x);
+  const jump=(sid)=>{ const t=byId[sid]; if(t) openReport(chain,cycle,t); };
+  const chip=(label,cls,onclick,title)=>{
+    const s=document.createElement(onclick?'button':'span');
+    s.className='lchip '+(cls||''); s.textContent=label;
+    if(title)s.title=title;
+    if(onclick){ s.addEventListener('click',ev=>{ev.stopPropagation();onclick();}); }
+    return s;
+  };
+  // 들어오는(부모).
+  wrap.appendChild(chip('들어옴','lhead'));
+  const inbox=document.createElement('span'); inbox.className='lgroup';
+  const parent=(n.parent&&n.parent!=='null')?n.parent:null;
+  if(parent && byId[parent]){
+    inbox.appendChild(chip(parent+' '+byId[parent].kind,'lin',()=>jump(parent),'부모 스텝'));
+  }else if(n.id==='s1'){
+    // 사이클 첫 스텝 — 체인 계보(부모 체인)를 이어받음으로.
+    const pc=PARENTS[chain];
+    if(pc) inbox.appendChild(chip('체인 '+pc+' 에서 이어받음','lchain',null,'이전 국면(닫힌 부모 체인)의 대문·지식·판정을 상속'));
+    else inbox.appendChild(chip('시작점(대문에서)','lchain'));
+  }else{
+    inbox.appendChild(chip('—','ldim'));
+  }
+  wrap.appendChild(inbox);
+  // 이 스텝.
+  wrap.appendChild(chip('→',''));
+  wrap.appendChild(chip(n.id+' '+n.kind,'lself k-'+stepClass(n)));
+  wrap.appendChild(chip('→',''));
+  // 나가는(자식들) — 같은 사이클에서 parent===n.id 인 스텝. backtrack 형제가지 포함.
+  wrap.appendChild(chip('낳음','lhead'));
+  const outbox=document.createElement('span'); outbox.className='lgroup';
+  const kids=nodes.filter(x=>x.parent===n.id);
+  if(kids.length){
+    kids.forEach(k=>outbox.appendChild(chip(k.id+' '+k.kind,'lout'+(k.parent!==prevOf(nodes,k)?' lbranch':''),()=>jump(k.id),
+      k.backtrack?'되돌아온 형제 가지':'다음 스텝')));
+  }else{
+    outbox.appendChild(chip(n.backtrack?'죽은 잎(벽) — 여기서 끝, ⤳'+n.backtrack+' 로 되돌아감':'잎(여기서 끝)','ldim',null,
+      n.backtrack?'이 가지는 여기서 죽고, 조상 define 으로 되돌아가 다른 가지를 폈다':''));
+  }
+  wrap.appendChild(outbox);
+  return wrap;
+}
+// prevOf — nodes 배열에서 k 의 직전 스텝 id(선형 판정용). 없으면 ''.
+function prevOf(nodes,k){ const i=nodes.indexOf(k); return i>0?nodes[i-1].id:''; }
+
 // 스텝 노드 클릭 → 그 스텝의 상세 보고서(커밋 본문 원문)를 /step 에서 가져와 카드로.
 async function openReport(chain,cycle,n){
   const rc=document.getElementById('reportcard');
@@ -600,10 +714,11 @@ async function openReport(chain,cycle,n){
   const badge=(label,cls)=>{const s=document.createElement('span');s.className='badge '+(cls||'');s.textContent=label;meta.appendChild(s);};
   badge(n.kind,'k-'+stepClass(n));
   if(n.outcome)badge('=' +n.outcome);
-  if(n.parent&&n.parent!=='null')badge('←'+n.parent);
-  if(n.backtrack)badge('⤳backtrack→'+n.backtrack,'k-dead');
   if(n.here)badge('◀ 현재위치','k-here');
   rc.appendChild(meta);
+
+  // 지식 전파 계보(피드백 3): 이 스텝이 무엇을 이어받고(들어오는) 무엇을 낳는지(나가는).
+  rc.appendChild(lineage(chain,cycle,n));
 
   // 본문(제목+body)을 마크다운으로 렌더(피드백 6·7). /step 에서 원문을 가져온다.
   const body=document.createElement('div');
@@ -719,6 +834,51 @@ function selectChain(chain){
   openCard(chain);
 }
 
+// 전체 스텝맵(피드백 4): 체인·사이클도 보이되 모든 스텝을 한 화면에 펼친다.
+// DATA(이미 로드됨)만으로 렌더 — 서버 왕복 없음. 스텝 클릭 → 그 보고서 카드.
+function buildStepMap(){
+  const host=document.getElementById('view-map');
+  host.replaceChildren();
+  for(const chain of Object.keys(DATA)){
+    const d=DATA[chain];
+    const ch=document.createElement('section'); ch.className='mapchain';
+    const pc=PARENTS[chain];
+    const h=document.createElement('div'); h.className='mapchain-h';
+    h.innerHTML='<span class="mapdot">●</span> 체인 <b>'+mdEsc(chain)+'</b>'+(pc?' <span class="mapfrom">← '+mdEsc(pc)+' 에서 이어받음</span>':'');
+    ch.appendChild(h);
+    for(const cy of d.cycles){
+      const cyd=document.createElement('div'); cyd.className='mapcyc';
+      const ch2=document.createElement('div'); ch2.className='mapcyc-h';
+      ch2.innerHTML='◆ 사이클 <b>'+mdEsc(cy.name)+'</b> <span class="mapstatus s-'+cy.status+'">'+cy.status+'</span>';
+      cyd.appendChild(ch2);
+      const row=document.createElement('div'); row.className='maprow';
+      (cy.nodes||[]).forEach((n,idx)=>{
+        if(idx>0){ const a=document.createElement('span'); a.className='maparrow';
+          a.textContent=(n.parent&&n.parent!==(cy.nodes[idx-1]?.id))?'⤴':'→'; row.appendChild(a); }
+        const s=document.createElement('button');
+        s.className='mapstep k-'+stepClass(n)+(n.here?' here':'');
+        s.innerHTML=mdEsc(n.id)+' <span class="mk">'+mdEsc(n.kind)+'</span>'+(n.here?' <span class="mhead">◀HEAD</span>':'');
+        s.title=n.subj||'';
+        s.addEventListener('click',()=>{ showView('chain'); selectChain(chain);
+          const cyc=DATA[chain].cycles.find(c=>c.name===cy.name);
+          openStepCard(chain,cyc); openReport(chain,cy.name,n); });
+        row.appendChild(s);
+      });
+      cyd.appendChild(row);
+      ch.appendChild(cyd);
+    }
+    host.appendChild(ch);
+  }
+}
+function showView(which){
+  const chainOn=which==='chain';
+  document.getElementById('view-chain').hidden=!chainOn;
+  document.getElementById('view-map').hidden=chainOn;
+  document.getElementById('tab-chain').classList.toggle('on',chainOn);
+  document.getElementById('tab-map').classList.toggle('on',!chainOn);
+  if(!chainOn) buildStepMap();
+}
+
 document.addEventListener('click',e=>{
   const g=e.target.closest('.cnode');
   if(!g)return;
@@ -743,5 +903,8 @@ function restoreSel(){
   const n=(cyc.nodes||[]).find(x=>x.id===sel.step);
   if(n)openReport(sel.chain,sel.cycle,n);
 }
+const tc=document.getElementById('tab-chain'), tm=document.getElementById('tab-map');
+if(tc)tc.addEventListener('click',()=>showView('chain'));
+if(tm)tm.addEventListener('click',()=>showView('map'));
 restoreSel();
 `
