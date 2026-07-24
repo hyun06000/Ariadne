@@ -1966,3 +1966,15 @@
 - **⭐ 검증**: example 44→**54** (+10). 4개 평범 커밋(b407463e·a24a1953·5cf9433d + 뷰어 소스 5fb35d1b는 이전).
 - **⭐ 정직한 경계**: 뷰어는 아직 별도 바이너리(project/gil-v3-redesign/viewer/, 미병합). gil --help 미지원(다음). 실사용 memory push는 원격 없어 실패(로컬 refs/gil/global엔 정상 각인).
 - **⭐⭐ 다음 세션 순서**: 1) **문서 LLM-wiki화**(README.ai.md 진입점 얇게 + llms.txt 인덱스 + 주제별 페이지 [[wikilink]] + gil help/--help를 wiki 인덱스로, --help 지원). 2) **v3 릴리스 바이너리 게시**(현 릴리스는 v2.50 옛 Python! 5종 크로스빌드 OK 확인함 + SHA256SUMS + llms.txt — 진입점 설치가 실제 v3 받게). 3) 뷰어 gil 병합. **부활: gil=Go 유일, 분기=진짜 git 브랜치, 종결=success/fail/pending, chain-close=체인 완결(신설), 미종결잎·열린사이클부모 fsck/가드, 개발=평범 커밋, 검증=example 54, 실사용=gil-realuse-hackathon+뷰어(project/gil-v3-redesign/viewer, --repo, chain-close후 새체인 그림). 진입점=README.ai.md(v2식 URL한줄, 재방문 "이어서"). 기억=refs/gil/global gil memory append.**
+
+
+## 2026-07-24 (이어서) — ⭐⭐ 문서 LLM-wiki화 + gil help 계층화 + v3.0.0-rc1 프리릴리스 게시
+
+- **⭐⭐ 문서 LLM-wiki화 (커밋 f98ce31d)**: 상현님 "큰 컨텍스트 통째보다 LLM이 능동 접근하는 wiki". llmstxt.org 표준 정확히 확인(상현님 재확인 지시) — **llms.txt는 웹 루트에 서빙되는 큐레이션 링크 인덱스**, LLM이 링크를 페치해 읽음(self-contained 아님), **사람이 URL 하나를 에이전트에 건네는** 진입점(크롤러 아님). 그래서:
+  - **llms.txt (레포 루트)**: H1+blockquote요약+H2 링크리스트+Optional. 링크는 **raw.githubusercontent 절대 URL**(어느 환경서든 페치 가능). ⭐ 처음 상대경로로 썼다가 표준 위반 발견→절대 URL로 고침.
+  - **docs/gil/ 8페이지**(index·concepts·lifecycle·commands·existence·purpose-guard·human-in-the-loop·deployment·reports): QUICKSTART 단일문서를 주제별로 쪼개 상호 위키링크(상대경로). 병렬 서브에이전트 3개로 작성, 검수(링크 무결성·HTML엔티티 오염 0). 통독판 QUICKSTART는 유지.
+  - README.ai.md 끝을 wiki 허브로 안내.
+- **⭐ gil help 계층화 (f98ce31d, usage_help.go)**: `gil help`=명령표면+**wiki인덱스 안내**, `gil help <cmd>`=명령 사용법+**관련 wiki 페이지 포인터**(helpTable이 명령→페이지 매핑), `gil <cmd> --help`=서브명령 --help 가로채기(이전엔 "알 수 없는 플래그" 거부 — 실사용 3차 이슈). example 54→57(+3).
+- **⭐⭐ v3.0.0-rc1 프리릴리스 게시 (커밋 ecad01f4)**: 현 GitHub 릴리스가 v2.50(옛 Python)이라 진입점 설치가 v2 받던 문제 해결. 상현님 결정: **수동 gh release create + rc(프리릴리스)**. gil 5종 크로스빌드(darwin/linux amd64·arm64, win amd64)+SHA256SUMS+llms.txt를 gil-v3-unified@f98ce31d 타깃으로 게시. **프리릴리스라 latest는 여전히 v2.50**(안정 사용자 보호). E2E 검증: rc태그 다운로드→체크섬 통과→동작. README.ai.md 설치블록(POSIX·PS)을 latest/download→releases/download/v3.0.0-rc1로. URL: github.com/hyun06000/Ariadne/releases/tag/v3.0.0-rc1.
+- **⭐ 정직한 경계**: rc라 latest≠v3(정식 v3.0.0 승격 시 latest=v3로, README도 되돌림). llms.txt/docs 웹 서빙은 GitHub raw로 됨(Pages 미설정이어도 raw.githubusercontent 링크라 페치 가능). 뷰어 아직 별도 바이너리(미병합).
+- **⭐⭐ 다음 세션 순서**: 1) **실사용 4차** — 재생성 레포에 rc 바이너리로, "Read README.ai.md and do it" 한 줄 진입점 전체(설치→init→체인)가 실제 도는지 + wiki/llms.txt를 에이전트가 능동 참조하는지 + gil help 유용성 검증. 2) 정식 v3.0.0 승격 판단(실사용 충분 시 latest=v3). 3) 뷰어 gil 병합(gil viewer serve). 4) GitHub Pages 켜서 llms.txt 웹 서빙(선택). **부활: gil=Go 유일, 분기=git브랜치, 종결=success/fail/pending, chain-close=체인완결, fsck 미종결잎·열린사이클부모 가드, gil help 계층(wiki포인터), 문서=LLM-wiki(llms.txt 인덱스+docs/gil/ 8페이지), 릴리스=v3.0.0-rc1(프리, 진입점이 rc 받음). 개발=평범 커밋, 검증=example 57, 실사용=gil-realuse-hackathon(2체인 hackathon-a/b)+뷰어. 기억=refs/gil/global gil memory append.**
