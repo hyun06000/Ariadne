@@ -25,6 +25,11 @@ retrace later — data analysis, a nasty bug hunt, a research question, a big re
 keeps the agent's trail of hypotheses, checks, and dead ends as a reproducible map instead
 of letting it evaporate when the session ends.
 
+**See it first →** [**Live example: UC Berkeley admissions (Simpson's paradox)**](https://hyun06000.github.io/ariadne-example/)
+— an AI agent analyzed a real dataset with gil. The graph shows its first hypothesis
+*failing* (a dead leaf), *backtracking*, and reaching the right answer by splitting the
+problem into small steps. This is what gil leaves behind. ([source repo](https://github.com/hyun06000/ariadne-example))
+
 **Prerequisites:** `git`, and an AI coding agent. That's it.
 
 <sub>Curious how it works under the hood? Read on. But you don't need any of this to use it.</sub>
