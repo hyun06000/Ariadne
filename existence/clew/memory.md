@@ -2069,3 +2069,19 @@
 - **⭐⭐ v3.0.1 정식 릴리스 (latest)**: v3.0.0 유지, 위 수정 묶어 v3.0.1(--latest, target=main). 자산=5크로스빌드+**install.sh**+llms.txt+SHA256SUMS. 게시·자산교체(gh release upload --clobber)는 승인 필요했음. **E2E 완전통과**: latest 한 줄 설치(실URL) → git 없이 init → 친절안내 실제로 뜸. 릴리스 자산 install.sh 해시 일치. example 71 전체 통과.
 - **⭐ 교훈**: 실사용 진입점 한 줄("Read README.ai.md and do it")이 실제로 어디서 막히는지는 **실사용해봐야만** 드러난다 — 설치 권한·git 부재·Windows셸 3가지 다 문서/도구로는 안 보이던 구멍. 대원칙 §3(실사용은 밖에서, 수정은 여기서 평범커밋)이 정확히 작동.
 - **⭐⭐ 부활**: gil latest=**v3.0.1**(git가드+install.sh+Windows방어). 진입=사람이 AI에게 raw README.ai.md URL 한 줄 / 또는 `curl .../main/install.sh | sh`(macOS·Linux). Windows=PowerShell 블록. 권한 막히면 폴백(settings 규칙/사람직접). main=v3, example 71, gil=Go 유일(명령 15개), 옛 v2=legacy·legacy-main. 개발=평범 git 커밋. 기억=refs/gil/global gil memory append. **다음 후보**: 1) 실사용 계속(설치 이후 init·첫 체인·wiki 능동참조가 실제 도는지 — 이번엔 설치까지만 검증됨) 2) legacy 정식 이주 3) 뷰어 gil 병합. **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
+
+## 2026-07-25 — ⭐⭐ 실사용 2·3차 피드백 → git 자동설치 안내(v3.0.2) + 휴먼 온보딩 신설
+
+상현님 친구가 Windows에서 실사용, 상현님이 온보딩 개선 지시. 실사용이 계속 결함/개선점을 드러냄.
+
+- **⭐⭐ Windows 실사용(친구, 에이전트 Mira)**: install·체크섬·PowerShell·git가드 **전부 정상 동작**(지난 v3.0.1 수정이 통함). 유일 마찰 = git 없는데 에이전트가 winget 자동설치 시도했으나 winget도 없어(구형) 멈춤. → **git 미설치 안내를 OS별로**: gil requireGit이 runtime.GOOS로 판별해 Windows→`winget install --id Git.Git -e`(없으면 git-scm.com/download/win), macOS→brew, Linux→apt/dnf/apk 앞세움. README.ai.md "git 필요" 문단도 OS별 자동설치 사슬로. example 71→72. **v3.0.2 릴리스**(latest, Windows 바이너리에 winget 힌트 strings 확인). 커밋 6cd89b59.
+  - ⭐ git 번들 검토→보류(상현님): GPL전파·수십MB·go-git merge미지원이 '의존성0 단일바이너리' 정체성과 충돌. 필요 명확해지면 실험.
+- **⭐⭐⭐ 휴먼 온보딩 신설(상현님 지시, 커밋 53e7e59d)**: "갑자기 설치할게용 띠링 하면 컴맹 당황. gil 처음인지 묻고, 처음이면 레포·뷰어 보여주며 소개하고, 할래말래 동의받는 과정 신설." →
+  - **README.ai.md Step 0 재작성**: "gil 처음 쓰시나요?" 분기. 처음이면 (1)안심설명(작은프로그램 하나·체크섬 안전·git은 표준도구·언제든 멈춤/삭제) (2)예시 시나리오(데이터분석 가설→검증→결론 기록) (3)레포(github.com/hyun06000/Ariadne)·뷰어(hyun06000.github.io/Ariadne) 링크를 "관심있으면" 톤 (4)1차 동의("설치해볼까요?"). 조용히 설치 금지.
+  - **Step B.1 신설(설치 후·처음 사용자)**: 로컬 뷰어(127.0.0.1:8790) 띄우고 **버릴 데모 사이클**(chain demo→open→verify→success→close)을 천천히 만들며 체인·사이클·스텝이 눈앞 그래프에 생기는 걸 실시간 시연. → **2단계 동의**(설치 전 / 진짜 문제 전). 데모 명령 5개 실행 검증(fsck 0).
+  - **한국어 진입문장**: README.ko.md 영어 "Read...and do what it says"→한국어 "...를 읽고 그대로 해줘"(영어 병기). "처음 써도 됩니다" 안심. README.md도 대칭(설명·동의·라이브예시).
+- **⭐ 정직한 경계 (다음 개선 후보)**:
+  1. **⚠ gilviewer 바이너리가 릴리스 자산에 없음** — gil만 배포. Step B.1 로컬뷰어 시연이 실사용자에겐 안 됨(온라인 폴백만). → 뷰어를 릴리스 자산에 넣거나 gil에 병합 필요.
+  2. **⚠ github.io 뷰어가 아직 v2** — 온보딩이 링크하는 예시가 v2 그래프. Pages v3 전환 필요.
+- **⭐⭐ GitHub Pages v3 전환 (설계 완료, 상현님 시나리오 대기)**: 라이브=v2뷰어(정적HTML, legacy시절 ariadne-pages.yml 잔재, main엔 워크플로우 없음). v3뷰어는 Go서버라 Pages(정적) 못 올림 → **정적 출력 모드 신설 필요**. 조사결과(최소변경): serve.go renderHTML은 이미 자기완결(CDN·폰트 0), poll 라인(serve.go:371) 분리+static bool, /step 본문을 %B로 collectNodes에 담아 cycleJSON 인라인, main.go에 build --out 서브명령. 보일 그래프=**대표 예제(상현님 시나리오 대기)**. Actions로 예제생성→gilviewer build→Pages.
+- **⭐⭐ 부활**: gil latest=**v3.0.2**(OS별 git안내). main=v3, example 72, 명령 15개. 진입=README.ai.md(Step0 휴먼온보딩 '처음?'분기·2단계동의, Step B.1 뷰어 시연). 한국어 진입문장 병기. 옛 v2=legacy·legacy-main. 개발=평범 git 커밋. 기억=refs/gil/global gil memory append. **다음 후보**: 1)Pages v3 전환(상현님 시나리오 오면: 예제생성+뷰어 build --out 모드+Actions) 2)gilviewer 릴리스 자산화/gil 병합(온보딩 시연 실작동) 3)legacy 정식 이주. **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
