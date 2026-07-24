@@ -84,7 +84,7 @@ There is no static "room" classification — *which chain is currently open* is 
 
 ## Status
 
-gil **v3 is released** — `v3.0.0` is the current `latest`, and v3 *is* the `main` branch.
+gil **v3 is released** — the current `latest` is a v3.0.x build (v3.0.7 at the time of writing), and v3 *is* the `main` branch.
 The old folder-based v2 is preserved on the `legacy` / `legacy-main` branches; `gil migrate`
 converts a v2 history into the v3 commit graph. The spec lives in
 [project/gil-v3-redesign/SPEC.md](project/gil-v3-redesign/SPEC.md).

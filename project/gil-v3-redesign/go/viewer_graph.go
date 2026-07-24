@@ -4,8 +4,10 @@
 // 한다. git 명령은 -C <repo> 로 대상 레포에서 돈다 — 뷰어를 그 레포 안에 두지 않아 작업과
 // 충돌 없음. stdlib 만, 외부 의존 0.
 //
-//   gilviewer --repo <경로>            텍스트 트리 1회 출력
-//   gilviewer serve --repo <경로>      브라우저 관전 서버(자동 새로고침)
+//   gil viewer text                    텍스트 트리 1회 출력
+//   gil viewer serve [--port <포트>]   브라우저 관전 서버(자동 새로고침)
+//   gil viewer build --out <파일>      정적 자기완결 HTML
+// (옛 별도 바이너리 gilviewer 는 폐지되고 gil 에 통합됐다.)
 package main
 
 import (

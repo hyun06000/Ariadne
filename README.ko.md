@@ -83,7 +83,7 @@ gil은 당신의 **AI 코딩 에이전트**(Claude Code 등)가 운전하는 도
 
 ## 상태
 
-gil **v3 정식 릴리스됨** — `v3.0.0`이 현재 `latest`이고, v3가 곧 `main` 브랜치다. 옛
+gil **v3 정식 릴리스됨** — 현재 `latest`는 v3.0.x 빌드(집필 시점 v3.0.7)이고, v3가 곧 `main` 브랜치다. 옛
 폴더 기반 v2는 `legacy`·`legacy-main` 브랜치에 보존되며, `gil migrate`가 v2 이력을 v3
 커밋 그래프로 변환한다. 규약은
 [project/gil-v3-redesign/SPEC.md](project/gil-v3-redesign/SPEC.md)에.

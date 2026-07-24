@@ -29,7 +29,7 @@
 
 ## 명령
 
-- [명령 전체 표면](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/commands.md): init·chain·chain-close·chain-merge·open·step·close·approve·reject·log·fsck·global·memory·handoff·migrate.
+- [명령 전체 표면](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/commands.md): init·chain·chain-close·chain-merge·open·step·close·approve·reject·log·fsck·global·memory·handoff·migrate·viewer.
 
 ## Optional
 

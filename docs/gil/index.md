@@ -24,6 +24,7 @@ gil(GIt for Language model) 지식의 진입점이다. LLM이 **필요한 페이
 | 사람의 승인/기각을 받는다 | [사람과의 소통](human-in-the-loop.md) |
 | 한 국면을 닫고 다음 체인으로 넘어간다 | [배포 순환과 체인 전환](deployment.md) |
 | 스텝 본문을 보고서로 쓴다 / 그래프를 관전한다 | [스텝 본문은 보고서다](reports.md) |
+| 그래프를 브라우저·정적HTML·터미널로 본다 (`gil viewer`) | [명령 전체 표면 — 관전 뷰어](commands.md) |
 
 ## 무에서 시작 — `gil init`
 
