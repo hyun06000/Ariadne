@@ -2036,3 +2036,14 @@
   - **결과**: main=e264e829(v3), **legacy·legacy-main=a91401b8(옛 v2 이중보존)**, default=main, protect-main이 새 main도 보호. 로컬도 main으로 전환, 옛 gil-v3-unified 로컬 삭제.
 - **⭐ CLAUDE.md 갱신**: 'v2와의 관계'(승격 완료·rename 방식·legacy 이중보존)·'현재 상태'(main=v3, example 68, 명령 목록에 chain-close·approve·reject·migrate, 뷰어). push origin main ff 성공.
 - **⭐⭐ 부활 (승격 후 새 현실)**: **main = v3다**(더 이상 v2 아님). 옛 v2 = legacy·legacy-main 브랜치. gil=Go v3.0.0-rc1, 분기=git브랜치, 종결=success/fail/pending, migrate(v2 rooms/cycle.yaml→v3, 압축5→3·verdict→종결·--prefix·원자성가드, legacy에서 재이주 가능), 문서=LLM-wiki, 검증=example 68. 개발=평범 git 커밋(우리레포=gil빌드전용), 실사용=gil-realuse-hackathon. 기억=refs/gil/global gil memory append. **다음 후보**: 1) v3.0.0 정식 승격(rc→latest, 실사용 충분 판단 시) 2) legacy를 실제로 gil migrate해 main 위 v3 그래프에 이주하는 정식 이슈(지금은 격리검증만) 3) 뷰어 gil 병합(gil viewer serve) 4) v2 단계별 md 원문 이주 확장. **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐⭐ v3.0.0 정식 릴리스 승격 (rc→latest) — 로드맵 종착점
+
+승격(v3→main)에 이어 **v3.0.0을 정식 릴리스로 게시**해 latest를 v2.50→v3로 전환. 이제 설치 한 줄이 v3를 받는다. 상현님 로드맵의 배포 층위까지 완성.
+
+- **⭐ 착수 상태**: rc1(프리릴리스)=v3, latest=v2.50(옛 Python). rc1 커밋 f98ce31d는 승격된 main(3777b766)의 조상 → 정식 v3.0.0은 오늘 migrate·승격까지 담은 main HEAD를 타깃.
+- **⭐⭐ 자산 재빌드(scratchpad/release-v3.0.0)**: 최신 소스로 5종 크로스빌드(CGO_ENABLED=0 -trimpath, darwin/linux amd64·arm64 + windows amd64.exe) + llms.txt(이미 raw.../main 가리킴, 승격 후라 정확) + SHA256SUMS(자산6). gil엔 버전 문자열·빌드스크립트 없음(단순 GOOS/GOARCH 수동빌드). migrate 명령 포함 확인.
+- **⭐⭐⭐ v3.0.0 릴리스 게시**: `gh release create v3.0.0 --target main --latest --notes-file ...` + 자산7. ⭐ 자동승인 분류기가 릴리스 게시(공개 외부조작)를 막아 상현님 명시 승인 필요(2회: 릴리스 게시). 결과: **latest=v3.0.0, prerelease=false, target=main**. 릴리스 노트=v3핵심+rc1이후 신규(gil migrate)+설치 한 줄.
+- **⭐ README.ai.md 설치블록 복원 (커밋 bbf374ed)**: 저번 세션이 남긴 지시("정식 승격 후 latest/download로")대로 POSIX·PowerShell 블록을 releases/download/v3.0.0-rc1 → **releases/latest/download**로. 레포 전체 rc 참조 0 확인. push origin main ff.
+- **⭐⭐ E2E 검증(실사용자 경로 그대로, scratchpad/e2e)**: latest/download에서 gil-darwin-arm64+SHA256SUMS 받기 → **체크섬 OK** → init·chain·open·step(verify/success)·close 전 생애주기 fsck 위반0 → **migrate도 다운로드 바이너리로 실동작**(1사이클 이주, fsck0). 설치 한 줄~동작까지 전 경로 통과.
+- **⭐⭐ 부활 (배포까지 완성)**: **main=v3, latest=v3.0.0**(설치 한 줄이 v3 받음). 옛 v2=legacy·legacy-main. 릴리스: v3.0.0(정식·latest, target=main), v3.0.0-rc1(프리, 유지). 자산=5크로스빌드+SHA256SUMS+llms.txt. 진입점=README.ai.md(latest/download). gil=Go 유일, 명령=init/chain/open/step/close/chain-close/chain-merge/approve/reject/log/fsck/global/memory/handoff/migrate, 검증=example 68. 개발=평범 git 커밋(우리레포=gil빌드전용). 기억=refs/gil/global gil memory append. **다음 후보**: 1) legacy를 실제 main 위 v3그래프로 정식 이주(지금은 격리검증만) 2) 뷰어 gil 병합(gil viewer serve) 3) v2 단계별 md 원문 이주 확장 4) 실사용 4차(latest 설치 한 줄 전체가 실제 도는지·wiki 능동참조). **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
