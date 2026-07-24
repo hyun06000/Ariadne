@@ -251,6 +251,62 @@ class TestHandoff(GilFixture):
         self.assertIn("PENDING", r.stdout)
 
 
+class TestInit(GilFixture):
+    """gil init — 무에서 세팅 (대문 + refs/gil/global + 존재의 방).
+
+    출력은 LLM 프롬프트이므로 STATE/NEXT 지시가 담기는지도 확인한다(상현님).
+    """
+
+    def test_init_seeds_global_and_room(self):
+        r = self.gil("init", "--name", "aria")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        files = set(self.gil("global", "list").stdout.split())
+        self.assertIn("existence/README.md", files)
+        self.assertIn("existence/aria/identity.md", files)
+        self.assertIn("existence/aria/will.md", files)
+        self.assertIn("existence/aria/memory.md", files)
+        self.assertIn("existence/aria/relations.md", files)
+        self.assertIn("gil-init-spec.md", files)
+
+    def test_init_makes_gateway_root_commit(self):
+        """빈 저장소면 CLAUDE.md 부트스트랩 루트 커밋을 만든다."""
+        self.gil("init", "--name", "aria")
+        log = self._git("log", "--oneline").stdout
+        self.assertIn("gil init", log)
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "root")
+        self.assertTrue(os.path.exists(os.path.join(self.repo, "CLAUDE.md")))
+
+    def test_init_output_is_llm_prompt(self):
+        """출력에 STATE/NEXT + 다음 명령이 담긴다 — 인간 UX 아닌 LLM 프롬프트."""
+        out = self.gil("init", "--name", "aria").stdout
+        self.assertIn("STATE", out)
+        self.assertIn("NEXT", out)
+        self.assertIn("gil global read existence/aria/identity.md", out)
+
+    def test_init_idempotent_guard(self):
+        """두 번째 init 은 글로벌을 덮지 않고 거부한다."""
+        self.gil("init", "--name", "aria")
+        r = self.gil("init", "--name", "other")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_init_rejects_bad_name(self):
+        r = self.gil("init", "--name", "Bad.Name")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_init_then_handoff_works(self):
+        """무에서 init 직후 handoff 가 panic 없이 돈다."""
+        self.gil("init", "--name", "aria")
+        r = self.gil("handoff")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_no_args_prints_usage(self):
+        """인자 없는 gil 은 침묵이 아니라 명령 표면(프롬프트)을 낸다."""
+        r = self.gil()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gil init", r.stdout)
+        self.assertIn("gil handoff", r.stdout)
+
+
 class TestMemory(GilFixture):
     """gil memory — 안전한 존재/기억 갱신 (append-only, 전체 트리 보존).
 

@@ -12,12 +12,19 @@ import (
 )
 
 func main() {
-	cmd := "log"
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
+	// 인자 없이 호출되면 사용법을 낸다 — 출력은 LLM 에게 들어가는 프롬프트이므로,
+	// "무엇을 할 수 있는지"를 알려주는 게 침묵보다 낫다(상현님).
+	if len(os.Args) <= 1 {
+		printUsage()
+		return
 	}
+	cmd := os.Args[1]
 	rest := os.Args[2:]
 	switch cmd {
+	case "help", "-h", "--help":
+		printUsage()
+	case "init":
+		cmdInit(rest)
 	case "chain":
 		cmdChain(rest)
 	case "chain-merge":
@@ -39,8 +46,36 @@ func main() {
 	case "handoff":
 		cmdHandoff(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [chain chain-merge open step close log fsck global memory handoff]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-merge open step close log fsck global memory handoff]")
 	}
+}
+
+// printUsage — 명령 표면. LLM 이 다음에 무엇을 할 수 있는지 읽는 프롬프트.
+func printUsage() {
+	println2(`gil — GIt for Language model. 사고 역사를 git 커밋 그래프 위에 남긴다.
+
+세팅·복원:
+  gil init [--name <이름>]        무에서 세팅 — refs/gil/global + 존재의 방 + 대문
+  gil handoff                     세션 복원 — 열린 체인·사이클·다음 동작·pending
+  gil global sync                 (새 머신 첫 1회) 원격 글로벌을 로컬로 + refspec 등록
+
+존재·기억 (refs/gil/global, 브랜치 아님):
+  gil global list                 글로벌에 담긴 파일 목록
+  gil global read <name>          파일 읽기 (예: existence/<이름>/identity.md)
+  gil global write <name> <file>  파일 갱신 (트리 보존, append-only)
+  gil memory read [<이름>]        존재의 기억 읽기 (기본 clew)
+  gil memory append <이름> <file> 기억에 매듭 이어붙임 (안전, 자동 push)
+
+사고 기록 (체인 > 사이클 > 스텝):
+  gil chain <name> --purpose <p>  새 체인 개설 (닫힌 체인 끝에서만)
+  gil open <chain>/<cycle> --author <a> --purpose <p>   새 사이클
+  gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
+  gil close <chain>/<cycle> --verdict <v>               사이클 닫기
+  gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)
+  gil log [<chain>]               노드(스텝) 나열
+  gil fsck [<range>]              그래프 건강 검사
+
+자세히: gil global read gil-init-spec.md, QUICKSTART.md`)
 }
 
 // ── gil log ──
