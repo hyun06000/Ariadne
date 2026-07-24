@@ -255,7 +255,7 @@ func commitIndex() map[string]commitInfo {
 // branchShas — 한 브랜치의 커밋 sha(9자). 참조: gilweb._branch_shas.
 func branchShas(br string) []string {
 	var shas []string
-	for _, s := range strings.Fields(git("log", "--format=%H", br)) {
+	for _, s := range strings.Fields(git("log", "--format=%H", br, "--")) { // "--": br 을 revision 으로 확정
 		shas = append(shas, first9(s))
 	}
 	return shas

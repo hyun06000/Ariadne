@@ -95,7 +95,9 @@ func collectNodes(revRange string) []node {
 		trailer("Gil-Backtrack"),
 		trailerMulti("Gil-Merge"),
 	}, fsep) + sep
-	out := gitlog("--format="+fmt, revRange)
+	// revRange 뒤 "--" 로 revision 확정 — 체인/브랜치명이 디렉토리명과 겹치면(예: viewer)
+	// git 이 revision/path ambiguity 로 exit 128 로 죽는다(실사용 발견, viewer 실작업).
+	out := gitlog("--format="+fmt, revRange, "--")
 	var nodes []node
 	for _, rec := range strings.Split(out, sep) {
 		rec = strings.Trim(rec, "\n")
@@ -132,7 +134,7 @@ func collectNodes(revRange string) []node {
 // 참조: body_index. 스텝별 fork를 없앤다(62초 벽 → O(1), gil-v3-study/c002/s4).
 func bodyIndex(revRange string) map[string]string {
 	fmt := "%H" + fsep + "%b" + sep
-	out := git("log", "--format="+fmt, revRange)
+	out := git("log", "--format="+fmt, revRange, "--") // "--": revision 확정(path ambiguity 방지)
 	idx := map[string]string{}
 	for _, rec := range strings.Split(out, sep) {
 		rec = strings.Trim(rec, "\n")

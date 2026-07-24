@@ -250,6 +250,24 @@ class TestHandoff(GilFixture):
         self.assertIn("사이클 c001", r.stdout)
         self.assertIn("PENDING", r.stdout)
 
+    def test_chain_name_colliding_with_dir(self):
+        """체인명이 디렉토리명과 겹쳐도 handoff/log 가 exit 128 로 죽지 않는다.
+
+        결함(참조·Go 공통, viewer 실작업에서 발견): git log <br> 를 "--" 없이 부르면
+        br 이 디렉토리명과 겹칠 때(예: viewer/ 디렉토리 + viewer 브랜치) git 이
+        revision/path ambiguity 로 exit 128. rev 인자 뒤 "--" 로 확정해 고침.
+        """
+        os.makedirs(os.path.join(self.repo, "viewer"))
+        self.commit_file("viewer/x.txt", "hi", "add dir")
+        self.gil("chain", "viewer", "--purpose", "동명 디렉토리 충돌")
+        self.gil("open", "viewer/c001", "--author", "clew", "--purpose", "골격")
+        self.gil("step", "viewer/c001", "--kind", "verify", "--title", "검사")
+        r = self.gil("handoff")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("128", r.stdout + r.stderr)
+        lg = self.gil("log", "viewer")
+        self.assertEqual(lg.returncode, 0, lg.stderr)
+
 
 class TestInit(GilFixture):
     """gil init — 무에서 세팅 (대문 + refs/gil/global + 존재의 방).

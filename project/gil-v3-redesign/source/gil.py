@@ -62,7 +62,9 @@ def collect_nodes(rev_range="HEAD"):
         "%(trailers:key=Gil-Backtrack,valueonly)",
         "%(trailers:key=Gil-Merge,valueonly,separator=%x00)",
     ]) + _SEP
-    out = _gitlog("--format=" + fmt, rev_range)
+    # rev_range 뒤 "--" 로 revision 확정 — 체인/브랜치명이 디렉토리명과 겹치면(예: viewer)
+    # git 이 revision/path ambiguity 로 exit 128 로 죽는다(실사용 발견, viewer 실작업).
+    out = _gitlog("--format=" + fmt, rev_range, "--")
     nodes = []
     for rec in out.split(_SEP):
         rec = rec.strip("\n")
@@ -98,7 +100,7 @@ def body_index(rev_range="--all"):
     커밋의 본문을 뽑아, step_body(sha, idx)가 fork 없이 인덱스에서 읽게 한다.
     """
     fmt = "%H" + _FSEP + "%b" + _SEP
-    out = _git("log", "--format=" + fmt, rev_range)
+    out = _git("log", "--format=" + fmt, rev_range, "--")  # "--": revision 확정(path ambiguity 방지)
     idx = {}
     for rec in out.split(_SEP):
         rec = rec.strip("\n")
@@ -725,7 +727,7 @@ def commit_index():
 
 def _branch_shas(br):
     """한 브랜치의 커밋 sha(9자) 리스트."""
-    return [s[:9] for s in _git("log", "--format=%H", br).split()]
+    return [s[:9] for s in _git("log", "--format=%H", br, "--").split()]  # "--": br 을 revision 으로 확정
 
 
 def chains_from_graph():
