@@ -1086,6 +1086,9 @@ class TestViewer(GilFixture):
         # DAG 데이터(커밋 부모로 이어진 노드 리스트) 임베드.
         self.assertIn("dagdata", html)
         self.assertIn('"parents":', html)
+        # swimlane: 체인 밴드·사이클 박스 렌더(체인·사이클을 스텝 DAG 와 함께 보임).
+        self.assertIn("bandlabel", html)
+        self.assertIn("cycbox", html)
         # 지식 전파 계보 함수.
         self.assertIn("function lineage", html)
         # 맵/DAG JS 는 Go 의 esc() 가 아니라 JS mdEsc 를 써야 한다(esc 미정의 회귀 방지).
