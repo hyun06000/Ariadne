@@ -93,10 +93,15 @@ func tipSHAs() map[string]string {
 // chainParent — 각 체인이 어느 체인에서 갈라졌나(계보 엣지). 자식→부모.
 // chain-root 커밋의 첫 부모가 속한 Gil-Chain 이 부모 체인. 부모 없으면 "".
 func chainParents() map[string]string {
+	const rs = "\x1e"
 	const fs = "\x1f"
 	// 모든 chain-root 커밋: sha, 이 커밋의 체인, 첫 부모 sha.
-	out, err := git("log", "--branches", "--format=%H"+fs+"%(trailers:key=Gil-Kind,valueonly)"+fs+
-		"%(trailers:key=Gil-Chain,valueonly)"+fs+"%P")
+	// 레코드 구분자는 rs(\x1e) — trailer 값(Gil-Chain-Purpose 등)에 개행이 들어가면
+	// "\n" split 이 한 레코드를 쪼개 chain 필드가 빈 값이 된다(상현님: 새 체인 hackathon-a
+	// 가 뷰어에 안 뜸 — Gil-Chain-Purpose 가 길어 파싱이 밀렸다). valueonly 대신 -z 대체로
+	// rs 로 확정한다.
+	out, err := git("log", "--branches", "--format=%H"+fs+"%(trailers:key=Gil-Kind,valueonly,unfold=true)"+fs+
+		"%(trailers:key=Gil-Chain,valueonly,unfold=true)"+fs+"%P"+rs)
 	if err != nil {
 		return nil
 	}
@@ -104,12 +109,19 @@ func chainParents() map[string]string {
 	shaChain := map[string]string{}
 	type rootRec struct{ chain, firstParent string }
 	var roots []rootRec
-	for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		f := strings.Split(ln, fs)
+	for _, rec := range strings.Split(string(out), rs) {
+		rec = strings.Trim(rec, "\n")
+		if rec == "" {
+			continue
+		}
+		f := strings.Split(rec, fs)
 		if len(f) < 4 {
 			continue
 		}
-		sha, kind, chain, parents := f[0], f[1], f[2], f[3]
+		sha := strings.TrimSpace(f[0])
+		kind := strings.TrimSpace(f[1])
+		chain := strings.TrimSpace(f[2])
+		parents := strings.TrimSpace(f[3])
 		if chain != "" {
 			shaChain[sha] = chain
 		}
@@ -230,6 +242,7 @@ func buildGraph() graphView {
 			}
 		}
 	}
+	chainParent := chainParents()
 	chainOrder := []string{}
 	seenChain := map[string]bool{}
 	byChain := map[string][]node{}
@@ -241,7 +254,22 @@ func buildGraph() graphView {
 		}
 		byChain[n.chain] = append(byChain[n.chain], n)
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParents(), nodeCount: len(nodes), tipCount: tipCount}
+	// 스텝(사이클)이 아직 없는 빈 체인도 그린다 — chain-root 만 있는 새로 발의된 체인이
+	// 그래프에서 사라지면 "체인이 열렸다"는 신호가 안 보인다(상현님: chain-close 후 새 체인
+	// hackathon-a 를 발의했는데 뷰어에 아무 변화가 없었다). chainParents 가 선언된 모든
+	// 체인을 key 로 가지므로 노드 없는 체인을 뒤에 덧붙인다.
+	declared := make([]string, 0, len(chainParent))
+	for ch := range chainParent {
+		declared = append(declared, ch)
+	}
+	sort.Strings(declared) // 결정적 순서
+	for _, ch := range declared {
+		if ch != "" && !seenChain[ch] {
+			seenChain[ch] = true
+			chainOrder = append(chainOrder, ch)
+		}
+	}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, nodeCount: len(nodes), tipCount: tipCount}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}
