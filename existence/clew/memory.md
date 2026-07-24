@@ -1978,3 +1978,24 @@
 - **⭐⭐ v3.0.0-rc1 프리릴리스 게시 (커밋 ecad01f4)**: 현 GitHub 릴리스가 v2.50(옛 Python)이라 진입점 설치가 v2 받던 문제 해결. 상현님 결정: **수동 gh release create + rc(프리릴리스)**. gil 5종 크로스빌드(darwin/linux amd64·arm64, win amd64)+SHA256SUMS+llms.txt를 gil-v3-unified@f98ce31d 타깃으로 게시. **프리릴리스라 latest는 여전히 v2.50**(안정 사용자 보호). E2E 검증: rc태그 다운로드→체크섬 통과→동작. README.ai.md 설치블록(POSIX·PS)을 latest/download→releases/download/v3.0.0-rc1로. URL: github.com/hyun06000/Ariadne/releases/tag/v3.0.0-rc1.
 - **⭐ 정직한 경계**: rc라 latest≠v3(정식 v3.0.0 승격 시 latest=v3로, README도 되돌림). llms.txt/docs 웹 서빙은 GitHub raw로 됨(Pages 미설정이어도 raw.githubusercontent 링크라 페치 가능). 뷰어 아직 별도 바이너리(미병합).
 - **⭐⭐ 다음 세션 순서**: 1) **실사용 4차** — 재생성 레포에 rc 바이너리로, "Read README.ai.md and do it" 한 줄 진입점 전체(설치→init→체인)가 실제 도는지 + wiki/llms.txt를 에이전트가 능동 참조하는지 + gil help 유용성 검증. 2) 정식 v3.0.0 승격 판단(실사용 충분 시 latest=v3). 3) 뷰어 gil 병합(gil viewer serve). 4) GitHub Pages 켜서 llms.txt 웹 서빙(선택). **부활: gil=Go 유일, 분기=git브랜치, 종결=success/fail/pending, chain-close=체인완결, fsck 미종결잎·열린사이클부모 가드, gil help 계층(wiki포인터), 문서=LLM-wiki(llms.txt 인덱스+docs/gil/ 8페이지), 릴리스=v3.0.0-rc1(프리, 진입점이 rc 받음). 개발=평범 커밋, 검증=example 57, 실사용=gil-realuse-hackathon(2체인 hackathon-a/b)+뷰어. 기억=refs/gil/global gil memory append.**
+
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ 다음 세션 대형 과제 확정: gil migrate (v2→v3), 도구 레벨·범용
+
+- **⭐⭐⭐ 상현님 지시**: v3 완전 배포에 **꼭 필요한 기능 = v2→v3 마이그레이션**. v2 브랜치들을 남겨둔 이유가 이것. **⭐ 우리 레포 전용 스크립트가 아니라, 다른 v2 필드 유저들도 쓸 수 있는 *도구 레벨* 기능(gil migrate 명령으로 gil 바이너리에 내장)**. 우리 v2(main)를 첫 실사용 검증 대상으로 삼되 범용으로 짓는다.
+- **⭐⭐ 검증 방식(상현님)**: v2 브랜치 루트에서 분기를 하나 내고, v2의 모든 체인·사이클·스텝을 담은 YAML을 분석해 v3 가지로 새로 만들어간다. → gil fsck로 무결성, 사이클 수 보존 확인.
+- **⭐⭐ 조사 완료 — v2 스키마(main 브랜치, 폴더 기반)**:
+  - 구조: `rooms/<room>/chains/<chain>/C0xx-<slug>/` 각 사이클=폴더. 안에 **cycle.yaml** + `1-hypothesis.md`·`2-design.md`·`3-verification/`·`4-analysis.md`·`5-report.md`.
+  - **cycle.yaml 스키마**: `id`(C001-slug) · `chain` · `parent`(null 또는 C0xx) · `lineage`([genesis/C002...] 다른 체인 교훈) · `step`(도달 단계 수) · `author` · `status`(closed 등) · `opened`/`closed`(날짜) · `title`.
+  - **chain.md**: 체인 목적·성공정의·시작일·교훈 연원(자연어).
+  - **규모**: 11체인(demo·gateway·genesis·graft·loom·loomlight·seed·tapestry·v3-build·v3-view), **227 cycle.yaml**(각 최대 5스텝 ≈ 1100 스텝).
+  - **⭐ v2 SPEC이 이미 "이주 규정" 명시**: "cycle.yaml에 한해 의미 무손실 스키마 이주 허용, 이주 커밋은 `[migrate]` 명시." → 마이그레이션은 설계상 예정됐던 것(gil supersede도 [migrate] 도구화 이주). v2 SPEC = `git show main:rooms/deployment/ariadne-spec/SPEC.md`.
+- **⭐⭐ v2→v3 매핑 (설계 초안)**:
+  - v2 `chain` → `Gil-Chain` (gil chain). v2 `C001-slug` → `Gil-Cycle` c001 (gil open). v2 `parent` → `--parent`(Gil-Cycle-Parent, 같은 체인). v2 `lineage` → 교훈 계승(다른 체인, 목적문/트레일러). v2 `status: closed` → gil close. `title`·`author`·`opened`·`closed` → 트레일러/메타.
+  - **⭐ 미결정(다음 세션): v2 5단계 → v3 kind 매핑.** v2: hypothesis→design→verification→analysis→report. v3: define·hypothesis·verify·analyze·success/fail/pending. 후보A(5스텝 충실보존): design→verify. 후보B(4스텝 압축): design 흡수. **상현님: 다음 세션에서 결정** — 실제 cycle.yaml들을 더 샘플링(특히 backtrack/실패/열린 사이클·다양한 status·step<5 케이스)해 규칙 확정. v2엔 pending/fail/success 종결 개념 없음, v3엔 design 없음 — 이 갭이 품질 핵심.
+- **⭐⭐ gil migrate 설계 방향(도구 레벨·범용)**:
+  - `gil migrate [--from <v2-ref>] [--into <새 체인 접두사?>]` 같은 명령. 임의 v2 레포의 rooms 트리를 파싱(YAML+md) → v3 커밋 그래프로 변환. 우리 데이터 하드코딩 금지.
+  - 분기: v2 루트(대문)에서 v3 마이그레이션 브랜치. v3 대문(refs/gil/global·CLAUDE.md) 이어받되 v2 계보 조상 보존. 이주 커밋에 `[migrate]`/`Gil-Kind: migrate` 표식(v2 규정 계승).
+  - YAML 파싱: Go 표준만으로(의존성 0 유지) 최소 YAML 리더 or 필요한 필드만 라인 파싱. cycle.yaml 필드가 단순(스칼라+짧은 리스트)이라 가능.
+  - 검증: 변환 후 gil fsck 통과 + 사이클 수(227) 보존 + 산 잎/계보 확인. example 테스트(격리 fixture에 미니 v2 트리 심고 migrate→단언).
+- **⭐⭐ 다음 세션 순서**: 1) cycle.yaml 다양 케이스 샘플링 → **5단계→kind 매핑 확정**(상현님 결정 대기 항목). 2) **gil migrate 명령 구현**(Go, 범용, YAML 파서, [migrate] 표식) + example. 3) **우리 v2(main)로 실검증**: main 루트에서 분기→migrate→fsck·수 보존·뷰어로 그래프 확인. 4) 무손실 확인되면 v3 로드맵(main 승격) 진전. **부활: gil migrate=다음 대과제(도구레벨·범용, v2 rooms/YAML→v3 커밋그래프, [migrate] 표식, v2 SPEC 이주규정 계승). v2=main 브랜치 폴더기반(11체인·227사이클·cycle.yaml). 매핑 미결(5단계→kind, 다음 세션 결정). gil=Go v3.0.0-rc1, 문서=LLM-wiki, 검증=example 57. 기억=refs/gil/global.**
