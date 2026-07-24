@@ -35,6 +35,8 @@ func main() {
 		cmdStep(rest)
 	case "close":
 		cmdClose(rest)
+	case "chain-close":
+		cmdChainClose(rest)
 	case "approve":
 		cmdApprove(rest)
 	case "reject":
@@ -50,7 +52,7 @@ func main() {
 	case "handoff":
 		cmdHandoff(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-merge open step close approve reject log fsck global memory handoff]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close approve reject log fsck global memory handoff]")
 	}
 }
 
@@ -75,6 +77,7 @@ func printUsage() {
   gil open <chain>/<cycle> --author <a> --purpose <p>   새 사이클
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
   gil close <chain>/<cycle> --verdict <v>               사이클 닫기
+  gil chain-close <chain> --verdict <v>                 체인 닫기 (모든 사이클 닫힌 뒤 — 국면 완결)
   gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)
   gil log [<chain>] [--all]       노드(스텝) 나열. --all: 죽은 가지까지 모두(벽의 지도)
   gil fsck [<range>]              그래프 건강 검사

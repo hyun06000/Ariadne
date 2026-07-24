@@ -469,6 +469,57 @@ func cmdClose(args []string) {
 	println2("close: " + ref + " — " + *verdict)
 }
 
+// ── gil chain-close ──
+//
+// 체인을 완결로 봉인한다 (상현님 실사용: 체인을 닫는 명령이 없어 서브에이전트가
+// 체인 전환을 못 하고 사이클만 계속 열었다). 사이클 close 와 체인 close 는 다르다:
+// close 는 한 사이클을, chain-close 는 그 위 단계(배포 순환의 한 국면)를 닫는다.
+// 완결의 정의 — 모든 사이클이 닫혀야 체인을 닫을 수 있다. 닫으면 handoff 가
+// "새 체인을 gil chain 으로" 안내하고, 그 닫힌 끝에서 새 체인이 대문·교훈을 이어받는다.
+func cmdChainClose(args []string) {
+	fs := newFlags("gil chain-close")
+	verdict := fs.str("verdict", "supported")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil chain-close <chain> [--verdict V]")
+	}
+	chain := pos[0]
+	if !idRe.MatchString(chain) {
+		die("거부: 체인 이름 \"" + chain + "\"은 소문자·숫자·하이픈만")
+	}
+	if chainPurpose(chain, "--branches") == "" {
+		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 (gil chain 으로 먼저 연다)")
+	}
+	if chainClosed(chain, "--branches") {
+		die("거부: 체인 \"" + chain + "\" 이미 닫힘")
+	}
+	// 완결 가드: 모든 사이클에 close 커밋이 있어야 체인을 닫을 수 있다.
+	// 산 잎(success 스텝) 존재만으로는 부족하다 — gil close 로 봉인돼야 닫힌 사이클이다.
+	closed := closedCycles("--branches")
+	_, order := cyclesOf(chain)
+	var open []string
+	for _, id := range order {
+		if !closed[chain+"\x01"+id] {
+			open = append(open, id)
+		}
+	}
+	if len(open) > 0 {
+		die("거부: 아직 닫히지 않은 사이클이 남음 — 먼저 gil close 로 닫아라: " +
+			strings.Join(open, " ") + ". (완결의 정의: 모든 사이클이 닫혀야 체인을 닫는다.)")
+	}
+	subject := "gil " + chain + " chain-close: " + *verdict
+	body := "체인 [" + chain + "] 봉인. 판정: " + *verdict + ".\n\n" +
+		"이 국면은 완결됐다. 다음은 이 닫힌 끝에서 새 체인을 연다 " +
+		"(gil chain <name> --purpose ...) — 대문·존재·교훈이 체인을 넘어 이어진다."
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Kind", "chain-close"}, {"Gil-Verdict", *verdict},
+	}
+	commit(subject, body, tr, true)
+	println2("chain-close: " + chain + " — " + *verdict)
+	println2("NEXT 닫힌 체인의 끝에서 새 체인을 연다: gil chain <name> --purpose <다음 국면의 목적>")
+	println2("     이전 체인의 교훈(gil memory read)을 새 체인 목적·첫 가설에 이어받아라.")
+}
+
 // ── gil chain ──
 func cmdChain(args []string) {
 	fs := newFlags("gil chain")

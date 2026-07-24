@@ -169,17 +169,48 @@ class TestClosedParentGuard(GilFixture):
         """chain-close 후에는 새 사이클 open 거부 — 새 자식 체인 강제."""
         self.gil("chain", "c", "--purpose", "P")
         self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
-        self.gil("step", "c/c001", "--kind", "analyze", "--outcome", "success",
-                 "--title", "s")
+        self.gil("step", "c/c001", "--kind", "success", "--title", "s")
         self.gil("close", "c/c001")
-        # chain-close 커밋 모사
-        self._git("commit", "-q", "--allow-empty", "-F", "-",
-                  ) if False else None
-        subprocess.run(["git", "commit", "-q", "--allow-empty", "-F", "-"],
-                       cwd=self.repo, text=True,
-                       input="gil c 체인 닫힘\n\nGil-Chain: c\nGil-Kind: chain-close\n")
+        r = self.gil("chain-close", "c")  # 실제 명령 (모사 아님)
+        self.assertEqual(r.returncode, 0, r.stderr)
         r = self.gil("open", "c/c002", "--author", "a", "--purpose", "P")
         self.assertNotEqual(r.returncode, 0, "닫힌 부모 체인 사이클은 거부돼야")
+
+    def test_chain_close_requires_all_cycles_closed(self):
+        """chain-close 는 모든 사이클이 닫혀야 허용 (산 잎만으론 부족 — close 커밋 필요).
+
+        실사용(상현님)이 드러낸 결함 — 체인 닫는 명령 자체가 없어 사이클만 계속 열렸다."""
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "c/c001", "--kind", "success", "--title", "s")  # 산 잎, 하지만 close 안 함
+        r = self.gil("chain-close", "c")
+        self.assertNotEqual(r.returncode, 0, "닫히지 않은 사이클이 있으면 거부")
+        self.assertIn("c001", r.stdout + r.stderr)
+        self.gil("close", "c/c001")
+        r = self.gil("chain-close", "c")
+        self.assertEqual(r.returncode, 0, "모든 사이클 닫히면 허용: " + r.stderr)
+
+    def test_chain_close_enables_lesson_carrying_new_chain(self):
+        """닫힌 체인 끝에서 새 체인을 열 수 있다 — 대문·교훈이 체인을 넘어 이어진다."""
+        self.gil("chain", "dev", "--purpose", "개발 국면")
+        self.gil("open", "dev/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "dev/c001", "--kind", "success", "--title", "s")
+        self.gil("close", "dev/c001")
+        self.gil("chain-close", "dev")
+        r = self.gil("chain", "stg", "--purpose", "스테이징 국면")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 새 체인 stg 는 닫힌 dev 끝에서 분기 — 대문(CLAUDE.md)이 조상으로 보존
+        self.assertEqual(self.trailer("stg", "Gil-Chain-Purpose"), "스테이징 국면")
+
+    def test_chain_close_rejects_twice(self):
+        """이미 닫힌 체인은 다시 못 닫는다."""
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "c/c001", "--kind", "success", "--title", "s")
+        self.gil("close", "c/c001")
+        self.gil("chain-close", "c")
+        r = self.gil("chain-close", "c")
+        self.assertNotEqual(r.returncode, 0, "이미 닫힌 체인 재닫기 거부")
 
     def test_open_rejects_unclosed_parent_cycle(self):
         """원칙: 사이클은 닫힌 사이클의 끝에서만. 열린 사이클을 --parent 로 삼으면 거부.

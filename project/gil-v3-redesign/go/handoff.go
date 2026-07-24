@@ -73,7 +73,10 @@ func handoffReport() string {
 			}
 		}
 		if !hasOpen {
-			L = append(L, "    열린 사이클 없음 — 닫힌 사이클 끝에서 새 사이클을 연다.")
+			L = append(L, "    열린 사이클 없음 — 다음 둘 중 하나:")
+			L = append(L, "      · 이 국면을 더 판다 → 닫힌 사이클 끝에서 새 사이클: gil open "+cname+"/<cycle> --author <a> --purpose <p>")
+			L = append(L, "      · 이 국면이 완결됐다 → 체인을 닫고 새 체인으로: gil chain-close "+cname+" → gil chain <새이름> --purpose <다음 국면>")
+			L = append(L, "        (사이클만 계속 늘리지 말 것 — 국면이 끝났으면 체인을 전환해 교훈을 이어받는다.)")
 		}
 	}
 	L = append(L, "")

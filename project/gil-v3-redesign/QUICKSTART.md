@@ -271,6 +271,12 @@ gil reject <chain>/<cycle> --to <조상 define> [--title T]
 gil close <chain>/<cycle> [--verdict supported]
     산 잎이 있는 사이클을 봉인한다.
 
+gil chain-close <chain> [--verdict supported]
+    체인(작업 큰 줄기)을 완결로 봉인한다. **모든 사이클이 닫힌 뒤에만** 허용.
+    사이클 close 와 다르다 — 이건 그 위 국면(배포 순환의 한 단계)을 닫는다.
+    닫으면 그 끝에서 새 체인을 연다(gil chain) — 대문·존재·교훈이 체인을 넘어 이어진다.
+    ※ 사이클만 계속 늘리지 말 것: 한 국면이 완결됐으면 체인을 전환한다(handoff 가 안내).
+
 gil chain-merge <newchain> --purpose <P> <tip>...
     흩어진 체인들을 하나로 묶는다. 실제 git merge(파일까지 병합), 위상적 끝단만 자동 추림.
     충돌 시 abort하지 않고 멈춘다 — 사람/후속 사이클이 해결.
