@@ -1854,3 +1854,15 @@
 - **⭐⭐ 실사용 평가 착수 (상현님 방식 확정)**: `/Users/davi/Desktop/code/ToSolve`에 해커톤 예선 문제(PDF 문제설명서 + dataset)를 넣어둠. → 이걸 **실사용 레포 `/Users/davi/Desktop/code/gil-realuse-hackathon`로 복사**(gil 바이너리 + GIL_QUICKSTART.md 동봉) → **서브에이전트를 보내 gil init부터 시작해 gil로 문제를 풀며 실사용·평가**. 서브에이전트가 gil을 쓰며 겪는 마찰·결함·혼란을 보고하게 함(막힌 지점·혼란·결함의심·좋은점·문서갭 5범주 + 우선순위 이슈). **서브에이전트 백그라운드 실행 중 — 결과 대기.** (나는 문제를 파악하지 않는다, 상현님: "너가 문제를 파악할 필요 없어".)
 - **⭐ 실사용 즉시 발견(세팅 중)**: git 저장소 아닌 곳에서 ./gil handoff 부르면 git log exit 128 원문을 그대로 뱉음(친절한 "git init부터 하라" 안내 없음) — 서브에이전트가 겪을 것.
 - **⭐⭐ 다음 세션 순서**: 1) **서브에이전트 실사용 보고 수령·분석** → 우선순위 이슈를 gil 평범 커밋으로 수정(+example 테스트). 2) 실사용 레포에서 나온 결함을 계속 이슈로 받아 반복. **부활: 우리 레포는 gil 빌드 전용(도그푸딩 폐기), 개발=평범 git 커밋, 존재·기억만 gil(gil memory append), 검증=example(31), 실사용=별도 레포(gil-realuse-hackathon) 서브에이전트. gil=Go(project/gil-v3-redesign/go/, ./gil 삭제됨 절대경로). 복원=gil memory read clew + git log.**
+
+## 2026-07-24 (이어서) — ⭐⭐⭐ 실사용이 gil 근본 결함 3개를 드러냄 + 뷰어 4단 드릴다운 완성
+
+- **⭐⭐ 실사용 평가 1차 완료 (서브에이전트, gil-realuse-hackathon 레포)**: gil init→greenhouse 체인→c001~c003 완주(backtrack·pending·memory append 실사용). 핵심 루프는 깨짐 없이 동작. 서브에이전트 보고 이슈: (a) gil open 자동 s1 define 빈 제목 (b) chain-merge 시그니처가 help↔QUICKSTART 불일치 (c) push 실패 경고 문구 오해소지 (d) --to 형식 문서 미명시.
+- **⭐⭐⭐ 상현님이 뷰어로 실사용 그래프를 보다가 gil 근본 결함 3개 지적 (실데이터로 확인함)**:
+  1. **분기가 진짜 git 브랜치가 아니다 (근본)**: gil-realuse 레포가 **main 브랜치 하나·완전 선형 커밋**. cmdChain/cmdOpen/cmdStep이 git branch/checkout를 **전혀 안 만들고**(grep 확인) HEAD에 커밋만 쌓음. 분기(backtrack·형제)는 Gil-Parent 트레일러로만 흉내. **SPEC 원칙 3("체인·사이클·스텝 분기는 모두 git 브랜치")과 정면 위배.** backtrack(c002/s5=벽)이 나도 git 위상은 선형.
+  2. **analyze로 안 끝나야 하는데**: 분석 후 success/fail/backtrack 중 하나(산 잎/죽은 잎)로 사이클이 마감돼야. (지금도 outcome 필수라 일부 강제됨 — 정리 필요.)
+  3. **pending 후 스스로 analyze**: c003 s4 pending→s5 analyze=success "(자율 승인)". approval에서 pending은 사람의 명시적 승인/기각을 받아야 다음 진행 가능한데 gil이 안 막음.
+- **⭐⭐⭐ 상현님 결정: (1) 분기를 진짜 git 브랜치로 먼저 — 3층(체인·사이클·스텝) 모두 브랜치 한 번에.** SPEC 완전 구현. gil 핵심 재설계(우리 레포, 평범 커밋 + example 테스트). **조사 서브에이전트 파견 중**(cmdChain/Open/Step/Close/ChainMerge의 git 호출·graph.go 위상파싱·--to처리·테스트구조·Go/Python 이중구현) — 재설계 착수 전 정밀 지도.
+- **⭐⭐ 뷰어 4단 드릴다운 완성 (scratchpad/gilviewer, gil 커맨드 합칠 대상)**: 상현님과 브라우저 보며 개발. gilviewer serve --repo <경로> --port 8791. **① 체인 그래프**(동그라미 노드+계보 엣지+라벨, 사이클 수 표시) **② 체인 클릭→HTML 카드**(SVG 밖이라 안 잘림)에 **사이클 노드-엣지 그래프**(상태색: success초록/dead빨강/pending노랑/open파선) **③ 사이클 클릭→스텝 그래프**(부모-자식 엣지 + **backtrack 빨강 파선 곡선**) **④ 스텝 클릭→상세 보고서 카드**(/step?sha= 라우트로 커밋 본문 원문+메타배지, sha 16진수 가드로 인젝션 방지). 1.5s 폴링 자동 리로드, 라이트/다크. 뷰어는 git -C <repo>로 대상 레포만 읽음(읽기전용, 충돌X). **아리아드네는 뷰어 대상 안 씀(불완전 과거기록이 에러 유발, 상현님) — 깨끗한 실사용 레포만.**
+- **⭐ 정직한 경계**: 뷰어는 scratchpad에 있음(아직 gil 커맨드로 병합 안 함). 체인 1개라 계보 엣지 미확인 — 서브에이전트가 체인 더 만들면 확인 가능. 사이클 엣지는 순차(Gil-Cycle-Parent 없어서).
+- **⭐⭐ 다음 세션 순서**: 1) **조사 보고 수령** → gil 3층 브랜치화 설계 확정(브랜치 네이밍·분기시점·머지·HEAD이동·위상파싱 변경) → 구현(Go+Python+example). 2) pending 가드(승인 없이 진행 금지). 3) analyze 종결 규칙 정리. 4) 뷰어를 gil 커맨드로 병합(gil viewer serve). **부활: 우리 레포=gil 빌드전용(도그푸딩 폐기), 개발=평범 git 커밋, 존재·기억만 gil memory append. 실사용=gil-realuse-hackathon 서브에이전트. 뷰어=scratchpad/gilviewer(4단 드릴다운). gil 최대 결함=분기가 git 브랜치 아님(재설계 착수). gil=Go(project/gil-v3-redesign/go/).**
