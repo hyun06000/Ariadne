@@ -2085,3 +2085,23 @@
   2. **⚠ github.io 뷰어가 아직 v2** — 온보딩이 링크하는 예시가 v2 그래프. Pages v3 전환 필요.
 - **⭐⭐ GitHub Pages v3 전환 (설계 완료, 상현님 시나리오 대기)**: 라이브=v2뷰어(정적HTML, legacy시절 ariadne-pages.yml 잔재, main엔 워크플로우 없음). v3뷰어는 Go서버라 Pages(정적) 못 올림 → **정적 출력 모드 신설 필요**. 조사결과(최소변경): serve.go renderHTML은 이미 자기완결(CDN·폰트 0), poll 라인(serve.go:371) 분리+static bool, /step 본문을 %B로 collectNodes에 담아 cycleJSON 인라인, main.go에 build --out 서브명령. 보일 그래프=**대표 예제(상현님 시나리오 대기)**. Actions로 예제생성→gilviewer build→Pages.
 - **⭐⭐ 부활**: gil latest=**v3.0.2**(OS별 git안내). main=v3, example 72, 명령 15개. 진입=README.ai.md(Step0 휴먼온보딩 '처음?'분기·2단계동의, Step B.1 뷰어 시연). 한국어 진입문장 병기. 옛 v2=legacy·legacy-main. 개발=평범 git 커밋. 기억=refs/gil/global gil memory append. **다음 후보**: 1)Pages v3 전환(상현님 시나리오 오면: 예제생성+뷰어 build --out 모드+Actions) 2)gilviewer 릴리스 자산화/gil 병합(온보딩 시연 실작동) 3)legacy 정식 이주. **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
+
+## 2026-07-25 (이어서) — ⭐⭐⭐ gil viewer 통합 완료 (격리 방식) — 별도 gilviewer 폐지
+
+상현님 지시 "길 뷰어를 길에 통합". 오래 보류됐던 작업(이름충돌 리팩터 필요) 완주. 두 대기작업(온보딩 시연 실작동·Pages v3 토대)을 자동 해결.
+
+- **⭐⭐⭐ 방식 = 격리(상현님 통찰)**: "gil은 안정 단계, 뷰어는 앞으로 많이 손볼 것" → 재사용(뷰어가 gil node/collectNodes 공유) 기각, **격리**(뷰어 독립, gil 본체 안 건드림) 채택. 뷰어를 아무리 뜯어고쳐도 gil 안전. 나중에 뷰어 안정되면 재사용 리팩터 가능.
+- **⭐⭐ 통합 구현 (커밋 1395f730)**:
+  - viewer/main.go → **go/viewer_graph.go**, viewer/serve.go → **go/viewer_serve.go**(git rename 인식).
+  - 충돌 심볼 5개 뷰어 쪽만 rename: git→viewerGit(뷰어는 -C repoDir), node→viewerNode(필드 다름), collectNodes→viewerCollectNodes, main→cmdViewer, repoDir→viewerRepoDir. itoa는 삭제→gil utils.go 것 재사용(동작 동일). ⭐ CSS `--node`·`.cnode` 안 건드리게 정밀치환(perl `\(n node\)`만).
+  - gil main.go `case "viewer": cmdViewer(rest)` 1줄 + usage/printUsage. **gil 본체(git·node·commit 쓰기경로) itoa 공유 외 변경 0 — 격리 성립.**
+  - 추가 충돌 없음 검증(esc·validSHA·stepNum 등 gil에 동명 없음).
+- **⭐⭐ gil viewer serve|build|text**:
+  - build(정적 자기완결 HTML): `renderHTML(g, static)` — static이면 폴링(jsPoll 별도 const로 분리) 제외 + 스텝본문 인라인(viewerNode.body=%B를 collectNodes format에 SplitN 4로 파싱, cycleJSON에 static일때만 "body" 임베드, openReport가 n.body 있으면 fetch 생략). liveIndicator(static)로 "정적 스냅샷" 표시.
+  - serve HTML은 가볍게(본문 클릭시 /step 페치, 폴링 있음). 검증: build=외부참조0·/poll 0·본문인라인, serve=/·/poll·/step 200.
+  - ⚠ 정직: build HTML에 openReport의 /step fetch 코드 자체는 남음(죽은코드, n.body 우선이라 실행 안 됨) — 기능 무해, 테스트는 "본문 인라인+폴링 없음"으로 검증.
+- **⭐⭐ init 자동기동 = 자기 자신**: viewer_launch.go findViewer(외부 gilviewer 탐색) 폐기 → `os.Executable()` + `viewer serve`. **별도 바이너리 불필요 → 온보딩 Step B.1 로컬뷰어 시연이 실사용자에게 실작동**(이전 경계 해소).
+- **⭐ viewer/ 디렉토리 폐지**(main.go·serve.go 이전, go.mod·README·빌드산물 삭제). README.ai.md gilviewer→gil viewer 문구.
+- **⭐ 검증**: example 72→76(+4 TestViewer: build 자기완결·build --out강제·serve응답·text). init 테스트 갱신(survives_missing_viewer→launches_integrated_viewer). go vet 클린. 전체 76 통과.
+- **⭐ 정직한 경계 (다음)**: 1)이 통합은 **릴리스 미반영** — latest=v3.0.2엔 gil viewer 없음. 온보딩 시연 실작동하려면 v3.0.3 릴리스 필요. 2)Pages v3 전환: 이제 `gil viewer build` 있으니 상현님 시나리오(대표 예제) 오면 Actions로 배포 가능. 3)8790 포트 잔존 프로세스가 로컬에 떠있음(이전 세션 뷰어, 무해).
+- **⭐⭐ 부활**: gil viewer 통합됨(serve/build/text, gil viewer serve로 init 자동기동). 격리방식(gil 본체 안 건드림). build=정적 자기완결 HTML(Pages용). main=v3, example 76, gil=Go 유일(명령 16개 +viewer), latest=v3.0.2(뷰어 미포함—v3.0.3 필요). 옛 v2=legacy. 개발=평범 git 커밋. 기억=refs/gil/global gil memory append. **다음 후보**: 1)**v3.0.3 릴리스**(gil viewer 포함, 온보딩 시연 실작동) 2)Pages v3 전환(시나리오 오면 예제생성+gil viewer build+Actions) 3)legacy 정식 이주. **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭) → git log --oneline.**
