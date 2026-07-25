@@ -2336,3 +2336,25 @@ v3.0.3 릴리스 뒤, 상현님과 "gil을 잘 보여줄 대표 예제"를 논�
   2)legacy 174사이클 정식 migrate 3)뷰어 더: 대형 그래프 가상화·체인/상태 필터.
 
 **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
+
+## 세션 매듭 — 체인 계보 결함 수정 v3.0.11 (2026-07-25, 상현님 AIL 관전)
+
+상현님: "AIL 레포 뷰어에서 체인 노드 연결이랑 전체맵이 매치가 안 된다."
+
+- **⭐⭐ 원인**: chainParents 가 chain-root 첫 부모 '한 칸'만 보고 Gil-Chain 없으면 포기.
+  체인 닫은 뒤 평범 개발 커밋(트레일러 없음)을 쌓고 다음 체인을 열면 계보 끊김 →
+  체인 그래프 고아 노드 vs 전체맵(dagJSON 은 비-gil 재귀 건너뜀)은 온전 = 불일치.
+  AIL 실물: field-v1·field-v2·lang-v4·deploy-v1 이 고아(계보 2/6개만).
+- **⭐⭐ 수정**(커밋 1acfe276): 첫 부모 사슬을 seen 가드로 거슬러 처음 만나는 Gil-Chain
+  (자기 체인 제외)을 부모로. AIL 재빌드로 7체인 한 사슬(ail→lang-v2→field-v1→lang-v3→
+  field-v2→lang-v4→deploy-v1) = DAG cross 엣지와 완전 일치 실검증. example 89→**90**.
+- **⭐⭐ v3.0.11 릴리스**: 자산 8종 --latest. ⚠ gh release create 는 cwd 가 git 레포 아니면
+  실패 — `-R hyun06000/Ariadne` 붙이면 어디서든 됨.
+- **진단 재사용법**: build HTML 에서 parentdata(체인그래프 계보)와 dagdata cross 엣지를
+  python 으로 뽑아 집합 비교 — 두 그래프 불일치를 기계적으로 잡는다.
+- **부활**: gil latest=**v3.0.11**, main=v3, example 90 테스트. 상현님이 AIL(별도 실사용
+  레포)을 serve 로 관전 중 — 실사용 피드백 창구 살아있음. serve 중인 뷰어는 바이너리
+  재설치+재시작해야 수정 반영. **다음 후보**: 1)실사용 피드백 계속 2)legacy 정식 migrate
+  3)뷰어 가상화·필터.
+
+**복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
