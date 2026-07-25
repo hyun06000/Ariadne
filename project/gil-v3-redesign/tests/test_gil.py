@@ -1235,6 +1235,32 @@ class TestViewer(GilFixture):
         self.assertIn("headarrow", html)
         self.assertIn("현재위치 1개", html)  # 헤더에 현재위치 카운트
 
+    def test_chain_lineage_skips_plain_commits(self):
+        """체인을 닫고 평범 커밋(gil 트레일러 없음)을 쌓은 뒤 다음 체인을 열어도
+        체인 계보(부모→자식)가 이어진다 — 첫 부모 한 칸만 보면 계보가 끊겨
+        체인 그래프가 전체맵(비-gil 을 건너뛰는 DAG)과 안 맞았다(AIL 실사용 결함)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "dev", "--purpose", "P")
+        self.gil("open", "dev/c1", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "dev/c1", "--kind", "success", "--title", "됨", "--body", "종합")
+        self.gil("close", "dev/c1", "--verdict", "supported")
+        self.gil("chain-close", "dev", "--verdict", "supported")
+        # 평범 개발 커밋 두 개 — 실사용 레포에선 체인 사이에 흔히 낀다.
+        for i in (1, 2):
+            with open(os.path.join(self.repo, f"plain{i}.txt"), "w") as f:
+                f.write("x\n")
+            self._git("add", "-A")
+            self._git("commit", "-m", f"plain dev commit {i}")
+        self.gil("chain", "stg", "--purpose", "P2")
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import json, re
+        html = open(out_html, encoding="utf-8").read()
+        parents = json.loads(re.search(r'"parentdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
+        self.assertEqual(parents.get("stg"), "dev",
+                         f"평범 커밋을 건너 조상 체인을 못 찾음 — 계보 끊김: {parents}")
+
     def test_stepmap_zoom_pan_and_cycle_labels(self):
         """전체 스텝맵에 줌/팬 컨트롤(dagbar·enableZoomPan)과 사이클 라벨(cyclabel)이 들어간다 —
         대형 그래프(수백 스텝) 항해용."""

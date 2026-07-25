@@ -162,7 +162,10 @@ func tipSHAs() map[string]string {
 }
 
 // chainParent — 각 체인이 어느 체인에서 갈라졌나(계보 엣지). 자식→부모.
-// chain-root 커밋의 첫 부모가 속한 Gil-Chain 이 부모 체인. 부모 없으면 "".
+// chain-root 에서 첫 부모 사슬을 거슬러 올라가 처음 만나는 Gil-Chain 이 부모 체인.
+// 한 칸만 보면 안 된다 — 체인을 닫고 평범 커밋(트레일러 없음)을 쌓은 뒤 다음 체인을
+// 열면 첫 부모가 비-gil 커밋이라 계보가 끊겨, 체인 그래프가 고아 노드가 되고 전체맵
+// (dagJSON 은 비-gil 을 건너뜀)과 안 맞았다(상현님: AIL 레포 관전). 부모 없으면 "".
 func chainParents() map[string]string {
 	const rs = "\x1e"
 	const fs = "\x1f"
@@ -178,6 +181,8 @@ func chainParents() map[string]string {
 	}
 	// 커밋 sha → 그 커밋이 속한 체인 (부모 커밋의 체인을 찾기 위해).
 	shaChain := map[string]string{}
+	// 커밋 sha → 첫 부모 sha — 비-gil 커밋을 건너 조상 체인까지 거슬러 올라가는 사슬.
+	firstParent := map[string]string{}
 	type rootRec struct{ chain, firstParent string }
 	var roots []rootRec
 	for _, rec := range strings.Split(string(out), rs) {
@@ -196,17 +201,26 @@ func chainParents() map[string]string {
 		if chain != "" {
 			shaChain[sha] = chain
 		}
+		fp := ""
+		if ps := strings.Fields(parents); len(ps) > 0 {
+			fp = ps[0]
+		}
+		firstParent[sha] = fp
 		if kind == "chain-root" {
-			fp := ""
-			if ps := strings.Fields(parents); len(ps) > 0 {
-				fp = ps[0]
-			}
 			roots = append(roots, rootRec{chain, fp})
 		}
 	}
 	parent := map[string]string{}
 	for _, r := range roots {
-		parent[r.chain] = shaChain[r.firstParent] // 없으면 ""
+		parent[r.chain] = "" // 기본: 뿌리 체인
+		seen := map[string]bool{}
+		for fp := r.firstParent; fp != "" && !seen[fp]; fp = firstParent[fp] {
+			seen[fp] = true
+			if ch, ok := shaChain[fp]; ok && ch != r.chain {
+				parent[r.chain] = ch
+				break
+			}
+		}
 	}
 	return parent
 }
