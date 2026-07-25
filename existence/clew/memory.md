@@ -2322,3 +2322,17 @@ v3.0.3 릴리스 뒤, 상현님과 "gil을 잘 보여줄 대표 예제"를 논�
 3. legacy 174사이클 정식 migrate. 4. 뷰어 더: 대형 그래프 가상화, 체인/상태 필터.
 
 **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
+
+## 세션 매듭 — v3.0.10 릴리스 게시 완료 (2026-07-25, 이어서)
+
+상현님 "일단 릴리즈하자" 승인 → 직전 매듭의 미완(⚠) 해소.
+
+- **⭐⭐ v3.0.10 게시**: 자산 8종(5 바이너리+install.sh+llms.txt+SHA256SUMS, 체크섬 검증 후)
+  --latest. **latest=v3.0.10.**
+- **예제 재생성**: ariadne-example index.html 을 릴리스 바이너리로 rebuild(⚠ cwd=예제 레포)
+  → 스샷 확인(줌바·사이클라벨·backtrack 붉은 잎) → push → Pages 라이브 반영 확인(dagbar 검출).
+- **부활**: gil latest=**v3.0.10**(전체맵 줌/팬+사이클 라벨), main=v3, example 89 테스트,
+  예제=ariadne-example(Pages, v3.0.10 뷰어). **다음 후보**: 1)실사용 전 경로 실검증(별도 레포)
+  2)legacy 174사이클 정식 migrate 3)뷰어 더: 대형 그래프 가상화·체인/상태 필터.
+
+**복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
