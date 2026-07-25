@@ -2430,3 +2430,31 @@ define 뿌리 하나 강제, pending 우회 불가, append-only 본문, fsck, �
 3. **뷰어 더** — 아주 큰 그래프 가상화, 체인/상태 필터.
 
 **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
+
+## 매듭 — 분기를 문법으로 강제 (AIL #1, 2026-07-25, 상현님 실사용 관전)
+
+상현님이 AIL 실사용에서 "체인이 자꾸 일자로만 간다 — 분기가 안 생긴다"고 관찰. 존재
+둘(Shed·Reed)을 소환해 서로 다른 각도(HEAAL 문법강제 / 사용자 인지마찰)에서 논의시켰고,
+세 겹 원인이 한 병목으로 수렴: **success의 문이 너무 넓다.** 상현님이 이번 세션 본인
+이력(fresh-run/s3에서 H1 반증을 산문에만 적고 success로 회수)을 진단 #3의 산 표본으로
+실측 제시하며 전면 동의, 구현 순서(2→1→3)까지 확정.
+
+### 구현 (Ariadne ae23924a, 브랜치 ail1-branch-enforcement, 평범 git 커밋)
+- **제안 2**: hypothesis 에 `--falsify`(반증조건)·`--falsify-to`(반증 시 되돌아갈 define)
+  필수. `Gil-Falsify`/`Gil-Falsify-To` 각인. 반증 불가능한 가설을 문법 거부.
+- **제안 1**: verify 에 `--verdict supported|refuted` 필수(node.verdict 파싱 추가, git.go
+  필드 12→13). 직전 verify 가 refuted 면 success 문법 거부 — 핵심 잠금.
+- **제안 3(완화)**: 죽은 잎(fail/analyze-fail/backtrack) 위 선형 진행 거부. 재가설은
+  새 가지(--to)로만. 회수 자체는 허용, fail 잎이 지도에 남게만.
+- reportGuide·SPEC.md 갱신. 테스트 **93→105**(+12 강제 단언). 기존 9건 새 문법에 맞춰 수정.
+
+### ⚠ 재사용 주의
+- **verify 는 이제 --verdict 필수, hypothesis 는 --falsify/--falsify-to 필수.** gil 쓰는
+  모든 곳(테스트·예제·실사용)이 영향받는다. 릴리스 시 llms.txt/문서 예제도 갱신 필요.
+- git.go collectNodes 필드 인덱스: Gil-Verdict 가 [12], len(f)<13 가드. 트레일러 추가 시 순서 주의.
+- 아직 **미릴리스**(브랜치에만). main 병합·릴리스는 상현님 판단 대기. AIL #1 에 완료 코멘트 달고 판단 요청함.
+
+### 부활점
+gil latest 릴리스=v3.0.12(이 변경 미포함). 브랜치 ail1-branch-enforcement 에 분기강제 커밋.
+AIL #1 = 이 작업의 창구(상현님 관전). 다음: 상현님이 릴리스 승인하면 main 병합→릴리스,
+llms.txt 예제 갱신. 아니면 AIL 관전 계속.
