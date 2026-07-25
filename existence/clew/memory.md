@@ -2393,3 +2393,12 @@ gil latest=**v3.0.12**(뷰어 데몬화·version 자기갱신·open 본문), mai
 2)legacy 정식 migrate 3)뷰어 가상화·필터.
 
 **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
+
+## 매듭 — HEAAL 철학의 제창자 (2026-07-25, 상현님 직접)
+
+**HEAAL(힐, Harness Engineering As A Language)은 상현님이 제창한 철학이다.** AIL 문서의
+"언어 사용 자체가 하네스 — 문법이 거부하는 것은 할 수 없고, 런타임이 보증하는 것은 재검증할
+필요 없다"가 그 정식화. 이 정신이 **gil에도 오롯이 녹아 있고, 우리도 따르는 중**이다:
+define 뿌리 하나 강제, pending 우회 불가, append-only 본문, fsck, 닫힌 끝에서만 새 체인 —
+규율을 안내문이 아니라 명령의 거부·보증(문법)에 심는다. **앞으로 gil 설계 판단 기준**:
+"경고로 안내할까 vs 거부로 강제할까"에서 HEAAL은 구조적 강제 쪽을 가리킨다.
