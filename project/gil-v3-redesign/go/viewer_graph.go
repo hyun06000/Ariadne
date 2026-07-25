@@ -25,6 +25,20 @@ func viewerGit(args ...string) ([]byte, error) {
 	return exec.Command("git", full...).Output()
 }
 
+// allRefs — 뷰어가 훑는 커밋 범위. 로컬 브랜치(--branches)뿐 아니라 원격 추적
+// 브랜치(--remotes)까지 본다. 신선한 클론은 로컬에 기본 브랜치 하나뿐이고 gil
+// 그래프는 refs/remotes/origin/* 에만 있어, --branches 만이면 그래프를 통째로
+// 놓쳤다(상현님: example 을 clone 하니 스텝 0개). 로컬·원격이 같은 커밋을 겹쳐
+// 내도 viewerCollectNodes 의 SHA dedup 이 접는다.
+var allRefs = []string{"--branches", "--remotes"}
+
+// viewerLog — git log 를 allRefs(로컬+원격) 범위로 돌린다. extra 는 --format 등.
+func viewerLog(extra ...string) ([]byte, error) {
+	args := append([]string{"log"}, allRefs...)
+	args = append(args, extra...)
+	return viewerGit(args...)
+}
+
 type viewerNode struct {
 	sha, full, subject       string
 	chain, cycle, step, kind string
@@ -41,7 +55,7 @@ func viewerCollectNodes() []viewerNode {
 	// (스텝을 커밋 부모로 연결). body 는 정적 build 시 스텝 보고서를 인라인 임베드하려고
 	// 싣는다. %B 가 여러 줄·trailers 포함이라 마지막 필드에 두고 SplitN(…,5).
 	format := "%H" + fs + "%s" + fs + "%P" + fs + "%(trailers:only=true,unfold=true)" + fs + "%B" + rs
-	out, err := viewerGit("log", "--branches", "--format="+format)
+	out, err := viewerLog("--format=" + format)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "거부: git log 실패(레포 경로·gil 그래프 확인) —", err)
 		return nil
@@ -95,7 +109,7 @@ func viewerCollectNodes() []viewerNode {
 func commitParentMap() map[string][]string {
 	const fs = "\x1f"
 	const rs = "\x1e"
-	out, err := viewerGit("log", "--branches", "--format=%H"+fs+"%P"+rs)
+	out, err := viewerLog("--format=%H" + fs + "%P" + rs)
 	if err != nil {
 		return nil
 	}
@@ -157,8 +171,8 @@ func chainParents() map[string]string {
 	// "\n" split 이 한 레코드를 쪼개 chain 필드가 빈 값이 된다(상현님: 새 체인 hackathon-a
 	// 가 뷰어에 안 뜸 — Gil-Chain-Purpose 가 길어 파싱이 밀렸다). valueonly 대신 -z 대체로
 	// rs 로 확정한다.
-	out, err := viewerGit("log", "--branches", "--format=%H"+fs+"%(trailers:key=Gil-Kind,valueonly,unfold=true)"+fs+
-		"%(trailers:key=Gil-Chain,valueonly,unfold=true)"+fs+"%P"+rs)
+	out, err := viewerLog("--format=%H" + fs + "%(trailers:key=Gil-Kind,valueonly,unfold=true)" + fs +
+		"%(trailers:key=Gil-Chain,valueonly,unfold=true)" + fs + "%P" + rs)
 	if err != nil {
 		return nil
 	}

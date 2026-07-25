@@ -1040,6 +1040,49 @@ class TestViewer(GilFixture):
         self.assertNotIn("←s2", r.stdout)
         self.assertNotIn("←s3", r.stdout)
 
+    def test_viewer_reads_remote_only_branches(self):
+        """뷰어는 원격 추적 브랜치(refs/remotes/*)의 gil 그래프도 읽는다.
+
+        결함(상현님): 신선한 clone 은 로컬에 기본 브랜치 하나뿐이고 gil 그래프는
+        refs/remotes/origin/* 에만 있다. 뷰어가 --branches(로컬)만 보면 그래프를
+        통째로 놓쳐 '스텝 0개'가 됐다. --remotes 까지 봐야 한다.
+        """
+        # 1) origin 역할의 bare 저장소에 gil 그래프를 만든다.
+        import tempfile as _tf
+        origin = _tf.mkdtemp(prefix="gil-origin-")
+        work = _tf.mkdtemp(prefix="gil-work-")
+        clone = _tf.mkdtemp(prefix="gil-clone-")
+        try:
+            subprocess.run(["git", "init", "-q", "--bare", origin], check=True)
+            # work 에서 그래프를 만들고 origin 으로 push.
+            for a in (["init", "-q"], ["config", "user.email", "t@e.com"],
+                      ["config", "user.name", "t"], ["config", "commit.gpgsign", "false"],
+                      ["remote", "add", "origin", origin]):
+                subprocess.run(["git", "-C", work, *a], check=True)
+            env = dict(os.environ, GIL_NO_VIEWER="1")
+            g = lambda *a: subprocess.run([*GIL_CMD, *a], cwd=work, env=env,
+                                          capture_output=True, text=True)
+            g("init", "--name", "clew")
+            g("chain", "demo", "--purpose", "P")
+            g("open", "demo/c001", "--author", "clew", "--purpose", "Q")
+            g("step", "demo/c001", "--kind", "hypothesis", "--title", "H", "--body", "b")
+            subprocess.run(["git", "-C", work, "push", "-q", "--all", "origin"], check=True)
+            # 2) 신선한 clone — 로컬 브랜치는 기본 하나뿐, 그래프는 원격에만.
+            subprocess.run(["git", "clone", "-q", origin, clone], check=True)
+            local_branches = subprocess.run(
+                ["git", "-C", clone, "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+                capture_output=True, text=True).stdout.split()
+            self.assertLessEqual(len(local_branches), 1, f"신선한 클론에 로컬 브랜치 여럿: {local_branches}")
+            # 3) 뷰어가 원격 브랜치의 그래프를 본다.
+            r = subprocess.run([*GIL_CMD, "viewer", "text", "--repo", clone],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("스텝 노드 0개", r.stdout, f"원격 그래프를 놓침:\n{r.stdout}")
+            self.assertIn("체인 demo", r.stdout, f"원격 그래프 미표시:\n{r.stdout}")
+        finally:
+            for d in (origin, work, clone):
+                shutil.rmtree(d, ignore_errors=True)
+
     def test_step_rejects_second_define(self):
         """define 은 사이클의 뿌리 하나(open 이 만드는 s1)뿐 — step --kind define 은 거부된다.
 
