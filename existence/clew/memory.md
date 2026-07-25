@@ -2458,3 +2458,21 @@ define 뿌리 하나 강제, pending 우회 불가, append-only 본문, fsck, �
 gil latest 릴리스=v3.0.12(이 변경 미포함). 브랜치 ail1-branch-enforcement 에 분기강제 커밋.
 AIL #1 = 이 작업의 창구(상현님 관전). 다음: 상현님이 릴리스 승인하면 main 병합→릴리스,
 llms.txt 예제 갱신. 아니면 AIL 관전 계속.
+
+## 매듭 — v3.1.0 릴리스 (분기 문법 강제 배포, 2026-07-25, 상현님 "릴리스하자")
+
+AIL #1 분기 강제 변경을 릴리스로 배포·완결. 파괴적 변경(필수 플래그)이라 patch 아닌
+**minor(v3.1.0)** 로. main 직접 push(fast-forward, 보호규칙 무접촉).
+
+- 브랜치 ail1-branch-enforcement → main FF 병합 → v3.1.0 태그 → 5타깃 크로스빌드
+  (`-ldflags "-s -w -X main.gilVersion=v3.1.0"`) + SHA256SUMS + install.sh/llms.txt(전버전 재사용,
+  둘 다 latest URL·main raw 라 버전 비의존) → GitHub Release.
+- **수신자 관점 검증 통과**: 공개 latest URL 다운로드 → 체크섬 OK → 신선 레포 실행 →
+  `gil version` = **v3.1.0**(각인 함정 방지 성공) → verify/hypothesis/success 거부 3종 실동작.
+- AIL #1 릴리스 코멘트 달고 **completed 로 닫음**. 상현님께 AIL에서 `gil version --update` +
+  serve(8790) 재시작 권함.
+
+### 부활점
+gil latest=**v3.1.0**(분기 문법 강제). main=v3.1.0 태그 지점. AIL #1 닫힘.
+[[ail1-branch-enforcement]] 이제 릴리스 완료 상태. 다음: AIL 관전에서 새 마찰 이슈 대기,
+또는 legacy 정식 migrate / 뷰어 가상화.
