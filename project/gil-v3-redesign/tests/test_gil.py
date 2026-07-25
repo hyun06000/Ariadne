@@ -1040,6 +1040,43 @@ class TestViewer(GilFixture):
         self.assertNotIn("←s2", r.stdout)
         self.assertNotIn("←s3", r.stdout)
 
+    def test_step_rejects_second_define(self):
+        """define 은 사이클의 뿌리 하나(open 이 만드는 s1)뿐 — step --kind define 은 거부된다.
+
+        첫 정의가 못 다룬 부분은 새 define 이 아니라 다른 kind(hypothesis 등)나
+        새 사이클로 이어간다(상현님). 그래야 "사이클 = 하나의 문제 정의에서 뻗은
+        사고 나무" 불변식이 서고, 뷰어에 define 이 둘씩 떠 혼란을 주지 않는다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        r = self.gil("step", "d/c001", "--kind", "define", "--title", "재정의", "--body", "b")
+        self.assertNotEqual(r.returncode, 0, "두 번째 define 이 거부되지 않았다")
+        self.assertIn("define 은 사이클의 뿌리 하나", r.stderr + r.stdout)
+        # 다른 kind 는 여전히 허용.
+        r2 = self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "b")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+
+    def test_fsck_flags_multiple_defines_in_cycle(self):
+        """fsck 는 한 사이클에 define 이 여럿인 (옛) 그래프를 위반으로 잡는다.
+
+        step 단계에서 신규 생성은 막지만, 규칙 도입 전 데이터엔 여러 define 이
+        있을 수 있다(공식 example 이 그랬다). fsck 가 이를 드러내야 정리 대상이 된다.
+        같은 사이클은 한 번만 보고한다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        # step 이 막으므로, 옛 데이터를 흉내내 두 번째 define 커밋을 손으로 심는다.
+        self._git("commit", "--allow-empty", "-q", "-m",
+                  "gil d/c001/s2 define: 재정의\n\n"
+                  "Gil-Chain: d\nGil-Cycle: c001\nGil-Step: s2\nGil-Kind: define\nGil-Parent: s1")
+        r = self.gil("fsck")
+        out = r.stdout + r.stderr
+        self.assertIn("define 이 2개", out, f"fsck 가 define 중복을 못 잡음:\n{out}")
+        # 한 사이클은 한 번만 보고(s1·s2 각각 두 번 아님).
+        self.assertEqual(out.count("define 이 2개"), 1, f"사이클 중복 보고:\n{out}")
+
     def test_viewer_no_duplicate_define_across_sibling_branches(self):
         """조상 define 에서 형제 가지를 분기해도 define 노드가 두 번 뜨지 않는다.
 

@@ -223,6 +223,14 @@ func cmdStep(args []string) {
 	if !kinds[*kind] {
 		die("거부: 알 수 없는 kind \"" + *kind + "\"")
 	}
+	// define 은 사이클의 뿌리 하나뿐 — open 이 만드는 s1 이 유일한 문제 정의다(상현님).
+	// 첫 define 이 못 다룬 부분은 새 define 을 또 만드는 게 아니라, 다른 스텝(hypothesis 등)
+	// 이나 새 사이클로 이어간다. 그래야 "사이클 = 하나의 문제 정의에서 뻗은 사고 나무"라는
+	// 불변식이 서고, 뷰어에 define 이 둘씩 떠 사람이 "어느 게 진짜 정의?" 하고 헷갈리지 않는다.
+	if *kind == "define" {
+		die("거부: define 은 사이클의 뿌리 하나뿐(open 이 만드는 s1). 추가 문제 정의는 step 이 아니라 " +
+			"다른 kind(hypothesis 등)나 새 사이클(gil open <chain>/<새사이클>)로 이어가라.")
+	}
 	showPurposeContext(chain, cycle, "")
 	// analyze 는 순수 분석 — 종결(성공/실패/대기)은 별도 스텝(success/fail/pending)으로(상현님).
 	// 하위호환: analyze --outcome 도 여전히 허용(옛 데이터·간단 사용).

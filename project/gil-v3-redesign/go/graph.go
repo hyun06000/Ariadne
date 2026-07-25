@@ -154,7 +154,9 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	}
 	cycles := map[string]string{} // cycle id -> chain
 	stepKeys := map[string]bool{}
-	hasChild := map[string]bool{} // 부모로 참조된 스텝키 — 잎 판정용(전체 그래프 기준)
+	hasChild := map[string]bool{}       // 부모로 참조된 스텝키 — 잎 판정용(전체 그래프 기준)
+	defineCount := map[string]int{}     // (chain,cycle) -> define 스텝 수. 사이클당 1개여야.
+	defineSteps := map[string][]string{} // (chain,cycle) -> define 스텝 id 들(위반 메시지용)
 
 	for _, n := range universe {
 		if n.chain != "" {
@@ -164,11 +166,17 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		if n.cycle != "" && n.kind == "define" && (n.parent == "" || n.parent == "null") {
 			cycles[n.cycle] = n.chain
 		}
+		if n.cycle != "" && n.kind == "define" {
+			ck := n.chain + "\x01" + n.cycle
+			defineCount[ck]++
+			defineSteps[ck] = append(defineSteps[ck], n.step)
+		}
 		if p := n.parent; p != "" && p != "null" {
 			hasChild[stepKey(n.chain, n.cycle, p)] = true
 		}
 	}
 
+	dupDefineReported := map[string]bool{} // 사이클당 한 번만 보고
 	for _, n := range nodes {
 		cc := n.chain + "/" + n.cycle + "/" + n.step
 		// 1. 위계 무결성
@@ -179,6 +187,14 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		}
 		if n.cycle == "" {
 			violations = append(violations, "위계: "+cc+" — Gil-Cycle 없음 (사이클 없는 스텝 금지)")
+		}
+		// 1b. define 은 사이클의 뿌리 하나뿐(상현님). 첫 정의가 못 다룬 부분은 새 define 이
+		//     아니라 다른 스텝·새 사이클로 이어간다. 여럿이면 "어느 게 진짜 문제 정의?"가 흐려진다.
+		if ck := n.chain + "\x01" + n.cycle; n.cycle != "" && defineCount[ck] > 1 && !dupDefineReported[ck] {
+			dupDefineReported[ck] = true
+			violations = append(violations, "위계: "+n.chain+"/"+n.cycle+" — define 이 "+
+				itoa(defineCount[ck])+"개 ("+strings.Join(defineSteps[ck], ",")+
+				"). 사이클엔 문제 정의 하나(s1)만 — 나머지는 다른 kind나 새 사이클로 이어가라")
 		}
 		// 2. id 문법 (옛 R1)
 		for _, kv := range [][2]string{{"chain", n.chain}, {"cycle", n.cycle}, {"step", n.step}} {
