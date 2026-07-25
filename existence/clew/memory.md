@@ -2290,3 +2290,35 @@ v3.0.3 릴리스 뒤, 상현님과 "gil을 잘 보여줄 대표 예제"를 논�
 3. 뷰어 대형 그래프 가상화·줌/필터.
 
 **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
+
+## 세션 매듭 — 뷰어 전체맵 줌/팬 + 사이클 라벨 (2026-07-25)
+
+"이어서 가보자" → 선택지 3(실사용/legacy이주/뷰어) 중 **뷰어 다듬기** 선택받아 진행.
+
+### 한 일 (평범 git 커밋 1: ae99b842, push 완료)
+- **⭐⭐ 전체 스텝맵 줌/팬**: `enableZoomPan(wrap,svg,W,H)` — viewBox 조작.
+  ＋/−/전체 버튼(dagbar), Ctrl(⌘)+휠=포인터 중심 줌(toVB 좌표변환), 확대 상태 드래그=팬
+  (pointerdown/move/up + setPointerCapture, 4px 이상 움직이면 moved→capture 단계에서 클릭 삼킴
+  으로 노드 열림 오발 방지). 최대 16배(MINW=W/16), clamp 로 경계 고정, zoomed/grabbing 클래스.
+  대형 그래프(수백 스텝) 항해의 첫 증분 — 가상화는 아직 미착수.
+- **⭐ 사이클 라벨**: 각 cycbox 위 작은 글씨(.cyclabel, y1-3). 체인 이름(chlabel)은 윗줄로
+  이동(y1-5→y1-14), padTop 26→38.
+- example 88→**89** 테스트(test_stepmap_zoom_pan_and_cycle_labels) 전부 통과.
+- **headless Chrome 실검증**: 콘솔에러 0, 스샷으로 두 줄 라벨·줌바 확인, JS 주입 사본으로
+  ＋클릭→viewBox 축소·zoomed 클래스 on·전체→리셋 복원 실동작 확인.
+
+### ⚠ 미완 — v3.0.10 릴리스 게시 막힘
+5종 바이너리+install.sh+llms.txt+SHA256SUMS 빌드·체크섬까지 완료했으나 `gh release create`
+가 권한 분류기에 거부됨(이 세션 환경). **latest 는 아직 v3.0.9.** 다음 세션(또는 상현님)이
+게시해야 함 — 자산은 재빌드하면 됨(CGO_ENABLED=0 -trimpath 5종, 태그 v3.0.10 --latest).
+게시 후 ariadne-example index.html 재생성·push(Pages)도 관례대로.
+
+### 이 세션 확립 (재사용)
+- 뷰어 JS 상호작용 검증: 정적 HTML 사본에 `<script>` 주입(버튼 click() 시뮬 → 결과를
+  `<pre id=...>`로 DOM에 박기) 후 --dump-dom grep — 클릭·줌 같은 동작을 headless 로 단언.
+
+### 다음 후보
+1. **v3.0.10 릴리스 게시**(위 미완) + 예제 재생성. 2. 실사용 전 경로 실검증(별도 레포).
+3. legacy 174사이클 정식 migrate. 4. 뷰어 더: 대형 그래프 가상화, 체인/상태 필터.
+
+**복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
