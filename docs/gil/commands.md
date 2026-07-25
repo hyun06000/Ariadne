@@ -21,9 +21,9 @@ gil chain <name> --purpose <자연어>
 새 체인(작업의 큰 줄기)을 연다. **git 브랜치 `<name>` 을 판다.** `--purpose` 필수. 체인은 닫힌 체인 끝에서만 새로 연다(`gil init` 예외).
 
 ```
-gil open <chain>/<cycle> --author <who> --purpose <자연어> [--parent <cyc>...] [--title T]
+gil open <chain>/<cycle> --author <who> --purpose <자연어> [--parent <cyc>...] [--title T] [--body B | --body-file F|-]
 ```
-새 사이클을 연다. **git 브랜치 `<chain>-<cycle>` 을 파고 `s1` define 스텝을 자동 생성**한다. `--author`·`--purpose` 필수. `--parent`: 이 사이클이 계보로 잇는 이전 사이클/체인(복수 가능).
+새 사이클을 연다. **git 브랜치 `<chain>-<cycle>` 을 파고 `s1` define 스텝을 자동 생성**한다. `--author`·`--purpose` 필수. `--parent`: 이 사이클이 계보로 잇는 이전 사이클/체인(복수 가능). `--body`/`--body-file -`(stdin): s1 define 의 **문제 정의 보고서를 여는 순간 채운다**(`step` 과 대칭 — 빈 define 을 raw amend 로 고치다 trailer 를 날리는 함정 방지).
 
 ```
 gil step <chain>/<cycle> --kind <K> [옵션]
@@ -135,6 +135,15 @@ gil global checkout <path> [dest] | push | pull | sync
 gil memory read <이름> | append <이름> <매듭파일>
 ```
 기억은 append-only 로만 갱신한다. `read` 는 최신 매듭(맨 끝)부터 읽고, `append` 는 트리 전체를 보존하며 새 매듭을 이어붙인다(자동 push). 손으로 git show/write-tree 조합 금지.
+
+## 버전과 자기갱신
+
+```
+gil version [--check|--update]
+```
+- `version`: 현재 버전·플랫폼(git 없이도 동작).
+- `--check`: GitHub 최신 릴리스와 대조 — 뒤처졌으면 알려준다.
+- `--update`: 플랫폼 자산을 받아 **SHA256SUMS 로 검증한 뒤** 실행파일을 제자리 교체. 검증 실패면 절대 교체하지 않는다. 레포마다 바이너리가 조용히 낡는 드리프트를 바이너리 스스로 없앤다.
 
 ## v2 이주
 

@@ -98,6 +98,13 @@ func handoffReport() string {
 		}
 	}
 	L = append(L, "")
+	// 뷰어 생존 보고(이슈 #30) — 죽어 있으면 다음 세션이 바로 되살리게 명령을 준다.
+	if portOpen(viewerPortNum()) {
+		L = append(L, "▶ 뷰어: 살아있음 — http://127.0.0.1:"+viewerPortNum())
+	} else {
+		L = append(L, "▶ 뷰어: 죽어있음 — 되살리기: gil viewer serve --repo . --port "+viewerPortNum()+" &")
+	}
+	L = append(L, "")
 	L = append(L, "복원 경로: CLAUDE.md → 존재(existence) → gil global read memory.md → 이 handoff → 위 팁에서 이어간다.")
 	return strings.Join(L, "\n")
 }

@@ -33,8 +33,9 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/deployment.md",
 	},
 	"open": {
-		"gil open <chain>/<cycle> --author <who> --purpose <자연어> [--parent <cyc>...] [--title T]\n" +
+		"gil open <chain>/<cycle> --author <who> --purpose <자연어> [--parent <cyc>...] [--title T] [--body B | --body-file F|-]\n" +
 			"  새 사이클을 연다(s1 define 자동) — git 브랜치 <chain>-<cycle> 을 판다.\n" +
+			"  --body/--body-file - (stdin) 로 s1 define 의 문제 정의 보고서를 여는 순간 채운다(step 과 대칭).\n" +
 			"  --parent 는 이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).",
 		"docs/gil/concepts.md · docs/gil/lifecycle.md",
 	},

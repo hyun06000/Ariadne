@@ -12,7 +12,16 @@ import (
 	"time"
 )
 
-const viewerPort = "8790" // 뷰어 serve 기본 포트와 일치.
+const viewerPortDefault = "8790" // 뷰어 serve 기본 포트와 일치.
+
+// viewerPortNum — 뷰어 포트. GIL_VIEWER_PORT 로 바꿀 수 있다(한 머신에서 여러 레포를
+// 관전하거나, 테스트가 실포트와 충돌 없이 격리 검증할 때).
+func viewerPortNum() string {
+	if p := os.Getenv("GIL_VIEWER_PORT"); p != "" {
+		return p
+	}
+	return viewerPortDefault
+}
 
 // launchViewer — gil 자기 자신을 `gil viewer serve` 로 관전 서버를 백그라운드로 띄운다.
 // 실패는 치명적이지 않다: 이미 떠 있으면 URL 만 알린다.
@@ -22,10 +31,10 @@ func launchViewer() {
 	if os.Getenv("GIL_NO_VIEWER") != "" {
 		return
 	}
-	url := "http://127.0.0.1:" + viewerPort
+	url := "http://127.0.0.1:" + viewerPortNum()
 
 	// 이미 그 포트가 열려 있으면(뷰어가 이미 떠 있으면) 중복 기동하지 않는다.
-	if portOpen(viewerPort) {
+	if portOpen(viewerPortNum()) {
 		println2("  뷰어: 이미 " + url + " 에서 관전 중.")
 		return
 	}
@@ -42,8 +51,11 @@ func launchViewer() {
 		repo = "."
 	}
 
-	cmd := exec.Command(self, "viewer", "serve", "--repo", repo, "--port", viewerPort)
+	cmd := exec.Command(self, "viewer", "serve", "--repo", repo, "--port", viewerPortNum())
 	// 부모(gil)가 끝나도 살아 있도록 stdio 를 분리하고 백그라운드로 기동한다.
+	// 셸 세션에서도 떼어낸다(Setsid/새 프로세스 그룹) — 안 그러면 gil init 을 돌린
+	// 셸이 닫힐 때 SIGHUP 으로 뷰어가 소리 없이 죽는다(이슈 #30).
+	detachFromSession(cmd)
 	devnull, _ := os.Open(os.DevNull)
 	if devnull != nil {
 		cmd.Stdin = devnull
@@ -51,14 +63,14 @@ func launchViewer() {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
-		println2("  뷰어: 기동 실패(" + err.Error() + ") — 수동: `gil viewer serve --repo . --port " + viewerPort + "`.")
+		println2("  뷰어: 기동 실패(" + err.Error() + ") — 수동: `gil viewer serve --repo . --port " + viewerPortNum() + "`.")
 		return
 	}
 	// 프로세스를 놓아준다(reap 하지 않음) — gil 종료 후에도 관전 서버가 산다.
 	_ = cmd.Process.Release()
 
 	// 포트가 실제로 열릴 때까지 잠깐 기다려 "떴다"를 사실로 확인한다.
-	if waitPort(viewerPort, 2*time.Second) {
+	if waitPort(viewerPortNum(), 2*time.Second) {
 		println2("  뷰어: " + url + " 에서 관전 중 (백그라운드). 브라우저로 열어 사고 그래프를 본다.")
 	} else {
 		println2("  뷰어: 기동 신호는 보냄 — 곧 " + url + " 에서 관전 가능.")

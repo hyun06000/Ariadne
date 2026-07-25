@@ -1235,6 +1235,37 @@ class TestViewer(GilFixture):
         self.assertIn("headarrow", html)
         self.assertIn("현재위치 1개", html)  # 헤더에 현재위치 카운트
 
+    def test_open_body_file_stdin_fills_define(self):
+        """gil open --body-file - 가 s1 define 본문을 여는 순간 채운다(이슈 #31) —
+        raw amend 로 내려가 trailer 를 날리는 함정 제거. step 과 대칭."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        r = self.gil("open", "d/c1", "--author", "clew", "--purpose", "Q",
+                     "--body-file", "-",
+                     input="# 문제 정의\n\n무엇을 푸는가: 예제 문제를 정의한다.\n\n"
+                           "- 입력: 관측 데이터 파일\n- 출력: 판정 보고서\n- 평가 지표: 정확도와 재현율\n"
+                           "- 제약: 외부 의존 없이 표준 라이브러리만 사용한다\n\n"
+                           "이 사이클은 위 지표로 성공/실패를 가른다.\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        show = self._git("show", "-s", "--format=%B", "HEAD").stdout
+        self.assertIn("# 문제 정의", show)
+        self.assertIn("Gil-Kind: define", show, "trailer 소실")
+        # 본문이 채워졌으니 '얇다' 경고가 없어야 한다.
+        self.assertNotIn("본문이 얇다", r.stdout + r.stderr)
+
+    def test_version_command(self):
+        """gil version 은 git 없이도 현재 버전을 낸다(이슈 #22). 소스 빌드는 dev."""
+        r = self.gil("version")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gil ", r.stdout)
+
+    def test_handoff_reports_viewer_liveness(self):
+        """gil handoff 가 뷰어 생존 여부를 보고한다(이슈 #30) — 죽어 있으면 되살릴 명령까지."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("handoff")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("뷰어:", r.stdout)
+
     def test_chain_lineage_skips_plain_commits(self):
         """체인을 닫고 평범 커밋(gil 트레일러 없음)을 쌓은 뒤 다음 체인을 열어도
         체인 계보(부모→자식)가 이어진다 — 첫 부모 한 칸만 보면 계보가 끊겨

@@ -60,12 +60,16 @@ func main() {
 	}
 	// help 류는 git 없이도 답한다(무엇을 할 수 있는지 알려주는 순수 텍스트). 그 외 모든
 	// 명령은 git 을 실제로 부르므로, 여기서 git 존재를 먼저 확인해 친절히 안내한다.
-	if cmd != "help" && cmd != "-h" && cmd != "--help" {
+	// version 은 git 을 안 부른다(순수 자기 정보 + 네트워크) — git 없이도 동작해야
+	// "일단 gil 이 뭔지"를 답할 수 있다.
+	if cmd != "help" && cmd != "-h" && cmd != "--help" && cmd != "version" {
 		requireGit()
 	}
 	switch cmd {
 	case "help", "-h", "--help":
 		cmdHelp(rest)
+	case "version":
+		cmdVersion(rest)
 	case "init":
 		cmdInit(rest)
 	case "chain":
@@ -99,7 +103,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close approve reject log fsck global memory handoff migrate viewer]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close approve reject log fsck global memory handoff migrate viewer version]")
 	}
 }
 
@@ -135,6 +139,9 @@ v2 이주:
 관전 뷰어:
   gil viewer serve [--port <포트>]          브라우저 관전 서버(init 이 자동 기동)
   gil viewer build --out <파일>             정적 자기완결 HTML(Pages 등 정적 호스팅용)
+
+버전:
+  gil version [--check|--update]  현재 버전 · 최신과 대조 · SHA256 검증 후 자기갱신
 
 한 명령의 자세한 사용법: gil help <명령>  (예: gil help step)
 

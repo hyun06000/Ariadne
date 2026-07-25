@@ -131,10 +131,12 @@ func cmdOpen(args []string) {
 	author := fs.str("author", "")
 	title := fs.str("title", "")
 	purpose := fs.str("purpose", "")
+	bodyF := fs.str("body", "")
+	bodyFile := fs.str("body-file", "")
 	parents := fs.strList("parent")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--title T]")
+		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--title T] [--body B | --body-file F|-]")
 	}
 	if *author == "" {
 		die("거부: --author 필요")
@@ -181,7 +183,12 @@ func cmdOpen(args []string) {
 		subjTitle = *purpose
 	}
 	subject := "gil " + chain + "/" + cycle + "/s1 define: " + subjTitle
-	body := *title
+	// s1 define 본문 = 문제 정의 보고서. step 과 대칭으로 --body/--body-file(- = stdin)을
+	// 받는다 — 없으면 raw amend 로 내려가다 trailer 를 날리는 함정에 빠진다(이슈 #31).
+	body := resolveBody(*bodyF, *bodyFile)
+	if body == "" {
+		body = *title
+	}
 	if body == "" {
 		body = "(문제 미기술 — 본문을 커밋 수정으로 채우라)"
 	}
