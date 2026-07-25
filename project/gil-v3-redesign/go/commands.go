@@ -39,8 +39,8 @@ func bodyThin(body string) bool {
 func reportGuide(kind string, thin bool) {
 	report := map[string]string{
 		"define":     "이 스텝 본문 = 문제 정의 보고서. 담아라: 무엇을 푸는가·입력/출력·평가 지표·데이터 구조·제약.",
-		"hypothesis": "이 스텝 본문 = 가설 보고서. 담아라: 세운 가설·그 근거(관찰/데이터)·검증 방법·기대 결과.",
-		"verify":     "이 스텝 본문 = 검증 보고서. 담아라: 실행한 절차(코드/명령)·측정 수치(표·코드블록)·관찰.",
+		"hypothesis": "이 스텝 본문 = 가설 보고서. 담아라: 세운 가설·그 근거(관찰/데이터)·검증 방법·기대 결과. (필수 플래그: --falsify 반증조건, --falsify-to 반증 시 되돌아갈 define.)",
+		"verify":     "이 스텝 본문 = 검증 보고서. 담아라: 실행한 절차(코드/명령)·측정 수치(표·코드블록)·관찰. (필수 플래그: --verdict supported|refuted — refuted 면 success 불가, fail/backtrack 만.)",
 		"analyze":    "이 스텝 본문 = 분석 보고서. 담아라: 결과 해석·수치 비교·왜 이 판단인가. 다음은 success/fail/pending 종결 스텝.",
 		"success":    "이 스텝 본문 = ⭐누적 종합 보고서. 담아라: 문제정의(s1)부터 여기까지 밟아온 지식·검증·수치를 하나로 정리 — 이 사이클이 무엇을 어떻게 풀었는지 이 하나로 다 읽히게. 표·이미지(data URI) 권장.",
 		"fail":       "이 스텝 본문 = 벽 보고서(죽은 잎). 담아라: 무엇에 막혔나·왜 실패했나(수치)·되돌아가 무엇을 다르게 할지. 지도로 영원히 남는다.",
@@ -217,6 +217,14 @@ func cmdStep(args []string) {
 	body := fs.str("body", "")
 	bodyFile := fs.str("body-file", "")
 	merge := fs.strList("merge")
+	// 제안 2 (AIL #1): hypothesis 는 반증조건과 "반증 시 되돌아갈 조상 define"을 문법으로
+	// 요구한다. 반증 불가능한 가설엔 fail 이 생길 수 없어 체인이 일자로만 흐른다 —
+	// 반증조건을 필수 필드로 심으면 verify 실패가 자동으로 backtrack 경로를 갖는다.
+	falsify := fs.str("falsify", "")       // 반증조건: 무엇이 관측되면 이 가설은 거짓인가
+	falsifyTo := fs.str("falsify-to", "")  // 반증 시 되돌아갈 조상 define
+	// 제안 1 (AIL #1): verify 는 판정을 문법으로 요구한다. supported=가설 지지, refuted=반증.
+	verdict := fs.str("verdict", "") // verify 전용
+
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil step <chain>/<cycle> --kind K [...]")
@@ -248,6 +256,18 @@ func cmdStep(args []string) {
 	if *kind == "fail" && *to == "" {
 		die("거부: fail 은 --to <조상 define> 필요 (되돌아갈 곳, 벽의 지도)")
 	}
+	// 제안 1 (AIL #1) — verify 는 판정을 문법으로 요구한다. 지금까지 verify 는 반증을 본문
+	// 산문에만 적고 곧장 success 로 흘렀다(gil 이 지지/반증을 몰랐다). --verdict 를 필수화하면
+	// gil 이 verify 결과를 구조로 알고, refuted 뒤 success 를 거부할 수 있다(아래 success 가드).
+	if *kind == "verify" {
+		if *verdict == "" {
+			die("거부: verify 는 --verdict supported|refuted 필요 — 이 검증이 가설을 지지했나 반증했나. " +
+				"산문에만 적으면 gil 이 몰라 반증해도 success 로 흘러간다(AIL #1).")
+		}
+		if !verdicts[*verdict] {
+			die("거부: --verdict 은 supported|refuted 중 하나")
+		}
+	}
 
 	tip := growingTip(steps)
 	tipID := ""
@@ -260,6 +280,26 @@ func cmdStep(args []string) {
 		die("거부: " + ref + " 팁이 pending(" + tip.step + ") — 사람의 답을 먼저 받아야 한다. " +
 			"승인: gil approve " + ref + "  |  기각: gil reject " + ref + " --to <조상 define>")
 	}
+	// 제안 3 완화 (AIL #1) — fail 잎은 죽은 채로 지도에 남아야 한다. tip 이 죽은 잎(fail/
+	// analyze-fail/backtrack)이면 그 위에 선형으로 잇지 못한다. 재가설은 반드시 새 가지 —
+	// 형제분기(--kind hypothesis --to <define>) 나 backtrack(--outcome backtrack --to)로만.
+	// "한 사이클 안 회수"를 막는 게 아니라, 회수하더라도 fail 잎이 물리적으로 남게 강제한다.
+	if tip != nil && isDeadLeaf(*tip) {
+		newBranch := (*kind == "hypothesis" && *to != "") || *outcome == "backtrack" || len(*merge) > 0
+		if !newBranch {
+			die("거부: " + ref + " 팁이 죽은 잎(" + tip.step + ", " + tip.kind + ") — 그 위에 선형으로 " +
+				"이을 수 없다. 죽은 잎은 벽의 지도로 남는다. 재가설은 새 가지로: " +
+				"gil step " + ref + " --kind hypothesis --to <조상 define> --falsify … --falsify-to …(AIL #1).")
+		}
+	}
+	// 제안 1 success 가드 (AIL #1) — 직전 verify 가 가설을 반증(refuted)했으면 success 를
+	// 문법으로 거부한다. 반증 뒤에는 fail(죽은 잎) 이나 backtrack(새 가지)만 허용 — 마찰이
+	// 있는데 success 로 뭉개고 앞으로 가던 길(체인 일자화의 핵심)을 구조로 막는다.
+	if *kind == "success" && tip != nil && tip.kind == "verify" && tip.verdict == "refuted" {
+		die("거부: 직전 verify(" + tip.step + ")가 가설을 반증(refuted)했다 — success 로 닫을 수 없다. " +
+			"fail(gil step … --kind fail --to <define>) 로 죽은 잎을 남기거나 " +
+			"backtrack(gil step … --kind hypothesis --to <define>) 으로 새 가지를 파라(AIL #1).")
+	}
 	defineIDs := map[string]bool{}
 	liveLeaves := map[string]bool{}
 	for _, s := range steps {
@@ -268,6 +308,24 @@ func cmdStep(args []string) {
 		}
 		if isLiveLeaf(s) {
 			liveLeaves[s.step] = true
+		}
+	}
+
+	// 제안 2 (AIL #1) — 반증 가능한 가설 강제. HEAAL: 규율은 안내가 아니라 문법의 거부로.
+	// 모든 hypothesis 는 (1) 반증조건과 (2) 반증 시 되돌아갈 조상 define 을 미리 선언해야
+	// 한다. 그래야 뒤이은 verify 가 반증했을 때 backtrack 경로가 이미 그래프에 심겨 있다.
+	// 반증 불가능한(=사후에 성공을 알고 쓴) 가설을 문법으로 거부한다.
+	if *kind == "hypothesis" {
+		if *falsify == "" {
+			die("거부: hypothesis 는 --falsify <반증조건> 필요 — '무엇이 관측되면 이 가설은 거짓인가'. " +
+				"반증 불가능한 가설엔 fail 이 생길 수 없어 체인이 일자로만 흐른다(AIL #1).")
+		}
+		if *falsifyTo == "" {
+			die("거부: hypothesis 는 --falsify-to <조상 define> 필요 — 반증되면 되돌아갈 곳. " +
+				"이걸 미리 심어야 verify 반증이 자동으로 backtrack 경로를 갖는다(AIL #1).")
+		}
+		if !defineIDs[*falsifyTo] {
+			die("거부: --falsify-to " + *falsifyTo + "는 이 사이클의 조상 define이어야 함")
 		}
 	}
 
@@ -335,6 +393,13 @@ func cmdStep(args []string) {
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
 		{"Gil-Step", sid}, {"Gil-Kind", *kind}, {"Gil-Parent", parent},
+	}
+	if *kind == "hypothesis" {
+		tr = append(tr, [2]string{"Gil-Falsify", *falsify})       // 반증조건(벽의 지도의 씨앗)
+		tr = append(tr, [2]string{"Gil-Falsify-To", *falsifyTo}) // 반증 시 되돌아갈 define
+	}
+	if *kind == "verify" {
+		tr = append(tr, [2]string{"Gil-Verdict", *verdict}) // supported|refuted (제안 1)
 	}
 	if *outcome != "" {
 		tr = append(tr, [2]string{"Gil-Outcome", *outcome})

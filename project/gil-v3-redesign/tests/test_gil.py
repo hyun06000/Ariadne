@@ -126,7 +126,7 @@ class TestCycleAndStep(GilFixture):
 
     def test_step_linear(self):
         self.gil("open", "c/c001", "--author", "clew", "--purpose", "P")
-        r = self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "가설")
+        r = self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "가설", "--falsify", "F", "--falsify-to", "s1")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Step"), "s2")
         self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "hypothesis")
@@ -147,7 +147,7 @@ class TestCycleAndStep(GilFixture):
     def test_full_cycle(self):
         """open → hypothesis → analyze success → close 전 주기."""
         self.gil("open", "c/c001", "--author", "clew", "--purpose", "P")
-        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h")
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h", "--falsify", "F", "--falsify-to", "s1")
         self.gil("step", "c/c001", "--kind", "analyze", "--outcome", "success",
                  "--title", "산잎")
         r = self.gil("close", "c/c001")
@@ -220,7 +220,7 @@ class TestClosedParentGuard(GilFixture):
         실사용(상현님)이 드러낸 결함 — 열린 사이클이 부모가 되어도 gil 이 안 막았다."""
         self.gil("chain", "c", "--purpose", "P")
         self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
-        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h")  # 안 닫음
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h", "--falsify", "F", "--falsify-to", "s1")  # 안 닫음
         r = self.gil("open", "c/c002", "--author", "a", "--purpose", "P",
                      "--parent", "c001")
         self.assertNotEqual(r.returncode, 0, "열린 부모 사이클은 거부돼야")
@@ -312,10 +312,10 @@ class TestFsck(GilFixture):
         # 형제 가지(--to s1 로 분기)에서 success 로 마감해 사이클을 닫는다.
         self.gil("chain", "c", "--purpose", "P")
         self.gil("open", "c/c001", "--author", "a", "--purpose", "P")  # s1 define
-        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h1")  # s2
-        self.gil("step", "c/c001", "--kind", "verify", "--title", "v1")      # s3
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h1", "--falsify", "F", "--falsify-to", "s1")  # s2
+        self.gil("step", "c/c001", "--kind", "verify", "--title", "v1", "--verdict", "supported")  # s3
         self.gil("step", "c/c001", "--kind", "analyze", "--title", "벽")     # s4 = 미종결 잎
-        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h2", "--to", "s1")  # 형제 분기
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "h2", "--to", "s1", "--falsify", "F", "--falsify-to", "s1")  # 형제 분기
         self.gil("step", "c/c001", "--kind", "success", "--title", "산 잎")  # 형제에서 성공
         self.gil("close", "c/c001")
         r = self.gil("fsck")
@@ -342,7 +342,7 @@ class TestHandoff(GilFixture):
         """
         self.gil("chain", "appr", "--purpose", "승인 모드")
         self.gil("open", "appr/c001", "--author", "clew", "--purpose", "승인 필요")
-        self.gil("step", "appr/c001", "--kind", "verify", "--title", "검증")
+        self.gil("step", "appr/c001", "--kind", "verify", "--title", "검증", "--verdict", "supported")
         self.gil("step", "appr/c001", "--kind", "pending", "--title", "승인 요청")
         r = self.gil("handoff")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -360,7 +360,7 @@ class TestHandoff(GilFixture):
         self.commit_file("viewer/x.txt", "hi", "add dir")
         self.gil("chain", "viewer", "--purpose", "동명 디렉토리 충돌")
         self.gil("open", "viewer/c001", "--author", "clew", "--purpose", "골격")
-        self.gil("step", "viewer/c001", "--kind", "verify", "--title", "검사")
+        self.gil("step", "viewer/c001", "--kind", "verify", "--title", "검사", "--verdict", "supported")
         r = self.gil("handoff")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("128", r.stdout + r.stderr)
@@ -553,11 +553,11 @@ class TestBranching(GilFixture):
     def test_sibling_branch_is_real_git_fork(self):
         """hypothesis --to 는 그 define 커밋에서 실제 git 브랜치를 분기한다."""
         self._seed()
-        self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--title", "가설 A")
-        self.gil("step", "greenhouse/c001", "--kind", "verify", "--title", "검증 A")
+        self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--title", "가설 A", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "greenhouse/c001", "--kind", "verify", "--title", "검증 A", "--verdict", "supported")
         self.gil("step", "greenhouse/c001", "--kind", "analyze",
                  "--outcome", "backtrack", "--to", "s1", "--title", "벽")
-        r = self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--to", "s1", "--title", "가설 B")
+        r = self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--to", "s1", "--title", "가설 B", "--falsify", "F", "--falsify-to", "s1")
         self.assertEqual(r.returncode, 0, r.stderr)
         # 형제 가지 브랜치가 생겼다.
         self.assertIn("greenhouse-c001-s1b1", self.branches())
@@ -578,7 +578,7 @@ class TestBranching(GilFixture):
     def test_backtrack_dead_leaf_stays_on_cycle_branch(self):
         """backtrack analyze(죽은 잎)는 새 브랜치를 만들지 않고 현 사이클 가지에 박힌다."""
         self._seed()
-        self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--title", "가설 A")
+        self.gil("step", "greenhouse/c001", "--kind", "hypothesis", "--title", "가설 A", "--falsify", "F", "--falsify-to", "s1")
         before = self.branches()
         self.gil("step", "greenhouse/c001", "--kind", "analyze",
                  "--outcome", "backtrack", "--to", "s1", "--title", "벽")
@@ -595,8 +595,8 @@ class TestPendingGuard(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "gh", "--purpose", "P")
         self.gil("open", f"gh/{cycle}", "--author", "clew", "--purpose", "Q")
-        self.gil("step", f"gh/{cycle}", "--kind", "hypothesis", "--title", "H")
-        self.gil("step", f"gh/{cycle}", "--kind", "verify", "--title", "V")
+        self.gil("step", f"gh/{cycle}", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", f"gh/{cycle}", "--kind", "verify", "--title", "V", "--verdict", "supported")
         self.gil("step", f"gh/{cycle}", "--kind", "pending", "--title", "승인 요청")
 
     def test_step_after_pending_rejected(self):
@@ -642,8 +642,8 @@ class TestTerminalSteps(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "gh", "--purpose", "P")
         self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "H")
-        self.gil("step", "gh/c001", "--kind", "verify", "--title", "V")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "gh/c001", "--kind", "verify", "--title", "V", "--verdict", "supported")
         self.gil("step", "gh/c001", "--kind", "analyze", "--title", "분석")
 
     def test_success_step_is_live_leaf(self):
@@ -689,10 +689,10 @@ class TestLogAll(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "gh", "--purpose", "P")
         self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "HA")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "HA", "--falsify", "F", "--falsify-to", "s1")
         self.gil("step", "gh/c001", "--kind", "analyze", "--title", "AA")
         self.gil("step", "gh/c001", "--kind", "fail", "--to", "s1", "--title", "죽은 잎")
-        self.gil("step", "gh/c001", "--kind", "hypothesis", "--to", "s1", "--title", "HB")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--to", "s1", "--title", "HB", "--falsify", "F", "--falsify-to", "s1")
         # 기본 log: HEAD 계보라 죽은 가지(s2~s3, fail)가 안 보인다.
         base = self.gil("log", "gh").stdout
         self.assertNotIn("[fail]", base)
@@ -708,9 +708,9 @@ class TestLiveTip(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "gh", "--purpose", "P")
         self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "가설A")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "가설A", "--falsify", "F", "--falsify-to", "s1")
         self.gil("step", "gh/c001", "--kind", "analyze", "--outcome", "backtrack", "--to", "s1", "--title", "벽")
-        self.gil("step", "gh/c001", "--kind", "hypothesis", "--to", "s1", "--title", "가설B")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--to", "s1", "--title", "가설B", "--falsify", "F", "--falsify-to", "s1")
         out = self.gil("handoff").stdout
         # 팁은 죽은 잎(s3 backtrack)이 아니라 산 형제 가지(s4 hypothesis).
         self.assertIn("팁: s4 [hypothesis]", out)
@@ -948,7 +948,7 @@ class TestViewer(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "demo", "--purpose", "뷰어 테스트")
         self.gil("open", "demo/c001", "--author", "clew", "--purpose", "합 100")
-        self.gil("step", "demo/c001", "--kind", "verify",
+        self.gil("step", "demo/c001", "--kind", "verify", "--verdict", "supported",
                  "--body", "검증 보고서 본문. 40+60=100.", "--title", "검증")
         self.gil("step", "demo/c001", "--kind", "success", "--title", "찾음")
         self.gil("close", "demo/c001", "--verdict", "supported")
@@ -1027,11 +1027,11 @@ class TestViewer(GilFixture):
         self.gil("chain", "d", "--purpose", "P")
         self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
         # s1=define(open 자동). s2=가설, s3=검증 → s4=fail(죽은 잎, ←는 직전이라 표기 안 함).
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설 보고서")
-        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서")
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설 보고서", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서", "--verdict", "supported")
         self.gil("step", "d/c001", "--kind", "fail", "--to", "s1", "--title", "기각", "--body", "벽 보고서")
         # backtrack: 조상 define s1 에서 새 형제 가지.
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2 보고서")
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2 보고서", "--falsify", "F", "--falsify-to", "s1")
         r = self.gil("viewer")
         self.assertEqual(r.returncode, 0, r.stderr)
         # 형제 가지(s1 에서 되돌아간 가설)에 부모 표기가 있어야 한다.
@@ -1065,7 +1065,7 @@ class TestViewer(GilFixture):
             g("init", "--name", "clew")
             g("chain", "demo", "--purpose", "P")
             g("open", "demo/c001", "--author", "clew", "--purpose", "Q")
-            g("step", "demo/c001", "--kind", "hypothesis", "--title", "H", "--body", "b")
+            g("step", "demo/c001", "--kind", "hypothesis", "--title", "H", "--body", "b", "--falsify", "F", "--falsify-to", "s1")
             subprocess.run(["git", "-C", work, "push", "-q", "--all", "origin"], check=True)
             # 2) 신선한 clone — 로컬 브랜치는 기본 하나뿐, 그래프는 원격에만.
             subprocess.run(["git", "clone", "-q", origin, clone], check=True)
@@ -1097,7 +1097,7 @@ class TestViewer(GilFixture):
         self.assertNotEqual(r.returncode, 0, "두 번째 define 이 거부되지 않았다")
         self.assertIn("define 은 사이클의 뿌리 하나", r.stderr + r.stdout)
         # 다른 kind 는 여전히 허용.
-        r2 = self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "b")
+        r2 = self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "b", "--falsify", "F", "--falsify-to", "s1")
         self.assertEqual(r2.returncode, 0, r2.stderr)
 
     def test_fsck_flags_multiple_defines_in_cycle(self):
@@ -1131,9 +1131,9 @@ class TestViewer(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "d", "--purpose", "P")
         self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설1")
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설1", "--falsify", "F", "--falsify-to", "s1")
         # 조상 define(s1)으로 되돌아가 형제 가지 분기 → s1 이 두 브랜치 공통조상.
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2")
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2", "--falsify", "F", "--falsify-to", "s1")
         r = self.gil("viewer")
         self.assertEqual(r.returncode, 0, r.stderr)
         # s1 define 라인이 정확히 한 번만 나와야 한다.
@@ -1150,7 +1150,7 @@ class TestViewer(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "d", "--purpose", "P")
         self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "가설")
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "가설", "--falsify", "F", "--falsify-to", "s1")
         # 클린: 오버레이 없음.
         r = self.gil("viewer")
         self.assertIn("작업 없음(클린)", r.stdout, r.stdout)
@@ -1168,7 +1168,7 @@ class TestViewer(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "d", "--purpose", "P")
         self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        r = self.gil("step", "d/c001", "--kind", "verify", "--title", "얇음")  # --body 없음
+        r = self.gil("step", "d/c001", "--kind", "verify", "--title", "얇음", "--verdict", "supported")  # --body 없음
         self.assertEqual(r.returncode, 0, r.stderr)
         msg = r.stderr + r.stdout
         self.assertIn("얇다", msg)
@@ -1183,7 +1183,7 @@ class TestViewer(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "d", "--purpose", "P")
         self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서")
+        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서", "--verdict", "supported")
         self.gil("step", "d/c001", "--kind", "success", "--title", "됨", "--body", "종합 보고서")
         out_html = os.path.join(self.repo, "g.html")
         r = self.gil("viewer", "build", "--out", out_html)
@@ -1226,7 +1226,7 @@ class TestViewer(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "a", "--purpose", "P")
         self.gil("open", "a/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "a/c001", "--kind", "verify", "--title", "V", "--body", "b")
+        self.gil("step", "a/c001", "--kind", "verify", "--title", "V", "--body", "b", "--verdict", "supported")
         # 닫지 않음 → HEAD 가 이 스텝 팁. 체인 그래프 노드에 headarrow(정적 렌더)가 있어야.
         out_html = os.path.join(self.repo, "g.html")
         self.gil("viewer", "build", "--out", out_html)
@@ -1317,7 +1317,7 @@ class TestViewer(GilFixture):
         # dev 체인: verify → success → close → chain-close.
         self.gil("chain", "dev", "--purpose", "P")
         self.gil("open", "dev/c1", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "dev/c1", "--kind", "verify", "--title", "V", "--body", "검증")
+        self.gil("step", "dev/c1", "--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported")
         self.gil("step", "dev/c1", "--kind", "success", "--title", "됨", "--body", "종합")
         self.gil("close", "dev/c1", "--verdict", "supported")
         self.gil("chain-close", "dev", "--verdict", "supported")
@@ -1342,12 +1342,115 @@ class TestViewer(GilFixture):
         self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
         body = "# 검증 보고서\n\nstdin 으로 넘긴 본문 마커 XYZZY.\n"
         r = self.gil("step", "d/c001", "--kind", "verify", "--title", "V",
-                     "--body-file", "-", input=body)
+                     "--verdict", "supported", "--body-file", "-", input=body)
         self.assertEqual(r.returncode, 0, r.stderr)
         # 커밋 본문에 stdin 내용이 들어갔는지 확인.
         show = subprocess.run(["git", "-C", self.repo, "log", "--branches", "--format=%B"],
                               capture_output=True, text=True)
         self.assertIn("XYZZY", show.stdout, "stdin 본문이 커밋에 안 들어감")
+
+
+class TestBranchingEnforcement(GilFixture):
+    """AIL #1 — 체인이 일자로만 가던 결함. 분기를 문법으로 강제한다(HEAAL).
+    제안 2: hypothesis 반증조건 필수. 제안 1: verify verdict + refuted면 success 거부.
+    제안 3: 죽은 잎 위 선형 진행 거부(fail 잎이 지도에 남게)."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "b", "--purpose", "분기 강제")
+        self.gil("open", "b/c001", "--author", "clew", "--purpose", "P")
+
+    # ── 제안 2 ──
+    def test_hypothesis_requires_falsify(self):
+        """--falsify 없는 hypothesis 는 거부된다."""
+        r = self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "h",
+                     "--falsify-to", "s1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("falsify", r.stderr)
+
+    def test_hypothesis_requires_falsify_to(self):
+        """--falsify-to 없는 hypothesis 는 거부된다."""
+        r = self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "h",
+                     "--falsify", "F")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("falsify-to", r.stderr)
+
+    def test_hypothesis_falsify_to_must_be_define(self):
+        """--falsify-to 는 이 사이클의 조상 define 이어야 한다."""
+        r = self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "h",
+                     "--falsify", "F", "--falsify-to", "s9")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_hypothesis_imprints_falsify_trailers(self):
+        """정상 hypothesis 는 Gil-Falsify/Gil-Falsify-To 를 각인한다."""
+        r = self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "h",
+                     "--falsify", "출력이 음수면 거짓", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Falsify"), "출력이 음수면 거짓")
+        self.assertEqual(self.trailer("HEAD", "Gil-Falsify-To"), "s1")
+
+    # ── 제안 1 ──
+    def test_verify_requires_verdict(self):
+        """--verdict 없는 verify 는 거부된다."""
+        r = self.gil("step", "b/c001", "--kind", "verify", "--title", "v")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("verdict", r.stderr)
+
+    def test_verify_verdict_must_be_valid(self):
+        """--verdict 은 supported|refuted 만."""
+        r = self.gil("step", "b/c001", "--kind", "verify", "--title", "v",
+                     "--verdict", "maybe")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_verify_imprints_verdict(self):
+        r = self.gil("step", "b/c001", "--kind", "verify", "--title", "v",
+                     "--verdict", "refuted")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Verdict"), "refuted")
+
+    def test_refuted_verify_blocks_success(self):
+        """직전 verify 가 반증(refuted)이면 success 는 문법으로 거부된다 — 핵심 잠금."""
+        self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "h",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "b/c001", "--kind", "verify", "--title", "v",
+                 "--verdict", "refuted")
+        r = self.gil("step", "b/c001", "--kind", "success", "--title", "억지 성공")
+        self.assertNotEqual(r.returncode, 0, "반증 뒤 success 가 뚫렸다")
+        self.assertIn("refuted", r.stderr)
+
+    def test_supported_verify_allows_success(self):
+        """지지(supported) 뒤에는 success 가 정상 통과한다."""
+        self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "h",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "b/c001", "--kind", "verify", "--title", "v",
+                 "--verdict", "supported")
+        r = self.gil("step", "b/c001", "--kind", "success", "--title", "성공")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_refuted_verify_allows_fail(self):
+        """반증 뒤 fail(죽은 잎) 은 허용된다 — 벽의 지도."""
+        self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "h",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "b/c001", "--kind", "verify", "--title", "v",
+                 "--verdict", "refuted")
+        r = self.gil("step", "b/c001", "--kind", "fail", "--title", "벽", "--to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    # ── 제안 3 완화 ──
+    def test_dead_leaf_blocks_linear(self):
+        """죽은 잎(fail) 위에 선형으로 잇지 못한다 — fail 이 지도에 남는다."""
+        self.gil("step", "b/c001", "--kind", "fail", "--title", "벽", "--to", "s1")
+        r = self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "이어붙이기 시도",
+                     "--falsify", "F", "--falsify-to", "s1")
+        self.assertNotEqual(r.returncode, 0, "죽은 잎 위 선형 진행이 뚫렸다")
+        self.assertIn("죽은 잎", r.stderr)
+
+    def test_dead_leaf_allows_sibling_branch(self):
+        """죽은 잎 뒤 재가설은 새 형제 가지(--to)로만 — 이건 허용된다."""
+        self.gil("step", "b/c001", "--kind", "fail", "--title", "벽", "--to", "s1")
+        r = self.gil("step", "b/c001", "--kind", "hypothesis", "--to", "s1",
+                     "--title", "새 가지", "--falsify", "F", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
 
 
 if __name__ == "__main__":

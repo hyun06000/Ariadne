@@ -133,6 +133,9 @@ pending은 "진행 중, 사람 대기"를 그래프에 남긴다 — 답이 오�
 | `Gil-Step` | 스텝 id (s1, s2…) | 어느 스텝 |
 | `Gil-Kind` | define\|hypothesis\|verify\|analyze\|success\|fail\|pending | 스텝 종류 |
 | `Gil-Parent` | 부모 스텝 id \| null | 스텝 트리 부모 |
+| `Gil-Falsify` | 반증조건 문자열 | **hypothesis 필수** — 무엇이 관측되면 이 가설이 거짓인가(AIL #1) |
+| `Gil-Falsify-To` | 조상 define id | **hypothesis 필수** — 반증 시 되돌아갈 define(AIL #1) |
+| `Gil-Verdict` | supported\|refuted | **verify 필수** — 지지/반증. refuted면 success 문법 거부(AIL #1) |
 
 ### 사이클 루트 스텝(s1)에만
 | 키 | 값 | 뜻 |
@@ -182,6 +185,11 @@ gil은 커밋 그래프를 훑어 아래를 검사한다. 위반이면 새 노�
    (옛 R1 계승. 2026-07-23: 손 시연 fsck가 대문자 C001을 잡아 소문자로 통일.)
 3. **스텝 순환 규칙**: define→hypothesis→verify→analyze 순환. analyze는 `Gil-Outcome` 강제.
    backtrack이면 `Gil-Backtrack`가 조상 define을 가리켜야 함.
+   - **분기 강제(AIL #1, 체인 일자화 결함 해소)**: hypothesis는 `--falsify`(반증조건)와
+     `--falsify-to`(반증 시 되돌아갈 조상 define)를 문법으로 요구한다. verify는 `--verdict
+     supported|refuted`를 요구하고, refuted면 **success를 거부**한다(fail/backtrack만 허용).
+     죽은 잎(fail/analyze-fail/backtrack) 위에는 선형으로 잇지 못하고 새 가지만 허용한다 —
+     fail 잎이 지도에 물리적으로 남는다. HEAAL: 분기는 격려가 아니라 success의 좁은 문으로 는다.
 4. **계보 참조 무결성**: `Gil-Cycle-Parent`·`Gil-Merge`가 실재하는 사이클/체인을 가리켜야 함
    (옛 R6의 v3판, C041 이월).
 

@@ -19,6 +19,10 @@ var kinds = map[string]bool{
 }
 var outcomes = map[string]bool{"success": true, "backtrack": true, "fail": true}
 
+// verify 판정 (제안 1, AIL #1): 검증이 가설을 지지했나 반증했나. gil 이 산문이 아니라
+// 구조로 알아야 success 의 문을 좁힐 수 있다. refuted 면 success 를 문법으로 거부한다.
+var verdicts = map[string]bool{"supported": true, "refuted": true}
+
 // 종결 스텝(상현님, 2026-07-24): 분석(analyze) 다음에 성공/실패/대기를 *별도 스텝*으로
 // 커밋한다. success=산 잎, fail=죽은 잎, pending=사람 대기. 이 종결 스텝의 본문이
 // 문제정의부터 누적된 보고서를 담는다. (하위호환: 옛 analyze --outcome success/fail/backtrack
