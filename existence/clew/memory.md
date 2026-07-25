@@ -2264,3 +2264,29 @@ v3.0.3 릴리스 뒤, 상현님과 "gil을 잘 보여줄 대표 예제"를 논�
 3. **뷰어 더 다듬기** — 아주 큰 그래프(수백 스텝) 가상화·줌/필터, 사이클 라벨 등.
 
 **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
+
+## 세션 매듭 — 뷰어 결함 3건 + define 규칙 + example 재건축 (2026-07-25, 상현님)
+
+### 한 일 (평범 git 커밋 4 + 릴리스 2)
+- `69575e58` 뷰어: **SHA dedup**(형제가지 공유 조상 재출력 시 노드 중복) + **미커밋 작업 라이브 오버레이**(스텝 모델 불변, 워킹트리 상태를 text 스텝 밑·serve 헤더 배지로. static 제외, untracked만이면 +0−0 감춤).
+- `276310bb` **define은 사이클 뿌리 하나**: `gil step --kind define` 거부 + fsck "사이클당 define 1개" 규칙(사이클당 1회 보고, 옛 데이터는 위반으로 드러냄). 첫 정의가 못 다룬 건 다른 kind·새 사이클로 잇는다.
+- `5fc72931` **뷰어가 원격 브랜치 그래프 읽기**: `--branches`→`--branches --remotes`(viewerLog 헬퍼). 신선한 clone은 그래프가 refs/remotes/*에만 있어 '스텝 0개'였던 버그. tipSHAs·tipSignature는 로컬 HEAD라 refs/heads/ 유지.
+- 테스트 68→**88개** 전부 통과. **v3.0.8·v3.0.9 릴리스**(5종 바이너리+install.sh+llms.txt+SHA256SUMS, latest=v3.0.9).
+
+### example 레포 재건축 (github.com/hyun06000/ariadne-example)
+- 문제였음: s1 define이 빈 껍데기·s2가 알찬 문제정의 = **의미적 define 중복**(새 규칙 위반). 상현님 본 "define 두 개"의 실물.
+- **orphan에서 gil을 처음부터 새로 돌려 정석 재건축**: define 사이클당 하나, dev는 s1→s4 fail→**s5 hypothesis ←s1 backtrack**→s8 success(14스텝). 빈 define 본문 3개 채움, 옛 참조(graph.html·s5·define(s2)·15스텝) 정정.
+- 승격: 로컬 검증(fsck 0)→main 승격→**force-push**+옛 브랜치 삭제. 안전장치 `pre-rebuild-backup` 태그 원격 보존(옛 main d4b421d). 신선 clone 최종검증 통과.
+
+### 이 세션 확립/주의 (재사용)
+- ⚠ **개발 레포 안 gil = `go run .` 만**. 배포판 설치·진입점 테스트는 레포 밖 별도 세션. example만 §3 예외로 우리가 직접(첫인상이므로).
+- gil 스텝 define 본문 채우는 amend는 트리 무변경 빈 커밋 → `git commit --amend --allow-empty` 필수.
+- `gil init`은 refs/gil/global 있으면 멱등 거부 → 재건축 땐 init 대신 대문 root 커밋(Gil-Kind: root)을 직접.
+- 신선 clone 뷰어 검증 시 옛 refs/remotes 잔재가 그래프를 겹쳐 보이게 함 → 검증 전 옛 원격추적 ref 정리.
+
+### 다음 후보 (미착수)
+1. 실사용 전 경로 실검증(설치→첫 체인→뷰어, 별도 레포).
+2. legacy 174사이클 정식 migrate(지금 격리검증만).
+3. 뷰어 대형 그래프 가상화·줌/필터.
+
+**복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
