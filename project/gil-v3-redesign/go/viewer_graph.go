@@ -47,6 +47,13 @@ func viewerCollectNodes() []viewerNode {
 		return nil
 	}
 	var nodes []viewerNode
+	// 커밋 하나 = 노드 하나. git log --branches 는 보통 공유 커밋을 접어 주지만 그건
+	// git 이 보증하는 불변식이 아니다(여러 워킹트리·특정 ref 배치에서 같은 SHA 재출력).
+	// 조상 define 에서 형제 가지를 분기하면 그 define 커밋이 여러 브랜치 공통조상이 되는데,
+	// 만약 재출력되면 스택·사이클 뷰에 define 이 두 번 뜬다(상현님이 본 "define 두 개").
+	// dagJSON 은 자체 SHA dedup 이 있었지만 buildGraph 소스인 여기엔 없었다 —
+	// 최상류에서 한 번 접어 buildGraph·stackJSON·dagJSON 을 모두 깨끗하게 한다.
+	seenSHA := map[string]bool{}
 	for _, rec := range strings.Split(string(out), rs) {
 		rec = strings.TrimLeft(rec, "\n")
 		if strings.TrimSpace(rec) == "" {
@@ -60,6 +67,10 @@ func viewerCollectNodes() []viewerNode {
 		if tr["Gil-Step"] == "" {
 			continue
 		}
+		if seenSHA[parts[0]] {
+			continue // 같은 커밋 재출력 — 노드 중복 방지
+		}
+		seenSHA[parts[0]] = true
 		// %P = 공백구분 커밋 부모 SHA(40자) → 9자로 줄여 노드 sha 와 맞춘다.
 		var gp []string
 		for _, p := range strings.Fields(parts[2]) {
@@ -201,6 +212,89 @@ type graphView struct {
 	parents             map[string]string // 체인 계보 엣지: 자식→부모
 	allNodes            []viewerNode      // 전체 스텝 노드(진짜 커밋 DAG 그래프용)
 	nodeCount, tipCount int
+	work                workStatus // 현재 HEAD 워킹트리의 미커밋 작업 상태(진행 라이브 표시)
+}
+
+// workStatus — 대상 레포 워킹트리의 미커밋 변경 요약. gil 그래프에 커밋으로 박지 않고
+// (커밋=완결 사고단위 불변식 유지) 뷰어가 현재 스텝 위에 오버레이로만 그린다. 이래야
+// 마지막 커밋 이후 작업이 살아있어도 "멈춘 듯" 보이지 않는다(상현님).
+type workStatus struct {
+	dirty      bool     // 미커밋 변경이 있는가
+	files      int      // 변경된 경로 수(staged+unstaged+untracked, 중복 제거)
+	added      int      // git diff --shortstat insertions (staged+unstaged 합산)
+	deleted    int      // 〃 deletions
+	sample     []string // 변경 경로 샘플(최대 몇 개, 앞에 상태문자)
+}
+
+// summary — "N개 파일" 뒤에 라인 증감이 있을 때만 ", +A −D" 를 덧붙인다.
+// untracked 신규 파일만 있으면 git diff 가 라인을 안 세므로 +0 −0 을 감춘다(오해 방지).
+func (w workStatus) summary() string {
+	s := fmt.Sprintf("%d개 파일", w.files)
+	if w.added > 0 || w.deleted > 0 {
+		s += fmt.Sprintf(", +%d −%d", w.added, w.deleted)
+	}
+	return s
+}
+
+// workingStatus — 대상 레포의 미커밋 상태를 읽는다. 실패/클린이면 dirty=false.
+func workingStatus() workStatus {
+	var w workStatus
+	// --porcelain: 경로별 상태(XY path). untracked 포함. 경로 수·샘플용.
+	out, err := viewerGit("status", "--porcelain")
+	if err != nil {
+		return w
+	}
+	for _, ln := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		w.files++
+		if len(w.sample) < 5 && len(ln) > 3 {
+			w.sample = append(w.sample, strings.TrimSpace(ln[:2])+" "+strings.TrimSpace(ln[3:]))
+		}
+	}
+	w.dirty = w.files > 0
+	if !w.dirty {
+		return w
+	}
+	// 라인 증감: staged(--cached)와 unstaged 를 합산. untracked 는 diff 에 안 잡히나
+	// files 카운트엔 이미 포함됐다(대략치로 충분 — 정확한 신규파일 라인수는 목적 밖).
+	w.added, w.deleted = diffLines()
+	return w
+}
+
+// diffLines — git diff --shortstat 의 insertions/deletions 합(staged+unstaged).
+func diffLines() (add, del int) {
+	for _, args := range [][]string{
+		{"diff", "--shortstat"},          // unstaged
+		{"diff", "--shortstat", "--cached"}, // staged
+	} {
+		out, err := viewerGit(args...)
+		if err != nil {
+			continue
+		}
+		a, d := parseShortstat(string(out))
+		add += a
+		del += d
+	}
+	return
+}
+
+// parseShortstat — " N files changed, A insertions(+), D deletions(-)" 파싱.
+func parseShortstat(s string) (add, del int) {
+	for _, seg := range strings.Split(s, ",") {
+		seg = strings.TrimSpace(seg)
+		var n int
+		if _, e := fmt.Sscanf(seg, "%d", &n); e != nil {
+			continue
+		}
+		if strings.Contains(seg, "insertion") {
+			add = n
+		} else if strings.Contains(seg, "deletion") {
+			del = n
+		}
+	}
+	return
 }
 
 // hereChains — 현재위치가 있는 체인 이름 집합(스텝 또는 사이클 레벨).
@@ -326,7 +420,7 @@ func buildGraph() graphView {
 			chainOrder = append(chainOrder, ch)
 		}
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus()}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}
@@ -405,7 +499,11 @@ func runViewerBuild(out string) {
 
 func renderText(g graphView) {
 	fmt.Println("═══ gil 그래프 뷰어 — 체인 > 사이클 > 스텝 ═══")
-	fmt.Printf("(스텝 노드 %d개, 현재위치 팁 %d개 · ▶=현재위치)\n\n", g.nodeCount, g.tipCount)
+	work := "작업 없음(클린)"
+	if g.work.dirty {
+		work = "✎ 작업중 — " + g.work.summary() + " (미커밋)"
+	}
+	fmt.Printf("(스텝 노드 %d개, 현재위치 팁 %d개 · ▶=현재위치 · %s)\n\n", g.nodeCount, g.tipCount, work)
 	for _, ch := range g.chains {
 		fmt.Printf("● 체인 %s\n", ch.name)
 		for _, cy := range ch.cycles {
@@ -433,6 +531,17 @@ func renderText(g graphView) {
 					line += "   ← 현재위치 (" + br + ")"
 				}
 				fmt.Println(line)
+				// 현재위치 스텝 아래에만 미커밋 작업 오버레이 — 마지막 커밋 이후 작업이
+				// 살아있음을 보여 "멈춘 듯" 오해를 없앤다(그래프엔 커밋으로 안 박음).
+				if _, ok := g.here[posKey(n)]; ok && g.work.dirty {
+					fmt.Printf("       └─ ✎ 작업중: %s (미커밋)\n", g.work.summary())
+					for _, s := range g.work.sample {
+						fmt.Printf("          %s\n", s)
+					}
+					if g.work.files > len(g.work.sample) {
+						fmt.Printf("          … 외 %d개\n", g.work.files-len(g.work.sample))
+					}
+				}
 			}
 		}
 		fmt.Println()

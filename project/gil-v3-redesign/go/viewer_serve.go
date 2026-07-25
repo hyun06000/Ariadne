@@ -172,7 +172,7 @@ func renderHTML(g graphView, static bool) string {
 <style>` + css + `</style></head><body>
 <header><h1>gil 그래프 뷰어 — 체인 그래프</h1>
 <span class="meta">체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
-		itoa(g.tipCount) + `개 · ` + liveIndicator(static) + `</span></header>
+		itoa(g.tipCount) + `개 · ` + liveIndicator(static) + workBadge(g, static) + `</span></header>
 <main>`)
 	if len(g.chains) == 0 {
 		b.WriteString(`<p class="empty">아직 gil 체인이 없다. 체인을 만들면 여기 노드로 나타난다.</p>`)
@@ -206,6 +206,16 @@ func liveIndicator(static bool) string {
 		return `<span class="meta">정적 스냅샷</span>`
 	}
 	return `<span id="live">● live</span>`
+}
+
+// workBadge — 헤더에 미커밋 작업 요약을 단다. serve(라이브)에서만 의미 있다 —
+// static build 는 워킹트리와 무관한 스냅샷이라 뺀다. serve 는 자동 새로고침이라
+// 이 배지가 실시간 진행 표시가 되어 "멈춘 듯" 오해를 없앤다(상현님).
+func workBadge(g graphView, static bool) string {
+	if static || !g.work.dirty {
+		return ""
+	}
+	return ` · <span class="work">✎ 작업중: ` + esc(g.work.summary()) + `</span>`
 }
 
 // nodes SVG 를 edges 뒤 별도 <g id="nodes"> 에 넣기 위해 renderHTML 의 svg 조립을
@@ -373,6 +383,7 @@ header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--
 padding:12px 20px;display:flex;align-items:baseline;gap:16px;z-index:9}
 h1{font-size:16px;margin:0}.meta{color:var(--dim);font-size:12px}
 #live{color:#3ddc84}#live.stale{color:var(--dim)}
+.work{color:#e6b800}
 main{padding:8px 20px 40px}.empty{color:var(--dim)}
 .hint{color:var(--dim);font-size:12px;margin-top:10px}
 svg#graph{display:block;max-width:100%;height:auto}

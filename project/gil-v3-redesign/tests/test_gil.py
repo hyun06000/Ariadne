@@ -1040,6 +1040,49 @@ class TestViewer(GilFixture):
         self.assertNotIn("←s2", r.stdout)
         self.assertNotIn("←s3", r.stdout)
 
+    def test_viewer_no_duplicate_define_across_sibling_branches(self):
+        """조상 define 에서 형제 가지를 분기해도 define 노드가 두 번 뜨지 않는다.
+
+        결함(상현님): backtrack/새 가지는 조상 define 커밋에서 진짜 git 브랜치를
+        분기하므로 그 define 이 여러 브랜치 공통조상이 된다. 뷰어가 SHA dedup 을
+        안 하면 스택·사이클 뷰에 define 이 두 번 그려진다. viewerCollectNodes 가
+        커밋 하나=노드 하나로 접어야 한다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설1")
+        # 조상 define(s1)으로 되돌아가 형제 가지 분기 → s1 이 두 브랜치 공통조상.
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2")
+        r = self.gil("viewer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # s1 define 라인이 정확히 한 번만 나와야 한다.
+        n = sum(1 for ln in r.stdout.splitlines() if "s1 [define]" in ln)
+        self.assertEqual(n, 1, f"define 노드가 {n}번 뜸(중복):\n{r.stdout}")
+
+    def test_viewer_shows_uncommitted_work_overlay(self):
+        """미커밋 작업이 있으면 현재위치 스텝 아래에 '작업중' 오버레이가 뜬다.
+
+        결함(상현님): 뷰어가 커밋만 보여줘 마지막 커밋 이후 작업이 살아있어도
+        '멈춘 듯' 보였다. 스텝 모델은 그대로 두고(커밋=완결 사고단위 불변식),
+        뷰어가 워킹트리 상태를 오버레이로만 그린다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "가설")
+        # 클린: 오버레이 없음.
+        r = self.gil("viewer")
+        self.assertIn("작업 없음(클린)", r.stdout, r.stdout)
+        self.assertNotIn("작업중", r.stdout)
+        # 미커밋 변경 발생 → 오버레이 등장.
+        with open(os.path.join(self.repo, "wip.txt"), "w") as f:
+            f.write("in progress\n")
+        r = self.gil("viewer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("작업중", r.stdout, f"미커밋 오버레이 없음:\n{r.stdout}")
+        self.assertIn("wip.txt", r.stdout, "변경 파일 샘플 표시 없음")
+
     def test_thin_body_warns_append_only(self):
         """--body 를 빠뜨린 얇은 스텝엔, 본문은 나중에 못 고친다(append-only)고 경고한다."""
         self.gil("init", "--name", "clew")
