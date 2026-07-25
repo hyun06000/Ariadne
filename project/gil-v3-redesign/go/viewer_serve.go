@@ -481,6 +481,15 @@ button.lchip:hover{border-color:var(--node);color:var(--node)}
 .dagwrap{overflow-x:auto;padding:4px 0 8px}
 svg.dag{display:block}
 .dag .chlabel{font-size:11px;font-weight:700;fill:var(--dim)}
+.dag .cyclabel{font-size:9px;fill:var(--dim);opacity:.85}
+/* 전체맵 줌/팬 컨트롤 — 대형 그래프(수백 스텝) 항해용 */
+.dagbar{display:flex;gap:6px;margin:0 0 6px}
+.dagbar button{background:var(--card);border:1px solid var(--line);border-radius:6px;
+ color:var(--fg);font:inherit;font-size:13px;min-width:28px;padding:2px 8px;cursor:pointer}
+.dagbar button:hover{border-color:var(--node);color:var(--node)}
+.dagbar .zhint{color:var(--dim);font-size:11px;align-self:center}
+.dagwrap.grabbing{cursor:grabbing}
+.dagwrap.zoomed{cursor:grab}
 .dag .cycbox{fill:none;stroke:var(--line);stroke-dasharray:3 3;opacity:.7}
 .dag .dedge{stroke:var(--edge);stroke-width:1.5}
 .dag .dedge.cross{stroke:var(--here);stroke-width:2}
@@ -954,7 +963,7 @@ function buildStepMap(){
     if(!owns || (busy[L]!==undefined && busy[L]>=d)){ L=0; while(busy[L]!==undefined && busy[L]>=d)L++; }
     row[n.sha]=L; busy[L]=d; if(L>maxRow)maxRow=L;
   });
-  const colW=34, rowH=24, padX=26, padTop=26, padBot=14, r=5;
+  const colW=34, rowH=24, padX=26, padTop=38, padBot=14, r=5; // padTop: 체인 라벨+사이클 라벨 두 줄
   let maxD=0; DAG.forEach(n=>{ if(depth[n.sha]>maxD)maxD=depth[n.sha]; });
   // 오른쪽 여유 = 가장 긴 체인 이름이 박스 위 라벨로 삐져나가도 안 잘리게.
   let maxName=0; DAG.forEach(n=>{ maxName=Math.max(maxName,(n.chain||'').length); });
@@ -975,10 +984,14 @@ function buildStepMap(){
     const box=svgEl('rect',{class:'cycbox',x:x1,y:y1,width:x2-x1,height:y2-y1,rx:6});
     box.appendChild(svgEl('title',{},k));
     svg.appendChild(box);
-    // 체인 이름 라벨: 그 체인의 첫 사이클 박스 위에만.
+    // 사이클 라벨: 각 박스 위에 작게(툴팁만으론 어느 박스가 어느 사이클인지 훑기 어렵다).
+    const cylab=svgEl('text',{class:'cyclabel',x:x1+2,y:y1-3},k.slice(k.indexOf('/')+1));
+    cylab.appendChild(svgEl('title',{},k));
+    svg.appendChild(cylab);
+    // 체인 이름 라벨: 그 체인의 첫 사이클 박스 위에만(사이클 라벨 윗줄).
     if(dmin===chainMinD[ns[0].chain]){
       const pc=PARENTS[ns[0].chain];
-      const lab=svgEl('text',{class:'chlabel',x:x1+2,y:y1-5});
+      const lab=svgEl('text',{class:'chlabel',x:x1+2,y:y1-14});
       lab.textContent=ns[0].chain+(pc?' ↰':'');
       lab.appendChild(svgEl('title',{},pc?('체인 '+ns[0].chain+' — 부모 체인 '+pc+' 에서 이어받음'):('체인 '+ns[0].chain)));
       svg.appendChild(lab);
@@ -1004,13 +1017,74 @@ function buildStepMap(){
     svg.appendChild(g);
   });
   const wrap=document.createElement('div'); wrap.className='dagwrap'; wrap.appendChild(svg);
+  host.appendChild(enableZoomPan(wrap,svg,W,H));
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
-  leg.innerHTML='진짜 커밋 그래프 — 왼→오른 흐름, 점선 박스=사이클(위에 체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+  leg.innerHTML='진짜 커밋 그래프 — 왼→오른 흐름, 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
   host.appendChild(leg);
 }
 // isLeaf — 이 노드를 부모로 삼는 gil 스텝이 없으면 잎(사이클 결말: 산 잎 or 죽은 잎).
 function isLeaf(n,kids){ return !(kids[n.sha]&&kids[n.sha].length); }
+
+// enableZoomPan — 전체맵 줌/팬(대형 그래프 항해). viewBox 를 움직인다:
+// ＋/−/전체 버튼, Ctrl(⌘)+휠 = 포인터 위치 중심 줌, 확대 상태에서 드래그 = 팬.
+// 반환: 컨트롤 바(dagbar) — 호출자가 그래프 위에 붙인다.
+function enableZoomPan(wrap,svg,W,H){
+  const MINW=W/16;                       // 최대 16배 확대
+  let vb={x:0,y:0,w:W,h:H};
+  function clamp(){
+    vb.w=Math.min(Math.max(vb.w,MINW),W); vb.h=vb.w*H/W;
+    vb.x=Math.min(Math.max(vb.x,0),W-vb.w); vb.y=Math.min(Math.max(vb.y,0),H-vb.h);
+  }
+  function apply(){
+    svg.setAttribute('viewBox',vb.x+' '+vb.y+' '+vb.w+' '+vb.h);
+    wrap.classList.toggle('zoomed',vb.w<W-0.5);
+  }
+  // 화면 픽셀 → viewBox 좌표.
+  function toVB(e){
+    const rc=svg.getBoundingClientRect();
+    return {x:vb.x+(e.clientX-rc.left)/rc.width*vb.w, y:vb.y+(e.clientY-rc.top)/rc.height*vb.h};
+  }
+  function zoomAt(f,cx,cy){ // f<1 = 확대. (cx,cy) viewBox 좌표를 고정점으로.
+    const nw=Math.min(Math.max(vb.w*f,MINW),W);
+    vb.x=cx-(cx-vb.x)*nw/vb.w; vb.y=cy-(cy-vb.y)*nw/vb.w; vb.w=nw;
+    clamp(); apply();
+  }
+  const center=()=>({x:vb.x+vb.w/2,y:vb.y+vb.h/2});
+  // 컨트롤 바.
+  const bar=document.createElement('div'); bar.className='dagbar';
+  const btn=(label,title,fn)=>{const b=document.createElement('button');b.textContent=label;b.title=title;
+    b.addEventListener('click',ev=>{ev.stopPropagation();fn();});bar.appendChild(b);};
+  btn('＋','확대',()=>{const c=center();zoomAt(1/1.4,c.x,c.y);});
+  btn('−','축소',()=>{const c=center();zoomAt(1.4,c.x,c.y);});
+  btn('전체','전체 보기(리셋)',()=>{vb={x:0,y:0,w:W,h:H};apply();});
+  const zh=document.createElement('span'); zh.className='zhint';
+  zh.textContent='Ctrl+휠=줌 · 확대 후 드래그=이동'; bar.appendChild(zh);
+  // Ctrl(⌘)+휠 줌 — 포인터 위치 중심. 일반 휠은 페이지 스크롤 그대로 둔다.
+  svg.addEventListener('wheel',e=>{
+    if(!e.ctrlKey&&!e.metaKey)return;
+    e.preventDefault();
+    const p=toVB(e); zoomAt(e.deltaY>0?1.18:1/1.18,p.x,p.y);
+  },{passive:false});
+  // 드래그 팬 — 움직였으면 뒤따르는 클릭(노드 열기)을 삼킨다.
+  let drag=null, moved=false;
+  svg.addEventListener('pointerdown',e=>{
+    if(vb.w>=W-0.5)return;               // 전체 보기에선 팬 없음
+    drag={px:e.clientX,py:e.clientY,vx:vb.x,vy:vb.y}; moved=false;
+    svg.setPointerCapture(e.pointerId); wrap.classList.add('grabbing');
+  });
+  svg.addEventListener('pointermove',e=>{
+    if(!drag)return;
+    const rc=svg.getBoundingClientRect();
+    const dx=(e.clientX-drag.px)/rc.width*vb.w, dy=(e.clientY-drag.py)/rc.height*vb.h;
+    if(Math.abs(e.clientX-drag.px)+Math.abs(e.clientY-drag.py)>4)moved=true;
+    vb.x=drag.vx-dx; vb.y=drag.vy-dy; clamp(); apply();
+  });
+  svg.addEventListener('pointerup',()=>{drag=null;wrap.classList.remove('grabbing');});
+  svg.addEventListener('click',e=>{ if(moved){e.stopPropagation();moved=false;} },true);
+  apply();
+  return bar;
+}
 
 document.addEventListener('click',e=>{
   const g=e.target.closest('.cnode');

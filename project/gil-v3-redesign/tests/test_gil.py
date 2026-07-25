@@ -1235,6 +1235,21 @@ class TestViewer(GilFixture):
         self.assertIn("headarrow", html)
         self.assertIn("현재위치 1개", html)  # 헤더에 현재위치 카운트
 
+    def test_stepmap_zoom_pan_and_cycle_labels(self):
+        """전체 스텝맵에 줌/팬 컨트롤(dagbar·enableZoomPan)과 사이클 라벨(cyclabel)이 들어간다 —
+        대형 그래프(수백 스텝) 항해용."""
+        self._seed_graph()
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        html = open(out_html, encoding="utf-8").read()
+        # 줌/팬: 컨트롤 바 + viewBox 조작 함수 + 휠·드래그 안내.
+        self.assertIn("enableZoomPan", html)
+        self.assertIn("dagbar", html)
+        self.assertIn("Ctrl+휠", html)
+        # 사이클 라벨: 박스 위 작은 글씨(툴팁만으론 훑기 어려움).
+        self.assertIn("cyclabel", html)
+
     def test_dag_connects_cycles_across_chain_boundary(self):
         """DAG 는 사이클·체인 경계를 넘는 지식 전수를 진짜 엣지로 잇는다 —
         자식 체인의 첫 스텝이 부모 체인의 종결 스텝(산 잎)을 부모로 갖는다.
