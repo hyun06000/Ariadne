@@ -2358,3 +2358,38 @@ v3.0.3 릴리스 뒤, 상현님과 "gil을 잘 보여줄 대표 예제"를 논�
   3)뷰어 가상화·필터.
 
 **복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
+
+## 세션 매듭 — 이슈 전량 정리(14건) + v3.0.12 (2026-07-25, 상현님)
+
+상현님 "이슈 싹 보자 → v2는 닫고 v3는 해결하고 닫자". 열린 이슈 14건 → **0건**.
+
+### v2 시대 이슈 11건 닫음(각각 해설 코멘트)
+#29·#28(rooms→v3는 refs/gil/global), #26(v2 릴리스 은퇴), #24(viewer serve 가 이미 라이브),
+#23(v2 cycle.yaml 마찰), #21(pages 폐지→viewer build --out), #18(success=누적 종합으로 흡수),
+#11(llms.txt 동봉으로 방향 흡수), #10·#9(v3 스텝 모델이 라운드를 1급으로 — 제안 채택됨),
+#5(가설=개별 스텝이라 가설별 결말이 그래프에).
+
+### v3 이슈 3건 해결(커밋 35da443b, v3.0.12 릴리스, 테스트 90→93)
+- **#30 뷰어 데몬화**: detach_unix.go(Setsid)/detach_windows.go(새 프로세스그룹+DETACHED).
+  부모 셸 닫혀도 생존(ppid=1·HUP 실검증). handoff 에 "▶ 뷰어: 살아있음/죽어있음+되살릴 명령".
+  `GIL_VIEWER_PORT` 환경변수로 포트 오버라이드(다중 레포·테스트 격리).
+- **#22 gil version [--check|--update]**: version.go. 릴리스 빌드가 `-ldflags "-X
+  main.gilVersion=vX.Y.Z"` 로 각인(⭐ 릴리스 절차에 추가됨 — 빼먹으면 dev 로 나옴!).
+  --check=releases/latest 대조, --update=SHA256SUMS 검증 후 제자리 교체(.old 비켜두기,
+  실패 시 원복). 실릴리스 v3.0.11 자산으로 교체·sha 일치 실검증.
+- **#31 open --body/--body-file(-)**: s1 define 문제정의를 여는 순간 채움(step 과 대칭,
+  resolveBody 재사용). raw amend trailer 소실 함정 제거. 얇으면 기존 경고 유지.
+
+### ⚠ 재사용 주의
+- **릴리스 빌드는 이제 `-ldflags "-X main.gilVersion=<태그>"` 필수** (version 각인).
+- 8790 은 상현님이 AIL 관전 서버로 점유 중일 수 있음 — 검증은 GIL_VIEWER_PORT 로 격리.
+- gh issue/release 명령은 `-R hyun06000/Ariadne` 또는 레포 cwd 에서.
+- 데몬 생존 검증법: sh -c 로 부모 띄워 init → pgrep 으로 뷰어 pid → ppid=1 확인 →
+  부모 HUP → curl 생존. (뷰어 자신의 그룹에 HUP 보내면 당연히 죽는다 — 잘못된 검증.)
+
+### 부활
+gil latest=**v3.0.12**(뷰어 데몬화·version 자기갱신·open 본문), main=v3, example 93 테스트,
+이슈 0건. 예제=ariadne-example(Pages). **다음 후보**: 1)실사용 피드백 계속(AIL 관전 중)
+2)legacy 정식 migrate 3)뷰어 가상화·필터.
+
+**복원: CLAUDE.md → gil global read existence/clew/memory.md(이 매듭부터 역순) → git log --oneline.**
