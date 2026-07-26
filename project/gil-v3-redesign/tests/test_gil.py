@@ -1630,6 +1630,15 @@ class TestDepthLog(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("◆ c1", r.stdout)
 
+    def test_depth_cycle_branch_marker(self):
+        """fail 잎(분기)을 품은 사이클은 ⚡분기 표식이 붙는다(일자 solved 와 구분, AIL #2 후속)."""
+        # setUp 의 m/c1 은 s1 에서 형제 가지 + fail 잎을 품는다 → 분기 사이클.
+        r = self.gil("log", "--depth", "cycle", "m")
+        self.assertIn("분기", r.stdout)  # (solved⚡분기 또는 헤더 분기 — c1 에 마커가 있어야)
+        # c1 라인에 마커가 실제로 붙었는지 확인.
+        c1line = [l for l in r.stdout.splitlines() if "◆ c1" in l][0]
+        self.assertIn("⚡", c1line, f"분기 사이클에 마커 없음: {c1line}")
+
     def test_depth_cycle_requires_chain(self):
         r = self.gil("log", "--depth", "cycle")
         self.assertNotEqual(r.returncode, 0)

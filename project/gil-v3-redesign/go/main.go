@@ -249,7 +249,20 @@ func logDepthCycle(ch string) {
 	println2("● 체인 " + ch)
 	for _, cy := range order {
 		c := cyc[cy]
-		line := "  ◆ " + cy + "  (" + c.status + ")"
+		// 죽은 잎(fail/backtrack)을 품었나 — "일자로 solved"와 "분기 밟고 solved"는 사고의
+		// 질이 다르다(clew@AIL). 분기를 실제로 밟은 사이클에 ⚡분기 표식(AIL #2 후속).
+		branched := false
+		for _, s := range c.steps {
+			if isDeadLeaf(s) {
+				branched = true
+				break
+			}
+		}
+		status := c.status
+		if branched {
+			status += "⚡분기"
+		}
+		line := "  ◆ " + cy + "  (" + status + ")"
 		if len(c.parents) > 0 {
 			line += "  ← " + strings.Join(c.parents, ",")
 		}
