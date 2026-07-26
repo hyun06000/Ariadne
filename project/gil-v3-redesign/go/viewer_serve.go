@@ -178,7 +178,11 @@ func renderHTML(g graphView, static bool) string {
 		b.WriteString(`<p class="empty">아직 gil 체인이 없다. 체인을 만들면 여기 노드로 나타난다.</p>`)
 	} else {
 		// 탭 없이 세로로 다 펼친다: 전체맵(맨 위) → 체인 그래프 → 사이클 → 스텝 → 디테일.
-		b.WriteString(`<section class="pane"><h2 class="panehead">전체 스텝맵</h2><div id="view-map"></div></section>`)
+		b.WriteString(`<section class="pane"><h2 class="panehead">전체맵 <span id="depthseg" class="depthseg">` +
+			`<button data-depth="chain" title="체인 단위 — 국면 계보만">체인</button>` +
+			`<button data-depth="cycle" title="사이클 단위 — 각 사이클 상태·분기(⚡)">사이클</button>` +
+			`<button data-depth="step" class="on" title="스텝 단위 — 모든 스텝 커밋 DAG">스텝</button>` +
+			`</span></h2><div id="view-map"></div></section>`)
 		b.WriteString(`<section class="pane"><h2 class="panehead">체인 그래프</h2><div id="view-chain">`)
 		b.WriteString(fmt.Sprintf(
 			`<svg id="graph" viewBox="0 0 %d %d" width="%d" height="%d"><g id="edges">%s</g><g id="nodes">%s</g></svg>`,
@@ -536,6 +540,12 @@ button.lchip:hover{border-color:var(--node);color:var(--node)}
 /* 세로 스택 pane — 탭 없이 전체맵→체인→사이클→스텝→디테일 순으로 펼침 */
 .pane{margin:0 0 22px}
 .panehead{font-size:13px;font-weight:700;color:var(--dim);margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+/* 뎁스 토글 세그먼트(AIL #6) — gil log --depth 의 뷰어판. 사람이 항상 스텝맵만 강제로 보던 것을 해소. */
+.depthseg{float:right;display:inline-flex;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;font-weight:600}
+.depthseg button{font:inherit;font-size:11px;padding:2px 9px;border:0;background:var(--panel,transparent);color:var(--dim);cursor:pointer;border-left:1px solid var(--line)}
+.depthseg button:first-child{border-left:0}
+.depthseg button.on{background:var(--here);color:#fff}
+.depthseg button:hover:not(.on){color:var(--fg)}
 /* 진짜 커밋 DAG(전체 스텝맵) — 왼→오른 한 줄 흐름, 체인 이름=박스 위 라벨 */
 .dagwrap{overflow-x:auto;padding:4px 0 8px}
 svg.dag{display:block}
@@ -560,6 +570,9 @@ svg.dag{display:block}
 .dag .dnode.k-pending circle{fill:#ffd166}
 .dag .dnode.here circle{stroke:var(--here);stroke-width:2.5}
 .dag .dnode .headarrow{fill:var(--here)}
+/* 집계 노드(사이클/체인 뎁스, AIL #6) — 이름 라벨 + ⚡분기 표식 */
+.dag .dnode.agg .agglabel{font-size:10px;font-weight:600;fill:var(--fg);text-anchor:middle}
+.dag .dnode .forkmark{font-size:9px;text-anchor:middle;pointer-events:none}
 .dag .dnode:hover circle{stroke:var(--fg);stroke-width:2}
 .hint .lg-branch{color:#ff6b6b}.hint .lg-dead{color:#ff6b6b}.hint .lg-alive{color:#3ddc84}.hint .lg-cross{color:var(--here)}
 .headarrow{fill:var(--here)}  /* HEAD ▼ — 모든 그래프 공통 */
@@ -891,6 +904,23 @@ function jumpToNode(d){
   if(sn)openReport(d.chain,d.cycle,sn);
   document.getElementById('pane-report')?.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
+// jumpToAgg — 집계 노드(사이클/체인) 클릭 → 그 사이클(또는 체인 첫 사이클)의 첫 스텝으로 내려간다.
+function jumpToAgg(n){
+  selectChain(n.chain);
+  const cy=DATA[n.chain]?.cycles||[];
+  const target=MAP_DEPTH==='cycle'?cy.find(c=>c.name===n.cycle):cy[0];
+  if(!target)return;
+  openStepCard(n.chain,target);
+  const first=(target.nodes||[])[0];
+  if(first)openReport(n.chain,target.name,first);
+  document.getElementById('pane-report')?.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+// setMapDepth — 뎁스 토글(AIL #6). 세그먼트 버튼 on 상태 갱신 + 전체맵 재렌더.
+function setMapDepth(depth){
+  MAP_DEPTH=depth;
+  document.querySelectorAll('#depthseg button').forEach(b=>b.classList.toggle('on',b.dataset.depth===depth));
+  buildStepMap();
+}
 
 // 스텝 노드 클릭 → 그 스텝의 상세 보고서(커밋 본문 원문)를 /step 에서 가져와 카드로.
 async function openReport(chain,cycle,n){
@@ -1038,10 +1068,51 @@ function selectChain(chain){
 // 체인은 세로로 쌓지 않는다: 부모→자식 체인이 x축으로 이어져 한 흐름이 된다. backtrack
 // 분기만 아래 레인으로 살짝 갈라졌다 합류. 체인 이름은 그 체인 사이클 박스 '위'에 얹는다.
 // 사이클=옅은 점선 박스, 스텝=작은 점(글씨 없이). 현재위치(HEAD)는 ▼ 역삼각형.
+// 현재 뎁스(AIL #6). 'step'(기본)·'cycle'·'체인'. gil log --depth 의 뷰어판.
+let MAP_DEPTH='step';
+
+// aggregateDAG — 스텝 DAG 를 사이클/체인 단위로 접어 합성 노드 배열을 만든다(AIL #6).
+// 반환 노드는 buildStepMap 이 쓰는 필드(sha·chain·cycle·step·kind·outcome·parents·here·subj)를
+// 흉내낸다 — 같은 배치·엣지·줌팬 엔진에 그대로 태우려고. 새 데이터 주입 없이 순수 클라이언트
+// 집계라 Warp-anchor(새 명령·채널 최소) 원칙에 맞는다.
+function aggregateDAG(depth){
+  if(depth==='step')return DAG;
+  const keyOf=n=>depth==='cycle'?(n.chain+'/'+n.cycle):n.chain;
+  const groups={}, order=[];
+  DAG.forEach(n=>{ const k=keyOf(n); if(!(k in groups)){groups[k]={key:k,steps:[]};order.push(k);} groups[k].steps.push(n); });
+  // 스텝 sha → 그룹키(엣지 접기용).
+  const g4sha={}; DAG.forEach(n=>{ g4sha[n.sha]=keyOf(n); });
+  const out=[];
+  order.forEach(k=>{
+    const g=groups[k], steps=g.steps;
+    // 그룹 상태: success 스텝 하나라도 있으면 solved, 아니면 죽은 잎(fail) 있으면 dead, 그 외 pending/open.
+    // 텍스트판 cycleView.status() 와 일관 — leaf 여부가 아니라 종결 kind 로 판정한다. (다음 사이클이
+    // 이 사이클 산 잎 위에서 태어나면 그 잎은 전역 DAG 상 leaf 가 아니지만, 여전히 이 사이클의 결말이다.)
+    let hasAlive=false,hasDead=false,hasPending=false,hasHere=false;
+    steps.forEach(n=>{ const c=stepClass(n);
+      if(c==='alive')hasAlive=true; if(c==='dead')hasDead=true; if(c==='pending')hasPending=true; if(n.here)hasHere=true; });
+    // 부모 그룹키: 이 그룹 스텝의 부모 중 다른 그룹에 속한 것(경계 넘는 엣지) → 그 그룹 대표 sha.
+    const pkeys=new Set();
+    steps.forEach(n=>n.parents.forEach(p=>{ const pk=g4sha[p]; if(pk&&pk!==k)pkeys.add(pk); }));
+    // 합성 kind: solved면 success(초록), dead면 fail(붉음), pending, 그 외 live.
+    const synthKind=hasAlive?'success':hasDead?'fail':hasPending?'pending':'live';
+    out.push({
+      sha:'grp:'+k, chain:steps[0].chain, cycle:depth==='cycle'?steps[0].cycle:'',
+      step:depth==='cycle'?steps[0].cycle:steps[0].chain, kind:synthKind, outcome:'', here:hasHere,
+      parents:[...pkeys].map(pk=>'grp:'+pk),
+      // ⚡ 분기: solved 인데 죽은 잎도 품음(일자 solved 와 구분, 텍스트판 v3.4.1 과 일관).
+      forked:hasAlive&&hasDead, nsteps:steps.length,
+      subj:(depth==='cycle'?'사이클 '+k:'체인 '+k)+' — '+steps.length+'스텝'+(hasAlive&&hasDead?' ⚡분기 밟은 solved':''),
+    });
+  });
+  return out;
+}
+
 function buildStepMap(){
   const host=document.getElementById('view-map');
   host.replaceChildren();
-  if(!DAG.length){ host.textContent='아직 스텝이 없다.'; return; }
+  const DAG=aggregateDAG(MAP_DEPTH);
+  if(!DAG.length){ host.textContent='아직 노드가 없다.'; return; }
   const byId={}; DAG.forEach(n=>byId[n.sha]=n);
   const kids={}; DAG.forEach(n=>{ n.parents.forEach(p=>{ (kids[p]=kids[p]||[]).push(n.sha); }); });
   // x = 위상 깊이(시간, 왼→오른). 부모→자식 체인이 이 x축으로 자연히 이어진다.
@@ -1069,8 +1140,9 @@ function buildStepMap(){
   const X=sha=>padX+r+depth[sha]*colW;
   const Y=sha=>padTop+r+row[sha]*rowH;
   const svg=svgEl('svg',{class:'dag',viewBox:'0 0 '+W+' '+H,width:W,height:H});
-  // 1) 사이클 구간 박스(x 범위 = 그 사이클 스텝들의 depth, y 범위 = 그 스텝들의 row).
-  const cyc={}; DAG.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
+  const agg=MAP_DEPTH!=='step'; // 집계 모드(사이클/체인)면 사이클 박스 대신 노드 라벨을 쓴다.
+  // 1) 사이클 구간 박스(x 범위 = 그 사이클 스텝들의 depth, y 범위 = 그 스텝들의 row). 집계 모드는 생략.
+  const cyc={}; if(!agg) DAG.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
   // 체인별 첫(가장 왼쪽) 사이클 — 그 위에 체인 이름을 얹는다.
   const chainMinD={}; DAG.forEach(n=>{ if(chainMinD[n.chain]===undefined||depth[n.sha]<chainMinD[n.chain])chainMinD[n.chain]=depth[n.sha]; });
   Object.keys(cyc).forEach(k=>{ const ns=cyc[k];
@@ -1104,20 +1176,26 @@ function buildStepMap(){
     const mx=(x1+x2)/2;
     svg.appendChild(svgEl('path',{class:cls,fill:'none',d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
   }); });
-  // 3) 노드(작은 점, 글씨 없음) + HEAD ▼. 툴팁·클릭 유지.
+  // 3) 노드 + HEAD ▼. 스텝 모드=작은 점(글씨 없음). 집계 모드=큰 점+이름 라벨(+⚡분기).
   DAG.forEach(n=>{
-    const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
-    g.appendChild(svgEl('title',{},n.chain+'/'+n.cycle+'/'+n.step+' '+n.kind+(n.here?' ◀ HEAD':'')+'\n'+n.subj));
-    g.appendChild(svgEl('circle',{r:r}));
+    const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':'')+(agg?' agg':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
+    const tip=agg?(n.subj+(n.here?'  ◀ HEAD':'')):(n.chain+'/'+n.cycle+'/'+n.step+' '+n.kind+(n.here?' ◀ HEAD':'')+'\n'+n.subj);
+    g.appendChild(svgEl('title',{},tip));
+    g.appendChild(svgEl('circle',{r:agg?r+2:r}));
+    if(n.forked){ const s=svgEl('text',{class:'forkmark',x:0,y:3}); s.textContent='⚡'; g.appendChild(s); } // 분기 밟은 solved
+    if(agg){ const lab=svgEl('text',{class:'agglabel',x:0,y:-(r+6)}); lab.textContent=(MAP_DEPTH==='cycle'?n.cycle:n.chain); g.appendChild(lab); }
     if(n.here) g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-3)+' l -5 -7 l 10 0 z'}));
-    g.addEventListener('click',()=>jumpToNode(n));
+    g.addEventListener('click',()=>agg?jumpToAgg(n):jumpToNode(n));
     svg.appendChild(g);
   });
   const wrap=document.createElement('div'); wrap.className='dagwrap'; wrap.appendChild(svg);
   host.appendChild(enableZoomPan(wrap,svg,W,H));
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
-  leg.innerHTML='진짜 커밋 그래프 — 왼→오른 흐름, 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+  if(MAP_DEPTH==='step')
+    leg.innerHTML='진짜 커밋 그래프 — 왼→오른 흐름, 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+  else
+    leg.innerHTML=(MAP_DEPTH==='cycle'?'사이클':'체인')+' 단위 접힌 맵(<b>gil log --depth</b> 뷰어판) — 노드 하나=한 '+(MAP_DEPTH==='cycle'?'사이클':'체인')+'. <b class="lg-alive">초록</b>=solved(산 잎 있음), <b class="lg-dead">붉음</b>=dead, <b>⚡</b>=분기 밟은 solved(죽은 잎도 품음, 일자 solved 와 구분). 엣지=계보. 노드 클릭 → 그 '+(MAP_DEPTH==='cycle'?'사이클 첫 스텝':'체인 첫 사이클')+'으로 이동.';
   host.appendChild(leg);
 }
 // isLeaf — 이 노드를 부모로 삼는 gil 스텝이 없으면 잎(사이클 결말: 산 잎 or 죽은 잎).
@@ -1207,6 +1285,7 @@ function restoreSel(){
   const n=(cyc.nodes||[]).find(x=>x.id===sel.step);
   if(n)openReport(sel.chain,sel.cycle,n);
 }
-buildStepMap();  // 전체 스텝맵은 항상 맨 위에 렌더(탭 없음).
+document.querySelectorAll('#depthseg button').forEach(b=>b.addEventListener('click',()=>setMapDepth(b.dataset.depth))); // 뎁스 토글(AIL #6)
+buildStepMap();  // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
 restoreSel();
 `
