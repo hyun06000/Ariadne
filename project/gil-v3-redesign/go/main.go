@@ -221,6 +221,9 @@ func logDepthStep(ch string, all bool) {
 		if n.verdict != "" {
 			line += " ⟹" + n.verdict
 		}
+		if n.polarity == "goal-missed" {
+			line += " ⊘goal-missed" // 극성(AIL #13): supported 면 목표 실패를 뜻하는 가설
+		}
 		if len(n.merges) > 0 {
 			line += "  ⋈ " + strings.Join(n.merges, ",")
 		}

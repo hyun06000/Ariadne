@@ -49,6 +49,9 @@ var helpTable = map[string]helpEntry{
 			"  --merge <산잎 스텝id>...  (한 사이클 안 산 잎들 합류)\n" +
 			"  --supersede <스텝id>  같은 kind 앞선 스텝을 이 스텝이 정정(새 커밋으로 덮되 옛 것은 이력 보존).\n" +
 			"    (raw amend 로 옛 스텝을 지우지 마라 — 정정은 은폐가 아니라 이력에 남는다. 종결 스텝은 대상 아님. AIL #12)\n" +
+			"  --if-supported goal-met|goal-missed  (hypothesis) 이 가설이 supported 면 사이클 목표가 달성인가 실패인가.\n" +
+			"    기본 goal-met. 부정적 발견(가설 맞음=목표 막힘)이면 goal-missed — 그땐 verify supported 라도 success 거부(fail/backtrack). AIL #13\n" +
+			"  ※ backtrack(hypothesis --to <define>)은 --inherit <전수> 필수 — 죽은 가지의 교훈을 새 가지에 지고 가라. AIL #13\n" +
 			"  ※ 본문은 한 줄이 아니라 보고서다 — 아래 wiki 참조.",
 		"docs/gil/lifecycle.md · docs/gil/reports.md",
 	},

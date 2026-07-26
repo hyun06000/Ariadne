@@ -63,6 +63,12 @@ class GilFixture(unittest.TestCase):
            not any(a in ("--body", "--body-file", "--title") or
                    a.startswith(("--body=", "--body-file=", "--title=")) for a in args):
             args += ["--body", "(테스트 문제 정의)"]
+        # AIL #13: backtrack(step --kind hypothesis --to <define>)은 --inherit 필수(누적 반성
+        # 전수). 대부분 테스트는 backtrack 위상 자체를 검증하므로, --inherit 이 없으면 기본을
+        # 자동 주입한다(테스트 의도 보존). 전수 강제 자체를 검증하는 테스트는 명시 호출로 우회.
+        if args and args[0] == "step" and "--kind" in args and "--to" in args and \
+           "hypothesis" in args and not any(a == "--inherit" or a.startswith("--inherit=") for a in args):
+            args += ["--inherit", "(테스트 전수: 앞 가지의 교훈)"]
         env = dict(os.environ, GIL_NO_VIEWER="1")
         return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
                               capture_output=True, text=True, env=env, input=input)
@@ -1776,6 +1782,87 @@ class TestSupersede(GilFixture):
                      "--supersede", "s4")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("종결", r.stderr)
+
+
+class TestPolarity(GilFixture):
+    """가설 극성(AIL #13) — supported ≠ 목표 달성. 부정적 발견을 success 로 못 닫게."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/m", "--author", "x", "--purpose", "설득 근거 찾기", "--body", "왜 쓰나")
+
+    def test_goal_missed_supported_blocks_success(self):
+        """goal-missed 가설이 supported 면 success 거부(부정적 발견은 벽이지 성공 아님)."""
+        self.gil("step", "d/m", "--kind", "hypothesis", "--title", "작은모델 못 짬",
+                 "--falsify", "F", "--falsify-to", "s1", "--if-supported", "goal-missed")
+        self.gil("step", "d/m", "--kind", "verify", "--title", "실측 못 짬", "--verdict", "supported")
+        r = self.gil("step", "d/m", "--kind", "success", "--title", "성공?")
+        self.assertNotEqual(r.returncode, 0, "goal-missed+supported 가 success 로 닫힘")
+        self.assertIn("goal-missed", r.stderr)
+
+    def test_goal_missed_supported_allows_fail(self):
+        """goal-missed+supported 는 fail 로는 닫힌다(벽으로 못박음 = 정도)."""
+        self.gil("step", "d/m", "--kind", "hypothesis", "--title", "못 짬",
+                 "--falsify", "F", "--falsify-to", "s1", "--if-supported", "goal-missed")
+        self.gil("step", "d/m", "--kind", "verify", "--title", "v", "--verdict", "supported")
+        r = self.gil("step", "d/m", "--kind", "fail", "--title", "벽", "--to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_goal_met_default_allows_success(self):
+        """극성 미지정(기본 goal-met)은 supported→success 통과(비파괴)."""
+        self.gil("step", "d/m", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "d/m", "--kind", "verify", "--title", "v", "--verdict", "supported")
+        r = self.gil("step", "d/m", "--kind", "success", "--title", "ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_polarity_imprinted(self):
+        r = self.gil("step", "d/m", "--kind", "hypothesis", "--title", "H",
+                     "--falsify", "F", "--falsify-to", "s1", "--if-supported", "goal-missed")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Goal-Polarity"), "goal-missed")
+
+    def test_bad_polarity_rejected(self):
+        r = self.gil("step", "d/m", "--kind", "hypothesis", "--title", "H",
+                     "--falsify", "F", "--falsify-to", "s1", "--if-supported", "goal-meat")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_if_supported_hypothesis_only(self):
+        """--if-supported 는 hypothesis 전용."""
+        self.gil("step", "d/m", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        r = self.gil("step", "d/m", "--kind", "verify", "--title", "v",
+                     "--verdict", "supported", "--if-supported", "goal-met")
+        self.assertNotEqual(r.returncode, 0)
+
+
+class TestBacktrackInherit(GilFixture):
+    """backtrack 전수 강제(AIL #13 요구 5) — 죽은 가지 교훈을 새 가지에 지고 가게."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/m", "--author", "x", "--purpose", "P", "--body", "정의")
+        self.gil("step", "d/m", "--kind", "hypothesis", "--title", "H1",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "d/m", "--kind", "verify", "--title", "v", "--verdict", "refuted")
+        self.gil("step", "d/m", "--kind", "fail", "--title", "죽음", "--to", "s1")
+
+    def test_backtrack_requires_inherit(self):
+        """backtrack(hypothesis --to)은 --inherit 없이 거부(맥락 단절 차단)."""
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        r = subprocess.run([*GIL_CMD, "step", "d/m", "--kind", "hypothesis", "--title", "H2",
+                            "--to", "s1", "--falsify", "F2", "--falsify-to", "s1"],
+                           cwd=self.repo, capture_output=True, text=True, env=env)
+        self.assertNotEqual(r.returncode, 0, "backtrack 이 --inherit 없이 통과")
+        self.assertIn("inherit", r.stderr)
+
+    def test_backtrack_with_inherit_ok(self):
+        r = self.gil("step", "d/m", "--kind", "hypothesis", "--title", "H2", "--to", "s1",
+                     "--falsify", "F2", "--falsify-to", "s1", "--inherit", "H1 은 X 때문에 죽음")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Inherit"), "H1 은 X 때문에 죽음")
 
 
 if __name__ == "__main__":

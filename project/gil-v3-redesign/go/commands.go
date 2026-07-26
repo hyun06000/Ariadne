@@ -337,6 +337,12 @@ func cmdStep(args []string) {
 	// 반증조건을 필수 필드로 심으면 verify 실패가 자동으로 backtrack 경로를 갖는다.
 	falsify := fs.str("falsify", "")       // 반증조건: 무엇이 관측되면 이 가설은 거짓인가
 	falsifyTo := fs.str("falsify-to", "")  // 반증 시 되돌아갈 조상 define
+	// 극성(AIL #13): "이 가설이 supported 면 사이클 목표(s1 purpose)가 달성인가 실패인가".
+	// 가설 supported ≠ 목표 달성 — 부정적 발견("이 방향은 막혔다")도 supported 일 수 있고,
+	// 그건 success 가 아니라 fail/backtrack 이다. falsify 가 "무엇이 이 가설을 깨나"를 가설
+	// 세우는 순간 못박듯, 극성은 "이 가설이 맞으면 목표는?"을 그 순간 못박는다. 기본 goal-met
+	// (비파괴 — 대부분 가설은 맞으면 목표 달성). goal-missed 면 verify=supported 라도 success 거부.
+	ifSupported := fs.str("if-supported", "") // goal-met|goal-missed (hypothesis 전용, 빈값=goal-met)
 	// 제안 1 (AIL #1): verify 는 판정을 문법으로 요구한다. supported=가설 지지, refuted=반증.
 	verdict := fs.str("verdict", "") // verify 전용
 	// 제안 B (AIL #1): 소급 반증 간선 — 이 스텝이 앞서 닫힌 supported verify 판정을 뒤늦게
@@ -423,6 +429,14 @@ func cmdStep(args []string) {
 		die("거부: 계보 간선(--merge/--refutes)이 있으면 --inherit <전수> 필요 — 이 갈래에서 " +
 			"무엇을 물려받았나(머지) 혹은 무엇을 뒤집고 무엇은 계승하나(refutes)를 명시하라(AIL #3).")
 	}
+	// backtrack 전수 강제 (AIL #13, 요구 5) — 조상 define 으로 되돌아가 새 형제 가지를 팔 때
+	// (hypothesis --to <define>), 죽은 가지에서 얻은 "누적된 반성"을 --inherit 으로 잇게 한다.
+	// backtrack 은 계보가 갈라지는 자리(머지·refutes 와 동급 간선)인데 지금껏 전수가 면제돼,
+	// 죽은 가지의 교훈이 새 가지로 안 흘렀다. 판정 축이 은밀히 전환되던 근본(맥락 단절)을 친다.
+	if *kind == "hypothesis" && *to != "" && strings.TrimSpace(*inherit) == "" {
+		die("거부: backtrack(hypothesis --to " + *to + ")은 --inherit <전수> 필요 — 되돌아오게 만든 " +
+			"죽은 가지에서 무엇을 배웠나(그 벽의 교훈)를 새 가지에 지고 가라. 맥락이 끊기면 같은 벽을 다시 민다(AIL #13).")
+	}
 
 	tip := growingTip(steps)
 	tipID := ""
@@ -454,6 +468,27 @@ func cmdStep(args []string) {
 		die("거부: 직전 verify(" + tip.step + ")가 가설을 반증(refuted)했다 — success 로 닫을 수 없다. " +
 			"fail(gil step … --kind fail --to <define>) 로 죽은 잎을 남기거나 " +
 			"backtrack(gil step … --kind hypothesis --to <define>) 으로 새 가지를 파라(AIL #1).")
+	}
+	// 극성 success 가드 (AIL #13) — verify 가 supported 라도, 그 가설의 극성이 goal-missed 면
+	// 그 supported 는 "목표 실패를 확인함"(부정적 발견)이다. 가설 supported ≠ 목표 달성 —
+	// refuted 가드가 막는 병("마찰을 success 로 뭉갬")의 다른 얼굴이다. success 를 거부하고
+	// fail(벽으로 못박음)/backtrack(다른 접근)을 요구한다. 부정적 발견은 그래프에서 가장 값진
+	// 벽의 지도여야지 가짜 success 가 아니다.
+	if *kind == "success" && tip != nil && tip.kind == "verify" && tip.verdict == "supported" {
+		// verify 의 부모 hypothesis 를 찾아 극성을 본다.
+		var hyp *node
+		for i := range steps {
+			if steps[i].step == tip.parent && steps[i].kind == "hypothesis" {
+				hyp = &steps[i]
+				break
+			}
+		}
+		if hyp != nil && hyp.polarity == "goal-missed" {
+			die("거부: 직전 verify(" + tip.step + ")는 supported 지만, 그 가설(" + hyp.step + ")의 극성이 " +
+				"goal-missed 다 — 가설이 맞았다는 건 사이클 목표의 '실패'를 확인한 것(부정적 발견)이다. " +
+				"success 가 아니라:\n  fail(gil step … --kind fail --to <define>) 로 '이 방향은 막혔다'를 벽으로 못박거나\n" +
+				"  backtrack(gil step … --kind hypothesis --to <define> --inherit <이 벽의 교훈>) 으로 다른 접근을 파라(AIL #13).")
+		}
 	}
 	defineIDs := map[string]bool{}
 	liveLeaves := map[string]bool{}
@@ -491,6 +526,13 @@ func cmdStep(args []string) {
 				"주장마다 형제 hypothesis 로 갈라라: gil step " + ref + " --kind hypothesis --to " + *falsifyTo +
 				" --falsify <주장1> …  → H1은 죽은 잎, H2/H3은 산 잎으로 부분반증이 그래프에 정직히 남는다(AIL #1).")
 		}
+		// 극성 값 검사(AIL #13). 빈값=goal-met(기본, 비파괴).
+		if *ifSupported != "" && *ifSupported != "goal-met" && *ifSupported != "goal-missed" {
+			die("거부: --if-supported 는 goal-met|goal-missed 중 하나 — 이 가설이 supported 면 사이클 목표가 " +
+				"달성(goal-met)인가 실패(goal-missed)인가. 부정적 발견(가설 맞음=목표 막힘)이면 goal-missed(AIL #13).")
+		}
+	} else if *ifSupported != "" {
+		die("거부: --if-supported 는 hypothesis 전용이다(가설의 극성).")
 	}
 
 	// stepSHA — 이 사이클에서 특정 스텝 id 의 커밋 sha(형제 가지 분기 지점).
@@ -561,6 +603,11 @@ func cmdStep(args []string) {
 	if *kind == "hypothesis" {
 		tr = append(tr, [2]string{"Gil-Falsify", *falsify})       // 반증조건(벽의 지도의 씨앗)
 		tr = append(tr, [2]string{"Gil-Falsify-To", *falsifyTo}) // 반증 시 되돌아갈 define
+		pol := *ifSupported
+		if pol == "" {
+			pol = "goal-met" // 기본(비파괴) — 대부분 가설은 supported=목표 달성
+		}
+		tr = append(tr, [2]string{"Gil-Goal-Polarity", pol}) // 가설 극성(AIL #13)
 	}
 	if *kind == "verify" {
 		tr = append(tr, [2]string{"Gil-Verdict", *verdict}) // supported|refuted (제안 1)
@@ -716,6 +763,29 @@ func cmdClose(args []string) {
 	}
 	if len(live) == 0 {
 		die("거부: 산 잎(success 스텝) 없음 — 닫을 수 없다")
+	}
+	// 극성 close 대면 (AIL #13, 옵션 B — success 가드의 이중 방어). 산 잎(success)이 딛은
+	// verify 가 supported 인데 그 가설의 극성이 goal-missed 면, 이 사이클은 "목표 실패를 확인"한
+	// 것이라 success 로 봉인하면 안 된다. success 가드(step 시점)를 우회했거나 옛 데이터라도
+	// close 에서 한 번 더 잡는다. (가설 supported ≠ 사이클 목표 달성.)
+	stepByID := map[string]*node{}
+	for i := range steps {
+		stepByID[steps[i].step] = &steps[i]
+	}
+	for _, lid := range live {
+		leaf := stepByID[lid]
+		if leaf == nil || leaf.kind != "success" {
+			continue
+		}
+		vf := stepByID[leaf.parent] // success 의 부모 = verify
+		if vf == nil || vf.kind != "verify" || vf.verdict != "supported" {
+			continue
+		}
+		hyp := stepByID[vf.parent] // verify 의 부모 = hypothesis
+		if hyp != nil && hyp.kind == "hypothesis" && hyp.polarity == "goal-missed" {
+			die("거부: 산 잎 " + lid + " 는 goal-missed 가설(" + hyp.step + ")이 supported 된 위에 섰다 — " +
+				"목표 실패를 확인한 걸 success 로 봉인할 수 없다. 그 잎을 fail 로 남기거나 backtrack 하라(AIL #13).")
+		}
 	}
 	sort.Strings(live)
 	subject := "gil " + chain + "/" + cycle + " close: " + *verdict
