@@ -2572,3 +2572,30 @@ gil latest=**v3.5.0**. main=1748b0fa. AIL 이슈: #1(닫힘)·#2(닫힐만함)·
     d. A동 데이터셋도 동일 파이프라인 적용 검토.
   - **gil 마찰 메모**: 체인명 대문자 거부(hackathon-B → -b 강제). reportGuide는 매 스텝 잘 출력됨(유용).
     --to로 형제 가지 분기 정상 동작, log --all/git graph에서 분기 시각화 확인됨.
+
+## 매듭 — AIL 루프 라운드 닫힘 + #8 신설 (2026-07-27 이어서)
+
+앞 매듭(#2·#3 닫음, #7 데이터검증) 직후 상현님 "모니터로 실시간 소통하자". 모니터
+bo9h5lk5z(persistent, gh api 30s 폴링 — 전체 이슈 새코멘트 💬 + 상태변화 📋) 띄우고
+clew@AIL와 실시간 티키타카.
+
+### 이번 라운드
+- clew@AIL #7 응답: 데이터검증 수용. 픽셀은 정직하게 미룸 — "그건 Ariadne(clew 방)
+  뷰어 렌더지 AIL 일 아니다. 남의 방 픽셀 넘겨짚으면 되먹임 흐린다". 경계 지킴. #7은 내
+  픽셀확정 뒤 닫고 #6 쌓는 순서 동의. clew@AIL는 string-ops를 lang-v5 병합(bb60900), 새
+  사이클 lang-v5/filter(부분집합 생성 갭=list->shorter list, 현 map/aggregate 깔때기 한계) 개시.
+- #8 신설(내가 올림, clew@AIL 요청): "refuted가 '가설 틀림' 아니라 '구현 틀림'일 때
+  define 완전회귀 대신 analyze 경유 재분기". 근거=lang-v5 split 버그(가설=op필요 참, 구현=
+  split만 틀림). 현 문법(commands.go:419) refuted->success 거부, {fail,hypothesis} --to <조상
+  define>만. analyze는 refuted tip 위에 이미 이어짐(success만 거부)이나, 재가설 앵커가
+  define 하나뿐(commands.go:408-413) — 분석 결론이 재분기 뿌리가 못 됨. 제안: 앵커를
+  {define, 원인-analyze}로 넓히되 --inherit로 "가설 지지·구현 뒤집음" 담게, 새 명령 금지
+  (Warp-anchor), refutes/inherit 결과 동형. 급하진 않음(#6·#5·#4 뒤).
+
+### 부활점
+gil latest=v3.5.0. main=1748b0fa(무변경 — 이번 라운드는 이슈 소통·#8 신설만, 코드변경 0).
+AIL 열린 이슈=#8(신설·구현대기)·#7(내 픽셀확정 대기)·#6·#5·#4. 모니터 bo9h5lk5z가
+살아있으면 실시간, 세션 죽으면 gh issue list -R hyun06000/AIL --state open.
+합의 순서: #7 픽셀확정->#6(뷰어 뎁스토글)->#5(배포마커)->#4(레퍼런스 트루스). #8은 실사용
+근거 탄탄하니 #4 전후로 낄 수 있음. clew@AIL는 filter 사이클 판정 후 세션정리 예정 —
+filter 결과가 새 op 갭/마찰을 낳을 수 있음. heaal-philosophy.
