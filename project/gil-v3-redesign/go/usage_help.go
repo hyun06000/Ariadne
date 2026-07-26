@@ -33,11 +33,14 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/deployment.md",
 	},
 	"open": {
-		"gil open <chain>/<cycle> --author <who> --purpose <자연어> (--body B | --body-file F|- | --title T) [--parent <cyc>...]\n" +
+		"gil open <chain>/<cycle> --author <who> --purpose <자연어> (--body B | --body-file F|- | --title T)\n" +
+			"           [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--inherit <전수>]\n" +
 			"  새 사이클을 연다(s1 define 자동) — git 브랜치 <chain>-<cycle> 을 판다.\n" +
 			"  본문 필수: --body/--body-file -(stdin)/--title 중 하나로 s1 define 의 문제 정의를 여는 순간 채운다.\n" +
 			"    (빈 채로 열 수 없다 — raw git amend 로 채우던 우회를 문법으로 막는다. AIL #12)\n" +
-			"  --parent 는 이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).",
+			"  --parent   이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).\n" +
+			"  --refutes  이 사이클이 앞서 닫힌 supported verify 를 소급 반증한다(과거 불변, forward 간선). 재판정에 쓴다.\n" +
+			"  --inherit  --parent/--refutes 간선이 있으면 필수 — 무엇을 물려받거나 무엇을 뒤집고 무엇은 계승하나.",
 		"docs/gil/concepts.md · docs/gil/lifecycle.md",
 	},
 	"step": {
