@@ -1,9 +1,15 @@
 #!/bin/sh
-# gil 한 줄 설치 — 플랫폼 감지 → 릴리스 바이너리 다운로드 → 체크섬 검증 → ./gil.
+# gil 한 줄 설치 — 플랫폼 감지 → 릴리스 바이너리 다운로드 → 체크섬 검증 → 호스트 PATH 에 설치.
+#
+# 왜 호스트 설치가 기본인가(AIL #11): gil 은 git·go·docker 처럼 "도구"다. 사람도 AI 도 도구는
+# 호스트 머신 단위로 사고한다 — 한 번 설치하면 어느 저장소에서든 `gil`. 저장소-로컬(./gil)이
+# 기본이면 `which gil` 이 실패해 "gil 없음"으로 오인하고, 도구가 멀쩡히 있는데 능력을 빼앗긴
+# 것처럼 잘못 안내하게 된다(실사용 4단계 오류로 실증). 그래서 기본을 ~/.local/bin 으로.
+# 저장소별 버전 고정이 필요하면 `--dir .` 로 여전히 로컬 설치할 수 있다(옵션).
 #
 # 사용:
 #   curl -fsSL https://raw.githubusercontent.com/hyun06000/Ariadne/main/install.sh | sh
-# 또는 특정 디렉토리에:
+# 특정 디렉토리(저장소-로컬 등)에:
 #   curl -fsSL .../install.sh | sh -s -- --dir /path/to/project
 #
 # 체크섬은 절대 건너뛰지 않는다 — 해시가 어긋나면 스크립트가 비-0 으로 멈추고 gil 은 생기지
@@ -11,11 +17,13 @@
 set -eu
 
 REPO="hyun06000/Ariadne"
-DIR="."
+# 기본 설치 위치 = 호스트 PATH(사용자 단위, sudo 불필요). XDG 관례의 ~/.local/bin.
+DIR="${HOME}/.local/bin"
+DIR_EXPLICIT=0
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--dir) DIR="$2"; shift 2 ;;
-		--dir=*) DIR="${1#--dir=}"; shift ;;
+		--dir) DIR="$2"; DIR_EXPLICIT=1; shift 2 ;;
+		--dir=*) DIR="${1#--dir=}"; DIR_EXPLICIT=1; shift ;;
 		*) echo "gil install: 알 수 없는 인자 '$1'" >&2; exit 2 ;;
 	esac
 done
@@ -51,7 +59,7 @@ base="https://github.com/${REPO}/releases/latest/download"
 mkdir -p "$DIR"
 cd "$DIR"
 
-echo "gil install: $asset 내려받는 중 (latest)…" >&2
+echo "gil install: $asset 내려받는 중 (latest) → $DIR …" >&2
 curl -fsSL -O "$base/$asset"
 curl -fsSL -O "$base/SHA256SUMS"
 
@@ -66,5 +74,28 @@ fi
 mv "$asset" gil
 chmod +x gil
 rm -f SHA256SUMS
-echo "✓ gil 설치 완료 → $(cd "$DIR" && pwd)/gil" >&2
-echo "  다음: ./gil help  (이 빌드가 뭘 하는지 도구에 직접 물어라)" >&2
+installed="$(cd "$DIR" && pwd)/gil"
+echo "✓ gil 설치 완료 → $installed" >&2
+
+# PATH 확인 — 도구는 어디서든 `gil` 로 잡혀야 한다(AIL #11 의 핵심). 저장소-로컬(--dir)
+# 설치가 아니고, 설치 위치가 PATH 에 없으면 추가 방법을 안내한다.
+case ":${PATH}:" in
+	*":${DIR}:"*) on_path=1 ;;
+	*) on_path=0 ;;
+esac
+if [ "$DIR_EXPLICIT" = 1 ]; then
+	# 사용자가 --dir 로 위치를 직접 지정 — 저장소-로컬 등 의도적 선택이라 PATH 안내 대신 호출법만.
+	echo "  다음: $installed help   (또는 이 디렉토리에서 ./gil help)" >&2
+elif [ "$on_path" = 1 ]; then
+	echo "  다음: gil help   (도구에 직접 물어라 — 어디서든 gil 로 잡힌다)" >&2
+else
+	# 호스트 설치인데 PATH 에 없다 — 여기서 안내 안 하면 `which gil` 실패로 #11 이 재발한다.
+	echo "" >&2
+	echo "  ⚠ $DIR 이 PATH 에 없다 — 지금은 $installed 로만 실행된다." >&2
+	echo "    어디서든 'gil' 로 쓰려면 셸 설정에 아래 한 줄을 더하라(당신 셸의 rc 파일):" >&2
+	echo "" >&2
+	echo "      export PATH=\"\$HOME/.local/bin:\$PATH\"" >&2
+	echo "" >&2
+	echo "    (bash=~/.bashrc, zsh=~/.zshrc. 추가 뒤 새 셸을 열거나 source 하라.)" >&2
+	echo "  당장 쓰려면: $installed help" >&2
+fi

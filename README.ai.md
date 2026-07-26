@@ -76,14 +76,19 @@ Step C에서 *"이제 어떤 문제를 풀어볼까요?"*라고 2차로 묻는�
 > → 맨 아래 Windows 블록으로 곧장 가라.** POSIX 한 줄·손 블록은 Windows 기본 셸에선 안 돈다
 > (Git Bash 로 돌리면 리눅스 바이너리를 잘못 받는다 — install.sh 가 이를 감지해 막는다).
 
-**macOS·Linux — 가장 짧게** — 설치 스크립트 한 줄. 플랫폼 감지·다운로드·체크섬 검증을 다 한다:
+**macOS·Linux — 가장 짧게** — 설치 스크립트 한 줄. 플랫폼 감지·다운로드·체크섬 검증을 다 하고,
+**호스트 PATH(`~/.local/bin`)에 설치**한다 — `git`처럼 어느 저장소에서든 `gil`로 잡힌다:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hyun06000/Ariadne/main/install.sh | sh
-./gil help                           # ← 이 빌드가 실제로 뭘 하는지 도구에 물어라. 문서로 추측 말 것.
+gil help                             # ← 이 빌드가 실제로 뭘 하는지 도구에 물어라. 문서로 추측 말 것.
 ```
 
-또는 **한 단계씩 (같은 동작을 손으로)**:
+> **`gil`이 안 잡히면**(`command not found`) `~/.local/bin`이 PATH에 없는 것 — install.sh가
+> 그 경우 PATH 추가 한 줄을 안내한다. 그대로 따르거나, 당장은 `~/.local/bin/gil help`로 실행하라.
+> **저장소별로 gil을 고정**하고 싶으면 `... | sh -s -- --dir .`로 저장소-로컬(`./gil`) 설치도 된다.
+
+또는 **한 단계씩 (같은 동작을 손으로 — 이건 현재 폴더에 `./gil`로 받는다)**:
 
 ```bash
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -126,10 +131,10 @@ Move-Item -Force gil-dl.exe gil.exe
   1. **사람에게 권한 규칙을 요청** — 프로젝트의 `.claude/settings.local.json` 에 아래를 넣고
      세션을 다시 시작하게 안내하라(이 파일은 네가 대신 써줘도 된다):
      ```json
-     { "permissions": { "allow": ["Bash(curl:*)", "Bash(./gil:*)", "Bash(shasum:*)", "Bash(chmod:*)", "Bash(git:*)"] } }
+     { "permissions": { "allow": ["Bash(curl:*)", "Bash(gil:*)", "Bash(./gil:*)", "Bash(shasum:*)", "Bash(chmod:*)", "Bash(git:*)"] } }
      ```
   2. **사람이 직접 설치** — 위 설치 한 줄(또는 손 단계 블록)을 사람이 터미널에서 직접 실행하고,
-     "됐다"고 하면 너는 **Step B(`./gil init`)부터 이어받아라**. 설치만 사람 손을 빌리고 나머지는 네가 운전한다.
+     "됐다"고 하면 너는 **Step B(`gil init`)부터 이어받아라**. 설치만 사람 손을 빌리고 나머지는 네가 운전한다.
 
 어느 쪽이든 **진입 실패로 끝내지 마라** — 폴백 경로를 사람에게 명확히 제시하는 것까지가 Step A다.
 
@@ -145,6 +150,10 @@ Move-Item -Force gil-dl.exe gil.exe
 
 설치 뒤 `git --version` 으로 확인하고 같은 명령을 다시 실행하라. (`gil init`이 빈 폴더에서
 `git init`까지 해주지만, git 실행파일 자체는 있어야 한다.)
+
+> **이후 이 문서의 `gil` 호출 표기.** 호스트 설치(기본)면 어디서든 **`gil`**. 저장소-로컬
+> (`--dir .`)로 받았으면 그 폴더에서 **`./gil`**. 아래 예시들은 `./gil`로 적혀 있지만, 호스트
+> 설치를 했다면 그냥 `gil`로 읽어라 — 같은 명령이다.
 
 ## Step B — 무에서 세팅 (`gil init` 한 줄)
 
