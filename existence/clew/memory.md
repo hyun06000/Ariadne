@@ -2708,3 +2708,42 @@ AIL 열림=#11(신설·gil 호스트설치)·#10(진단교정·보류)·#9(구�
 '도구 아니라 뎁거리'로 오인 — 설치 이슈, 메모리 gil-dev-vs-release-isolation 과 연관 가능).
 그 뒤 #7·#6·#9 픽셀 상현확인 → OK 면 v3.6.0 릴리스후보 → #5·#4. 모니터 blelrsi9d 살아있음.
 heaal-philosophy. gil-dev-vs-release-isolation.
+
+## 매듭 — AIL #11 호스트설치 + #12 우회 3종 차단 (2026-07-27 자율진행)
+
+상현님 "자율 진행". clew@AIL가 한 세션에 세 번 밟은 우회의 뿌리를 gil 문법으로 메움.
+
+### #11 호스트 설치 기본 (main f8433a38, install.sh+README.ai.md)
+저장소-로컬(./gil) 기본이 which gil 실패→"gil 없음"→소스 오인→"뷰어 못 띄운다" 박제의
+병인. install.sh DIR="." → "$HOME/.local/bin". PATH 검사+없으면 export 안내(핵심).
+--dir 옵션 유지(저장소-로컬). 상단 근거 문서화. README.ai.md 설치 뒤 gil help(./gil 아님)+
+호출 컨벤션 한 줄. E2E(HOME 격리) 3경로 통과. install.sh는 main raw라 push 즉시 반영.
+
+### #12 우회 3종 (main addd38b4, go 7파일+테스트)
+1. open 본문 필수화: --body/--body-file/--title 없으면 die. 옛 "(문제 미기술 — 커밋
+   수정으로 채우라)" 안내가 raw amend 우회 유도(자기모순)라 제거. commands.go:289.
+2. step --supersede <id>: 같은 kind 앞선 스텝을 새 커밋으로 덮되 옛 것 이력 보존
+   (Gil-Supersedes). raw amend 정도. 무결성=실재·같은 kind·종결 아님(die). 텍스트그래프
+   ⟲정정/⤳정정됨(main.go supersededBy 맵). fsck dangling supersedes(graph.go).
+   **abandon 접음** — 상현님 "사이클 폐기보다 스텝 덮어쓰기가 실제 의도". amend vs
+   supersede 중 supersede 택함(HEAAL: 정정은 은폐 아니라 이력에 남음, #8 교훈 동형).
+3. handoff 현행성 배너: 현재버전+최신대조 경고+gil help/README 포인터. latestTagTimeout(3s)
+   비차단(오프라인 안 막힘). handoff.go currencyBanner.
+
+### ⚠ 재사용 주의 (중요)
+- **git.go collectNodes 필드 순서 갱신**: …Gil-Verdict[12]·Falsify[13]·Refutes[14]·
+  Inherit[15]·**Supersedes[16]**, len(f)<17. 트레일러 추가 시 인덱스·splitMulti 주의.
+- 테스트 헬퍼 self.gil: open 호출에 body/title/body-file/input 하나도 없으면 --body
+  자동주입(테스트 의도 보존). 본문 필수 검증 테스트는 subprocess 직접 호출로 우회.
+- define 은 step 대상 아님(사이클 뿌리 하나) → supersede 로 s1 define 못 고침. 이미 생긴
+  빈 define 은 소급치료 없음(예방만). clew@AIL에 정직히 답, 필요시 별도 이슈 안내함.
+- 릴리스 절차 불변: -ldflags "-X main.gilVersion=vX.Y.Z" 5타깃, install.sh·llms.txt
+  이전재사용(단 이번 install.sh 변경됐으니 릴리스 자산에도 반영 확인), main FF, E2E.
+
+### 부활점
+gil latest=v3.5.0(미릴리스 누적 대량: #6 뎁스토글·#7 고스트·#9 라벨·#11 install·#12 우회3종).
+main=addd38b4. **다음 유력: v3.6.0 릴리스 후보** — 파괴적변경(open 본문필수) 포함이라 minor.
+단 #6·#7·#9 뷰어 픽셀은 상현/clew@AIL 브라우저 확인 대기(헤드리스 불가). 픽셀 OK+상현
+push 승인 후 릴리스. AIL 열림=#12·#11·#10(보류)·#9(픽셀)·#8(근거대기)·#7(픽셀)·#6(픽셀)·
+#5·#4. 모니터 blelrsi9d 살아있음(60s clew@AIL 안전망). 로컬 커밋만(push 미승인).
+heaal-philosophy. gil-dev-vs-release-isolation.
