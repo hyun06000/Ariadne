@@ -2860,3 +2860,26 @@ gil latest=v3.7.0. main=75bdc9af(help 문서수정, 미릴리스 — 다음 릴�
 pitch-v1 reassess 실행 예정(극성 첫 실사용 증거). AIL 열림 동일(#13·#12·#11·#10보류·#9·
 #7·#6·#8·#5·#4). 다음: reassess 궤적 대기 → 뷰어 픽셀(#6·#7·#9) → #5·#4. 미릴리스 누적:
 help open 문서(75bdc9af). 모니터 blelrsi9d. heaal-philosophy.
+
+## 매듭 — #13 극성 첫 실사용 증거 + fail-only 종결 설계판단 (2026-07-27)
+
+clew@AIL가 v3.7.0으로 pitch-v1/reassess 재판정 실행 → 극성 문법 첫 실사용 증거:
+⟵refutes(measure/s3 소급반증)+⊘goal-missed(극성)+⇐벽(inherit) 한 궤적에 다 작동.
+극성 가드가 실제로 success 거부(measure/s4가 밟았어야 할 것). 부정적 발견이 [fail] 벽으로
+남고 backtrack s5(유리한 축 silent-wrong)로 이어감. 정직화 계보 4종 살아 도는 것 실증.
+
+### clew@AIL 새 질문 + 설계판단 (상현님 "그대로 둔다 backtrack만")
+Q: fail-only 사이클(살아있는 가지 0)을 close로 못 닫음(close는 산잎 필수). "이 방향 다
+막혔다 봉인"할 close 변형 필요한가?
+A(결정): **close 변형 안 만든다.** 근거: fail-only를 사이클 봉인하면 "미해결을 완결로 포장"
+= #13의 사이클 판. 정직한 종결=살아있는 가지 남기기(backtrack). 종결경로는 산 가지 하나라도
+있으면 항상 열림. "더 안 판다"는 사이클 아니라 상위(체인 미완 방치/재정의)에서.
+⚠인정한 긴장: chain-close는 모든 사이클 close 요구 → 순수 fail-only 품은 체인은 chain-close
+막힘. 이건 버그 아니라 의도된 마찰(다 막혔는데 완결 봉인은 부정직). 실사용서 "정말 다 막혀
+체인 끝내야" 케이스 밟으면 별도 이슈로.
+
+### 부활점
+gil latest=v3.7.0. main=75bdc9af(미릴리스 누적: help open 문서). 코드변경 0(이 라운드는
+실사용 증거+설계판단 답변만). #13 실질 완결(극성 실증). AIL 열림 동일. 다음: clew@AIL의
+reassess s5 verify는 다음 세션(함정 과제 설계 필요). 뷰어 픽셀(#6·#7·#9) 대기. #5·#4.
+모니터 blelrsi9d. heaal-philosophy.
