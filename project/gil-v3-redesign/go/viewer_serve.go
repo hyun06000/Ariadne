@@ -226,8 +226,59 @@ func workBadge(g graphView, static bool) string {
 // 각 체인의 노드 좌표도 함께 실어 확장 패널을 그 자리에 띄운다.
 // static=true 면 각 노드에 "body"(스텝 커밋 본문)를 임베드 — 서버 /step 페치 없이 보고서를
 // 바로 렌더한다. serve(static=false)면 본문은 클릭 시 /step 으로 페치(HTML 을 가볍게 유지).
+// cycleEntryParents — 각 사이클의 진입 부모 스텝(AIL #7). 사이클 첫 스텝(가장 낮은 s번호)의
+// 커밋 부모 사슬을 거슬러, 다른 사이클/체인에 속한 가장 가까운 gil 스텝을 찾는다. 반환:
+// (chain\x01cycle) → "chain/cycle/step". 위상 유도라 Gil-Cycle-Parent 선언이 없어도 잡힌다.
+func cycleEntryParents(g graphView) map[string]string {
+	stepBySHA := map[string]viewerNode{}
+	for _, n := range g.allNodes {
+		stepBySHA[n.sha] = n
+	}
+	nonStep := commitParentMap()
+	// 각 (chain,cycle)의 첫 스텝(정의) 노드.
+	first := map[string]viewerNode{}
+	for _, n := range g.allNodes {
+		k := n.chain + "\x01" + n.cycle
+		if cur, ok := first[k]; !ok || stepNum(n.step) < stepNum(cur.step) {
+			first[k] = n
+		}
+	}
+	out := map[string]string{}
+	for k, def := range first {
+		// def 의 커밋 부모에서 시작해, 다른 사이클의 gil 스텝을 만날 때까지 거슬러 오른다.
+		seen := map[string]bool{}
+		var walk func(sha string) string
+		walk = func(sha string) string {
+			if seen[sha] {
+				return ""
+			}
+			seen[sha] = true
+			if s, ok := stepBySHA[sha]; ok && !(s.chain == def.chain && s.cycle == def.cycle) {
+				return s.chain + "/" + s.cycle + "/" + s.step // 다른 사이클/체인의 스텝 — 진입 부모.
+			}
+			for _, p := range nonStep[sha] {
+				if r := walk(p); r != "" {
+					return r
+				}
+			}
+			return ""
+		}
+		for _, p := range def.gitParents {
+			if r := walk(p); r != "" {
+				out[k] = r
+				break
+			}
+		}
+	}
+	return out
+}
+
 func cycleJSON(g graphView, static bool) string {
 	pos, _, _ := chainLayout(g)
+	// 경계 진입 부모(AIL #7): 각 사이클의 첫 스텝이 커밋 위상상 어느 다른 사이클/체인의 스텝에서
+	// 태어났나. Gil-Cycle-Parent 선언이 없어도(실사용은 위상 분기라 대개 없다) 커밋 부모 사슬로
+	// 유도한다 — dagJSON 의 nearestStep 과 같은 원리. key=(chain\x01cycle) → "chain/cycle/step".
+	cycleEntry := cycleEntryParents(g)
 	var sb strings.Builder
 	sb.WriteString("{")
 	for i, ch := range g.chains {
@@ -249,16 +300,18 @@ func cycleJSON(g graphView, static bool) string {
 			if _, ok := g.hereCyc[ch.name+"/"+cy.name]; ok {
 				here = true // HEAD 가 이 사이클(스텝 팁 아닌 close 등)
 			}
-			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"nodes":[`,
-				cy.name, len(cy.steps), cy.status(), here))
+			// 사이클 부모(경계 stub 엣지용, AIL #7): 위상 유도한 진입 부모 스텝 ref(다른 카드).
+			cycPar := cycleEntry[ch.name+"\x01"+cy.name]
+			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"nodes":[`,
+				cy.name, len(cy.steps), cy.status(), here, cycPar))
 			for k, n := range cy.steps {
 				if k > 0 {
 					sb.WriteString(",")
 				}
 				_, nhere := g.here[posKey(n)]
 				sb.WriteString(fmt.Sprintf(
-					`{"id":%q,"kind":%q,"outcome":%q,"parent":%q,"backtrack":%q,"here":%t,"sha":%q,"subj":%q`,
-					n.step, n.kind, n.outcome, n.parent, n.backtrack, nhere, n.full, n.subject))
+					`{"id":%q,"kind":%q,"outcome":%q,"parent":%q,"backtrack":%q,"here":%t,"sha":%q,"inherit":%q,"subj":%q`,
+					n.step, n.kind, n.outcome, n.parent, n.backtrack, nhere, n.full, n.inherit, n.subject))
 				if static {
 					sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body)) // 정적: 본문 인라인
 				}
@@ -442,6 +495,12 @@ svg.cygraph{display:block}
 .snode .headarrow{fill:var(--here)}
 .snode{cursor:pointer}
 .snode.sel circle{fill:var(--node);fill-opacity:.18}
+/* 경계 고스트 노드·stub 엣지(AIL #7) — 계보가 카드 밖으로 이어짐을 흐리게 표시(orphan 착시 제거) */
+.snode.ghost circle{fill:none;stroke:var(--dim);stroke-dasharray:3 3;opacity:.55}
+.snode.ghost .sid{fill:var(--dim);opacity:.7}.snode.ghost .skind{opacity:.6}
+.snode.ghost{cursor:default}
+.snode .inhlbl{text-anchor:middle;font-size:9px;fill:var(--node);opacity:.75}
+.stepedge.ghost{stroke:var(--dim);stroke-dasharray:3 3;opacity:.5}
 /* 종결 노드 (analyze/pending 잎의 결말: 성공/실패·기각/대기) */
 .tnode circle{stroke-width:2}
 .tnode .tsym{text-anchor:middle;font-size:14px;font-weight:700;pointer-events:none}
@@ -683,11 +742,49 @@ function openStepCard(chain,cyc){
   const colGap=96, rowGap=82, r=20, padX=30, padYtop=48, padY=30;
   let maxCol=0,maxRow=0;
   steps.forEach(n=>{ maxCol=Math.max(maxCol,col[n.id]||0); maxRow=Math.max(maxRow,row[n.id]||0); });
-  const X=id=>padX+r+(col[id]||0)*colGap;
+  // 경계 stub 엣지(AIL #7): 사이클이 부모(다른 카드)에서 왔으면 왼쪽에 진입 고스트,
+  // 잎(자식 없는 산/죽은 노드)에서 다음 카드로 나가면 오른쪽에 진출 고스트를 둔다 —
+  // orphan 착시(뿌리 없는 가지)를 깬다. 진입 고스트엔 물려받은 전수(Gil-Inherit)를 라벨로.
+  const hasEntry=!!cyc.parent;                 // 사이클 부모(Gil-Cycle-Parent)가 있으면 진입 경계.
+  const leaves=steps.filter(n=>!(kids[n.id]&&kids[n.id].length)); // 카드 안에서 자식 없는 잎.
+  const gx=hasEntry?1:0;                        // 진입 고스트가 있으면 실노드를 한 칸 오른쪽으로.
+  const X=id=>padX+r+(gx+(col[id]||0))*colGap;
   const Y=id=>padYtop+r+(row[id]||0)*rowGap; // 위쪽 여유(backtrack 곡선이 위로 지나감)
-  const w=Math.max(160, padX*2+maxCol*colGap+r*2);
+  const GEX=padX+r+(gx+maxCol+1)*colGap;        // 진출 고스트 X(맨 오른쪽 한 칸 밖).
+  const w=Math.max(160, padX*2+(gx+maxCol+(leaves.length?1:0))*colGap+r*2);
   const h=padYtop+padY+maxRow*rowGap+r*2;
   const svg=svgEl('svg',{class:'cygraph',viewBox:'0 0 '+w+' '+h,width:w,height:h});
+  // 고스트 노드·stub 엣지를 실노드보다 먼저(밑에) 그린다.
+  const GX=padX+r; // 진입 고스트 X(맨 왼쪽 칸).
+  if(hasEntry){
+    // 진입 고스트: 부모 사이클을 가리키는 흐린 노드. 각 루트로 stub 엣지.
+    const inh=(steps[0]&&steps[0].inherit)||'';
+    roots.forEach(rt=>{
+      svg.appendChild(svgEl('path',{class:'stepedge ghost',fill:'none',
+        d:'M '+(GX+r)+' '+Y(rt.id)+' C '+((GX+r+X(rt.id)-r)/2)+' '+Y(rt.id)+' '+((GX+r+X(rt.id)-r)/2)+' '+Y(rt.id)+' '+(X(rt.id)-r)+' '+Y(rt.id)}));
+    });
+    const gg=svgEl('g',{class:'snode ghost',transform:'translate('+GX+','+Y(roots[0].id)+')'});
+    gg.appendChild(svgEl('title',{},'부모 사이클: '+cyc.parent+(inh?'\n물려받음: '+inh:'')));
+    gg.appendChild(svgEl('circle',{r:r}));
+    gg.appendChild(svgEl('text',{class:'sid',dy:3},'←'));
+    gg.appendChild(svgEl('text',{class:'skind',dy:r+16},cyc.parent));
+    if(inh){ gg.appendChild(svgEl('text',{class:'inhlbl',dy:-r-14},'⇐'+(inh.length>22?inh.slice(0,22)+'…':inh))); }
+    svg.appendChild(gg);
+  }
+  if(leaves.length){
+    // 진출 고스트: 이 사이클의 산 잎에서 다음 카드로 나감을 표시(흐린 노드 하나로 수렴).
+    const anchorRow=Math.round(leaves.reduce((s,n)=>s+(row[n.id]||0),0)/leaves.length);
+    const GEY=padYtop+r+anchorRow*rowGap;
+    leaves.forEach(lf=>{
+      svg.appendChild(svgEl('path',{class:'stepedge ghost',fill:'none',
+        d:'M '+(X(lf.id)+r)+' '+Y(lf.id)+' C '+((X(lf.id)+r+GEX-r)/2)+' '+Y(lf.id)+' '+((X(lf.id)+r+GEX-r)/2)+' '+GEY+' '+(GEX-r)+' '+GEY}));
+    });
+    const ge=svgEl('g',{class:'snode ghost',transform:'translate('+GEX+','+GEY+')'});
+    ge.appendChild(svgEl('title',{},'다음 사이클/체인으로 이어짐'));
+    ge.appendChild(svgEl('circle',{r:r}));
+    ge.appendChild(svgEl('text',{class:'sid',dy:3},'→'));
+    svg.appendChild(ge);
+  }
   // 엣지: 부모→자식(꺾은 선), backtrack 파선.
   steps.forEach(n=>{
     if(n.parent&&n.parent!=='null'&&byId[n.parent]){

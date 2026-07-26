@@ -46,6 +46,8 @@ type viewerNode struct {
 	parent, backtrack        string   // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
 	refutes                  []string // Gil-Refutes: 이 스텝/사이클이 소급 반증하는 verify 스텝들(AIL #1 B)
 	refutedBy                []string // 역인덱스: 이 스텝을 반증한 스텝들(뷰어가 ⚠refuted-by 표시)
+	cycleParents             []string // Gil-Cycle-Parent: 사이클 계보 부모(경계 stub 엣지용, AIL #7)
+	inherit                  string   // Gil-Inherit: 부모에게서 물려받은 전수(경계 라벨용, AIL #3·#7)
 	gitParents               []string // 실제 커밋 부모 SHA(9자) — 진짜 DAG 그래프용(%P).
 	body                     string   // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
 }
@@ -99,9 +101,11 @@ func viewerCollectNodes() []viewerNode {
 			chain: tr["Gil-Chain"], cycle: tr["Gil-Cycle"], step: tr["Gil-Step"],
 			kind: tr["Gil-Kind"], outcome: tr["Gil-Outcome"], verdict: tr["Gil-Verdict"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
-			refutes:    trailerAll(parts[3], "Gil-Refutes"), // multi-value(map은 마지막만 남아 직접 파싱)
-			gitParents: gp,
-			body:       strings.TrimRight(parts[4], "\n"),
+			refutes:      trailerAll(parts[3], "Gil-Refutes"), // multi-value(map은 마지막만 남아 직접 파싱)
+			cycleParents: trailerAll(parts[3], "Gil-Cycle-Parent"),
+			inherit:      tr["Gil-Inherit"],
+			gitParents:   gp,
+			body:         strings.TrimRight(parts[4], "\n"),
 		})
 	}
 	// 소급 반증 역인덱스(AIL #1 B): refutes 대상에게 "너는 누구에게 반증됐다"를 달아준다.
