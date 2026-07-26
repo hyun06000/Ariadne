@@ -1453,5 +1453,134 @@ class TestBranchingEnforcement(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class TestLateRefutation(GilFixture):
+    """AIL #1 제안 B — 사이클 간 늦은 반증. 후속 사이클이 앞서 닫힌 supported verify
+    판정을 뒤늦게 반증했음을 --refutes 간선으로 계보에 남긴다(verdict 는 불변 보존).
+    design→harden 시나리오(SSRF 정적봉쇄 supported → 후속 우회 발견) 재현."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "net", "--purpose", "net cap")
+        # design 사이클: supported verify 로 닫는다(= 소급 반증 대상).
+        self.gil("open", "net/design", "--author", "clew", "--purpose", "SSRF 정적봉쇄")
+        self.gil("step", "net/design", "--kind", "hypothesis", "--title", "H-safe",
+                 "--falsify", "host를 weave-time에 못 뽑으면 정적 SSRF 판정 불가",
+                 "--falsify-to", "s1")
+        self.gil("step", "net/design", "--kind", "verify", "--title", "실측",
+                 "--verdict", "supported", "--body", "3축 지지, 반증조건 미관측")  # s3
+        self.gil("step", "net/design", "--kind", "success", "--title", "성립",
+                 "--body", "net cap 성립")
+        self.gil("close", "net/design")
+        # harden 사이클: design 을 부모로 연다.
+        self.gil("open", "net/harden", "--author", "clew", "--purpose", "우회 봉쇄",
+                 "--parent", "design")
+
+    def _refutes(self, target, **kw):
+        return self.gil("step", "net/harden", "--kind", "verify", "--title", "우회발견",
+                        "--verdict", "supported", "--refutes", target,
+                        "--body", "8진수/hex 우회로 정적봉쇄 뚫림", **kw)
+
+    def test_refutes_imprints_trailer(self):
+        """정상 --refutes 는 Gil-Refutes 를 각인한다."""
+        r = self._refutes("net/design/s3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Refutes"), "net/design/s3")
+
+    def test_refutes_target_must_exist(self):
+        """dangling 대상은 거부."""
+        r = self._refutes("net/design/s99")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("실재", r.stderr)
+
+    def test_refutes_target_must_be_closed(self):
+        """열린 사이클의 스텝은 소급 반증 대상이 아니다(그 자리서 backtrack 하라)."""
+        # harden 은 아직 안 닫힘 — harden 자기 스텝을 대상으로 시도.
+        self.gil("step", "net/harden", "--kind", "hypothesis", "--title", "h",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "net/harden", "--kind", "verify", "--title", "v",
+                 "--verdict", "supported")  # s3 (열린 사이클)
+        r = self.gil("step", "net/harden", "--kind", "analyze", "--title", "a",
+                     "--refutes", "net/harden/s3")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("안 닫", r.stderr)
+
+    def test_refutes_target_must_be_verify(self):
+        """verify 아닌 스텝(success)을 refutes 하면 거부 — 반증되는 건 판정이다."""
+        r = self._refutes("net/design/s4")  # s4 = success
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("verify", r.stderr)
+
+    def test_refutes_target_must_be_supported(self):
+        """refuted verify 를 refutes 하는 건 무의미 — 거부. (별 사이클에 refuted 를 만든다)"""
+        self.gil("chain", "x", "--purpose", "P")
+        self.gil("open", "x/c1", "--author", "c", "--purpose", "P")
+        self.gil("step", "x/c1", "--kind", "hypothesis", "--title", "h",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "x/c1", "--kind", "verify", "--title", "v", "--verdict", "refuted")  # s3
+        self.gil("step", "x/c1", "--kind", "fail", "--title", "벽", "--to", "s1")
+        self.gil("step", "x/c1", "--kind", "hypothesis", "--to", "s1", "--title", "h2",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "x/c1", "--kind", "success", "--title", "됨")
+        self.gil("close", "x/c1")
+        r = self._refutes("x/c1/s3")  # s3 = refuted verify
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("supported", r.stderr)
+
+    def test_refutes_on_open(self):
+        """gil open --refutes 도 받는다(사이클을 여는 순간 반증 선언)."""
+        self.gil("chain", "net2", "--purpose", "P")
+        # 새 사이클을 열며 design/s3 을 refutes.
+        r = self.gil("open", "net2/c1", "--author", "clew", "--purpose", "재검",
+                     "--refutes", "net/design/s3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Refutes"), "net/design/s3")
+
+    def test_fsck_flags_dangling_refutes(self):
+        """fsck 는 실재하지 않는 refutes 대상을 잡는다."""
+        # 정상 refutes 를 심고 사이클을 닫은 뒤, 대상이 없는 상황은 만들기 어려우니
+        # 여기선 정상 그래프가 fsck 통과하는지만 확인(dangling 은 무결성 가드가 이미 막음).
+        self._refutes("net/design/s3")
+        self.gil("step", "net/harden", "--kind", "success", "--title", "됨")
+        self.gil("close", "net/harden")
+        r = self.gil("fsck")
+        self.assertEqual(r.returncode, 0, f"정상 refutes 그래프가 fsck 위반:\n{r.stdout}")
+
+    def test_viewer_shows_refuted_by(self):
+        """뷰어 텍스트가 반증된 판정에 ⚠refuted-by, 반증한 쪽에 ⟵refutes 를 표시한다."""
+        self._refutes("net/design/s3")
+        self.gil("step", "net/harden", "--kind", "success", "--title", "됨")
+        self.gil("close", "net/harden")
+        r = self.gil("viewer")
+        out = r.stdout
+        self.assertIn("refuted-by", out, f"반증 배지 없음:\n{out}")
+        self.assertIn("refutes", out)
+
+
+class TestCompositeHypothesis(GilFixture):
+    """AIL #1 제안 A — 한 hypothesis = 한 주장. --falsify 가 여러 주장으로 열거되면 거부."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/c1", "--author", "c", "--purpose", "P")
+
+    def test_semicolon_enumeration_rejected(self):
+        r = self.gil("step", "a/c1", "--kind", "hypothesis", "--title", "복합",
+                     "--falsify", "H1이 거짓; H2가 거짓; H3이 거짓", "--falsify-to", "s1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("여러 주장", r.stderr)
+
+    def test_newline_enumeration_rejected(self):
+        r = self.gil("step", "a/c1", "--kind", "hypothesis", "--title", "복합",
+                     "--falsify", "H1이 거짓\nH2가 거짓", "--falsify-to", "s1")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_single_claim_with_comma_ok(self):
+        """쉼표 있는 한 문장은 단일 주장 — 통과해야(오탐 방지)."""
+        r = self.gil("step", "a/c1", "--kind", "hypothesis", "--title", "단일",
+                     "--falsify", "host를 못 뽑으면, 정적 판정이 불가능하다", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

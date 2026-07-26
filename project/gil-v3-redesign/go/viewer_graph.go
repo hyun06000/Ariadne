@@ -44,6 +44,8 @@ type viewerNode struct {
 	chain, cycle, step, kind string
 	outcome, verdict         string
 	parent, backtrack        string   // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
+	refutes                  []string // Gil-Refutes: 이 스텝/사이클이 소급 반증하는 verify 스텝들(AIL #1 B)
+	refutedBy                []string // 역인덱스: 이 스텝을 반증한 스텝들(뷰어가 ⚠refuted-by 표시)
 	gitParents               []string // 실제 커밋 부모 SHA(9자) — 진짜 DAG 그래프용(%P).
 	body                     string   // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
 }
@@ -97,11 +99,41 @@ func viewerCollectNodes() []viewerNode {
 			chain: tr["Gil-Chain"], cycle: tr["Gil-Cycle"], step: tr["Gil-Step"],
 			kind: tr["Gil-Kind"], outcome: tr["Gil-Outcome"], verdict: tr["Gil-Verdict"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
+			refutes:    trailerAll(parts[3], "Gil-Refutes"), // multi-value(map은 마지막만 남아 직접 파싱)
 			gitParents: gp,
 			body:       strings.TrimRight(parts[4], "\n"),
 		})
 	}
+	// 소급 반증 역인덱스(AIL #1 B): refutes 대상에게 "너는 누구에게 반증됐다"를 달아준다.
+	// 뷰어가 반증된 supported verify 에 ⚠refuted-by 를 붙여 "흠 없는 success" 착시를 깬다.
+	idx := map[string]int{}
+	for i, n := range nodes {
+		idx[n.chain+"/"+n.cycle+"/"+n.step] = i
+	}
+	for _, n := range nodes {
+		for _, rf := range n.refutes {
+			if j, ok := idx[rf]; ok {
+				src := n.chain + "/" + n.cycle + "/" + n.step
+				nodes[j].refutedBy = append(nodes[j].refutedBy, src)
+			}
+		}
+	}
 	return nodes
+}
+
+// trailerAll — 한 커밋 trailer 블록에서 특정 키의 모든 값(multi-value). parseTrailers 맵은
+// 같은 키를 마지막 값으로 덮어써서 Gil-Refutes 같은 다중 간선을 못 담는다.
+func trailerAll(block, key string) []string {
+	var out []string
+	for _, ln := range strings.Split(block, "\n") {
+		k, v, ok := strings.Cut(ln, ":")
+		if ok && strings.TrimSpace(k) == key {
+			if val := strings.TrimSpace(v); val != "" {
+				out = append(out, val)
+			}
+		}
+	}
+	return out
 }
 
 // commitParentMap — 모든 커밋(gil 스텝이든 아니든)의 부모 사슬(9자 SHA). dagJSON 이
@@ -554,6 +586,14 @@ func renderText(g graphView) {
 				}
 				if n.verdict != "" {
 					line += " ⟹" + n.verdict
+					// 소급 반증됨(AIL #1 B): supported 판정이 후속 사이클에 뒤집혔다.
+					// 취소선 대신(터미널 폭 안정) ⚠refuted-by 배지로 "흠 없는 success" 착시를 깬다.
+					if len(n.refutedBy) > 0 {
+						line += " ⚠refuted-by " + strings.Join(n.refutedBy, ",")
+					}
+				}
+				if len(n.refutes) > 0 {
+					line += " ⟵refutes " + strings.Join(n.refutes, ",")
 				}
 				if br, ok := g.here[posKey(n)]; ok {
 					line += "   ← 현재위치 (" + br + ")"

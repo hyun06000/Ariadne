@@ -254,6 +254,15 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 				violations = append(violations, "계보: "+cc+" — 같은 체인 참조 \""+ref+"\" 실재 안 함")
 			}
 		}
+		// 6b. 소급 반증 간선 무결성(AIL #1 B) — Gil-Refutes 대상은 <chain>/<cycle>/<step> 스텝이
+		//     실재해야 한다. (닫힘·verify·supported 조건은 open/step 시점에 강제됐고, 여기선
+		//     dangling 만 잡는다 — Gil-Cycle-Parent 참조검사와 동형. 과거를 fail 로 바꾸라곤 안 한다.)
+		for _, rf := range n.refutes {
+			p := strings.Split(rf, "/")
+			if len(p) != 3 || !stepKeys[stepKey(p[0], p[1], p[2])] {
+				violations = append(violations, "계보: "+cc+" — 소급 반증 대상 \""+rf+"\" 실재 안 함 (dangling refutes)")
+			}
+		}
 	}
 	return violations
 }

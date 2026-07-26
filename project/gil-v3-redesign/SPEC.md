@@ -136,6 +136,7 @@ pending은 "진행 중, 사람 대기"를 그래프에 남긴다 — 답이 오�
 | `Gil-Falsify` | 반증조건 문자열 | **hypothesis 필수** — 무엇이 관측되면 이 가설이 거짓인가(AIL #1) |
 | `Gil-Falsify-To` | 조상 define id | **hypothesis 필수** — 반증 시 되돌아갈 define(AIL #1) |
 | `Gil-Verdict` | supported\|refuted | **verify 필수** — 지지/반증. refuted면 success 문법 거부(AIL #1) |
+| `Gil-Refutes` | `<chain>/<cycle>/<step>` | 소급 반증 간선 — 이 스텝/사이클이 앞서 닫힌 supported verify 판정을 뒤늦게 반증(AIL #1 B). 여러 줄 허용 |
 
 ### 사이클 루트 스텝(s1)에만
 | 키 | 값 | 뜻 |
@@ -190,6 +191,16 @@ gil은 커밋 그래프를 훑어 아래를 검사한다. 위반이면 새 노�
      supported|refuted`를 요구하고, refuted면 **success를 거부**한다(fail/backtrack만 허용).
      죽은 잎(fail/analyze-fail/backtrack) 위에는 선형으로 잇지 못하고 새 가지만 허용한다 —
      fail 잎이 지도에 물리적으로 남는다. HEAAL: 분기는 격려가 아니라 success의 좁은 문으로 는다.
+   - **소급 반증 간선(AIL #1 B, 사이클 간 늦은 반증)**: 후속 사이클이 앞서 닫힌 supported
+     verify 판정을 뒤늦게 반증하면 `--refutes <chain>/<cycle>/<step>`(open·step 양쪽)으로
+     계보에 남긴다. verdict 를 뒤집지 않는다(append-only) — 과거 판정은 그 시점의 정직한
+     기록으로 불변 보존하고, 반증은 새 사이클에 forward-pointing 간선으로 얹는다("새 진실은
+     앞에 산다"). 대상 무결성만 강제: 실재·닫힌 사이클·verify kind·verdict=supported. 미래의
+     반증은 문법으로 못 낳으니 강제가 아니라 **가시화** — 뷰어가 그 판정에 ⚠refuted-by 를 붙여
+     "흠 없는 success" 착시를 깬다. fsck 는 dangling refutes 대상을 잡는다.
+   - **복합가설 거부(AIL #1 A)**: `--falsify` 가 개행/세미콜론으로 여러 주장을 열거하면 거부한다
+     (verdict 는 하나뿐 → 부분반증 은폐). 주장마다 형제 hypothesis 로 갈라 부분반증을 "가지의
+     부분 생존"(H1 죽은 잎·H2/H3 산 잎)으로 표현한다.
 4. **계보 참조 무결성**: `Gil-Cycle-Parent`·`Gil-Merge`가 실재하는 사이클/체인을 가리켜야 함
    (옛 R6의 v3판, C041 이월).
 

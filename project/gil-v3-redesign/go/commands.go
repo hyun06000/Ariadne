@@ -125,6 +125,95 @@ func growingTip(steps []node) *node {
 	return &steps[0]
 }
 
+// countClaims — --falsify 가 몇 개의 주장으로 열거됐나(AIL #1 A). 개행/세미콜론을 명백한
+// 열거 구분자로 본다(한 문장의 쉼표·구두점은 오탐 않도록 제외). 비어있지 않은 조각 수를
+// 센다 — 2 이상이면 복합가설로 보고 형제 hypothesis 로 갈라내게 거부한다.
+func countClaims(falsify string) int {
+	segs := strings.FieldsFunc(falsify, func(r rune) bool { return r == '\n' || r == ';' || r == '；' })
+	n := 0
+	for _, s := range segs {
+		if strings.TrimSpace(s) != "" {
+			n++
+		}
+	}
+	if n == 0 {
+		return 1 // 구분자만 있거나 공백 — 상위에서 falsify=="" 는 이미 걸렀으니 단일로 본다
+	}
+	return n
+}
+
+// guideRefutes — 소급 반증(--refutes) 안내(AIL #1 B). 강제하지 않고, 반증된 verify 가
+// 딛고 있던 hypothesis 의 falsify 조건을 되짚어 준다: 소급 반증은 "그때 세운 반증조건이
+// 뒤늦게 충족됐다"로 계보에 남을 때 가장 정직하다(falsify 가 미래 반증의 앵커). 대상 verify
+// 의 직전 hypothesis 형제에서 Gil-Falsify 를 찾아 보여 준다.
+func guideRefutes(targets []string) {
+	all := collectNodes("--branches")
+	byKey := map[string]node{}
+	for _, n := range all {
+		byKey[stepKey(n.chain, n.cycle, n.step)] = n
+	}
+	for _, t := range targets {
+		stderr("  ▸ 소급 반증(--refutes " + t + "): 이 사이클이 앞서 닫힌 supported 판정을 뒤집는다.")
+		parts := strings.Split(t, "/")
+		if len(parts) == 3 {
+			// 같은 사이클에서 falsify 를 심은 hypothesis 를 찾아, 그 반증조건을 앵커로 제시.
+			var fals []string
+			for _, n := range all {
+				if n.chain == parts[0] && n.cycle == parts[1] && n.kind == "hypothesis" && n.falsify != "" {
+					fals = append(fals, n.falsify)
+				}
+			}
+			if len(fals) > 0 {
+				stderr("    앵커: 그 판정이 딛은 가설의 반증조건이 뒤늦게 관측된 것인가? 본문에 적어라:")
+				for _, f := range fals {
+					stderr("      · " + f)
+				}
+			}
+		}
+		stderr("    (verdict 는 불변 보존 — 뒤집지 않는다. 새 진실은 이 사이클에 산다. 뷰어가 그 판정에 ⚠refuted-by 를 붙인다.)")
+	}
+}
+
+// resolveRefutes — --refutes <chain>/<cycle>/<step> 소급 반증 간선의 무결성을 검증한다
+// (AIL #1 제안 B). 후속 사이클/스텝이 앞서 닫힌 supported verify 판정을 뒤늦게 반증했음을
+// 계보에 forward-pointing 간선으로 남긴다 — verdict 를 뒤집지(supersede) 않고, 과거는
+// 불변 보존하되 새 간선으로 재조명한다("새 진실은 앞에 산다"). 대상은 반드시:
+//   (a) 실재하는 스텝, (b) 그 사이클이 close 로 봉인됨, (c) kind==verify, (d) verdict==supported.
+// (fail/refuted 를 반증하는 건 무의미하므로 supported 만 대상.)
+func resolveRefutes(targets []string) {
+	if len(targets) == 0 {
+		return
+	}
+	all := collectNodes("--branches")
+	byKey := map[string]node{}
+	for _, n := range all {
+		byKey[stepKey(n.chain, n.cycle, n.step)] = n
+	}
+	closed := closedCycles("--branches")
+	for _, t := range targets {
+		parts := strings.Split(t, "/")
+		if len(parts) != 3 {
+			die("거부: --refutes 대상 \"" + t + "\"는 <chain>/<cycle>/<step> 꼴이어야 함 (스텝 단위)")
+		}
+		tc, tcy, ts := parts[0], parts[1], parts[2]
+		n, ok := byKey[stepKey(tc, tcy, ts)]
+		if !ok {
+			die("거부: --refutes 대상 " + t + " 실재 안 함 (dangling)")
+		}
+		if !closed[tc+"\x01"+tcy] {
+			die("거부: --refutes 대상 " + t + "의 사이클이 아직 안 닫혔다 — 소급 반증은 닫힌 판정만 대상 " +
+				"(열린 사이클은 backtrack/fail 로 그 자리에서 되돌려라)")
+		}
+		if n.kind != "verify" {
+			die("거부: --refutes 대상 " + t + "는 verify 스텝이어야 함 (반증되는 건 판정이다). 현재 kind=" + n.kind)
+		}
+		if n.verdict != "supported" {
+			die("거부: --refutes 대상 " + t + "의 verdict 가 supported 가 아니다(현재 \"" + n.verdict +
+				"\") — 반증할 지지 판정이 없다")
+		}
+	}
+}
+
 // ── gil open ──
 func cmdOpen(args []string) {
 	fs := newFlags("gil open")
@@ -134,9 +223,10 @@ func cmdOpen(args []string) {
 	bodyF := fs.str("body", "")
 	bodyFile := fs.str("body-file", "")
 	parents := fs.strList("parent")
+	refutes := fs.strList("refutes") // 소급 반증 간선(AIL #1 제안 B): 이 사이클이 뒤집는 앞 verify 스텝
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--title T] [--body B | --body-file F|-]")
+		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--title T] [--body B | --body-file F|-]")
 	}
 	if *author == "" {
 		die("거부: --author 필요")
@@ -176,6 +266,7 @@ func cmdOpen(args []string) {
 				"끝에서만 연다. 먼저 `gil close " + chain + "/" + par + "` 로 닫아라.")
 		}
 	}
+	resolveRefutes(*refutes) // 소급 반증 대상 무결성(AIL #1 B)
 	showPurposeContext(chain, cycle, *purpose)
 
 	subjTitle := *title
@@ -200,10 +291,16 @@ func cmdOpen(args []string) {
 	for _, par := range *parents {
 		tr = append(tr, [2]string{"Gil-Cycle-Parent", par})
 	}
+	for _, rf := range *refutes {
+		tr = append(tr, [2]string{"Gil-Refutes", rf}) // 소급 반증 간선(AIL #1 B)
+	}
 	// 사이클 = 체인 안의 git 가지. 현재 위치(체인 팁/닫힌 사이클 끝)에서 분기.
 	cb := cycleBranch(chain, cycle)
 	commitOn(cb, "HEAD", subject, body, tr, true)
 	println2("open: " + ref + "/s1 define (브랜치 " + cb + ")")
+	if len(*refutes) > 0 {
+		guideRefutes(*refutes)
+	}
 	reportGuide("define", bodyThin(body))
 }
 
@@ -224,6 +321,9 @@ func cmdStep(args []string) {
 	falsifyTo := fs.str("falsify-to", "")  // 반증 시 되돌아갈 조상 define
 	// 제안 1 (AIL #1): verify 는 판정을 문법으로 요구한다. supported=가설 지지, refuted=반증.
 	verdict := fs.str("verdict", "") // verify 전용
+	// 제안 B (AIL #1): 소급 반증 간선 — 이 스텝이 앞서 닫힌 supported verify 판정을 뒤늦게
+	// 반증한다. verify 스텝에서 우회를 관측한 순간이 가장 정직한 자리라 step 도 받는다.
+	refutes := fs.strList("refutes")
 
 	pos := fs.parse(args)
 	if len(pos) < 1 {
@@ -268,6 +368,7 @@ func cmdStep(args []string) {
 			die("거부: --verdict 은 supported|refuted 중 하나")
 		}
 	}
+	resolveRefutes(*refutes) // 소급 반증 대상 무결성(AIL #1 B)
 
 	tip := growingTip(steps)
 	tipID := ""
@@ -326,6 +427,15 @@ func cmdStep(args []string) {
 		}
 		if !defineIDs[*falsifyTo] {
 			die("거부: --falsify-to " + *falsifyTo + "는 이 사이클의 조상 define이어야 함")
+		}
+		// 제안 A (AIL #1) — 복합가설 열거 거부. 한 hypothesis 는 한 주장이어야 한다: verdict 는
+		// 하나뿐이라, H1·H2·H3 를 한 가설에 담으면 H1만 반증돼도 정직하게 표현할 수 없다(반증
+		// 은폐). --falsify 가 개행이나 세미콜론으로 명백히 열거되면 거부하고, 주장별 형제
+		// hypothesis 로 갈라 부분반증을 "가지의 부분 생존"으로 표현하게 한다.
+		if countClaims(*falsify) > 1 {
+			die("거부: --falsify 가 여러 주장으로 열거됐다 — 한 가설=한 주장이어야 한다(verdict 는 하나뿐). " +
+				"주장마다 형제 hypothesis 로 갈라라: gil step " + ref + " --kind hypothesis --to " + *falsifyTo +
+				" --falsify <주장1> …  → H1은 죽은 잎, H2/H3은 산 잎으로 부분반증이 그래프에 정직히 남는다(AIL #1).")
 		}
 	}
 
@@ -401,6 +511,9 @@ func cmdStep(args []string) {
 	if *kind == "verify" {
 		tr = append(tr, [2]string{"Gil-Verdict", *verdict}) // supported|refuted (제안 1)
 	}
+	for _, rf := range *refutes {
+		tr = append(tr, [2]string{"Gil-Refutes", rf}) // 소급 반증 간선(AIL #1 B)
+	}
 	if *outcome != "" {
 		tr = append(tr, [2]string{"Gil-Outcome", *outcome})
 	}
@@ -423,6 +536,9 @@ func cmdStep(args []string) {
 		tail = " ⋈merge " + strings.Join(*merge, "+")
 	}
 	println2("step: " + ref + "/" + sid + " " + *kind + " ←" + parent + tail)
+	if len(*refutes) > 0 {
+		guideRefutes(*refutes)
+	}
 	reportGuide(*kind, bodyThin(stBody))
 }
 

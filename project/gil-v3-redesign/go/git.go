@@ -77,7 +77,9 @@ type node struct {
 	outcome      string
 	backtrack    string
 	merges       []string
-	verdict      string // verify 스텝: supported|refuted (제안 1, AIL #1)
+	verdict      string   // verify 스텝: supported|refuted (제안 1, AIL #1)
+	falsify      string   // hypothesis 스텝: 반증조건 (제안 2, AIL #1)
+	refutes      []string // 이 스텝/사이클이 소급 반증하는 verify 스텝들 (제안 B, AIL #1)
 }
 
 // collectNodes — 커밋 그래프를 훑어 Gil-Step 트레일러를 가진 커밋을 스텝 노드로 수집.
@@ -96,6 +98,8 @@ func collectNodes(revRange string) []node {
 		trailer("Gil-Backtrack"),
 		trailerMulti("Gil-Merge"),
 		trailer("Gil-Verdict"),
+		trailer("Gil-Falsify"),
+		trailerMulti("Gil-Refutes"),
 	}, fsep) + sep
 	// revRange 뒤 "--" 로 revision 확정 — 체인/브랜치명이 디렉토리명과 겹치면(예: viewer)
 	// git 이 revision/path ambiguity 로 exit 128 로 죽는다(실사용 발견, viewer 실작업).
@@ -107,7 +111,7 @@ func collectNodes(revRange string) []node {
 			continue
 		}
 		f := strings.Split(rec, fsep)
-		if len(f) < 13 {
+		if len(f) < 15 {
 			continue
 		}
 		step := strings.TrimSpace(f[4])
@@ -128,6 +132,8 @@ func collectNodes(revRange string) []node {
 			backtrack:    strings.TrimSpace(f[10]),
 			merges:       splitMulti(f[11]),
 			verdict:      strings.TrimSpace(f[12]),
+			falsify:      strings.TrimSpace(f[13]),
+			refutes:      splitMulti(f[14]),
 		})
 	}
 	return nodes
