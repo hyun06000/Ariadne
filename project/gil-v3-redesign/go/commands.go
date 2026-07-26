@@ -171,6 +171,7 @@ func guideRefutes(targets []string) {
 			}
 		}
 		stderr("    (verdict 는 불변 보존 — 뒤집지 않는다. 새 진실은 이 사이클에 산다. 뷰어가 그 판정에 ⚠refuted-by 를 붙인다.)")
+		stderr("    --inherit 는 여기선 '물려받음'이 아니라 '뒤집음' — 무엇을 뒤집고(그 판정) 무엇은 계승하나(구현 등)를 담아라(AIL #3).")
 	}
 }
 
@@ -224,9 +225,10 @@ func cmdOpen(args []string) {
 	bodyFile := fs.str("body-file", "")
 	parents := fs.strList("parent")
 	refutes := fs.strList("refutes") // 소급 반증 간선(AIL #1 제안 B): 이 사이클이 뒤집는 앞 verify 스텝
+	inherit := fs.str("inherit", "") // 물려받은 지식·전제·교훈(AIL #3): 계보 간선 생기면 필수
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--title T] [--body B | --body-file F|-]")
+		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
 	}
 	if *author == "" {
 		die("거부: --author 필요")
@@ -267,6 +269,13 @@ func cmdOpen(args []string) {
 		}
 	}
 	resolveRefutes(*refutes) // 소급 반증 대상 무결성(AIL #1 B)
+	// 제안 A (AIL #3) — 계보 간선이 새로 생기면 물려받은 지식·전제·교훈을 명시한다. 부모
+	// 사이클(--parent)이나 소급 반증(--refutes) 간선이 있으면 --inherit 필수 — 간선의 존재는
+	// 문법이, 내용의 진실성은 존재가 보증한다("정직 강제 불가, 은폐 영속화만 차단", AIL #1).
+	if (len(*parents) > 0 || len(*refutes) > 0) && strings.TrimSpace(*inherit) == "" {
+		die("거부: 계보 간선(--parent/--refutes)이 있으면 --inherit <전수> 필요 — 부모에게서 물려받은 " +
+			"사전지식·전제·교훈을 명시하고 출발하라. 계보를 포인터 그물이 아니라 지식의 강으로(AIL #3).")
+	}
 	showPurposeContext(chain, cycle, *purpose)
 
 	subjTitle := *title
@@ -293,6 +302,9 @@ func cmdOpen(args []string) {
 	}
 	for _, rf := range *refutes {
 		tr = append(tr, [2]string{"Gil-Refutes", rf}) // 소급 반증 간선(AIL #1 B)
+	}
+	if strings.TrimSpace(*inherit) != "" {
+		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
 	}
 	// 사이클 = 체인 안의 git 가지. 현재 위치(체인 팁/닫힌 사이클 끝)에서 분기.
 	cb := cycleBranch(chain, cycle)
@@ -324,6 +336,7 @@ func cmdStep(args []string) {
 	// 제안 B (AIL #1): 소급 반증 간선 — 이 스텝이 앞서 닫힌 supported verify 판정을 뒤늦게
 	// 반증한다. verify 스텝에서 우회를 관측한 순간이 가장 정직한 자리라 step 도 받는다.
 	refutes := fs.strList("refutes")
+	inherit := fs.str("inherit", "") // 물려받은 전수(AIL #3): 머지/refutes 간선 생기면 필수
 
 	pos := fs.parse(args)
 	if len(pos) < 1 {
@@ -369,6 +382,13 @@ func cmdStep(args []string) {
 		}
 	}
 	resolveRefutes(*refutes) // 소급 반증 대상 무결성(AIL #1 B)
+	// 제안 A (AIL #3) — 머지/소급반증 간선이 새로 생기면 --inherit 필수. 같은 사이클 안
+	// 선형 스텝(직전 Gil-Parent)은 전수랄 게 없어 면제 — 매 스텝 강제는 형해화만 낳는다
+	// (clew@AIL 실사용: 같은 내용 복붙). 계보가 실제로 갈라지는 자리에만 요구한다.
+	if (len(*merge) > 0 || len(*refutes) > 0) && strings.TrimSpace(*inherit) == "" {
+		die("거부: 계보 간선(--merge/--refutes)이 있으면 --inherit <전수> 필요 — 이 갈래에서 " +
+			"무엇을 물려받았나(머지) 혹은 무엇을 뒤집고 무엇은 계승하나(refutes)를 명시하라(AIL #3).")
+	}
 
 	tip := growingTip(steps)
 	tipID := ""
@@ -513,6 +533,9 @@ func cmdStep(args []string) {
 	}
 	for _, rf := range *refutes {
 		tr = append(tr, [2]string{"Gil-Refutes", rf}) // 소급 반증 간선(AIL #1 B)
+	}
+	if strings.TrimSpace(*inherit) != "" {
+		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
 	}
 	if *outcome != "" {
 		tr = append(tr, [2]string{"Gil-Outcome", *outcome})
@@ -723,9 +746,10 @@ func cmdChainClose(args []string) {
 func cmdChain(args []string) {
 	fs := newFlags("gil chain")
 	purpose := fs.str("purpose", "")
+	inherit := fs.str("inherit", "") // 물려받은 전수(AIL #3). 체인 부모는 위상 유도라 선택.
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil chain <name> --purpose <자연어>")
+		die("사용: gil chain <name> --purpose <자연어> [--inherit <전수>]")
 	}
 	name := pos[0]
 	if *purpose == "" {
@@ -747,9 +771,16 @@ func cmdChain(args []string) {
 		{"Gil-Chain", name}, {"Gil-Kind", "chain-root"},
 		{"Gil-Chain-Purpose", *purpose},
 	}
+	if strings.TrimSpace(*inherit) != "" {
+		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
+	}
 	// 체인 = git 브랜치. 현재 위치(대문/닫힌 체인 끝)에서 분기해 대문을 이어받는다(orphan 아님).
 	commitOn(name, "HEAD", subject, body, tr, true)
 	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
+	// 체인은 거의 늘 앞 체인의 교훈 위에 선다 — 부모가 위상 유도라 강제는 안 하되 안내(AIL #3).
+	if strings.TrimSpace(*inherit) == "" {
+		stderr("  ▸ 이 체인이 앞 체인/사이클에서 물려받은 전제·교훈이 있으면 --inherit 로 명시하라(AIL #3) — 계보를 지식의 강으로.")
+	}
 }
 
 // ── gil chain-merge ──

@@ -218,6 +218,9 @@ func logDepthStep(ch string, all bool) {
 		if len(n.refutes) > 0 {
 			line += "  ⟵refutes " + strings.Join(n.refutes, ",")
 		}
+		if n.inherit != "" {
+			line += "  ⇐" + n.inherit // 물려받은 전수(AIL #3) — 계보 간선의 지식 라벨
+		}
 		println2(line)
 	}
 }

@@ -233,7 +233,7 @@ class TestClosedParentGuard(GilFixture):
         self.gil("step", "c/c001", "--kind", "success", "--title", "ok")
         self.gil("close", "c/c001")
         r = self.gil("open", "c/c002", "--author", "a", "--purpose", "P",
-                     "--parent", "c001")
+                     "--parent", "c001", "--inherit", "c001 결과를 잇는다")
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
@@ -1473,11 +1473,12 @@ class TestLateRefutation(GilFixture):
         self.gil("close", "net/design")
         # harden 사이클: design 을 부모로 연다.
         self.gil("open", "net/harden", "--author", "clew", "--purpose", "우회 봉쇄",
-                 "--parent", "design")
+                 "--parent", "design", "--inherit", "design의 net cap 구현을 잇는다")
 
     def _refutes(self, target, **kw):
         return self.gil("step", "net/harden", "--kind", "verify", "--title", "우회발견",
                         "--verdict", "supported", "--refutes", target,
+                        "--inherit", "판정은 뒤집되 net cap 구현은 계승",
                         "--body", "8진수/hex 우회로 정적봉쇄 뚫림", **kw)
 
     def test_refutes_imprints_trailer(self):
@@ -1531,7 +1532,7 @@ class TestLateRefutation(GilFixture):
         self.gil("chain", "net2", "--purpose", "P")
         # 새 사이클을 열며 design/s3 을 refutes.
         r = self.gil("open", "net2/c1", "--author", "clew", "--purpose", "재검",
-                     "--refutes", "net/design/s3")
+                     "--refutes", "net/design/s3", "--inherit", "판정 뒤집고 구현 계승")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Refutes"), "net/design/s3")
 
@@ -1642,6 +1643,55 @@ class TestDepthLog(GilFixture):
     def test_bad_depth_rejected(self):
         r = self.gil("log", "--depth", "galaxy")
         self.assertNotEqual(r.returncode, 0)
+
+
+class TestInherit(GilFixture):
+    """AIL #3 — 계보 간선이 새로 생기는 자리에 물려받은 지식·전제·교훈(--inherit) 명시.
+    A안(간선 생기는 3자리에만): 새 사이클(--parent)·머지·refutes 필수, 같은 사이클 선형
+    스텝은 면제, 체인은 안내."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "m", "--purpose", "P")
+        self.gil("open", "m/c1", "--author", "c", "--purpose", "P")
+        self.gil("step", "m/c1", "--kind", "success", "--title", "ok")
+        self.gil("close", "m/c1")
+
+    def test_parent_requires_inherit(self):
+        r = self.gil("open", "m/c2", "--author", "c", "--purpose", "Q", "--parent", "c1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("inherit", r.stderr)
+
+    def test_parent_with_inherit_imprints(self):
+        r = self.gil("open", "m/c2", "--author", "c", "--purpose", "Q",
+                     "--parent", "c1", "--inherit", "c1의 판정 한계를 물려받았다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Inherit"), "c1의 판정 한계를 물려받았다")
+
+    def test_linear_step_exempt(self):
+        """같은 사이클 안 선형 스텝은 --inherit 없이도 통과(면제)."""
+        self.gil("open", "m/c3", "--author", "c", "--purpose", "R")
+        r = self.gil("step", "m/c3", "--kind", "hypothesis", "--title", "h",
+                     "--falsify", "F", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_chain_inherit_optional_with_guide(self):
+        """체인은 --inherit 없어도 통과하되 안내를 띄운다."""
+        r = self.gil("chain", "n", "--purpose", "P")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("inherit", r.stderr)
+
+    def test_chain_inherit_imprints(self):
+        r = self.gil("chain", "n", "--purpose", "P", "--inherit", "m 체인의 교훈")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Inherit"), "m 체인의 교훈")
+
+    def test_inherit_shown_in_depth_log(self):
+        """--depth step 이 물려받은 전수를 ⇐라벨로 보여준다(지식의 강 가시화)."""
+        self.gil("open", "m/c2", "--author", "c", "--purpose", "Q",
+                 "--parent", "c1", "--inherit", "물려받은전수마커")
+        r = self.gil("log", "--depth", "step", "m")
+        self.assertIn("물려받은전수마커", r.stdout)
 
 
 if __name__ == "__main__":
