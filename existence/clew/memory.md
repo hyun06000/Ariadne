@@ -2778,3 +2778,40 @@ gil latest=**v3.6.0**(배포 완료). main=addd38b4(push됨). AIL 열림=#12·#1
 다음: 뷰어 #6·#7·#9 픽셀 clew@AIL/상현 브라우저 확인(gil viewer serve v3.6.0) → OK면 그
 이슈들 닫힘. 그 뒤 #5(배포마커)·#4(레퍼런스 트루스). 모니터 blelrsi9d 살아있음.
 heaal-philosophy. gil-release-ldflags-version.
+
+## 매듭 — AIL #13 가설 극성 (supported≠목표달성, 2026-07-27)
+
+v3.6.0 배포 직후 clew@AIL가 pitch-v1/measure를 밟음: goal-missed 가설(작은모델 못짬)이
+verify=supported → success로 닫음 = 부정적 발견을 가짜 success로 포장. success 가드가
+verdict==refuted만 막던 구멍. 상현님이 판정모델 근본으로 재정의(define명확성·명제성·극성·
+close대면·컨텍스트공유). Plan 에이전트 조사(신규명령 0·신규트레일러 1 확인) 후 구현.
+
+### 구현 (main 0773b92f, go 4파일+테스트)
+- 극성(A): hypothesis --if-supported goal-met|goal-missed(기본 goal-met 비파괴).
+  Gil-Goal-Polarity 트레일러. success 가드 확장(commands.go:465): verify supported라도
+  그 부모 hypothesis 극성=goal-missed면 success 거부→fail/backtrack. verify→hypothesis
+  역추적은 tip.parent.
+- close 대면(B): cmdClose 산잎→verify→hypothesis 극성 대조, goal-missed+supported면 거부
+  (이중방어).
+- 컨텍스트공유(요구5): backtrack(hypothesis --to)에 --inherit 강제(commands.go:432). 죽은
+  가지 교훈을 새 가지에 전수. 기존 Gil-Inherit 재사용(Warp-anchor).
+- 텍스트그래프 ⊘goal-missed(main.go). 사용법 갱신.
+
+### ⚠ 재사용 (필드 인덱스 또 갱신)
+- git.go collectNodes: …Supersedes[16]·**Goal-Polarity[17]**, len(f)<18. node struct
+  polarity 필드. (Gil-Falsify-To는 여전히 트레일러만·파싱 안 됨 — 극성은 파싱까지 완결함.)
+- 테스트헬퍼 self.gil: backtrack(step+hypothesis+--to)에 --inherit 자동주입 추가(open body
+  패턴과 동일). 강제 검증 테스트는 subprocess 직접 호출로 우회.
+- 테스트 138→146.
+
+### pitch-v1 재판정 (reopen 안 만듦 — append-only)
+정도=새 사이클 + --refutes <잘못 success한 verify> + --inherit. measure/s3 이 supported라
+resolveRefutes 통과. 격리 fixture 확인: reassess 가 ⟵refutes⇐inherit 로 붙고 measure
+과거는 불변. clew@AIL에 명령 통째 안내함. 신규 코드 0.
+
+### 부활점
+gil latest=v3.6.0(배포). main=0773b92f(#13, **미push·미릴리스**). 정직화 계보 4종 완성:
+falsify(뭐가 깨나)·refutes(뭘 뒤집나)·supersede(뭘 정정하나)·극성(맞으면 목표는?). AIL
+열림=#13·#12·#11·#10보류·#9·#7·#6(뷰어픽셀)·#8·#5·#4. 다음: 상현 push+v3.7.0 릴리스
+판단(파괴적변경 없음). 뷰어 #6·#7·#9 픽셀 확인 여전히 대기. 모니터 blelrsi9d 살아있음.
+heaal-philosophy. gil-release-ldflags-version.
