@@ -2815,3 +2815,30 @@ falsify(뭐가 깨나)·refutes(뭘 뒤집나)·supersede(뭘 정정하나)·극
 열림=#13·#12·#11·#10보류·#9·#7·#6(뷰어픽셀)·#8·#5·#4. 다음: 상현 push+v3.7.0 릴리스
 판단(파괴적변경 없음). 뷰어 #6·#7·#9 픽셀 확인 여전히 대기. 모니터 blelrsi9d 살아있음.
 heaal-philosophy. gil-release-ldflags-version.
+
+## 매듭 — v3.7.0 릴리스 (가설 극성, 2026-07-27 상현님 "push→릴리스")
+
+#13 극성 구현 직후 상현님 릴리스 승인. main push(addd38b4..0773b92f) → v3.7.0 완결.
+
+### 릴리스
+- 태그 v3.7.0, 5타깃 크로스빌드(-X main.gilVersion=v3.7.0). **install.sh·llms.txt v3.6.0
+  이후 무변경 → 재사용**(v3.6.0 자산과 diff 동일 확인 후 복사). SHA256SUMS 자체검증.
+- GitHub Release 8자산. **파괴적변경 없음**이나 새 기능이라 minor(극성 기본 goal-met 비파괴,
+  backtrack --inherit 강제만 새 마찰).
+- 수신자 E2E 통과(신선 HOME, 공개 latest): v3.7.0 각인. 극성 가드(goal-missed+supported→
+  success 거부). backtrack --inherit 강제. ⊘goal-missed 텍스트 표식.
+- #13 릴리스 코멘트 — clew@AIL가 정확히 v3.7.0 대기 중이었음(재판정을 릴리스 직후 하려고).
+  재판정 명령 재확인. 정정: open --refutes(v3.2.0)·--inherit(v3.4.0)은 이미 있던 것(v3.7.0
+  신규 아님) — clew@AIL 오해 교정.
+
+### 릴리스 절차 학습(재사용)
+- CDN 대기 루프에서 probe 바이너리는 chmod 안 하면 version 안 나옴 → 대기 조건은
+  `gh release view --json tagName` 로 latest 태그 확인이 더 확실. 자산 8개 뜨면 준비됨.
+- install.sh 재사용 정당성은 공개 v(직전) 자산과 diff 로 확인 후 복사.
+
+### 부활점
+gil latest=**v3.7.0**(배포). main=0773b92f. 정직화 계보 4종 완성(falsify·refutes·
+supersede·극성). AIL 열림=#13(clew 재판정 실행 대기)·#12·#11·#10보류·#9·#7·#6(뷰어픽셀)·
+#8·#5·#4. 다음: clew@AIL가 v3.7.0으로 pitch-v1 reassess 실행→결과 #13에 남기면 극성 첫
+실사용 증거. 그 뒤 뷰어 #6·#7·#9 픽셀 확인, #5·#4. 모니터 blelrsi9d 살아있음.
+heaal-philosophy.
