@@ -2476,3 +2476,33 @@ AIL #1 분기 강제 변경을 릴리스로 배포·완결. 파괴적 변경(필
 gil latest=**v3.1.0**(분기 문법 강제). main=v3.1.0 태그 지점. AIL #1 닫힘.
 [[ail1-branch-enforcement]] 이제 릴리스 완료 상태. 다음: AIL 관전에서 새 마찰 이슈 대기,
 또는 legacy 정식 migrate / 뷰어 가상화.
+
+## 매듭 — v3.2.0 소급 반증 간선 --refutes (AIL #1 2층, 2026-07-26)
+
+v3.1.0 도그푸딩 회고(AIL retro-v1)가 **2층(사이클 간 늦은 반증)**을 드러냄: net-v1/design/s3
+이 SSRF 정적봉쇄를 verdict supported 로 닫았는데 후속 사이클 harden 이 우회 3종으로 반증.
+append-only 라 닫힌 verdict 불변, 반증이 그래프에 안 남아 뷰어엔 흠 없는 success. 진단 #3이
+사이클 레벨에서 재현. Ravel(A)·Selvage-echo(B) 논의, 상현님 형태 확정.
+
+### 구현 (v3.2.0, main 057cfc79)
+- **제안 B — `--refutes <chain>/<cycle>/<step>`** (open+step 양쪽). Gil-Refutes 트레일러(multi).
+  verdict supersede 아님 — 과거 불변, 반증은 후속 사이클 forward-pointing 간선. Gil-Cycle-Parent
+  와 동형. 무결성 4조건(die): 실재·닫힌 사이클·verify kind·verdict=supported.
+- guideRefutes: 대상 verify 가 딛은 hypothesis 의 falsify 를 앵커로 제시(강제 아닌 안내).
+- fsck: dangling Gil-Refutes 검사. 뷰어: ⚠refuted-by / ⟵refutes(viewer_graph 텍스트 그래프).
+- **제안 A — 복합가설 거부**: --falsify 개행/세미콜론 열거면 거부(countClaims). 형제 hypothesis
+  로 갈라 부분반증=가지 부분생존. 쉼표 한 문장은 오탐 없이 통과.
+- node 파싱 falsify/refutes 추가(git.go 필드 13→15). 테스트 105→116.
+
+### ⚠ 재사용 주의
+- git.go collectNodes 필드: Gil-Verdict[12]·Gil-Falsify[13]·Gil-Refutes[14](multi), len(f)<15.
+  트레일러 추가 시 인덱스·splitMulti 주의.
+- 뷰어 multi-value 트레일러: parseTrailers 맵은 마지막 값만 남는다 → trailerAll 로 직접 파싱.
+- 릴리스 절차 그대로: -ldflags "-s -w -X main.gilVersion=vX.Y.Z", 5타깃, install.sh·llms.txt는
+  이전 릴리스 재사용(latest URL·main raw 라 버전 비의존), 수신자 관점 E2E 검증.
+
+### 부활점
+gil latest=**v3.2.0**. main=v3.2.0. AIL #1 **열린 채**(상현님이 --refutes 첫 도그푸딩 예약 —
+harden→design/s3 refutes 로 회고를 그래프에 닫겠다 함). 다음 예상 마찰: verdict 를 supported 로
+거짓 기입하는 새 회피(문법이 회피 하나 막으면 LLM 은 다음 회피를 찾는다). 모니터 b9ex9kpcu 가
+AIL 새 이슈·#1 코멘트 감시 중. [[ail1-branch-enforcement]] 의 후속.
