@@ -2551,3 +2551,24 @@ gil latest=**v3.5.0**. main=1748b0fa. AIL 이슈: #1(닫힘)·#2(닫힐만함)·
 #4·#5·#6·#7(열림). 모니터 b0svrllst 가 #1~#4 코멘트+새이슈 감시(이 세션 종료로 죽음 —
 다음 세션은 gh issue list -R hyun06000/AIL --state open 으로 잡을 것).
 루프 철학: [[heaal-philosophy]] 층위 통찰(정직 강제 불가, 은폐 영속화만 차단).
+
+
+- **세션 (hackathon-b/c001 완결, clew)**: B동 근권부·관수 예측 첫 사이클을 열고 닫았다.
+  - **한 일**: chain hackathon-b → cycle c001 (define→hypothesis→verify→analyze→success 8스텝,
+    s2에서 형제 가지 분기). submission_B.csv 생성.
+  - **결과(시간순 홀드아웃)**: soil_temp RMSE 1.87(기준선 5.28, -65%), soil_moisture 6.91(-3%),
+    soil_ec 0.432(day 선형추세 외삽; GBM은 0.523로 악화), irrigation F1 0.258(thr 0.08).
+  - **핵심 교훈**:
+    1. ⭐ **test_y 비공개 → 타깃 lag 못 씀. X-only 예측 강제.** (자기상관 0.997인데 못 씀)
+    2. ⭐ **soil_ec는 회귀문제가 아니다** — 후반 급등하는 시간 누적 추세가 지배. 무상태 트리 GBM은
+       외삽 불가라 기준선보다 나쁨. **day 선형추세 외삽이 벽 돌파.** 다음엔 EC를 추세+잔차 하이브리드로.
+    3. irrigation 2.2% 극불균형 → threshold 튜닝 필수(0.5는 F1=0). 현재 F1 0.26으로 낮음, 개선 여지 큼.
+    4. soil_temp는 온도 feature와 강상관으로 쉬운 승리.
+  - **다음 세션이 할 일 (c002 열어서)**:
+    a. irrigation F1 개선 — feature(직전 함수율 급강하 신호는 X에 없음; tod·환경 패턴 강화), threshold를
+       train으로 정직하게 선택. 앞우선.
+    b. soil_ec 하이브리드(day추세 + 환경잔차 GBM)로 RMSE 더 낮추기.
+    c. soil_moisture 개선(현재 소폭) — lag를 못 쓰니 물리 feature 상호작용·롤링 확대.
+    d. A동 데이터셋도 동일 파이프라인 적용 검토.
+  - **gil 마찰 메모**: 체인명 대문자 거부(hackathon-B → -b 강제). reportGuide는 매 스텝 잘 출력됨(유용).
+    --to로 형제 가지 분기 정상 동작, log --all/git graph에서 분기 시각화 확인됨.
