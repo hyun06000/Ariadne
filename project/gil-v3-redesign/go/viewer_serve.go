@@ -1122,6 +1122,10 @@ function buildStepMap(){
   DAG.forEach(n=>dep(n.sha));
   // 전역 레인(row) 배정 — git 그래프식: 첫 부모의 레인을 물려받고(선형 연속), 자리 다툼일
   // 때만 아래 빈 레인으로. 체인 무관 → 메인 흐름이 한 줄(row 0)로 흐르고 분기만 내려간다.
+  // (AIL #10 검토: 이 배치는 이미 2차원 계보 위상이라 — 부모 레인 물려받기 + fan-out 은 자기
+  // 레인 — 형제 분기도 깔끔히 갈린다. "1차원 순차라 교차 불가피"는 아래 체인 그래프 pane
+  // 얘기지 이 전체맵엔 해당 없음. barycenter 2차 정렬을 시험했으나 이 위상에선 교차 감소 0 →
+  // 효과 없는 복잡도라 넣지 않는다.)
   const order=[...DAG].sort((a,b)=>depth[a.sha]-depth[b.sha]);
   const row={}, busy={}; let maxRow=0; // busy[row]=그 레인을 마지막 점유한 depth
   order.forEach(n=>{
@@ -1145,7 +1149,14 @@ function buildStepMap(){
   const cyc={}; if(!agg) DAG.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
   // 체인별 첫(가장 왼쪽) 사이클 — 그 위에 체인 이름을 얹는다.
   const chainMinD={}; DAG.forEach(n=>{ if(chainMinD[n.chain]===undefined||depth[n.sha]<chainMinD[n.chain])chainMinD[n.chain]=depth[n.sha]; });
-  Object.keys(cyc).forEach(k=>{ const ns=cyc[k];
+  // 라벨 겹침 회피(AIL #9): 박스를 x(왼쪽) 순으로 처리하며, 직전 라벨의 오른쪽 끝과 겹치면
+  // 한 줄 위로 stagger(계단식)한다. 박스가 라벨보다 좁으면 라벨을 생략(hover title 로만) —
+  // 좁은 박스 위 긴 글씨가 이웃 박스·엣지를 덮던 주 원인. 약 6px/글자로 폭 추정.
+  const CW=6, cylW=k=>{ const s=k.slice(k.indexOf('/')+1); return s.length*CW; };
+  let lastCyR=-Infinity, cyStag=0; // 직전 사이클 라벨 오른쪽 끝, 현재 stagger 단
+  const cycKeys=Object.keys(cyc).sort((a,b)=>{ // x(dmin) 오름차순
+    const da=Math.min(...cyc[a].map(n=>depth[n.sha])), db=Math.min(...cyc[b].map(n=>depth[n.sha])); return da-db; });
+  cycKeys.forEach(k=>{ const ns=cyc[k];
     let dmin=Infinity,dmax=-Infinity,rmin=Infinity,rmax=-Infinity;
     ns.forEach(n=>{ dmin=Math.min(dmin,depth[n.sha]); dmax=Math.max(dmax,depth[n.sha]);
       rmin=Math.min(rmin,row[n.sha]); rmax=Math.max(rmax,row[n.sha]); });
@@ -1153,14 +1164,24 @@ function buildStepMap(){
     const box=svgEl('rect',{class:'cycbox',x:x1,y:y1,width:x2-x1,height:y2-y1,rx:6});
     box.appendChild(svgEl('title',{},k));
     svg.appendChild(box);
-    // 사이클 라벨: 각 박스 위에 작게(툴팁만으론 어느 박스가 어느 사이클인지 훑기 어렵다).
-    const cylab=svgEl('text',{class:'cyclabel',x:x1+2,y:y1-3},k.slice(k.indexOf('/')+1));
-    cylab.appendChild(svgEl('title',{},k));
-    svg.appendChild(cylab);
-    // 체인 이름 라벨: 그 체인의 첫 사이클 박스 위에만(사이클 라벨 윗줄).
+    const boxW=x2-x1, lblW=cylW(k), name=k.slice(k.indexOf('/')+1);
+    // 겹침 감지: 이 라벨 시작(x1)이 직전 라벨 오른쪽 끝보다 왼쪽이면 한 단 위로 계단.
+    if(x1 < lastCyR+4){ cyStag=(cyStag+1)%3; } else { cyStag=0; }
+    const cyY=y1-3-cyStag*11; // 단마다 11px 위로
+    // 사이클 라벨: 박스가 너무 좁으면(라벨이 박스를 넘침) 생략하고 title 로만 — 겹침 근원 차단.
+    if(lblW <= boxW+colW){ // 박스+한 칸 여유 안에 들어가면 표시
+      const cylab=svgEl('text',{class:'cyclabel',x:x1+2,y:cyY},name);
+      cylab.appendChild(svgEl('title',{},k));
+      svg.appendChild(cylab);
+      lastCyR=x1+2+lblW;
+    } else {
+      // 생략된 박스도 어느 사이클인지 알 수 있게 박스에 title 은 이미 있다. 라벨줄만 비운다.
+      lastCyR=x1; // 다음 라벨은 이 박스 왼쪽 기준으로만 겹침 판단
+    }
+    // 체인 이름 라벨: 그 체인의 첫 사이클 박스 위에만(사이클 라벨보다 더 위줄, stagger 반영).
     if(dmin===chainMinD[ns[0].chain]){
       const pc=PARENTS[ns[0].chain];
-      const lab=svgEl('text',{class:'chlabel',x:x1+2,y:y1-14});
+      const lab=svgEl('text',{class:'chlabel',x:x1+2,y:cyY-11});
       lab.textContent=ns[0].chain+(pc?' ↰':'');
       lab.appendChild(svgEl('title',{},pc?('체인 '+ns[0].chain+' — 부모 체인 '+pc+' 에서 이어받음'):('체인 '+ns[0].chain)));
       svg.appendChild(lab);
