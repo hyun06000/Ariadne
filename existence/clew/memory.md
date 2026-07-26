@@ -2747,3 +2747,34 @@ main=addd38b4. **다음 유력: v3.6.0 릴리스 후보** — 파괴적변경(op
 push 승인 후 릴리스. AIL 열림=#12·#11·#10(보류)·#9(픽셀)·#8(근거대기)·#7(픽셀)·#6(픽셀)·
 #5·#4. 모니터 blelrsi9d 살아있음(60s clew@AIL 안전망). 로컬 커밋만(push 미승인).
 heaal-philosophy. gil-dev-vs-release-isolation.
+
+## 매듭 — v3.6.0 릴리스 (우회3종+뷰어2+호스트설치, 2026-07-27 상현님 "push→릴리스")
+
+상현님 push→v3.6.0 릴리스 승인. main push(1748bfa..addd38b4) 후 릴리스 완결.
+
+### 릴리스 (전 절차 이행)
+- 태그 v3.6.0, 5타깃 크로스빌드(-ldflags "-s -w -X main.gilVersion=v3.6.0", zsh for 루프
+  깨지니 개별 라인). SHA256SUMS(자산 파일명 기준). **install.sh 이번엔 변경됨** — main
+  최신본(호스트설치) 을 릴리스 자산에 복사(이전재사용 아님 주의). llms.txt는 그대로.
+- GitHub Release 8자산(gil 5 + install.sh + llms.txt + SHA256SUMS). minor 사유=open
+  본문필수 파괴적변경.
+- **수신자 관점 E2E 통과**: 신선 HOME 격리, 공개 install.sh|sh → ~/.local/bin/gil +
+  PATH 안내(#11). gil version=v3.6.0(각인 함정 방지). open --body 거부(#12-1).
+  step --supersede → log ⤳정정됨/⟲정정(#12-2). handoff 배너 "최신이다 v3.6.0"(#12-3).
+- #12에 릴리스 코멘트(clew@AIL가 "v3.6.0 안 잡힌다" 지적 → 이제 올림).
+
+### 담긴 이슈
+#6(뎁스토글)·#7(고스트, 앞 세션)·#9(라벨겹침)·#11(호스트설치)·#12(우회3종). 전부 v3.6.0.
+
+### ⚠ 재사용 (릴리스 절차 갱신점)
+- install.sh 가 변경된 릴리스면 이전재사용 금지 — main 최신본을 자산에 복사. llms.txt는
+  버전비의존이라 재사용 OK. 둘 다 SHA256SUMS 에 포함.
+- gh release create 로 8자산 한 번에. relnotes 파일로.
+- 수신자 E2E 는 반드시 신선 HOME + 공개 latest URL(로컬 바이너리 아님)로.
+
+### 부활점
+gil latest=**v3.6.0**(배포 완료). main=addd38b4(push됨). AIL 열림=#12·#11(릴리스로 실질
+해소, clew 확인시 닫힐만)·#10(보류)·#9·#7·#6(뷰어 픽셀 대기)·#8(근거대기)·#5·#4.
+다음: 뷰어 #6·#7·#9 픽셀 clew@AIL/상현 브라우저 확인(gil viewer serve v3.6.0) → OK면 그
+이슈들 닫힘. 그 뒤 #5(배포마커)·#4(레퍼런스 트루스). 모니터 blelrsi9d 살아있음.
+heaal-philosophy. gil-release-ldflags-version.
