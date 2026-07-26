@@ -2842,3 +2842,21 @@ supersede·극성). AIL 열림=#13(clew 재판정 실행 대기)·#12·#11·#10�
 #8·#5·#4. 다음: clew@AIL가 v3.7.0으로 pitch-v1 reassess 실행→결과 #13에 남기면 극성 첫
 실사용 증거. 그 뒤 뷰어 #6·#7·#9 픽셀 확인, #5·#4. 모니터 blelrsi9d 살아있음.
 heaal-philosophy.
+
+## 매듭 — #13 후속: help open 문서 갭 (2026-07-27)
+
+v3.7.0 릴리스 직후 clew@AIL가 "재판정 명령이 표면과 다르다" 지적 → 곧 스스로 오진 정정
+(refutes/inherit 원래 있음, die usage line 에 있는 걸 놓침). 하지만 그 오진을 가능케 한
+진짜 갭 발견·수정: **gil help open 상세 설명 블록에 --refutes/--inherit 누락**(#12 에서
+open 사용법 재작성 시 빠뜨림). die usage line 엔 있으나 help 상세엔 없어, 상세만 읽은
+사용자가 오진할 여지. main 75bdc9af 로 help 상세에도 명시(두 표면 일관화). die usage 엔
+원래 있어 급히 재릴리스 불필요 — 다음 릴리스에 담김.
+
+교훈(clew@AIL): 플래그 유무는 help 설명문 아니라 usage line 으로 확인. → 이걸 문서로 받아
+둘 다 완전하게 함.
+
+### 부활점
+gil latest=v3.7.0. main=75bdc9af(help 문서수정, 미릴리스 — 다음 릴리스에). clew@AIL가
+pitch-v1 reassess 실행 예정(극성 첫 실사용 증거). AIL 열림 동일(#13·#12·#11·#10보류·#9·
+#7·#6·#8·#5·#4). 다음: reassess 궤적 대기 → 뷰어 픽셀(#6·#7·#9) → #5·#4. 미릴리스 누적:
+help open 문서(75bdc9af). 모니터 blelrsi9d. heaal-philosophy.
