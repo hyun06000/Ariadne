@@ -263,6 +263,11 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 				violations = append(violations, "계보: "+cc+" — 소급 반증 대상 \""+rf+"\" 실재 안 함 (dangling refutes)")
 			}
 		}
+		// 6c. 스텝 정정 간선 무결성(AIL #12) — Gil-Supersedes 대상은 같은 사이클의 스텝으로 실재해야
+		//     한다. (같은-kind·비종결 조건은 step 시점에 강제됐고, 여기선 dangling 만 잡는다.)
+		if n.supersedes != "" && !stepKeys[stepKey(n.chain, n.cycle, n.supersedes)] {
+			violations = append(violations, "계보: "+cc+" — 정정 대상 \""+n.supersedes+"\" 실재 안 함 (dangling supersedes)")
+		}
 	}
 	return violations
 }

@@ -197,11 +197,20 @@ func logDepthStep(ch string, all bool) {
 		rng = "--branches"
 	}
 	nodes := collectNodes(rng)
+	// 정정 역방향 맵(AIL #12): 정정된 스텝 → 그를 정정한 스텝. 사이클 안에서 step id 가
+	// 유일하므로 (chain,cycle,step) 키로 잡아 다른 사이클과 안 섞이게.
+	supersededBy := map[string]string{}
+	for _, n := range nodes {
+		if n.supersedes != "" {
+			supersededBy[n.chain+"\x01"+n.cycle+"\x01"+n.supersedes] = n.step
+		}
+	}
 	for i := len(nodes) - 1; i >= 0; i-- { // 새→old 이므로 뒤집어 old→new
 		n := nodes[i]
 		if ch != "" && n.chain != ch {
 			continue
 		}
+		supBy := supersededBy[n.chain+"\x01"+n.cycle+"\x01"+n.step]
 		line := n.sha + "  " + n.chain + "/" + n.cycle + "/" + n.step + " [" + n.kind + "]"
 		if n.parent != "" && n.parent != "null" {
 			line += " ←" + n.parent
@@ -220,6 +229,12 @@ func logDepthStep(ch string, all bool) {
 		}
 		if n.inherit != "" {
 			line += "  ⇐" + n.inherit // 물려받은 전수(AIL #3) — 계보 간선의 지식 라벨
+		}
+		if n.supersedes != "" {
+			line += "  ⟲정정 " + n.supersedes // 이 스텝이 앞선 같은-kind 스텝을 정정(AIL #12)
+		}
+		if supBy != "" {
+			line += "  ⤳정정됨(" + supBy + ")" // 이 스텝은 뒤에서 정정됨
 		}
 		println2(line)
 	}

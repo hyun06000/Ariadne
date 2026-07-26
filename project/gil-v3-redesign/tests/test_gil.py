@@ -52,7 +52,17 @@ class GilFixture(unittest.TestCase):
 
         input: 주면 stdin 으로 전달한다(--body-file - 검증용).
         GIL_NO_VIEWER: gil init 이 관전 서버(뷰어)를 백그라운드로 띄우는 것을 억제한다 —
-        테스트가 포트를 점유하거나 프로세스를 남기지 않도록 격리한다."""
+        테스트가 포트를 점유하거나 프로세스를 남기지 않도록 격리한다.
+
+        AIL #12: open 은 이제 본문(--body/--body-file/--title)이 필수다. 대부분의 테스트는
+        open 자체가 아니라 그 뒤 흐름을 검증하므로, 본문·body-file·title·stdin 이 하나도
+        없으면 기본 --body 를 자동 주입한다(테스트 의도 보존). 본문 필수 자체를 검증하는
+        테스트는 명시적으로 --body 를 빼고 호출하면 되도록, 인자에 그 흔적이 있으면 안 붙인다."""
+        args = list(args)
+        if args and args[0] == "open" and input is None and \
+           not any(a in ("--body", "--body-file", "--title") or
+                   a.startswith(("--body=", "--body-file=", "--title=")) for a in args):
+            args += ["--body", "(테스트 문제 정의)"]
         env = dict(os.environ, GIL_NO_VIEWER="1")
         return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
                               capture_output=True, text=True, env=env, input=input)
@@ -110,6 +120,25 @@ class TestCycleAndStep(GilFixture):
     def test_open_requires_purpose(self):
         r = self.gil("open", "c/c001", "--author", "clew")
         self.assertNotEqual(r.returncode, 0)
+
+    def test_open_requires_body(self):
+        """AIL #12: open 은 문제 정의 본문이 필수 — 빈 사이클로 여는 걸 문법으로 거부한다.
+        (self.gil 의 자동주입을 피해 --body 없이 직접 호출해 거부를 확인한다.)"""
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        r = subprocess.run([*GIL_CMD, "open", "c/c001", "--author", "clew", "--purpose", "P"],
+                           cwd=self.repo, capture_output=True, text=True, env=env)
+        self.assertNotEqual(r.returncode, 0, "본문 없는 open 이 거부되지 않음")
+        self.assertIn("본문", r.stderr)
+        # amend 우회를 더는 안내하지 않는다(자기모순 제거) — 오히려 하지 말라고 명시.
+        self.assertNotIn("커밋 수정으로 채우라", r.stderr)
+
+    def test_open_body_via_title(self):
+        """--title 도 본문으로 인정된다(한 줄 문제 정의)."""
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        r = subprocess.run([*GIL_CMD, "open", "c/c001", "--author", "clew",
+                            "--purpose", "P", "--title", "한 줄 정의"],
+                           cwd=self.repo, capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_open_imprints_cycle_purpose(self):
         r = self.gil("open", "c/c001", "--author", "clew", "--purpose", "사이클목적")
@@ -1064,7 +1093,7 @@ class TestViewer(GilFixture):
                                           capture_output=True, text=True)
             g("init", "--name", "clew")
             g("chain", "demo", "--purpose", "P")
-            g("open", "demo/c001", "--author", "clew", "--purpose", "Q")
+            g("open", "demo/c001", "--author", "clew", "--purpose", "Q", "--body", "문제 정의")
             g("step", "demo/c001", "--kind", "hypothesis", "--title", "H", "--body", "b", "--falsify", "F", "--falsify-to", "s1")
             subprocess.run(["git", "-C", work, "push", "-q", "--all", "origin"], check=True)
             # 2) 신선한 clone — 로컬 브랜치는 기본 하나뿐, 그래프는 원격에만.
@@ -1701,6 +1730,52 @@ class TestInherit(GilFixture):
                  "--parent", "c1", "--inherit", "물려받은전수마커")
         r = self.gil("log", "--depth", "step", "m")
         self.assertIn("물려받은전수마커", r.stdout)
+
+
+class TestSupersede(GilFixture):
+    """스텝 정정(AIL #12) — --supersede 로 같은 kind 앞선 스텝을 새 커밋으로 덮되 이력 보존."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P", "--body", "정의")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "틀린 가설",
+                 "--falsify", "F", "--falsify-to", "s1")  # s2
+
+    def test_supersede_same_kind_ok(self):
+        r = self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "고친 가설",
+                     "--falsify", "F2", "--falsify-to", "s1", "--supersede", "s2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Supersedes"), "s2")
+
+    def test_supersede_preserves_old_step(self):
+        """정정해도 옛 스텝(s2)은 이력에 남는다 — append-only 보존, 은폐 아님."""
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "고친 가설",
+                 "--falsify", "F2", "--falsify-to", "s1", "--supersede", "s2")
+        r = self.gil("log", "--depth", "step", "c")
+        self.assertIn("정정됨", r.stdout)  # s2 에 ⤳정정됨 표식
+        self.assertIn("정정 s2", r.stdout)  # s3 에 ⟲정정 s2 표식
+
+    def test_supersede_different_kind_rejected(self):
+        r = self.gil("step", "c/c1", "--kind", "verify", "--verdict", "supported",
+                     "--supersede", "s2")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("같은 kind", r.stderr)
+
+    def test_supersede_missing_target_rejected(self):
+        r = self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "x",
+                     "--falsify", "F", "--falsify-to", "s1", "--supersede", "s99")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("없는 스텝", r.stderr)
+
+    def test_supersede_terminal_rejected(self):
+        """종결 스텝(success/fail)은 정정 대상이 아니다 — 판정 번복은 backtrack/refutes 영역."""
+        self.gil("step", "c/c1", "--kind", "verify", "--title", "v", "--verdict", "supported")  # s3
+        self.gil("step", "c/c1", "--kind", "success", "--title", "ok")  # s4
+        r = self.gil("step", "c/c1", "--kind", "success", "--title", "다시",
+                     "--supersede", "s4")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("종결", r.stderr)
 
 
 if __name__ == "__main__":

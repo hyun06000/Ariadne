@@ -33,9 +33,10 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/deployment.md",
 	},
 	"open": {
-		"gil open <chain>/<cycle> --author <who> --purpose <자연어> [--parent <cyc>...] [--title T] [--body B | --body-file F|-]\n" +
+		"gil open <chain>/<cycle> --author <who> --purpose <자연어> (--body B | --body-file F|- | --title T) [--parent <cyc>...]\n" +
 			"  새 사이클을 연다(s1 define 자동) — git 브랜치 <chain>-<cycle> 을 판다.\n" +
-			"  --body/--body-file - (stdin) 로 s1 define 의 문제 정의 보고서를 여는 순간 채운다(step 과 대칭).\n" +
+			"  본문 필수: --body/--body-file -(stdin)/--title 중 하나로 s1 define 의 문제 정의를 여는 순간 채운다.\n" +
+			"    (빈 채로 열 수 없다 — raw git amend 로 채우던 우회를 문법으로 막는다. AIL #12)\n" +
 			"  --parent 는 이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).",
 		"docs/gil/concepts.md · docs/gil/lifecycle.md",
 	},
@@ -46,6 +47,8 @@ var helpTable = map[string]helpEntry{
 			"  --title <요약>  --body <본문> | --body-file <경로>(마크다운·이미지, 뷰어 렌더)\n" +
 			"    --body-file - 이면 stdin 에서 읽는다 — 임시 .md 파일 없이 heredoc·파이프로 바로 넘겨 잉여 파일을 안 남긴다.\n" +
 			"  --merge <산잎 스텝id>...  (한 사이클 안 산 잎들 합류)\n" +
+			"  --supersede <스텝id>  같은 kind 앞선 스텝을 이 스텝이 정정(새 커밋으로 덮되 옛 것은 이력 보존).\n" +
+			"    (raw amend 로 옛 스텝을 지우지 마라 — 정정은 은폐가 아니라 이력에 남는다. 종결 스텝은 대상 아님. AIL #12)\n" +
 			"  ※ 본문은 한 줄이 아니라 보고서다 — 아래 wiki 참조.",
 		"docs/gil/lifecycle.md · docs/gil/reports.md",
 	},

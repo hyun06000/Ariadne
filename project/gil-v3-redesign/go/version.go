@@ -57,9 +57,16 @@ func cmdVersion(args []string) {
 	selfUpdate(latest)
 }
 
-// latestTag — GitHub releases/latest 의 tag_name.
-func latestTag() (string, error) {
-	resp, err := httpc.Get("https://api.github.com/repos/" + releaseRepo + "/releases/latest")
+// latestTag — GitHub releases/latest 의 tag_name (기본 타임아웃 httpc=15s).
+func latestTag() (string, error) { return latestTagClient(httpc) }
+
+// latestTagTimeout — 짧은 타임아웃으로 최신 태그 조회(handoff 현행성 배너용, 비차단).
+func latestTagTimeout(d time.Duration) (string, error) {
+	return latestTagClient(&http.Client{Timeout: d})
+}
+
+func latestTagClient(cl *http.Client) (string, error) {
+	resp, err := cl.Get("https://api.github.com/repos/" + releaseRepo + "/releases/latest")
 	if err != nil {
 		return "", err
 	}

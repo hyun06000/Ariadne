@@ -289,8 +289,14 @@ func cmdOpen(args []string) {
 	if body == "" {
 		body = *title
 	}
-	if body == "" {
-		body = "(문제 미기술 — 본문을 커밋 수정으로 채우라)"
+	// 본문 필수(AIL #12): 문제 정의의 뿌리인 s1 을 빈 채로 열면, gil 이 "amend 로 채우라"고
+	// 안내하던 옛 경로가 정확히 raw git 우회를 유도했다(append-only 강제와 자기모순). 문법으로
+	// 거부한다 — 가설 없는 공부는 다음 스텝이 아니듯, 문제 미기술로 여는 사이클도 사이클이 아니다.
+	if strings.TrimSpace(body) == "" {
+		die("거부: open 은 문제 정의 본문이 필요하다 — 무엇을 풀려는지 없이 사이클을 열 수 없다.\n" +
+			"  gil open " + ref + " --author <who> --purpose <P> --body <문제 정의>\n" +
+			"  긴 본문: --body-file <파일>  또는  --body-file -  (stdin). --title <한 줄>도 본문이 된다.\n" +
+			"  (raw git amend 로 본문을 채우지 마라 — trailer 를 날리고 append-only 를 우회한다.)")
 	}
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
@@ -337,6 +343,11 @@ func cmdStep(args []string) {
 	// 반증한다. verify 스텝에서 우회를 관측한 순간이 가장 정직한 자리라 step 도 받는다.
 	refutes := fs.strList("refutes")
 	inherit := fs.str("inherit", "") // 물려받은 전수(AIL #3): 머지/refutes 간선 생기면 필수
+	// 스텝 정정(AIL #12): 같은 kind 의 앞선 스텝을 이 스텝이 대체한다. raw amend 로 옛 커밋을
+	// 지우는 대신(trailer 소실·이력 은폐), 새 커밋으로 덮고 옛 것은 이력에 남긴다 — append-only
+	// 보존. 뷰어가 옛 스텝에 "⤳정정됨"을 붙인다. --refutes 가 verdict 를 supersede 하지 않고
+	// forward 간선으로 남기는 것과 동형(정정이 은폐 아니라 이력에 남는다, 이번 세션 #8 교훈).
+	supersede := fs.str("supersede", "")
 
 	pos := fs.parse(args)
 	if len(pos) < 1 {
@@ -360,6 +371,29 @@ func cmdStep(args []string) {
 			"다른 kind(hypothesis 등)나 새 사이클(gil open <chain>/<새사이클>)로 이어가라.")
 	}
 	showPurposeContext(chain, cycle, "")
+	// 스텝 정정 무결성(AIL #12) — --supersede 대상은 (a)이 사이클에 실재하고 (b)이 스텝과 같은
+	// kind 여야 하며 (c)종결 스텝(success/fail/pending)이 아니어야 한다. 종결의 정정은 정정이
+	// 아니라 판정 번복이라 backtrack/refutes 영역이다(반증은 뒤집지 말고 새 간선으로 — #1·#2).
+	if strings.TrimSpace(*supersede) != "" {
+		var tgt *node
+		for i := range steps {
+			if steps[i].step == *supersede {
+				tgt = &steps[i]
+				break
+			}
+		}
+		if tgt == nil {
+			die("거부: --supersede " + *supersede + " 는 이 사이클에 없는 스텝이다.")
+		}
+		if tgt.kind != *kind {
+			die("거부: --supersede 는 같은 kind 만 정정한다 — " + *supersede + " 는 " + tgt.kind +
+				", 이 스텝은 " + *kind + ". (다른 kind 로 바꾸려면 정정이 아니라 새 스텝/새 가지다.)")
+		}
+		if tgt.kind == "success" || tgt.kind == "fail" || tgt.kind == "pending" {
+			die("거부: 종결 스텝(" + tgt.kind + ")은 정정 대상이 아니다 — 판정을 뒤집으려면 " +
+				"backtrack(hypothesis --to) 이나 소급 반증(--refutes)으로. 정정은 은폐가 아니라 이력에 남는다.")
+		}
+	}
 	// analyze 는 순수 분석 — 종결(성공/실패/대기)은 별도 스텝(success/fail/pending)으로(상현님).
 	// 하위호환: analyze --outcome 도 여전히 허용(옛 데이터·간단 사용).
 	if *kind == "analyze" && *outcome != "" && !outcomes[*outcome] {
@@ -536,6 +570,9 @@ func cmdStep(args []string) {
 	}
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
+	}
+	if strings.TrimSpace(*supersede) != "" {
+		tr = append(tr, [2]string{"Gil-Supersedes", *supersede}) // 스텝 정정 간선(AIL #12)
 	}
 	if *outcome != "" {
 		tr = append(tr, [2]string{"Gil-Outcome", *outcome})

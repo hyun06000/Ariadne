@@ -4,7 +4,11 @@
 // "무엇을 이어받아야 하는지"를 한눈에: 열린 체인·사이클, 각 팁, 다음 허용 동작, 계보.
 package main
 
-import "strings"
+import (
+	"runtime"
+	"strings"
+	"time"
+)
 
 // nextAllowed — 스텝 원칙상 팁 다음에 허용되는 동작. 참조: _next_allowed.
 func nextAllowed(tipKind, tipOutcome string) string {
@@ -33,10 +37,39 @@ func cmdHandoff(args []string) {
 	println2(report)
 }
 
+// currencyBanner — 도구 현행성 확인(AIL #12). 새 존재가 계승될 때 구버전 정신모델로
+// 작업하다 우회로에 빠지는 걸 막는다(open --body 미사용→amend, which gil→소스 오인 등이
+// 모두 "낡은 도구·문서를 안 짚어서"였다). handoff 첫 관문에서 (a)현재 버전 (b)최신 대비
+// 구버전 경고 (c)핵심 문서 포인터를 짚는다. 네트워크 조회는 비차단 — 실패하면 조용히
+// 버전만 보이고 handoff 를 막지 않는다(오프라인 세션도 이어받게).
+func currencyBanner() []string {
+	var L []string
+	L = append(L, "── 도구 현행성 (먼저 확인) ──")
+	L = append(L, "  현재 gil: "+gilVersion+" ("+runtime.GOOS+"/"+runtime.GOARCH+")")
+	// handoff 는 자주 불리니 최신 조회를 짧게(3s) 끊는다 — 오프라인이어도 handoff 가 멈추지
+	// 않게. 확실한 대조가 필요하면 gil version --check(15s) 를 따로 쓴다.
+	latest, err := latestTagTimeout(3 * time.Second)
+	switch {
+	case err != nil:
+		L = append(L, "  최신 릴리스 조회 못 함(오프라인/네트워크) — 확실히 하려면: gil version --check")
+	case gilVersion == "dev":
+		L = append(L, "  ⚠ 개발 빌드(dev)다 — 릴리스 "+latest+"와 다를 수 있다. 실사용은 릴리스 바이너리로.")
+	case latest != gilVersion:
+		L = append(L, "  ⚠ 새 버전 "+latest+" 있음 (현재 "+gilVersion+"). 새/바뀐 명령·워크플로우가 있을 수 있다 —")
+		L = append(L, "    갱신: gil version --update   그 뒤 이 handoff 를 다시 읽어라.")
+	default:
+		L = append(L, "  최신이다 ("+latest+").")
+	}
+	L = append(L, "  이 빌드가 뭘 하는지·새 명령은: gil help   |   워크플로우 문서: README.ai.md")
+	L = append(L, "")
+	return L
+}
+
 // handoffReport — 세션 부활 정보를 문자열로. 참조: _handoff_report.
 func handoffReport() string {
 	var L []string
 	L = append(L, "═══ gil handoff — 세션 부활 정보 ═══", "")
+	L = append(L, currencyBanner()...)
 	chains, order := chainsFromGraph()
 
 	var openOrder []string
