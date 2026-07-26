@@ -2631,3 +2631,40 @@ gil latest=v3.5.0. main=1748b0fa(코드변경 0, 이번도 이슈 소통만). AI
 선제방지로 재프레이밍·근거대기)·#7(내 픽셀확정 대기)·#6·#5·#4. 모니터 bo9h5lk5z 살아있음.
 순서 #7픽셀->#6->#5->#4, #8은 큰 케이스2 실측되면 앞당김. clew@AIL 세션정리로 감.
 heaal-philosophy.
+
+## 매듭 — AIL #6 뷰어 뎁스 토글 구현 (2026-07-27 자율진행)
+
+상현님 "앞으로 작업 자율 진행 + clew@AIL와 자율응대". 합의 순서대로 #6 착수·완결.
+
+### 구현 (main ec988a58, viewer_serve.go만)
+전체맵 상단 세그먼트 토글 [체인][사이클][스텝](기본=스텝, 현동작 보존). gil log --depth 뷰어판.
+- aggregateDAG(depth): 스텝 DAG를 사이클/체인 단위로 접어 합성 노드 배열 -> 같은 배치·
+  엣지·줌팬 엔진 재사용. 새 명령·데이터채널 0(Warp-anchor). 순수 클라이언트 집계.
+- 함수 진입에 const DAG=aggregateDAG(MAP_DEPTH) 로 전역 DAG 가림. 노드 필드 흉내
+  (sha='grp:'+key, kind=synth success/fail/pending/live, forked, nsteps, subj).
+- agg 모드: 사이클박스 스킵, 노드에 agglabel(이름)+⚡forkmark, 클릭=jumpToAgg.
+- setMapDepth/토글버튼 배선, 뎁스별 범례.
+
+### ⚠ 잡은 함정 (재사용 주의)
+집계 상태판정을 처음 isLeaf(전역DAG 잎)로 했다가 버그: **다음 사이클이 이 사이클 산잎
+위에서 태어나면 그 success 잎은 전역DAG leaf 아님**(refine/s1 의 부모=measure/s7 success)
+-> solved를 fail로 오판. 수정: leaf 아니라 종결 kind(success 있으면 alive)로 판정 —
+텍스트판 cycleView.status()(viewer_graph.go:383)와 일관. ⚡=alive&&dead(v3.4.1 --depth
+cycle 의 solved⚡분기와 동형).
+
+### 검증
+격리 fixture(measure=⚡분기·refine=일자, inherit 계보). DAG JSON 추출해 python 집계 재현:
+cycle: measure=success⚡분기, refine=success / chain: build=success⚡분기 — 텍스트판 1:1.
+131 테스트 통과. 남은=순수 픽셀(토글·집계노드·⚡·라벨 브라우저 렌더)=#7과 동일 관문,
+사람 눈. #6 이슈에 재현법+결과 코멘트, #7과 같은 렌더영역이라 한번에 픽셀확인 요청.
+
+### fixture 함정 (다음 세션)
+backtrack hypothesis 는 --to(분기점) 외에 --falsify-to <조상 define>도 필수(AIL #1 분기강제).
+없으면 거부. fail 도 --to 필수. fixture 만들 때 빠뜨려 헛디딤.
+
+### 부활점
+gil latest=v3.5.0(미릴리스 변경 누적: #6). main=ec988a58. AIL 열림=#8(근거대기)·#7(픽셀)·
+#6(픽셀·방금 구현)·#5·#4. 다음 순서: #7+#6 픽셀 사람확인 -> #5(배포마커 gil deploy
+--at/--tag/--url + Gil-Deploy + 🚀 명시식) -> #4(레퍼런스 트루스, 최중량, 강제아닌 안내로
+시작·새명령 금지). #6·#7 픽셀 OK 확인되면 v3.6.0 릴리스 후보(뷰어 뎁스토글+고스트 stub).
+모니터 blelrsi9d 살아있음(60s, clew@AIL 안전망). heaal-philosophy.
