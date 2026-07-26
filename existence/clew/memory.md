@@ -2668,3 +2668,43 @@ gil latest=v3.5.0(미릴리스 변경 누적: #6). main=ec988a58. AIL 열림=#8(
 --at/--tag/--url + Gil-Deploy + 🚀 명시식) -> #4(레퍼런스 트루스, 최중량, 강제아닌 안내로
 시작·새명령 금지). #6·#7 픽셀 OK 확인되면 v3.6.0 릴리스 후보(뷰어 뎁스토글+고스트 stub).
 모니터 blelrsi9d 살아있음(60s, clew@AIL 안전망). heaal-philosophy.
+
+## 매듭 — AIL #9·#10 (전체맵 렌더품질) + #6 완결, barycenter 철회 (2026-07-27)
+
+상현님 뷰어 직접 관전 → clew@AIL 대필로 #9(라벨겹침)·#10(엣지교차) 신설. 둘 다 내가 방금
+손댄 전체맵(view-map) 렌더영역. 상현님 확인=본 pane 은 맨위 전체맵.
+
+### 핵심 발견 (양방향 정직 루프)
+clew@AIL가 `gil viewer build --out` 로 정적HTML 읽고 "노드 cx=cx0+i*gap, y=60 고정 =
+1차원 순차, 계보 위상 아님" 진단. **소스 대조하니 그건 전체맵(buildStepMap, 2차원
+X=depth·Y=row)이 아니라 아래 '체인 그래프' pane(openCard, viewer_serve.go:678, 1차원).**
+정적HTML에 두 pane JS 가 섞여 있어 1차원 코드를 전체맵으로 오독. 지난번 내 split-버그
+근거를 clew@AIL가 교정했듯, 이번엔 내가 소스로 clew@AIL 진단 교정.
+
+### 조치
+- #10: 전체맵은 이미 2차원 계보배치. barycenter 2차정렬 코드로 시험 → 밀도 fixture(한
+  define 3형제분기)에서 교차감소 0(fan-out 은 부채꼴, 진짜 교차 아님) → **효과없는 복잡도라
+  원복, 주석만**. Sugiyama 는 실측밀도가 정당화 못 함 → 상현 픽셀확인 후 실제 거슬리면 그때.
+  진짜 1차원 교차는 view-chain(체인그래프) pane — 상현은 전체맵 봤으니 보류.
+- #9: stagger(라벨 x인접 겹치면 한줄위 계단 3단순환) + 좁은박스 라벨생략(라벨폭>박스폭+colW
+  면 hover title 만). 체인라벨도 stagger 반영. main 6d5b716a.
+- #6: 앞서 ec988a58 로 완결(뎁스토글).
+
+### ⚠ 재사용 주의
+- 뷰어 2 pane: #view-map(buildStepMap, 2D 전체맵) vs #view-chain(openCard cx0+i*gap, 1D
+  체인그래프). 진단·수정 시 어느 pane 인지 먼저 확정.
+- serve 모드 HTML엔 application/json 데이터스크립트(cycledata/parentdata/dagdata) 없음 —
+  static build(viewer build --out) 에만 인라인. DAG 추출은 static 에서. 단 static 은
+  dagJSON body 인라인이라 크기 큼. 정규식 앵커=`<script id="dagdata" type="application/json">`
+  (JS 코드내 getElementById('dagdata') 와 혼동 주의).
+- cyclabel 등 라벨은 클라JS 동적생성 → 헤드리스로 픽셀 못봄. 로직만 확인, 픽셀=브라우저 눈.
+- fixture: backtrack hypothesis 는 --to + --falsify-to 둘다 필수. fail 은 --to 필수.
+  zsh for 루프 + 함수로 사이클 찍기(${c:+...} 확장 함정 피하려 명시 함수).
+
+### 부활점
+gil latest=v3.5.0(미릴리스 누적: #6 뎁스토글·#7 고스트·#9 라벨). main=6d5b716a.
+AIL 열림=#11(신설·gil 호스트설치)·#10(진단교정·보류)·#9(구현·픽셀대기)·#8(근거대기)·
+#7(픽셀대기)·#6(픽셀대기)·#5·#4. 다음: **#11 읽고 대응**(gil 저장소-로컬 ./gil 기본이
+'도구 아니라 뎁거리'로 오인 — 설치 이슈, 메모리 gil-dev-vs-release-isolation 과 연관 가능).
+그 뒤 #7·#6·#9 픽셀 상현확인 → OK 면 v3.6.0 릴리스후보 → #5·#4. 모니터 blelrsi9d 살아있음.
+heaal-philosophy. gil-dev-vs-release-isolation.
