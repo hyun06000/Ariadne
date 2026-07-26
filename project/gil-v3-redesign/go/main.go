@@ -157,20 +157,47 @@ v2 이주:
 // ── gil log ──
 func cmdLog(args []string) {
 	fs := newFlags("gil log")
-	all := fs.boolFlag("all") // 모든 가지(죽은 잎 형제 가지 포함) — 벽의 지도
+	all := fs.boolFlag("all")     // 모든 가지(죽은 잎 형제 가지 포함) — 벽의 지도
+	depth := fs.str("depth", "")  // chain|cycle|step (AIL #2) — 뎁스별 전체맵. 빈값=step(기본).
 	pos := fs.parse(args)
 	var ch string
 	if len(pos) > 0 {
 		ch = pos[0]
 	}
-	// 기본은 HEAD 계보. --all 이면 모든 브랜치(죽은 가지도) — gil log 에서 벽의 지도를 본다.
+	if *depth == "" {
+		*depth = "step"
+	}
+	// 분기 신호(AIL #2, clew@AIL): 무플래그로도 일자 편향이 눈에 들게 맨 위에 한 줄 강제.
+	// "안 보이는 건 안 짜인다" — 체인·사이클·스텝 분기 수와 죽은 잎을 나란히. 분기만 있고
+	// 죽은 잎 0이면 "형식만 분기, 실질은 일자"(--refutes 사후 링크 등)를 가른다.
+	bs := computeBranchStats()
+	println2("분기  체인 " + itoa(bs.chainBranch) + " · 사이클 " + itoa(bs.cycleBranch) +
+		" · 스텝 " + itoa(bs.stepBranch) + "  |  죽은잎 " + itoa(bs.deadLeaves))
+	if bs.chainBranch == 0 && bs.cycleBranch == 0 {
+		println2("  ⚠ 체인·사이클 분기 0 — 큰 사고는 일자로 흐르는 중(스텝 분기만으론 부족)")
+	}
+	println2("")
+
+	switch *depth {
+	case "chain":
+		logDepthChain()
+	case "cycle":
+		logDepthCycle(ch)
+	case "step":
+		logDepthStep(ch, *all)
+	default:
+		die("거부: --depth 는 chain|cycle|step 중 하나")
+	}
+}
+
+// logDepthStep — 기존 gil log(스텝 노드 나열). 참조: 옛 cmdLog 본체.
+func logDepthStep(ch string, all bool) {
 	rng := "HEAD"
-	if *all {
+	if all {
 		rng = "--branches"
 	}
 	nodes := collectNodes(rng)
-	// collectNodes는 새→old. 트리 순서(old→new)로 출력.
-	for i := len(nodes) - 1; i >= 0; i-- {
+	for i := len(nodes) - 1; i >= 0; i-- { // 새→old 이므로 뒤집어 old→new
 		n := nodes[i]
 		if ch != "" && n.chain != ch {
 			continue
@@ -182,8 +209,46 @@ func cmdLog(args []string) {
 		if n.outcome != "" {
 			line += " =" + n.outcome
 		}
+		if n.verdict != "" {
+			line += " ⟹" + n.verdict
+		}
 		if len(n.merges) > 0 {
 			line += "  ⋈ " + strings.Join(n.merges, ",")
+		}
+		if len(n.refutes) > 0 {
+			line += "  ⟵refutes " + strings.Join(n.refutes, ",")
+		}
+		println2(line)
+	}
+}
+
+// logDepthChain — 체인 계보 트리(AIL #2). 뷰어 HTML 체인 그래프와 같은 집계원
+// (chainsFromGraph·chainParents)을 텍스트로 — AI 도 인간과 동일 정보를 본다.
+func logDepthChain() {
+	chains, order := chainsFromGraph()
+	parents := chainParents()
+	for _, name := range order {
+		c := chains[name]
+		line := "● " + name + "  [사이클 " + itoa(c.cycles) + "]  (" + c.status + ")"
+		if p := parents[name]; p != "" {
+			line += "  ← " + p
+		}
+		println2(line)
+	}
+}
+
+// logDepthCycle — 한 체인 안 사이클들 + 사이클 부모 엣지 + status(AIL #2). cyclesOf 공유.
+func logDepthCycle(ch string) {
+	if ch == "" {
+		die("사용: gil log --depth cycle <chain>")
+	}
+	cyc, order := cyclesOf(ch)
+	println2("● 체인 " + ch)
+	for _, cy := range order {
+		c := cyc[cy]
+		line := "  ◆ " + cy + "  (" + c.status + ")"
+		if len(c.parents) > 0 {
+			line += "  ← " + strings.Join(c.parents, ",")
 		}
 		println2(line)
 	}

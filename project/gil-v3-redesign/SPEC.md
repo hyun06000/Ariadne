@@ -215,7 +215,12 @@ gil은 커밋 그래프를 훑어 아래를 검사한다. 위반이면 새 노�
 - `gil step --kind <k> [--outcome <o>] [--to <define>]` — 스텝 전이 커밋.
 - `gil approve` / `gil reject` — pending 에 대한 사람의 명시적 승인/기각.
 - `gil close [--verdict <v>]` — 산 잎 봉인. `gil chain-merge` — 두 갈래 합류(양쪽 조상).
-- `gil log [<chain>] [--all]` — 커밋 그래프 조회. `gil fsck` — §3 무결성 검사.
+- `gil log [<chain>] [--all] [--depth chain|cycle|step]` — 커밋 그래프 조회. **뎁스별 전체맵
+  (AIL #2)**: `--depth chain`=체인 계보 트리, `cycle <chain>`=사이클+status, `step`(기본)=스텝
+  나열. 뷰어 HTML 4패널과 **같은 집계원**(chainsFromGraph·cyclesOf·chainParents)을 텍스트로
+  공유 — 인간(뷰어)과 AI(gil log)가 동일 정보를 본다. 무플래그로도 맨 위에 **분기 신호**
+  (`분기 체인 M · 사이클 K · 스텝 N | 죽은잎 D`)를 강제로 얹어 일자 편향을 안 찾아도 드러낸다.
+  체인·사이클 분기 0이면 경고. `gil fsck` — §3 무결성 검사.
 - `gil global` / `gil memory` — 존재·기억(refs/gil/global) 갱신. `gil handoff` — 세션 부활.
 - `gil migrate --from <v2-ref> [--prefix <접두>]` — 옛 v2(폴더·cycle.yaml) 이력을 v3 커밋
   그래프로 이주(도구 레벨·범용).

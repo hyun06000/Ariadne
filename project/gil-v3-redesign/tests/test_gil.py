@@ -1582,5 +1582,67 @@ class TestCompositeHypothesis(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class TestDepthLog(GilFixture):
+    """AIL #2 — 뎁스별 전체맵. gil log --depth chain|cycle|step + 분기 신호(무플래그 기본).
+    인간=AI 동일 정보: 뷰어가 보는 체인·사이클 분기를 gil log 도 텍스트로 낸다."""
+
+    def setUp(self):
+        super().setUp()
+        # 체인 하나, 사이클 하나, 형제 가지(s1 에서 갈라진 hypothesis)로 스텝 분기 1개 만든다.
+        self.gil("chain", "m", "--purpose", "P")
+        self.gil("open", "m/c1", "--author", "c", "--purpose", "P")
+        self.gil("step", "m/c1", "--kind", "hypothesis", "--title", "h1",
+                 "--falsify", "F1", "--falsify-to", "s1")
+        self.gil("step", "m/c1", "--kind", "verify", "--title", "v1", "--verdict", "refuted")
+        self.gil("step", "m/c1", "--kind", "fail", "--title", "벽", "--to", "s1")  # 죽은 잎
+        self.gil("step", "m/c1", "--kind", "hypothesis", "--to", "s1", "--title", "h2",
+                 "--falsify", "F2", "--falsify-to", "s1")  # s1 형제 가지 → 스텝 분기
+
+    def test_branch_signal_always_shown(self):
+        """무플래그 gil log 도 맨 위에 분기 신호를 강제로 낸다."""
+        r = self.gil("log")
+        self.assertIn("분기", r.stdout)
+        self.assertIn("죽은잎", r.stdout)
+
+    def test_branch_signal_counts_step_fork(self):
+        """s1 형제 가지가 스텝 분기 1로 잡히고, fail 이 죽은잎 1로 잡힌다."""
+        r = self.gil("log")
+        head = r.stdout.splitlines()[0]
+        self.assertIn("스텝 1", head)
+        self.assertIn("죽은잎 1", head)
+
+    def test_linear_chain_warning(self):
+        """체인·사이클 분기 0이면 일자 경고를 띄운다."""
+        r = self.gil("log")
+        self.assertIn("일자", r.stdout)
+
+    def test_depth_chain(self):
+        """--depth chain 은 체인 계보를 낸다(뷰어 체인그래프와 동일 집계원)."""
+        r = self.gil("log", "--depth", "chain")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("● m", r.stdout)
+        self.assertIn("사이클", r.stdout)
+
+    def test_depth_cycle(self):
+        """--depth cycle <chain> 은 사이클 목록 + status 를 낸다."""
+        r = self.gil("log", "--depth", "cycle", "m")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("◆ c1", r.stdout)
+
+    def test_depth_cycle_requires_chain(self):
+        r = self.gil("log", "--depth", "cycle")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_depth_step_is_default(self):
+        """--depth step(기본) 은 스텝 노드를 나열한다."""
+        r = self.gil("log", "--depth", "step")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("[define]", r.stdout)
+
+    def test_bad_depth_rejected(self):
+        r = self.gil("log", "--depth", "galaxy")
+        self.assertNotEqual(r.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

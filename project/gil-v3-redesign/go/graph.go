@@ -496,6 +496,82 @@ func cyclesOf(chain string) (map[string]*cycleAgg, []string) {
 	return cyc, order
 }
 
+// branchStats — 뎁스별 분기 수와 죽은 잎 수(AIL #2, clew@AIL). "안 보이는 건 안 짜인다":
+// 체인·사이클·스텝 각 레벨에서 진짜 위상 분기가 몇인지, 죽은 잎(fail)이 몇인지 집계해
+// gil log 가 일자 편향을 한눈에 드러내게 한다. 분기만 있고 죽은 잎 0이면 "형식만 분기,
+// 실질은 일자"(예: --refutes 사후 링크) — 둘을 나란히 둬 진짜 분기와 사후 링크를 가른다.
+type branchStats struct {
+	chainBranch int // 자식 체인 2+ 를 가진 체인 수(체인 계보 분기)
+	cycleBranch int // 자식 사이클 2+ 를 가진 사이클 수(사이클 계보 분기)
+	stepBranch  int // 자식 스텝 2+ 를 가진 스텝 수(형제 가지 분기 — 진짜 위상 분기)
+	deadLeaves  int // fail/analyze-fail/backtrack 죽은 잎 수(벽의 지도)
+}
+
+func computeBranchStats() branchStats {
+	var bs branchStats
+	// collectNodes("--branches")는 공유 커밋을 여러 브랜치에서 재출력할 수 있다(형제 가지의
+	// 공통 조상 define 등) — sha 로 접어야 자식 수·죽은 잎이 부풀지 않는다(뷰어도 같은 dedup).
+	seen := map[string]bool{}
+	var nodes []node
+	for _, n := range collectNodes("--branches") {
+		if seen[n.sha] {
+			continue
+		}
+		seen[n.sha] = true
+		nodes = append(nodes, n)
+	}
+
+	// 스텝 분기: 같은 (chain,cycle) 안에서 한 스텝이 둘 이상의 자식 스텝의 부모인 경우.
+	// (형제 hypothesis 가지 — 진짜 사고의 분기. --refutes 사후 링크는 여기 안 잡힘.)
+	childSteps := map[string]map[string]bool{} // 부모키 → 자식 스텝 id 집합(중복 자식 제거)
+	for _, n := range nodes {
+		if n.parent != "" && n.parent != "null" {
+			k := stepKey(n.chain, n.cycle, n.parent)
+			if childSteps[k] == nil {
+				childSteps[k] = map[string]bool{}
+			}
+			childSteps[k][n.step] = true
+		}
+		if isDeadLeaf(n) {
+			bs.deadLeaves++
+		}
+	}
+	for _, kids := range childSteps {
+		if len(kids) >= 2 {
+			bs.stepBranch++
+		}
+	}
+
+	// 체인 분기: 한 체인을 부모로 선언한 자식 체인이 둘 이상. chainParents(): 체인→부모체인.
+	chainChildren := map[string]int{}
+	for _, parent := range chainParents() {
+		if parent != "" {
+			chainChildren[parent]++
+		}
+	}
+	for _, c := range chainChildren {
+		if c >= 2 {
+			bs.chainBranch++
+		}
+	}
+
+	// 사이클 분기: 한 사이클을 부모(Gil-Cycle-Parent)로 선언한 자식 사이클이 둘 이상.
+	cycleChildren := map[string]int{}
+	for _, n := range nodes {
+		for _, p := range n.cycleParents {
+			if p != n.chain { // 체인 참조 제외
+				cycleChildren[n.chain+"\x01"+p]++
+			}
+		}
+	}
+	for _, c := range cycleChildren {
+		if c >= 2 {
+			bs.cycleBranch++
+		}
+	}
+	return bs
+}
+
 // ── 작은 헬퍼 ──
 
 func cut(s, sep string) (before, after string, found bool) {
