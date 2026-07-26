@@ -1135,7 +1135,15 @@ function buildStepMap(){
     if(!owns || (busy[L]!==undefined && busy[L]>=d)){ L=0; while(busy[L]!==undefined && busy[L]>=d)L++; }
     row[n.sha]=L; busy[L]=d; if(L>maxRow)maxRow=L;
   });
-  const colW=34, rowH=24, padX=26, padTop=38, padBot=14, r=5; // padTop: 체인 라벨+사이클 라벨 두 줄
+  const rowH=24, padTop=38, padBot=14, r=5; // padTop: 체인 라벨+사이클 라벨 두 줄
+  // colW: 스텝맵은 촘촘히(34px). 집계 모드(사이클/체인)는 노드 위에 이름 라벨이 붙으니, 가장 긴
+  // 이름이 안 겹치게 x간격을 그 폭 기준으로 넓힌다(AIL #9 집계판 — 헤드리스로 못 본 픽셀 버그).
+  const aggMode = MAP_DEPTH!=='step';
+  let longestLabel=0;
+  if(aggMode) DAG.forEach(n=>{ const s=(MAP_DEPTH==='cycle'?n.cycle:n.chain)||''; longestLabel=Math.max(longestLabel,s.length); });
+  const colW = aggMode ? Math.max(48, longestLabel*7+18) : 34; // ~7px/글자 + 여백
+  // 집계 모드는 첫 노드 라벨(중앙정렬)이 왼쪽으로 삐져나가니 padX 를 라벨 절반만큼 확보.
+  const padX = aggMode ? Math.max(26, longestLabel*7/2+8) : 26;
   let maxD=0; DAG.forEach(n=>{ if(depth[n.sha]>maxD)maxD=depth[n.sha]; });
   // 오른쪽 여유 = 가장 긴 체인 이름이 박스 위 라벨로 삐져나가도 안 잘리게.
   let maxName=0; DAG.forEach(n=>{ maxName=Math.max(maxName,(n.chain||'').length); });
@@ -1144,7 +1152,7 @@ function buildStepMap(){
   const X=sha=>padX+r+depth[sha]*colW;
   const Y=sha=>padTop+r+row[sha]*rowH;
   const svg=svgEl('svg',{class:'dag',viewBox:'0 0 '+W+' '+H,width:W,height:H});
-  const agg=MAP_DEPTH!=='step'; // 집계 모드(사이클/체인)면 사이클 박스 대신 노드 라벨을 쓴다.
+  const agg=aggMode; // 집계 모드(사이클/체인)면 사이클 박스 대신 노드 라벨을 쓴다.
   // 1) 사이클 구간 박스(x 범위 = 그 사이클 스텝들의 depth, y 범위 = 그 스텝들의 row). 집계 모드는 생략.
   const cyc={}; if(!agg) DAG.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
   // 체인별 첫(가장 왼쪽) 사이클 — 그 위에 체인 이름을 얹는다.
