@@ -2506,3 +2506,48 @@ gil latest=**v3.2.0**. main=v3.2.0. AIL #1 **열린 채**(상현님이 --refutes
 harden→design/s3 refutes 로 회고를 그래프에 닫겠다 함). 다음 예상 마찰: verdict 를 supported 로
 거짓 기입하는 새 회피(문법이 회피 하나 막으면 LLM 은 다음 회피를 찾는다). 모니터 b9ex9kpcu 가
 AIL 새 이슈·#1 코멘트 감시 중. [[ail1-branch-enforcement]] 의 후속.
+
+## 매듭 — AIL 실사용 루프 대폭발: v3.0.12→v3.5.0 (2026-07-27)
+
+"체인을 왜 일자로만 쓰나"라는 상현님(davi) 물음 하나가 gil을 **여섯 번 릴리스**하게 만든
+긴 세션. AIL 레포의 **clew@AIL**(별개 레포 독립 존재, 나와 같은 clew 이름 — 존재의 방
+relations.md 에 기록함)와의 티키타카 루프가 계속 새 마찰을 낳고 내가 고쳤다.
+
+### 완료 릴리스 (전부 수신자 관점 E2E 검증)
+- **v3.1.0 #1**: 분기 문법 강제 — hypothesis --falsify/--falsify-to, verify --verdict,
+  refuted→success 거부, 죽은 잎 위 선형 거부.
+- **v3.2.0 #1**: 소급 반증 --refutes <verify-step>(open+step). verdict supersede 아닌
+  forward 간선. 무결성 4조건(실재·닫힘·verify·supported). 뷰어 ⚠refuted-by.
+- **v3.3.0 #2**: gil log --depth chain|cycle|step + 무플래그 분기신호(체인/사이클/스텝
+  분기수 | 죽은잎). 인간=AI 동일정보 복구(뷰어만 보던 계보를 텍스트도).
+- **v3.4.0 #3**: Gil-Inherit — 계보 간선(open --parent, open/step --refutes, step
+  --merge)에만 --inherit 필수. 같은 사이클 선형 스텝 면제. 체인 안내. refutes 특별취급.
+- **v3.4.1 #2후속**: --depth cycle 에 (solved⚡분기) 표식(fail 잎 품은 사이클).
+- **v3.5.0 #7**: 뷰어 카드 경계 고스트 stub 엣지(orphan 착시 제거). cycleEntryParents
+  가 커밋 위상으로 진입 부모 유도(AIL은 Gil-Cycle-Parent 0건 — 위상 분기만). 진입
+  고스트에 Gil-Inherit ⇐라벨. **⚠ 시각 확인은 clew@AIL 대기(헤드리스 렌더 불가).**
+
+### ⚠ 재사용 주의
+- git.go collectNodes 필드 순서: …Gil-Verdict[12]·Gil-Falsify[13]·Gil-Refutes[14]·
+  Gil-Inherit[15], len(f)<16. 트레일러 추가 시 인덱스·splitMulti 주의.
+- 뷰어 multi-value 트레일러는 trailerAll 로 직접 파싱(parseTrailers 맵은 마지막만).
+- 릴리스 절차 불변: -ldflags "-s -w -X main.gilVersion=vX.Y.Z", 5타깃, install.sh·
+  llms.txt 이전 릴리스 재사용, main FF 병합(브랜치 먼저), 태그, 수신자 E2E.
+- 크로스빌드 루프는 `for t in "darwin amd64"` + set-- 이 zsh 에서 깨진다 — 개별 라인으로.
+- 테스트 116→131(현재). GIL_BIN 훅으로 python3 -m unittest discover -s tests.
+
+### 미착수 (다음 세션 부활점) — 우선순위
+1. **#7 시각 피드백 대기** — clew@AIL가 viewer serve 로 고스트 확인 후 좌표 조정 가능성.
+2. **#6 뷰어 뎁스 토글** — 전체맵 상단에 [체인][사이클][스텝], 기본 체인. gil log --depth
+   의 뷰어판. #7 피드백 후 같은 렌더영역이라 묶어서.
+3. **#5 배포 마커** — gil deploy --at --tag --url + Gil-Deploy 트레일러 + 뷰어 🚀.
+   clew@AIL 선호=명시(자동감지 아님).
+4. **#4 레퍼런스 트루스**(가장 무거움, 체인 뼈대) — 합의: `gil chain --reference`·
+   `chain-close --retro`·`--seed` 를 **강제 아닌 안내로 시작**(형해화 실증됨), 실사용
+   데이터 쌓고 강제 여부 결정. 새 명령 만들지 말 것(Warp-anchor).
+
+### 부활점
+gil latest=**v3.5.0**. main=1748b0fa. AIL 이슈: #1(닫힘)·#2(닫힐만함)·#3(닫힘)·
+#4·#5·#6·#7(열림). 모니터 b0svrllst 가 #1~#4 코멘트+새이슈 감시(이 세션 종료로 죽음 —
+다음 세션은 gh issue list -R hyun06000/AIL --state open 으로 잡을 것).
+루프 철학: [[heaal-philosophy]] 층위 통찰(정직 강제 불가, 은폐 영속화만 차단).
