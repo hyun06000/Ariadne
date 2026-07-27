@@ -250,3 +250,25 @@ gil은 커밋 그래프를 훑어 아래를 검사한다. 위반이면 새 노�
   그래프로 이주(도구 레벨·범용).
 
 각 명령은 **git 커밋을 새기고 trailer를 붙이는 얇은 래퍼**다. 진실원은 언제나 커밋 그래프.
+
+### 4.1 MCP 표면 — `gil mcp serve` (2026-07-28)
+
+CLI 와 **같은 함수**를 MCP 툴(`gil_chain`·`gil_open`·`gil_step`·`gil_close`·`gil_chain_close`·
+`gil_approve`·`gil_reject`·`gil_log`·`gil_fsck`·`gil_handoff`·`gil_deploy`·`gil_interview`)로
+노출한다. 규율(인터뷰 필수·pending 잠금·falsify 강제…)이 두 표면에서 갈라지지 않도록 래퍼는
+얇게 — 검증은 한 곳에만 산다.
+
+**왜 MCP인가.** 인터뷰가 두 채널로 쪼개져 있었다: LLM 은 대화창에서 질문지를 만들고 사람은
+뷰어 폼에서 답한다. 둘이 서로를 모르니 LLM 은 pending 인 줄 모르고 또 질문지를 만들었고
+(실사용 붕괴, gil-test-2), 사람은 127.0.0.1 링크·포트충돌과 씨름했다. MCP 에서는 한 홉이다 —
+`gil_interview` 가 호스트의 **Elicitation**(네이티브 폼)으로 그 자리에서 묻고 답을 받아
+레퍼런스를 확정한다. 대기가 하나뿐이라 "두 대기가 따로 논다"는 실패가 구조적으로 불가능하다.
+호스트가 폼을 못 띄우면 옛 뷰어 경로(pending 커밋)로 물러난다 — 물음은 사라지지 않는다.
+사람이 폼을 취소하면 기준은 만들어지지 않는다(LLM 이 대신 답하는 길은 열리지 않는다).
+
+**제약 두 가지.** (a) stdout 은 JSON-RPC 전송선이라 모든 출력이 버퍼로 간다(`outRaw`).
+(b) 거부(`die`)가 프로세스를 죽이면 첫 거부에서 세션이 끊긴다 — MCP 모드에서 `die`/`gilExit`
+는 그 호출만 끝낸다(`gilAbort`). 거부는 gil 의 본체이므로 거부 뒤에도 대화가 이어져야 한다.
+
+의존성은 공식 Go SDK(`modelcontextprotocol/go-sdk`) 하나뿐이고, CGO 없이 5타깃 전부
+정적 단일 바이너리가 유지된다(§지원 플랫폼 불변).

@@ -106,10 +106,12 @@ func main() {
 		cmdHandoff(rest)
 	case "migrate":
 		cmdMigrate(rest)
+	case "mcp":
+		cmdMCP(rest)
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject log fsck global memory handoff migrate viewer version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject log fsck global memory handoff migrate viewer mcp version]")
 	}
 }
 
@@ -147,6 +149,9 @@ v2 이주:
 관전 뷰어:
   gil viewer serve [--port <포트>]          브라우저 관전 서버(init 이 자동 기동)
   gil viewer build --out <파일>             정적 자기완결 HTML(Pages 등 정적 호스팅용)
+
+MCP (Claude Desktop 등 호스트에 gil 을 툴로 물린다):
+  gil mcp serve [--repo <경로>]             stdio MCP 서버. 인터뷰를 호스트 네이티브 폼으로 묻는다
 
 버전:
   gil version [--check|--update]  현재 버전 · 최신과 대조 · SHA256 검증 후 자기갱신
@@ -314,10 +319,25 @@ func cmdFsck(args []string) {
 	for _, x := range v {
 		println2("위반: " + x)
 	}
-	os.Exit(1)
+	gilExit(1)
 }
 
 // ── 출력 헬퍼 ──
 
-func println2(s string) { os.Stdout.WriteString(s + "\n") }
-func stderr(s string)   { os.Stderr.WriteString(s + "\n") }
+// println2/stderr/outRaw — 사람·LLM 대상 출력의 단일 통로. MCP 모드에서는 stdout 이
+// JSON-RPC 전송선이라 한 글자도 섞으면 안 된다 → 버퍼로 돌려 툴 결과 텍스트로 되돌린다.
+func println2(s string) { outRaw(s + "\n") }
+func stderr(s string) {
+	if mcpMode {
+		outRaw(s + "\n")
+		return
+	}
+	os.Stderr.WriteString(s + "\n")
+}
+func outRaw(s string) {
+	if mcpMode {
+		mcpOut.WriteString(s)
+		return
+	}
+	os.Stdout.WriteString(s)
+}

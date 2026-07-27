@@ -35,7 +35,7 @@ func cmdMemory(args []string) {
 		if !ok {
 			die("거부: 글로벌에 " + memoryPath(name) + " 없음")
 		}
-		os.Stdout.WriteString(c)
+		outRaw(c)
 	case "append":
 		if len(args) < 3 {
 			die("사용: gil memory append <이름> <매듭파일>")

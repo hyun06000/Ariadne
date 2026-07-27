@@ -138,7 +138,7 @@ func cmdGlobal(args []string) {
 		if !ok {
 			die("거부: 글로벌에 " + args[1] + " 없음")
 		}
-		os.Stdout.WriteString(c)
+		outRaw(c)
 	case "write":
 		if len(args) < 3 {
 			die("사용: gil global write <name> <file>")

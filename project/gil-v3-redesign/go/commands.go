@@ -1448,7 +1448,7 @@ func cmdChainMerge(args []string) {
 				"충돌 해결 체인을 열어 사이클로 해결하라. 해결 후:\n" +
 				"  git add <해결한 파일> && gil chain-merge-continue " + name + " " + lf + "\n" +
 				"남은 끝단: " + rest)
-			os.Exit(2) // 2 = 충돌로 멈춤 (거부 1과 구분)
+			gilExit(2) // 2 = 충돌로 멈춤 (거부 1과 구분)
 		}
 		// 머지 성공 → Gil-* 트레일러 amend. 첫 머지 커밋이 통합 체인 루트(chain-root).
 		tr := [][2]string{{"Gil-Chain", name}}

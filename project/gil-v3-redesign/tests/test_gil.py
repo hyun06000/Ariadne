@@ -2472,5 +2472,161 @@ class TestInterview(GilFixture):
         self.assertIn("기준 문서", r.stdout + r.stderr)
 
 
+class TestMCPServe(GilFixture):
+    """gil mcp serve — 호스트(Claude Desktop 등)가 gil 을 툴로 부르는 경로.
+
+    왜 여기까지 테스트하나. 인터뷰가 '질문은 대화창, 답은 뷰어 폼'으로 쪼개져 있던 것이
+    실사용 붕괴의 원인이었다. MCP 경로의 값어치는 그 두 채널이 하나로 합쳐진다는 것 —
+    한 번의 툴 호출 안에서 묻고 받는다. 그러니 검증도 '폼이 뜨고 답이 기준이 되는지'까지 간다.
+    """
+
+    def _rpc(self, calls, elicit_answer=None):
+        """MCP 서버를 stdio 로 띄우고 요청을 순서대로 보낸다.
+
+        calls: (name, arguments) 목록. 반환: 툴별 (isError, text).
+        elicit_answer: 주면 서버가 보내는 elicitation/create 에 이 내용으로 accept 한다
+        (= 사람이 호스트 폼에 답한 상황). None 이면 클라이언트가 elicitation 미지원.
+        """
+        import json
+        caps = {"elicitation": {}} if elicit_answer is not None else {}
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1"))
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        read = lambda: json.loads(p.stdout.readline())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2025-06-18", "capabilities": caps,
+                             "clientInfo": {"name": "test", "version": "1"}}})
+            read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            results = []
+            for i, (name, args) in enumerate(calls, start=10):
+                send({"jsonrpc": "2.0", "id": i, "method": "tools/call",
+                      "params": {"name": name, "arguments": args}})
+                msg = read()
+                # 서버가 사람에게 폼을 띄우면(elicitation/create) 답을 돌려주고 결과를 마저 읽는다.
+                if msg.get("method") == "elicitation/create":
+                    send({"jsonrpc": "2.0", "id": msg["id"],
+                          "result": {"action": "accept", "content": elicit_answer}})
+                    msg = read()
+                if "error" in msg:
+                    results.append((True, msg["error"].get("message", "")))
+                else:
+                    r = msg["result"]
+                    results.append((bool(r.get("isError")),
+                                    r["content"][0]["text"] if r.get("content") else ""))
+            return results
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
+    def test_tools_are_exposed(self):
+        """핵심 명령이 툴 표면으로 나온다 — 호스트가 CLI 문자열 조립 없이 부를 수 있게."""
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1)
+        try:
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "t", "version": "1"}}}) + "\n")
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}) + "\n")
+            p.stdin.flush()
+            json.loads(p.stdout.readline())
+            names = [t["name"] for t in json.loads(p.stdout.readline())["result"]["tools"]]
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+        for want in ("gil_chain", "gil_open", "gil_step", "gil_close", "gil_interview", "gil_log"):
+            self.assertIn(want, names)
+
+    def test_reject_does_not_kill_server(self):
+        """문법 거부는 그 호출의 에러일 뿐 — 세션을 끊지 않는다.
+
+        die() 가 os.Exit 이던 시절이면 첫 거부에서 서버가 죽어 이후 호출이 전부 사라진다.
+        거부야말로 gil 의 본체(HEAAL)라, 거부 뒤에도 대화가 이어져야 한다."""
+        r = self._rpc([
+            ("gil_chain", {"name": "probe", "purpose": "MCP 경로"}),
+            ("gil_open", {"target": "probe/c001", "author": "clew", "purpose": "인터뷰 없이"}),
+            ("gil_log", {}),
+        ])
+        self.assertFalse(r[0][0], r[0][1])
+        self.assertTrue(r[1][0], "인터뷰 없는 open 은 거부돼야 한다")
+        self.assertFalse(r[2][0], "거부 뒤에도 서버는 살아 다음 호출을 받는다")
+
+    def test_interview_elicitation_makes_reference(self):
+        """인터뷰 = 호스트 네이티브 폼 한 번. 사람 답이 그대로 기준 문서가 되고 게이트가 열린다."""
+        r = self._rpc([
+            ("gil_chain", {"name": "probe", "purpose": "MCP 인터뷰"}),
+            ("gil_interview", {"chain": "probe", "questions": [
+                {"q": "무엇을 풀려는가", "type": "text"},
+                {"q": "성공 기준", "type": "radio", "options": ["속도", "정확도"]},
+                {"q": "포기 가능", "type": "checkbox", "options": ["UI", "호환성"]},
+            ]}),
+        ], elicit_answer={"q1": "채널 단일화", "q2": "정확도", "q3_o1": True, "q3_o2": False})
+        self.assertFalse(r[1][0], r[1][1])
+        # 사람이 쓴 말이 윤색 없이 기준 문서에 그대로 들어간다.
+        self.assertIn("채널 단일화", r[1][1])
+        self.assertIn("정확도", r[1][1])
+        self.assertIn("UI", r[1][1])
+        self.assertNotIn("호환성", r[1][1])  # 체크 안 한 항목은 안 들어간다
+        self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "done")
+
+    def test_interview_declined_is_not_answered_by_llm(self):
+        """사람이 폼을 취소하면 기준은 만들어지지 않는다 — LLM 이 대신 답하지 못하게."""
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1"))
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        read = lambda: json.loads(p.stdout.readline())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2025-06-18", "capabilities": {"elicitation": {}},
+                             "clientInfo": {"name": "t", "version": "1"}}})
+            read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            send({"jsonrpc": "2.0", "id": 10, "method": "tools/call",
+                  "params": {"name": "gil_chain", "arguments": {"name": "probe", "purpose": "P"}}})
+            read()
+            send({"jsonrpc": "2.0", "id": 11, "method": "tools/call",
+                  "params": {"name": "gil_interview",
+                             "arguments": {"chain": "probe",
+                                           "questions": [{"q": "무엇을", "type": "text"}]}}})
+            msg = read()
+            self.assertEqual(msg.get("method"), "elicitation/create")
+            send({"jsonrpc": "2.0", "id": msg["id"], "result": {"action": "cancel"}})
+            msg = read()
+            body = json.dumps(msg, ensure_ascii=False)
+            self.assertIn("cancel", body)
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+        # 기준이 확정되지 않았으니 사이클도 못 연다.
+        self._no_interview_autofill = True
+        r = self.gil("open", "probe/c001", "--author", "clew", "--purpose", "P", "--body", "B")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_interview_falls_back_to_viewer_form(self):
+        """호스트가 폼(Elicitation)을 못 띄우면 옛 뷰어 경로로 물러난다 — 물음은 사라지지 않는다."""
+        r = self._rpc([
+            ("gil_chain", {"name": "probe", "purpose": "P"}),
+            ("gil_interview", {"chain": "probe",
+                               "questions": [{"q": "무엇을 풀려는가", "type": "text"}]}),
+        ])
+        self.assertFalse(r[1][0], r[1][1])
+        self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "pending")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

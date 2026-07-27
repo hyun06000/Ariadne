@@ -236,6 +236,19 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 }
 
 func die(msg string) {
+	// MCP 서버로 돌 때는 프로세스를 죽이면 안 된다 — 한 번의 거부가 세션 전체를 끊는다.
+	// 거부는 그 툴 호출의 에러로만 올라가야 한다(gilAbort 로 panic → 핸들러가 recover).
+	if mcpMode {
+		panic(gilAbort{msg: msg, code: 1})
+	}
 	os.Stderr.WriteString(msg + "\n")
 	os.Exit(1)
+}
+
+// gilExit — os.Exit 를 쓰던 자리. MCP 모드에서는 종료 대신 그 호출만 끝낸다.
+func gilExit(code int) {
+	if mcpMode {
+		panic(gilAbort{code: code})
+	}
+	os.Exit(code)
 }
