@@ -50,6 +50,8 @@ type viewerNode struct {
 	inherit                  string   // Gil-Inherit: 부모에게서 물려받은 전수(경계 라벨용, AIL #3·#7)
 	gitParents               []string // 실제 커밋 부모 SHA(9자) — 진짜 DAG 그래프용(%P).
 	body                     string   // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
+	deployTag                string   // Gil-Deploy: 이 스텝에서 배포된 태그(예 v0.2.0). 이슈 #34.
+	deployURL                string   // Gil-Deploy-Url: 릴리스 URL(있으면).
 }
 
 func viewerCollectNodes() []viewerNode {
@@ -65,6 +67,10 @@ func viewerCollectNodes() []viewerNode {
 		return nil
 	}
 	var nodes []viewerNode
+	// 배포 마커(이슈 #34): Gil-Deploy 를 실은 얇은 커밋은 Gil-Step 이 없어 노드 루프가 건너뛴다.
+	// 대상 스텝(Gil-Deploy-At = chain/cycle/step)에 태그·URL 을 매핑해 두고, 노드 수집 뒤 얹는다.
+	type deployMark struct{ tag, url string }
+	deploys := map[string]deployMark{}
 	// 커밋 하나 = 노드 하나. git log --branches 는 보통 공유 커밋을 접어 주지만 그건
 	// git 이 보증하는 불변식이 아니다(여러 워킹트리·특정 ref 배치에서 같은 SHA 재출력).
 	// 조상 define 에서 형제 가지를 분기하면 그 define 커밋이 여러 브랜치 공통조상이 되는데,
@@ -83,6 +89,10 @@ func viewerCollectNodes() []viewerNode {
 		}
 		tr := parseTrailers(parts[3])
 		if tr["Gil-Step"] == "" {
+			// 배포 마커: Gil-Step 없이 Gil-Deploy 만 실은 얇은 커밋. 대상 스텝에 얹으려 모은다.
+			if at := tr["Gil-Deploy-At"]; at != "" && !seenSHA[parts[0]] {
+				deploys[at] = deployMark{tag: tr["Gil-Deploy"], url: tr["Gil-Deploy-Url"]}
+			}
 			continue
 		}
 		if seenSHA[parts[0]] {
@@ -120,6 +130,13 @@ func viewerCollectNodes() []viewerNode {
 				src := n.chain + "/" + n.cycle + "/" + n.step
 				nodes[j].refutedBy = append(nodes[j].refutedBy, src)
 			}
+		}
+	}
+	// 배포 마커(이슈 #34)를 대상 스텝에 얹는다. 한 스텝에 여러 배포가 얹히면(재배포) 마지막을 쓴다.
+	for at, dm := range deploys {
+		if j, ok := idx[at]; ok {
+			nodes[j].deployTag = dm.tag
+			nodes[j].deployURL = dm.url
 		}
 	}
 	return nodes

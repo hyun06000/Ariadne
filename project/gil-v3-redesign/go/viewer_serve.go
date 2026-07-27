@@ -413,6 +413,9 @@ func cycleJSON(g graphView, static bool) string {
 				sb.WriteString(fmt.Sprintf(
 					`{"id":%q,"kind":%q,"outcome":%q,"parent":%q,"backtrack":%q,"here":%t,"sha":%q,"inherit":%q,"subj":%q`,
 					n.step, n.kind, n.outcome, n.parent, n.backtrack, nhere, n.full, n.inherit, n.subject))
+				if n.deployTag != "" { // 배포 마커(이슈 #34) — 뷰어가 🚀 + 태그 라벨로 렌더.
+					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q`, n.deployTag, n.deployURL))
+				}
 				if static {
 					sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body)) // 정적: 본문 인라인
 				}
@@ -482,6 +485,9 @@ func dagJSON(g graphView, static bool) string {
 			sb.WriteString(fmt.Sprintf("%q", p))
 		}
 		sb.WriteString(fmt.Sprintf(`],"subj":%q`, n.subject))
+		if n.deployTag != "" { // 배포 마커(이슈 #34) — 전체맵 DAG 에도 🚀 표시.
+			sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q`, n.deployTag, n.deployURL))
+		}
 		if static {
 			sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body))
 		}
@@ -594,6 +600,9 @@ svg.cygraph{display:block}
 .snode.here circle{stroke:var(--here);stroke-width:3}
 .snode .headlbl{text-anchor:middle;font-size:10px;font-weight:800;fill:var(--here);letter-spacing:.5px}
 .snode .headarrow{fill:var(--here)}
+/* 배포 지점(이슈 #34) — 세상으로 나간 스텝. 🚀 + 태그, 링걸린 청록 테. */
+.snode.deployed circle{stroke:#2dd4bf;stroke-width:3}
+.snode .deploybadge{text-anchor:middle;font-size:11px;font-weight:800;fill:#2dd4bf}
 .snode{cursor:pointer}
 .snode.sel circle{fill:var(--node);fill-opacity:.18}
 /* 경계 고스트 노드·stub 엣지(AIL #7) — 계보가 카드 밖으로 이어짐을 흐리게 표시(orphan 착시 제거) */
@@ -678,6 +687,8 @@ svg.dag{display:block}
 .dag .dnode.k-pending circle{fill:#ffd166}
 .dag .dnode.here circle{stroke:var(--here);stroke-width:2.5}
 .dag .dnode .headarrow{fill:var(--here)}
+.dag .dnode.deployed circle{stroke:#2dd4bf;stroke-width:2.5}
+.dag .dnode .dagdeploy{font-size:10px;font-weight:800;fill:#2dd4bf;text-anchor:middle;pointer-events:none}
 /* 집계 노드(사이클/체인 뎁스, AIL #6) — 이름 라벨 + ⚡분기 표식 */
 .dag .dnode.agg .agglabel{font-size:10px;font-weight:600;fill:var(--fg);text-anchor:middle}
 .dag .dnode .forkmark{font-size:9px;text-anchor:middle;pointer-events:none}
@@ -931,6 +942,13 @@ function openStepCard(chain,cyc){
     if(n.here){ // 현재위치(HEAD) — 색만이 아니라 ▼HEAD 라벨+화살표로 직관화(피드백 5)
       g.appendChild(svgEl('text',{class:'headlbl',dy:-r-14},'HEAD'));
       g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
+    }
+    if(n.deploy){ // 배포 지점(이슈 #34) — 🚀 + 태그 라벨. 이 스텝에서 세상으로 나갔다.
+      const rk=svgEl('text',{class:'deploybadge',dy:n.here?-r-30:-r-14},'🚀 '+n.deploy);
+      const tt=svgEl('title',{},'배포 '+n.deploy+(n.deployUrl?'\n'+n.deployUrl:''));
+      rk.appendChild(tt); g.appendChild(rk);
+      g.classList.add('deployed');
+      if(n.deployUrl){ rk.style.cursor='pointer'; rk.addEventListener('click',ev=>{ev.stopPropagation();window.open(n.deployUrl,'_blank');}); }
     }
     g.addEventListener('click',ev=>{
       ev.stopPropagation();
@@ -1353,6 +1371,12 @@ function buildStepMap(){
     if(n.forked){ const s=svgEl('text',{class:'forkmark',x:0,y:3}); s.textContent='⚡'; g.appendChild(s); } // 분기 밟은 solved
     if(agg){ const lab=svgEl('text',{class:'agglabel',x:0,y:-(r+6)}); lab.textContent=(MAP_DEPTH==='cycle'?n.cycle:n.chain); g.appendChild(lab); }
     if(n.here) g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-3)+' l -5 -7 l 10 0 z'}));
+    if(n.deploy){ // 배포 지점(이슈 #34) — 전체맵에도 🚀 + 태그. 세상으로 나간 스텝.
+      g.classList.add('deployed');
+      const rk=svgEl('text',{class:'dagdeploy',x:0,y:n.here?-r-14:-(r+5)},'🚀'+(agg?'':' '+n.deploy));
+      rk.appendChild(svgEl('title',{},'배포 '+n.deploy+(n.deployUrl?'\n'+n.deployUrl:'')));
+      g.appendChild(rk);
+    }
     g.addEventListener('click',()=>agg?jumpToAgg(n):jumpToNode(n));
     svg.appendChild(g);
   });
@@ -1361,7 +1385,7 @@ function buildStepMap(){
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
   if(MAP_DEPTH==='step')
-    leg.innerHTML='진짜 커밋 그래프 — 왼→오른 흐름, 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+    leg.innerHTML='진짜 커밋 그래프 — 왼→오른 흐름, 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
   else
     leg.innerHTML=(MAP_DEPTH==='cycle'?'사이클':'체인')+' 단위 접힌 맵(<b>gil log --depth</b> 뷰어판) — 노드 하나=한 '+(MAP_DEPTH==='cycle'?'사이클':'체인')+'. <b class="lg-alive">초록</b>=solved(산 잎 있음), <b class="lg-dead">붉음</b>=dead, <b>⚡</b>=분기 밟은 solved(죽은 잎도 품음, 일자 solved 와 구분). 엣지=계보. 노드 클릭 → 그 '+(MAP_DEPTH==='cycle'?'사이클 첫 스텝':'체인 첫 사이클')+'으로 이동.';
   host.appendChild(leg);

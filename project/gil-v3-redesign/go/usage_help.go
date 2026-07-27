@@ -73,6 +73,14 @@ var helpTable = map[string]helpEntry{
 			"  산 잎(success)이 있는 사이클을 봉인한다. 산 잎 없으면 거부.",
 		"docs/gil/lifecycle.md · docs/gil/deployment.md",
 	},
+	"deploy": {
+		"gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--url <릴리스URL>] [--title T] [--body-file -]\n" +
+			"  배포(공개) 지점을 그래프의 1급 시민으로. 특정 스텝에 '여기서 세상으로 나갔다' 마커를\n" +
+			"  얹는다(Gil-Deploy 트레일러). 추론 노드가 아니라 주석이라 그래프 위상은 불변 —\n" +
+			"  뷰어가 대상 노드에 🚀 배포 마커 + 태그 라벨을 렌더한다. 배포는 되돌리기 어려운\n" +
+			"  의도적 외부 행위라 '언제 왜 배포했나'를 배포 시점에 남긴다(자동 tag 감지 대신 명시).",
+		"docs/gil/deployment.md",
+	},
 	"chain-merge": {
 		"gil chain-merge <newchain> --purpose <P> <tip>...\n" +
 			"  흩어진 체인을 하나로 묶는다 — 실제 git merge(파일까지). 충돌 시 멈춤(사람이 해결).",

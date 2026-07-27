@@ -2093,5 +2093,54 @@ class TestPendingLeaf(GilFixture):
         self.assertNotEqual(parent, "")  # 부모가 pending 이 아닌 실제 스텝
 
 
+class TestDeploy(GilFixture):
+    """gil deploy — 배포(공개) 지점 마커 (이슈 #34)."""
+
+    def _live_step(self):
+        self.gil("chain", "dev", "--purpose", "개발")
+        self.gil("open", "dev/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "dev/c001", "--kind", "success", "--title", "릴리스 준비")
+
+    def test_deploy_marks_target_step(self):
+        """deploy 는 대상 스텝을 가리키는 Gil-Deploy 트레일러 커밋을 남긴다."""
+        self._live_step()
+        r = self.gil("deploy", "--at", "dev/c001/s4", "--tag", "v0.2.0",
+                     "--url", "https://example.com/r/v0.2.0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy"), "v0.2.0")
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-At"), "dev/c001/s4")
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Url"),
+                         "https://example.com/r/v0.2.0")
+        # 배포 커밋은 추론 노드가 아니다 — Gil-Step 을 달지 않는다(그래프 위상 불변).
+        self.assertEqual(self.trailer("HEAD", "Gil-Step"), "")
+
+    def test_deploy_requires_tag_and_at(self):
+        self._live_step()
+        r = self.gil("deploy", "--tag", "v1")  # --at 없음
+        self.assertNotEqual(r.returncode, 0)
+        r = self.gil("deploy", "--at", "dev/c001/s4")  # --tag 없음
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_deploy_rejects_missing_step(self):
+        """실재하지 않는 스텝엔 마커를 얹지 못한다."""
+        self._live_step()
+        r = self.gil("deploy", "--at", "dev/c001/s99", "--tag", "v1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("s99", r.stdout + r.stderr)
+
+    def test_deploy_rejects_malformed_at(self):
+        """--at 은 chain/cycle/step 세 조각을 다 요구한다."""
+        self._live_step()
+        r = self.gil("deploy", "--at", "dev/c001", "--tag", "v1")  # 스텝 없음
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_deploy_url_optional(self):
+        self._live_step()
+        r = self.gil("deploy", "--at", "dev/c001/s4", "--tag", "v0.1.0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy"), "v0.1.0")
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Url"), "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

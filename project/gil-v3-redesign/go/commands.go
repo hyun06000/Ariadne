@@ -891,6 +891,73 @@ func cmdClose(args []string) {
 	println2("close: " + ref + " — " + *verdict)
 }
 
+// ── gil deploy — 배포(공개) 지점을 그래프의 1급 시민으로 (이슈 #34, 상현님) ──
+//
+// 사고 그래프는 "무엇을 생각했나"는 다 보여주지만 "무엇을 언제 세상에 내보냈나"는 안 보였다.
+// 배포는 되돌리기 어려운 외부 행위이자 결정적 분기점인데 지도에 흔적이 없었다(v0.1.0·v0.2.0이
+// 어느 스텝에서 나갔는지 그래프상 0). deploy 는 특정 스텝에 "여기서 배포됨" 마커를 얹는다 —
+// 새 사고 노드가 아니라 기존 노드에 대한 주석이라, Gil-Step 을 달지 않고 Gil-Deploy 계열
+// 트레일러만 실은 얇은 커밋으로 남긴다(추론 그래프 불변). 뷰어가 대상 노드에 🚀 배포 마커 +
+// 태그 라벨을 렌더한다.
+//
+// 자동 감지(git tag→노드 매핑) 대신 명시적 명령을 택했다(상현님 선호): 배포는 의도적 행위라
+// "언제 왜 배포했나"를 배포 시점에 스텝처럼 남기는 게 사고 그래프 정신에 맞다. 자동 감지는
+// "왜"를 담지 못한다.
+func cmdDeploy(args []string) {
+	fs := newFlags("gil deploy")
+	at := fs.str("at", "")
+	tag := fs.str("tag", "")
+	url := fs.str("url", "")
+	title := fs.str("title", "")
+	body := fs.str("body", "")
+	bodyFile := fs.str("body-file", "")
+	fs.parse(args)
+	if *at == "" || *tag == "" {
+		die("사용: gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--url <릴리스URL>] [--title T]")
+	}
+	// --at 파싱·검증: chain/cycle/step 세 조각이 다 있어야 하고 그 스텝이 실재해야 한다.
+	chain, rest, ok := cut(*at, "/")
+	if !ok {
+		die("거부: --at 은 <chain>/<cycle>/<step> 형식 (받음: " + *at + ")")
+	}
+	cycle, step, ok := cut(rest, "/")
+	if !ok || step == "" {
+		die("거부: --at 은 <chain>/<cycle>/<step> 형식 — 스텝까지 지정하라 (받음: " + *at + ")")
+	}
+	var target *node
+	for _, s := range currentCycle(chain, cycle) {
+		if s.step == step {
+			t := s
+			target = &t
+			break
+		}
+	}
+	if target == nil {
+		die("거부: --at " + *at + " 스텝이 없다 — 배포 마커는 실재하는 스텝에만 얹는다")
+	}
+	stTitle := orDefault(*title, "배포 "+*tag+" — "+*at+" 에서 세상으로")
+	subject := "gil deploy " + *tag + ": " + stTitle
+	dBody := resolveBody(*body, *bodyFile)
+	if dBody == "" {
+		dBody = "배포 지점: " + *at + " 에서 " + *tag + " 를 공개했다."
+		if *url != "" {
+			dBody += " (" + *url + ")"
+		}
+	}
+	tr := [][2]string{
+		{"Gil-Deploy", *tag},
+		{"Gil-Deploy-At", *at},
+	}
+	if *url != "" {
+		tr = append(tr, [2]string{"Gil-Deploy-Url", *url})
+	}
+	commit(subject, dBody, tr, true)
+	println2("deploy: " + *tag + " @ " + *at + " 🚀 (뷰어에 배포 마커로 표시됨)")
+	if *url != "" {
+		println2("  릴리스: " + *url)
+	}
+}
+
 // ── gil chain-close ──
 //
 // 체인을 완결로 봉인한다 (상현님 실사용: 체인을 닫는 명령이 없어 서브에이전트가
