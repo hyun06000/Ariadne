@@ -4020,3 +4020,47 @@ gil latest=**v3.11.2**. main=308c8460. 실사용기준=Claude Desktop+Claude Cod
 관찰. '실패 안 두려워' 비전: [1]레퍼런스✓[2]인터뷰폼✓[3]인터뷰 강제✓ → [4]chain-close --retro
 [5]승인관문(define/hypothesis)[6]fail반전. 다음: 상현 v3.11.2 재테스트 피드백.
 [[verify-with-fresh-build]] 재확인(크로스컴파일이 go/gil 덮는 사고).
+
+
+## 매듭 — MCP 설계 합의 + 세션 마무리 (2026-07-28)
+
+상현 실사용(Claude Desktop+Claude Code, 레포 gil-test-2): 인터뷰가 뷰어 폼과 대화창 두 채널로
+쪼개져 UX 붕괴 — LLM이 뷰어에 폼 띄우고 멈춤, pending인데 뷰어/LLM 따로 놀며 또 질문지 만듦,
+127.0.0.1 날 IP·포트충돌로 시스템브라우저 우회. 상현: "뷰어로 다 하든지, 대화/질문도구로 소통하고
+뷰어는 보여주기만 하든지 하나로. MCP 쓰면 해결되는지 조사해줘(Claude Desktop 기준)."
+
+### 조사 결론 (실제 API 확인)
+**MCP가 정확히 이 문제를 푼다.** gil=Go 단일바이너리 → 공식 Go MCP SDK(modelcontextprotocol/
+go-sdk, Google 공동유지)가 stdio·Elicitation 지원. 기존 gil 명령함수를 mcp.AddTool 로 감싸는
+얇은 래퍼면 됨. 인터뷰=session.Elicit(ctx, ElicitParams{Message, RequestedSchema jsonschema})
+→ Claude Desktop이 네이티브 폼 렌더 → res.Action=accept, res.Content 로 답 → 커밋. 뷰어폼·POST·
+127.0.0.1 전부 불필요. 그래프관전=MCP Apps(Claude Desktop 공식지원, ui:// 리소스, 내장 iframe).
+
+### 합의된 설계 (상현 "다 마음에 든다")
+설계 아티팩트: **claude.ai/code/artifact/747f5bfe-fee3-4124-9f53-3facd2976ffb** (gil MCP 설계).
+단계 A(gil mcp serve+명령을 MCP 툴로)+B(인터뷰=Elicitation 폼)+C(뷰어=MCP App). **다음 세션
+착수 = A+B 먼저**(인터뷰 두채널 문제 근본해소). C는 그 위에.
+- 명령→툴 매핑 초안 문서에 있음. interview·approve/reject 는 Elicitation 후보.
+- 논쟁점: (1)go-sdk 의존성 늘어도 정적단일바이너리(CGO없음) 유지되나 확인 (2)기존 CLI 병존
+  (gil mcp serve 는 새 진입점, gil open… CLI 그대로—Cursor·터미널용) (3)Elicitation은 비번/
+  API키 form 금지(우리 인터뷰 무관) (4)방금 넣은 인터뷰 강제(open게이트·pending잠금)는 같은
+  함수 부르니 MCP 툴에도 그대로 적용 — 오히려 Elicitation이 강제를 더 자연스럽게.
+
+### 이번 세션 성과 (2026-07-27~28, 긴 세션)
+gil latest=v3.11.2(배포·검증). main=308c8460(동기화). 커밋 6건 + 릴리스 3건:
+- 25742b42 #34 deploy 마커 → v3.11.0
+- 9768274a #44/45/46 fail종결 재설계(--abandon·재분기안내·브랜치정합·pending버그) → v3.11.0
+- e6508461 #33 레퍼런스 최소형(gil chain --reference) → v3.11.0
+- 87a6455c #33 인터뷰 폼(뷰어 폼→제출→레퍼런스 커밋) → v3.11.0
+- 844cdf93 윈도우 콘솔공포 제거(CREATE_NO_WINDOW)+브라우저 자동실행 → v3.11.1
+- 308c8460 #33 인터뷰 필수+pending 잠금(LLM 사람우회 차단) → v3.11.2
+설계 아티팩트 2개: f5ce81a5('실패 안 두려워하는 문법' 비전) · 747f5bfe(MCP).
+
+### 다음 세션 착수점
+**MCP A+B 구현.** 순서: (1) go.mod 에 go-sdk 추가→정적빌드 되는지 확인(논쟁점1) (2) gil mcp
+serve 진입점+최소 서버(mcp.NewServer/AddTool/StdioTransport) (3) 핵심 명령 몇 개 툴화(chain·
+open·step·close·approve·reject·log·handoff) (4) interview 를 Elicit 으로 (5) Claude Desktop
+설정 등록+실 밟기. 기존 CLI·example테스트 보존. [[verify-with-fresh-build]] 유의(크로스컴파일이
+go/gil 덮음—-o /dev/null 로).
+'실패 안 두려워' 비전 남은조각: [4]chain-close --retro [5]승인관문 심화 [6]fail 반전. 남은 이슈
+#35·#36~38(뷰어 대부분 구현됨)·#39설치·#40온보딩·#41(제안3)·#42/#32정직화.
