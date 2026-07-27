@@ -2294,5 +2294,74 @@ class TestReference(GilFixture):
         self.assertNotIn("레퍼런스 트루스", r.stdout + r.stderr)
 
 
+class TestInterview(GilFixture):
+    """gil interview — 사람 설문 폼으로 레퍼런스 만들기 (이슈 #33)."""
+
+    QS = ('[{"q":"무엇을 풀려는가","type":"text"},'
+          '{"q":"성공 기준","type":"checkbox","options":["속도","정확도"]},'
+          '{"q":"우선순위","type":"radio","options":["비용","품질"]}]')
+
+    def _chain(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "audit", "--purpose", "감사")
+
+    def test_interview_pins_question_node(self):
+        """--ask 는 Gil-Interview:pending 노드를 심고 질문 JSON 을 본문 펜스에 담는다."""
+        self._chain()
+        r = self.gil("interview", "audit", "--ask", "-", input=self.QS)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("audit", "Gil-Interview"), "pending")
+        self.assertEqual(self.trailer("audit", "Gil-Kind"), "interview")
+        body = self._git("log", "-1", "audit", "--format=%b").stdout
+        self.assertIn("gil-interview", body)  # JSON 펜스
+
+    def test_interview_rejects_bad_json(self):
+        self._chain()
+        r = self.gil("interview", "audit", "--ask", "-", input="not json")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_interview_rejects_bad_type(self):
+        self._chain()
+        r = self.gil("interview", "audit", "--ask", "-",
+                     input='[{"q":"x","type":"dropdown"}]')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("type", r.stdout + r.stderr)
+
+    def test_interview_choice_needs_options(self):
+        self._chain()
+        r = self.gil("interview", "audit", "--ask", "-",
+                     input='[{"q":"고르라","type":"radio"}]')
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_interview_requires_existing_chain(self):
+        self.gil("init", "--name", "clew")
+        r = self.gil("interview", "nope", "--ask", "-", input=self.QS)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_interview_resolve_pins_reference_and_done(self):
+        """--resolve 는 레퍼런스를 심고(Gil-Reference) 인터뷰를 done 으로 닫는다(뷰어 제출 경로)."""
+        self._chain()
+        self.gil("interview", "audit", "--ask", "-", input=self.QS)
+        # 답변으로 조립된 레퍼런스 파일을 흉내낸다.
+        ref = os.path.join(self.repo, "reference-audit.md")
+        with open(ref, "w", encoding="utf-8") as f:
+            f.write("# 기준 문서\n성공: 속도·정확도\n우선: 비용")
+        r = self.gil("interview", "audit", "--resolve", "reference-audit.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Reference"), "true")
+        self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "done")
+
+    def test_open_after_interview_resolve_sees_reference(self):
+        """인터뷰 해소 후 그 체인에 사이클을 열면 기준 안내가 뜬다."""
+        self._chain()
+        self.gil("interview", "audit", "--ask", "-", input=self.QS)
+        ref = os.path.join(self.repo, "reference-audit.md")
+        with open(ref, "w", encoding="utf-8") as f:
+            f.write("# 기준")
+        self.gil("interview", "audit", "--resolve", "reference-audit.md")
+        r = self.gil("open", "audit/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.assertIn("기준 문서", r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

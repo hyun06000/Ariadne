@@ -79,6 +79,15 @@ var helpTable = map[string]helpEntry{
 			"  길로 판단해 포기할 때만 --abandon(정직: 없는 성공을 날조하지 않는다).",
 		"docs/gil/lifecycle.md · docs/gil/deployment.md",
 	},
+	"interview": {
+		"gil interview <chain> --ask <질문JSON|->  [--title T]\n" +
+			"  이 체인의 기준 문서(레퍼런스 트루스, 이슈 #33)를 사람과의 인터뷰로 만든다. 질문 세트를\n" +
+			"  그래프에 심으면 뷰어가 폼(서술 textarea·라디오·체크박스)으로 렌더한다 — 사람이 답하고\n" +
+			"  제출하면 reference-<chain>.md 로 저장되고 레퍼런스가 커밋된다(pending→approve 의 거울).\n" +
+			"  질문: [{\"q\":\"질문\",\"type\":\"text|radio|checkbox\",\"options\":[\"...\"]}]\n" +
+			"  gil interview <chain> --resolve <파일>  — 뷰어 제출이 호출(사람이 직접 쓸 일은 드묾).",
+		"docs/gil/concepts.md",
+	},
 	"deploy": {
 		"gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--url <릴리스URL>] [--title T] [--body-file -]\n" +
 			"  배포(공개) 지점을 그래프의 1급 시민으로. 특정 스텝에 '여기서 세상으로 나갔다' 마커를\n" +

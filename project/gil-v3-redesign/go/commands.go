@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"sort"
@@ -1072,6 +1073,140 @@ func cmdDeploy(args []string) {
 	if *url != "" {
 		println2("  릴리스: " + *url)
 	}
+}
+
+// ── gil interview — 사람에게 설문 폼을 띄워 레퍼런스 트루스를 함께 만든다 (이슈 #33) ──
+//
+// LLM 이 인터뷰 질문 세트를 그래프에 심으면, 뷰어가 그걸 폼으로 렌더한다 — 사람이 문제 풀듯
+// 답하고 [제출]을 누르면 답변이 reference-<chain>.md 로 저장되고 그 체인에 레퍼런스로
+// 커밋된다(뷰어 서버 POST /interview → gil chain --reference). pending→approve 흐름의 거울:
+// 인터뷰 요구 노드는 '사람 대기'이고, 제출이 그걸 해소한다.
+//
+// 질문은 JSON 으로 받는다(--ask <파일|->): [{"q":"...", "type":"text|radio|checkbox",
+// "options":["..."]}]. 구조가 명확해 뷰어가 파싱해 textarea·라디오·체크박스를 그린다.
+
+// interviewQ — 인터뷰 질문 하나. type: text(서술)·radio(택1)·checkbox(다중). options 는
+// radio/checkbox 에서만.
+type interviewQ struct {
+	Q       string   `json:"q"`
+	Type    string   `json:"type"`
+	Options []string `json:"options,omitempty"`
+}
+
+func cmdInterview(args []string) {
+	fs := newFlags("gil interview")
+	ask := fs.str("ask", "")
+	title := fs.str("title", "")
+	// --resolve <ref파일>: 인터뷰를 해소한다(뷰어 서버가 사람 제출 후 호출). 답변으로 조립한
+	// 레퍼런스 파일을 이 체인에 심고(Gil-Reference) 인터뷰를 done 으로 닫는다. 사람이 CLI 로 직접
+	// 쓸 일은 드물다 — 보통 뷰어 폼이 대신 부른다.
+	resolve := fs.str("resolve", "")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil interview <chain> --ask <질문JSON|-> [--title T]\n" +
+			"  또는: gil interview <chain> --resolve <레퍼런스파일>  (뷰어 제출이 호출)\n" +
+			"  질문 형식: [{\"q\":\"질문\",\"type\":\"text|radio|checkbox\",\"options\":[\"...\"]}]")
+	}
+	chain := pos[0]
+	if *resolve != "" {
+		interviewResolve(chain, *resolve)
+		return
+	}
+	if *ask == "" {
+		die("사용: gil interview <chain> --ask <질문JSON|->  (또는 --resolve <파일>)")
+	}
+	if !idRe.MatchString(chain) {
+		die("거부: 체인 이름 \"" + chain + "\"은 소문자·숫자·하이픈만")
+	}
+	if chainPurpose(chain, "--branches") == "" {
+		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — 먼저 gil chain 으로 열어라. " +
+			"인터뷰는 그 체인의 레퍼런스 트루스를 만드는 과정이다(이슈 #33).")
+	}
+	// 질문 JSON 을 읽고 구조를 검증한다 — 빈 폼·잘못된 type 을 뷰어에 보내기 전에 여기서 거부.
+	raw := resolveBody("", *ask)
+	if strings.TrimSpace(raw) == "" {
+		die("거부: --ask 질문이 비었다")
+	}
+	var qs []interviewQ
+	if err := json.Unmarshal([]byte(raw), &qs); err != nil {
+		die("거부: --ask 는 질문 배열 JSON 이어야 한다: " + err.Error() + "\n" +
+			"  예: [{\"q\":\"무엇을 풀려는가\",\"type\":\"text\"}, " +
+			"{\"q\":\"성공 기준\",\"type\":\"checkbox\",\"options\":[\"속도\",\"정확도\"]}]")
+	}
+	if len(qs) == 0 {
+		die("거부: 질문이 하나도 없다")
+	}
+	for i, q := range qs {
+		if strings.TrimSpace(q.Q) == "" {
+			die("거부: 질문 " + strconv.Itoa(i+1) + " 의 q(질문 텍스트)가 비었다")
+		}
+		if q.Type != "text" && q.Type != "radio" && q.Type != "checkbox" {
+			die("거부: 질문 " + strconv.Itoa(i+1) + " 의 type 은 text|radio|checkbox — 받음: \"" + q.Type + "\"")
+		}
+		if (q.Type == "radio" || q.Type == "checkbox") && len(q.Options) == 0 {
+			die("거부: 질문 " + strconv.Itoa(i+1) + "(" + q.Type + ")은 options 가 필요하다")
+		}
+	}
+	// JSON 을 정규화해(들여쓰기) 본문에 싣는다 — 뷰어가 펜스 블록에서 추출해 폼을 그린다.
+	norm, _ := json.MarshalIndent(qs, "", "  ")
+	stTitle := orDefault(*title, "인터뷰 — "+chain+" 의 기준 문서를 사람과 함께 만든다")
+	subject := "gil " + chain + " interview: " + stTitle
+	// 본문: 사람이 읽을 질문 목록 + 뷰어가 파싱할 JSON 펜스. 뷰어가 없어도 사람이 읽을 수 있게.
+	var b strings.Builder
+	b.WriteString("이 체인의 레퍼런스 트루스(기준 문서)를 만들기 위한 인터뷰다. 뷰어에서 폼으로 답하고\n")
+	b.WriteString("제출하면 답변이 reference-" + chain + ".md 로 저장되고 이 체인에 레퍼런스로 심긴다.\n\n")
+	b.WriteString("── 질문 ──\n")
+	for i, q := range qs {
+		b.WriteString(strconv.Itoa(i+1) + ". " + q.Q + "  (" + q.Type + ")\n")
+		for _, o := range q.Options {
+			b.WriteString("   - " + o + "\n")
+		}
+	}
+	b.WriteString("\n```gil-interview\n")
+	b.Write(norm)
+	b.WriteString("\n```\n")
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Kind", "interview"},
+		{"Gil-Interview", "pending"},
+	}
+	// 체인 브랜치 위에 심는다(레퍼런스가 그 체인에 커밋될 자리). HEAD 가 다른 데면 맞춘다.
+	tip := strings.TrimSpace(git("rev-parse", "--verify", "-q", "refs/heads/"+chain))
+	if tip != "" {
+		alignHeadToTip(first9(tip), chain)
+	}
+	commit(subject, b.String(), tr, true)
+	println2("interview: " + chain + " — 질문 " + strconv.Itoa(len(qs)) + "개 심음. 뷰어에서 사람이 폼으로 답한다.")
+	println2("  ▸ 뷰어를 열어라(gil viewer serve / VS Code 패널). 사람이 제출하면 reference-" + chain +
+		".md 로 저장되고 레퍼런스가 커밋된다 — 폴링이 곧 반영한다.")
+	println2("  ▸ 사람 답 전엔 이 기준이 비어 있다 — 답을 기다려라(pending 처럼).")
+}
+
+// interviewResolve — 인터뷰를 해소한다(뷰어 제출이 호출). 답변으로 조립된 레퍼런스 파일을
+// 이 체인에 심고(Gil-Reference), 인터뷰를 done 으로 닫는다. 이후 open 안내·chainHasReference 가
+// 이 체인을 '기준 있음'으로 본다. 파일은 워킹트리에 그대로 남아 사람이 열어보고 편집할 수 있다.
+func interviewResolve(chain, refFile string) {
+	if chainPurpose(chain, "--branches") == "" {
+		die("거부: 체인 \"" + chain + "\" 없음")
+	}
+	refBody := resolveBody("", refFile)
+	if strings.TrimSpace(refBody) == "" {
+		die("거부: --resolve 레퍼런스 파일이 비었다")
+	}
+	subject := "gil " + chain + " reference: 인터뷰로 기준 문서 확정"
+	body := "체인 [" + chain + "]의 레퍼런스 트루스(기준 문서)를 사람과의 인터뷰로 확정했다(이슈 #33).\n" +
+		"이후 사이클의 define·가설·성패판정이 이 기준에 비추어 선다.\n\n" +
+		"── 기준 문서(레퍼런스 트루스) ──\n\n" + refBody
+	tr := [][2]string{
+		{"Gil-Chain", chain}, {"Gil-Kind", "reference"},
+		{"Gil-Reference", "true"}, {"Gil-Interview", "done"},
+	}
+	// 체인 브랜치 위에 심는다 — 그 체인의 계보에 기준이 얹히도록 HEAD 를 맞춘다(이슈 #44 정합).
+	tip := strings.TrimSpace(git("rev-parse", "--verify", "-q", "refs/heads/"+chain))
+	if tip != "" {
+		alignHeadToTip(first9(tip), chain)
+	}
+	commit(subject, body, tr, true)
+	println2("interview: " + chain + " 기준 문서 확정 — 레퍼런스 심음(인터뷰 done).")
 }
 
 // ── gil chain-close ──

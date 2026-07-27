@@ -293,7 +293,73 @@ type graphView struct {
 	parents             map[string]string // 체인 계보 엣지: 자식→부모
 	allNodes            []viewerNode      // 전체 스텝 노드(진짜 커밋 DAG 그래프용)
 	nodeCount, tipCount int
-	work                workStatus // 현재 HEAD 워킹트리의 미커밋 작업 상태(진행 라이브 표시)
+	work                workStatus       // 현재 HEAD 워킹트리의 미커밋 작업 상태(진행 라이브 표시)
+	interviews          []interviewReq   // 아직 답 안 된 인터뷰 요구(사람 폼 대기, 이슈 #33)
+}
+
+// interviewReq — 사람의 답을 기다리는 인터뷰 요구(gil interview 로 심긴 것). 뷰어가 이걸
+// 폼으로 렌더한다. questions 는 gil-interview 펜스에서 뽑은 원본 JSON 문자열.
+type interviewReq struct {
+	chain     string
+	sha       string
+	questions string // gil-interview 펜스 안의 질문 배열 JSON
+}
+
+// pendingInterviews — Gil-Interview:pending 커밋 중 아직 done 으로 해소 안 된 것들. 같은
+// 체인에 done 마커가 있으면(제출됨) 뺀다. 질문 JSON 은 본문의 ```gil-interview 펜스에서 추출.
+func pendingInterviews() []interviewReq {
+	const rs = "\x1e"
+	const fs = "\x1f"
+	format := "%H" + fs + "%(trailers:key=Gil-Chain,valueonly)" + fs +
+		"%(trailers:key=Gil-Interview,valueonly)" + fs + "%B" + rs
+	out, err := viewerLog("--format=" + format)
+	if err != nil {
+		return nil
+	}
+	done := map[string]bool{}         // 제출로 해소된 체인
+	var reqs []interviewReq           // pending 요구(최신 우선 — viewerLog 는 new→old)
+	seenChain := map[string]bool{}    // 체인당 최신 pending 하나만
+	for _, rec := range strings.Split(string(out), rs) {
+		rec = strings.TrimLeft(rec, "\n")
+		if strings.TrimSpace(rec) == "" {
+			continue
+		}
+		parts := strings.SplitN(rec, fs, 4)
+		if len(parts) < 4 {
+			continue
+		}
+		sha, chain, iv, body := parts[0], strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), parts[3]
+		if iv == "done" {
+			done[chain] = true
+			continue
+		}
+		if iv == "pending" && !seenChain[chain] {
+			seenChain[chain] = true
+			reqs = append(reqs, interviewReq{chain: chain, sha: sha[:9], questions: extractInterviewJSON(body)})
+		}
+	}
+	var open []interviewReq
+	for _, r := range reqs {
+		if !done[r.chain] { // 그 체인이 아직 제출 안 됐으면 폼을 띄운다
+			open = append(open, r)
+		}
+	}
+	return open
+}
+
+// extractInterviewJSON — 커밋 본문의 ```gil-interview … ``` 펜스 안 JSON 을 뽑는다.
+func extractInterviewJSON(body string) string {
+	const open = "```gil-interview"
+	i := strings.Index(body, open)
+	if i < 0 {
+		return ""
+	}
+	rest := body[i+len(open):]
+	j := strings.Index(rest, "```")
+	if j < 0 {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(rest[:j])
 }
 
 // workStatus — 대상 레포 워킹트리의 미커밋 변경 요약. gil 그래프에 커밋으로 박지 않고
@@ -501,7 +567,7 @@ func buildGraph() graphView {
 			chainOrder = append(chainOrder, ch)
 		}
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus()}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), interviews: pendingInterviews()}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}

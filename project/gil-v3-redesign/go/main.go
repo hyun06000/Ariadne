@@ -86,6 +86,8 @@ func main() {
 		cmdChainClose(rest)
 	case "deploy":
 		cmdDeploy(rest)
+	case "interview":
+		cmdInterview(rest)
 	case "approve":
 		cmdApprove(rest)
 	case "reject":
@@ -105,7 +107,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy approve reject log fsck global memory handoff migrate viewer version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject log fsck global memory handoff migrate viewer version]")
 	}
 }
 
@@ -127,6 +129,7 @@ func printUsage() {
 
 사고 기록 (체인 > 사이클 > 스텝):
   gil chain <name> --purpose <p> [--reference <기준문서>]  새 체인 개설 (--reference: 기준 문서, #33)
+  gil interview <chain> --ask <질문JSON>  사람에게 설문 폼(뷰어)을 띄워 기준 문서를 함께 만든다 (#33)
   gil open <chain>/<cycle> --author <a> --purpose <p>   새 사이클
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
   gil close <chain>/<cycle> --verdict <v> [--abandon]   사이클 닫기 (--abandon: fail만인 죽은 사이클도)

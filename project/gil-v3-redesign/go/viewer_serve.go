@@ -3,11 +3,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -41,6 +44,46 @@ func gilExec(args ...string) ([]byte, error) {
 	cmd.Dir = viewerRepoDir
 	cmd.Env = append(os.Environ(), "GIL_NO_VIEWER=1") // 자식이 또 뷰어를 띄우지 않게
 	return cmd.CombinedOutput()
+}
+
+// assembleReference — 인터뷰 답변을 사람이 읽는 마크다운 기준 문서로 조립한다. 각 질문을
+// 소제목으로, 답을 그 아래에 둔다. 체크박스(다중)는 리스트, 나머지는 문단. answer 는 문자열
+// 또는 문자열 배열(JSON RawMessage) — 둘 다 처리한다.
+func assembleReference(chain string, answers []struct {
+	Q      string          `json:"q"`
+	Type   string          `json:"type"`
+	Answer json.RawMessage `json:"answer"`
+}) string {
+	var b strings.Builder
+	b.WriteString("# 기준 문서 (레퍼런스 트루스) — " + chain + "\n\n")
+	b.WriteString("이 체인의 사이클·가설·성패판정이 비추어야 할 기준. 사람과의 인터뷰로 확정됐다.\n\n")
+	for i, a := range answers {
+		b.WriteString("## " + itoa(i+1) + ". " + strings.TrimSpace(a.Q) + "\n\n")
+		// answer 가 배열이면 리스트로, 문자열이면 문단으로.
+		var arr []string
+		if json.Unmarshal(a.Answer, &arr) == nil {
+			if len(arr) == 0 {
+				b.WriteString("_(답 없음)_\n\n")
+			} else {
+				for _, v := range arr {
+					b.WriteString("- " + strings.TrimSpace(v) + "\n")
+				}
+				b.WriteString("\n")
+			}
+			continue
+		}
+		var s string
+		if json.Unmarshal(a.Answer, &s) == nil {
+			if strings.TrimSpace(s) == "" {
+				b.WriteString("_(답 없음)_\n\n")
+			} else {
+				b.WriteString(strings.TrimSpace(s) + "\n\n")
+			}
+			continue
+		}
+		b.WriteString("_(답 없음)_\n\n")
+	}
+	return b.String()
 }
 
 func serve(args []string) {
@@ -113,6 +156,48 @@ func serve(args []string) {
 	}
 	http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "approve") })
 	http.HandleFunc("/reject", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "reject") })
+	// POST /interview?chain=  — 사람이 인터뷰 폼을 제출한다(이슈 #33). 본문 = 답변 JSON 배열
+	// [{q,type,answer}]. 서버가 이걸 마크다운 기준 문서로 조립해 reference-<chain>.md 로 저장하고,
+	// gil interview <chain> --resolve <파일> 을 호출해 레퍼런스를 커밋한다. 파일은 워킹트리에
+	// 남아 사람이 열어보고 편집할 수 있다. 127.0.0.1 로컬 전용.
+	http.HandleFunc("/interview", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		chain := r.URL.Query().Get("chain")
+		if !validIdent(chain) {
+			http.Error(w, "bad chain", http.StatusBadRequest)
+			return
+		}
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB 상한
+		if err != nil {
+			http.Error(w, "read fail", http.StatusBadRequest)
+			return
+		}
+		var answers []struct {
+			Q      string          `json:"q"`
+			Type   string          `json:"type"`
+			Answer json.RawMessage `json:"answer"`
+		}
+		if err := json.Unmarshal(raw, &answers); err != nil || len(answers) == 0 {
+			http.Error(w, "답변 형식 오류(JSON 배열 필요)", http.StatusBadRequest)
+			return
+		}
+		// 답변을 마크다운 기준 문서로 조립.
+		md := assembleReference(chain, answers)
+		fname := "reference-" + chain + ".md"
+		if err := os.WriteFile(filepath.Join(viewerRepoDir, fname), []byte(md), 0o644); err != nil {
+			http.Error(w, "파일 저장 실패: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out, err := gilExec("interview", chain, "--resolve", fname)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+		w.Write(out)
+	})
 	addr := "127.0.0.1:" + port
 	fmt.Println("gil 뷰어 서버 → http://" + addr + "  (관전 레포: " + viewerRepoDir + ")")
 	if err := http.ListenAndServe(addr, nil); err != nil {
@@ -266,6 +351,13 @@ func renderHTML(g graphView, static bool) string {
 <span class="meta">체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
 		itoa(g.tipCount) + `개 · ` + liveIndicator(static) + workBadge(g, static) + `</span></header>
 <main>`)
+	// 인터뷰 폼(이슈 #33): 사람 답을 기다리는 인터뷰 요구가 있으면 최상단에 폼을 띄운다.
+	// 정적 build(서버 없음)엔 제출할 곳이 없어 감춘다. JS(buildInterviews)가 질문 JSON 을 읽어
+	// textarea·라디오·체크박스를 그리고, 제출 시 POST /interview 로 답변을 넘긴다.
+	if !static && len(g.interviews) > 0 {
+		b.WriteString(`<section class="pane" id="pane-interview"><h2 class="panehead">📋 인터뷰 — 기준 문서 만들기</h2><div id="interviews"></div></section>`)
+		b.WriteString(`<script id="interviewdata" type="application/json">` + interviewsJSON(g) + `</script>`)
+	}
 	if len(g.chains) == 0 {
 		b.WriteString(`<p class="empty">아직 gil 체인이 없다. 체인을 만들면 여기 노드로 나타난다.</p>`)
 	} else {
@@ -517,6 +609,27 @@ func parentsJSON(g graphView) string {
 	return sb.String()
 }
 
+// interviewsJSON — 사람 답 대기 인터뷰들을 JS 로 넘긴다(이슈 #33). questions 는 이미 JSON
+// 배열 문자열이라, 유효하면 그대로 싣고(원본 보존), 아니면 빈 배열로 폴백한다.
+func interviewsJSON(g graphView) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, iv := range g.interviews {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		q := strings.TrimSpace(iv.questions)
+		if !json.Valid([]byte(q)) {
+			q = "[]"
+		}
+		cb, _ := json.Marshal(iv.chain)
+		shb, _ := json.Marshal(iv.sha)
+		sb.WriteString(fmt.Sprintf(`{"chain":%s,"sha":%s,"questions":%s}`, cb, shb, q))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
 func esc(s string) string { return html.EscapeString(s) }
 
 // validSHA — git 인자 주입 방지: 16진수 7~40자만 허용.
@@ -642,6 +755,24 @@ svg.cygraph{display:block}
 .pendbtn.reject:hover:not(:disabled){background:#ff6b6b;color:#3a0d0d}
 .pendbtn:disabled{opacity:.5;cursor:default}
 .pendstatus{color:var(--dim)}
+/* 인터뷰 폼(이슈 #33) — 기준 문서를 사람이 폼으로 작성 */
+#pane-interview .panehead{color:var(--node)}
+.ivcard{margin:4px 16px 16px;padding:16px 18px;background:var(--card,var(--bg));border:1px solid var(--node);border-radius:10px}
+.ivhead{font-size:13px;color:var(--fg);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.ivhead b{color:var(--node)}
+.ivform{display:flex;flex-direction:column;gap:16px}
+.ivfield{display:flex;flex-direction:column;gap:6px}
+.ivq{font-size:13px;font-weight:600;color:var(--fg)}
+.ivinput{font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);resize:vertical;width:100%;box-sizing:border-box}
+.ivinput:focus{outline:2px solid var(--node);outline-offset:1px;border-color:var(--node)}
+.ivopts{display:flex;flex-direction:column;gap:6px;padding-left:2px}
+.ivopt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg);cursor:pointer}
+.ivopt input{accent-color:var(--node);width:15px;height:15px;cursor:pointer}
+.ivfoot{display:flex;align-items:center;gap:12px;margin-top:4px}
+.ivsubmit{font:inherit;font-size:13px;font-weight:700;padding:8px 18px;border-radius:7px;cursor:pointer;border:1px solid var(--node);background:var(--node);color:var(--bg)}
+.ivsubmit:hover:not(:disabled){filter:brightness(1.1)}
+.ivsubmit:disabled{opacity:.5;cursor:default}
+.ivstatus{color:var(--dim);font-size:12px}
 .lineage{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 16px 0;padding:8px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font-size:11px}
 .lineage .lgroup{display:inline-flex;flex-wrap:wrap;gap:4px}
 .lchip{font-size:11px;border:1px solid var(--line);border-radius:5px;padding:1px 7px;color:var(--fg);background:var(--card);font-family:inherit}
@@ -1477,7 +1608,69 @@ function restoreSel(){
   const n=(cyc.nodes||[]).find(x=>x.id===sel.step);
   if(n)openReport(sel.chain,sel.cycle,n);
 }
+// ── 인터뷰 폼(이슈 #33) — LLM 이 심은 질문을 사람이 폼으로 답하고 제출하면 레퍼런스가 커밋된다 ──
+const INTERVIEWS=JSON.parse(document.getElementById('interviewdata')?.textContent||'[]');
+function buildInterviews(){
+  const host=document.getElementById('interviews');
+  if(!host||!INTERVIEWS.length)return;
+  host.replaceChildren();
+  INTERVIEWS.forEach(iv=>{
+    const card=document.createElement('div'); card.className='ivcard';
+    const head=document.createElement('div'); head.className='ivhead';
+    head.innerHTML='체인 <b>'+esc(iv.chain)+'</b> 의 기준 문서를 함께 만든다 — 문제 풀듯 답하고 제출하세요.';
+    card.appendChild(head);
+    const form=document.createElement('form'); form.className='ivform';
+    (iv.questions||[]).forEach((q,qi)=>{
+      const fld=document.createElement('div'); fld.className='ivfield';
+      const label=document.createElement('label'); label.className='ivq';
+      label.textContent=(qi+1)+'. '+(q.q||''); fld.appendChild(label);
+      const nm='q'+qi;
+      if(q.type==='text'){
+        const ta=document.createElement('textarea'); ta.name=nm; ta.rows=3; ta.className='ivinput';
+        fld.appendChild(ta);
+      } else if(q.type==='radio'||q.type==='checkbox'){
+        const opts=document.createElement('div'); opts.className='ivopts';
+        (q.options||[]).forEach((o,oi)=>{
+          const id=nm+'_'+oi;
+          const wrap=document.createElement('label'); wrap.className='ivopt';
+          const inp=document.createElement('input'); inp.type=q.type; inp.name=nm; inp.value=o; inp.id=id;
+          const span=document.createElement('span'); span.textContent=o;
+          wrap.appendChild(inp); wrap.appendChild(span); opts.appendChild(wrap);
+        });
+        fld.appendChild(opts);
+      }
+      form.appendChild(fld);
+    });
+    const foot=document.createElement('div'); foot.className='ivfoot';
+    const submit=document.createElement('button'); submit.type='submit'; submit.className='ivsubmit'; submit.textContent='제출 — 기준 문서로 저장';
+    const status=document.createElement('span'); status.className='ivstatus';
+    foot.appendChild(submit); foot.appendChild(status);
+    form.appendChild(foot);
+    form.addEventListener('submit',async ev=>{
+      ev.preventDefault();
+      // 답변을 {질문, 답} 배열로 조립. 체크박스는 다중값.
+      const answers=(iv.questions||[]).map((q,qi)=>{
+        const nm='q'+qi; let a='';
+        if(q.type==='text'){ const el=form.querySelector('[name="'+nm+'"]'); a=el?el.value.trim():''; }
+        else if(q.type==='radio'){ const el=form.querySelector('[name="'+nm+'"]:checked'); a=el?el.value:''; }
+        else if(q.type==='checkbox'){ a=[...form.querySelectorAll('[name="'+nm+'"]:checked')].map(e=>e.value); }
+        return {q:q.q, type:q.type, answer:a};
+      });
+      submit.disabled=true; status.textContent=' 저장 중…';
+      try{
+        const res=await fetch('/interview?chain='+encodeURIComponent(iv.chain),
+          {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(answers)});
+        const txt=await res.text();
+        if(res.ok){ status.textContent=' ✓ 기준 문서 저장됨 — 갱신 중'; setTimeout(()=>location.reload(),500); }
+        else{ status.textContent=' ✕ '+txt.split('\n')[0]; submit.disabled=false; }
+      }catch(e){ status.textContent=' ✕ '+e; submit.disabled=false; }
+    });
+    card.appendChild(form); host.appendChild(card);
+  });
+}
+function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
 document.querySelectorAll('#depthseg button').forEach(b=>b.addEventListener('click',()=>setMapDepth(b.dataset.depth))); // 뎁스 토글(AIL #6)
 buildStepMap();  // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
+buildInterviews(); // 사람 답 대기 인터뷰 폼(이슈 #33)
 restoreSel();
 `
