@@ -1122,18 +1122,22 @@ function buildStepMap(){
   DAG.forEach(n=>dep(n.sha));
   // 전역 레인(row) 배정 — git 그래프식: 첫 부모의 레인을 물려받고(선형 연속), 자리 다툼일
   // 때만 아래 빈 레인으로. 체인 무관 → 메인 흐름이 한 줄(row 0)로 흐르고 분기만 내려간다.
-  // (AIL #10 검토: 이 배치는 이미 2차원 계보 위상이라 — 부모 레인 물려받기 + fan-out 은 자기
-  // 레인 — 형제 분기도 깔끔히 갈린다. "1차원 순차라 교차 불가피"는 아래 체인 그래프 pane
-  // 얘기지 이 전체맵엔 해당 없음. barycenter 2차 정렬을 시험했으나 이 위상에선 교차 감소 0 →
-  // 효과 없는 복잡도라 넣지 않는다.)
-  const order=[...DAG].sort((a,b)=>depth[a.sha]-depth[b.sha]);
+  // 교차 최소화(AIL #10, 상현님 실 AIL 216노드 관전으로 재확인): 같은 depth 안에서 노드를
+  // '첫 부모의 row' 로 2차 정렬한다 — 위쪽 부모의 자식이 위쪽 레인에 먼저 자리 잡아 부모→자식
+  // 선이 덜 엇갈린다(barycenter 근사). 처음엔 단순 fixture 로 효과 0 이라 뺐으나, 실사용
+  // 216노드에선 교차 162→48(약 70%↓) 로 결정적이었다. 단순 fixture 로 성급히 철회한 걸 실
+  // 데이터로 되돌린다. Sugiyama 완전판(레이어 반복 교차정렬)은 아직 과하다 — 이 1패스로 충분.
+  const parentRow=n=>{ const gp=n.parents.filter(p=>byId[p]); return gp.length?Math.min(...gp.map(p=>row[p]??0)):-1; };
+  const byDepth={}; DAG.forEach(n=>{ (byDepth[depth[n.sha]]=byDepth[depth[n.sha]]||[]).push(n); });
   const row={}, busy={}; let maxRow=0; // busy[row]=그 레인을 마지막 점유한 depth
-  order.forEach(n=>{
-    const d=depth[n.sha], gp=n.parents.filter(p=>byId[p]);
-    let L=gp.length?(row[gp[0]]||0):0;
-    const owns=gp.some(p=>row[p]===L);
-    if(!owns || (busy[L]!==undefined && busy[L]>=d)){ L=0; while(busy[L]!==undefined && busy[L]>=d)L++; }
-    row[n.sha]=L; busy[L]=d; if(L>maxRow)maxRow=L;
+  Object.keys(byDepth).map(Number).sort((a,b)=>a-b).forEach(d=>{
+    byDepth[d].slice().sort((a,b)=>parentRow(a)-parentRow(b)).forEach(n=>{
+      const gp=n.parents.filter(p=>byId[p]);
+      let L=gp.length?(row[gp[0]]||0):0;
+      const owns=gp.some(p=>row[p]===L);
+      if(!owns || (busy[L]!==undefined && busy[L]>=d)){ L=0; while(busy[L]!==undefined && busy[L]>=d)L++; }
+      row[n.sha]=L; busy[L]=d; if(L>maxRow)maxRow=L;
+    });
   });
   const rowH=24, padTop=38, padBot=14, r=5; // padTop: 체인 라벨+사이클 라벨 두 줄
   // colW: 스텝맵은 촘촘히(34px). 집계 모드(사이클/체인)는 노드 위에 이름 라벨이 붙으니, 가장 긴
