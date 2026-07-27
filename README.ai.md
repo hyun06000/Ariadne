@@ -157,9 +157,10 @@ Move-Item -Force gil-dl.exe gil.exe
 않는다. `gil`을 처음 실행할 때 git이 없으면 gil이 이 OS 용 설치 명령을 콕 집어 알려주고 멈춘다
 (그 안내를 그대로 따르면 된다). git이 없으면 **먼저 설치부터** 안내하라 — 가능하면 자동으로:
 
-- **Windows**: `winget install --id Git.Git -e` 를 시도하라. winget이 없으면(구형 Windows) —
-  https://git-scm.com/download/win 에서 설치 프로그램을 받게 사람에게 안내하라. (설치 후 새
-  PowerShell 창을 열어야 PATH가 갱신된다.)
+- **Windows**: `winget install --id Git.Git -e --silent` 를 시도하라(`--silent` 로 설치관리자
+  창·여러 콘솔 창이 번쩍이지 않게 — 비개발자 사용자가 계단식 cmd 창에 공포를 느낀 실사용
+  피드백). winget이 없으면(구형 Windows) — https://git-scm.com/download/win 에서 설치 프로그램을
+  받게 사람에게 안내하라. (설치 후 새 PowerShell 창을 열어야 PATH가 갱신된다.)
 - **macOS**: `brew install git` (Homebrew 있으면) 또는 `xcode-select --install`.
 - **Linux**: `sudo apt-get install -y git` / `sudo dnf install -y git` / `apk add git` 등 배포판 패키지.
 

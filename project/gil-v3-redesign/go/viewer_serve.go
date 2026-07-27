@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // validIdent — approve/reject 인자(체인·사이클·스텝 id) 검증. 명령 주입/경로 이탈을 막는다:
@@ -43,6 +44,7 @@ func gilExec(args ...string) ([]byte, error) {
 	cmd := exec.Command(self, args...)
 	cmd.Dir = viewerRepoDir
 	cmd.Env = append(os.Environ(), "GIL_NO_VIEWER=1") // 자식이 또 뷰어를 띄우지 않게
+	hideConsole(cmd)                                  // 윈도우 콘솔 창 번쩍임 방지(결함 A)
 	return cmd.CombinedOutput()
 }
 
@@ -199,7 +201,20 @@ func serve(args []string) {
 		w.Write(out)
 	})
 	addr := "127.0.0.1:" + port
-	fmt.Println("gil 뷰어 서버 → http://" + addr + "  (관전 레포: " + viewerRepoDir + ")")
+	url := "http://" + addr
+	fmt.Println("gil 뷰어 서버가 떴다 → " + url + "   (Ctrl+C 로 종료. 관전 레포: " + viewerRepoDir + ")")
+	// 포그라운드 serve 를 사람이 직접 띄웠으면 브라우저도 자동으로 연다(실사용 피드백: 날 IP
+	// 주소만 보면 뭔지 몰라 넘어간다). launchViewer(자동 기동)는 부모가 이미 열므로 GIL_NO_BROWSER
+	// 로 이 경로를 끈다. 서버가 실제 바인딩된 뒤 열려고 잠깐 기다렸다 연다(goroutine).
+	if os.Getenv("GIL_NO_BROWSER") == "" {
+		go func() {
+			if waitPort(port, 2*time.Second) {
+				if openBrowser(url) {
+					fmt.Println("  브라우저로 열었다 — 사고 그래프를 본다.")
+				}
+			}
+		}()
+	}
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "거부: 서버 실패 —", err)
 		os.Exit(1)

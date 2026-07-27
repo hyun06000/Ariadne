@@ -13,3 +13,7 @@ import (
 func detachFromSession(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
+
+// hideConsole — 유닉스엔 콘솔 창 개념이 없어 no-op. 윈도우판이 CREATE_NO_WINDOW 를 붙인다
+// (콘솔 없는 부모가 gil 을 돌릴 때 git 호출마다 cmd 창이 번쩍이는 것 방지, 실사용 피드백).
+func hideConsole(cmd *exec.Cmd) {}

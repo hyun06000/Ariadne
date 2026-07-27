@@ -26,7 +26,9 @@ func requireGit() {
 	var primary string
 	switch runtime.GOOS {
 	case "windows":
-		primary = "  Windows: winget install --id Git.Git -e   (winget 없으면 https://git-scm.com/download/win 에서 설치)\n"
+		// --silent 로 설치관리자 UI·여러 콘솔 창이 번쩍이는 걸 줄인다(실사용: 비개발자가 계단식
+		// cmd 창에 공포). winget 없으면 설치관리자 링크 — 그건 사람이 클릭으로 조용히 설치.
+		primary = "  Windows: winget install --id Git.Git -e --silent   (winget 없으면 https://git-scm.com/download/win 에서 설치관리자로 조용히 설치)\n"
 	case "darwin":
 		primary = "  macOS: brew install git   (또는 xcode-select --install)\n"
 	default:

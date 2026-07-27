@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"time"
 )
 
@@ -52,6 +53,8 @@ func launchViewer() {
 	}
 
 	cmd := exec.Command(self, "viewer", "serve", "--repo", repo, "--port", viewerPortNum())
+	// 자식 서버는 브라우저를 열지 않는다 — 부모(여기)가 아래에서 한 번만 연다(이중 실행 방지).
+	cmd.Env = append(os.Environ(), "GIL_NO_BROWSER=1")
 	// 부모(gil)가 끝나도 살아 있도록 stdio 를 분리하고 백그라운드로 기동한다.
 	// 셸 세션에서도 떼어낸다(Setsid/새 프로세스 그룹) — 안 그러면 gil init 을 돌린
 	// 셸이 닫힐 때 SIGHUP 으로 뷰어가 소리 없이 죽는다(이슈 #30).
@@ -71,10 +74,38 @@ func launchViewer() {
 
 	// 포트가 실제로 열릴 때까지 잠깐 기다려 "떴다"를 사실로 확인한다.
 	if waitPort(viewerPortNum(), 2*time.Second) {
-		println2("  뷰어: " + url + " 에서 관전 중 (백그라운드). 브라우저로 열어 사고 그래프를 본다.")
+		// 브라우저를 자동으로 연다(실사용 피드백: 비개발자는 127.0.0.1 날 주소를 보고 뭔지 몰라
+		// 그냥 넘어간다). 로컬 기본 브라우저로 URL 을 띄워, 클릭 없이 바로 사고 그래프를 본다.
+		opened := openBrowser(url)
+		if opened {
+			println2("  뷰어: 브라우저로 열었다 — 사고 그래프가 자라는 걸 본다. (주소: " + url + ")")
+		} else {
+			println2("  뷰어: 관전 준비됨. 브라우저에서 이 주소를 열어라 → " + url)
+		}
 	} else {
-		println2("  뷰어: 기동 신호는 보냄 — 곧 " + url + " 에서 관전 가능.")
+		println2("  뷰어: 기동 신호는 보냄 — 곧 브라우저에서 열 수 있다 → " + url)
 	}
+}
+
+// openBrowser — 로컬 기본 브라우저로 url 을 연다(성공하면 true). 플랫폼별 런처를 콘솔 없이
+// 돌린다(윈도우에서 cmd 창 번쩍임 방지). 실패해도 치명적이지 않다 — 호출자가 주소를 안내한다.
+// 윈도우: cmd /c start(빈 제목 인자 "" 필요). mac: open. 리눅스: xdg-open.
+func openBrowser(url string) bool {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	hideConsole(cmd) // 윈도우: start 를 띄우는 cmd 창이 번쩍이지 않게
+	if err := cmd.Start(); err != nil {
+		return false
+	}
+	_ = cmd.Process.Release()
+	return true
 }
 
 // portOpen — 로컬 포트에 이미 누가 듣고 있으면 true.

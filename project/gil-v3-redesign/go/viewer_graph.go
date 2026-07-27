@@ -13,7 +13,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 )
@@ -22,7 +21,9 @@ var viewerRepoDir = "." // --repo 로 지정. git 을 이 레포에서 실행.
 
 func viewerGit(args ...string) ([]byte, error) {
 	full := append([]string{"-C", viewerRepoDir}, args...)
-	return exec.Command("git", full...).Output()
+	// gitCommand 로 콘솔 숨김(윈도우). 뷰어 폴링이 1.5초마다 이걸 부르므로, 이게 없으면
+	// 콘솔 없는 부모에서 cmd 창이 깜빡임을 반복한다(실사용 피드백, 결함 A).
+	return gitCommand(full...).Output()
 }
 
 // allRefs — 뷰어가 훑는 커밋 범위. 로컬 브랜치(--branches)뿐 아니라 원격 추적

@@ -26,9 +26,18 @@ func git(args ...string) string {
 	return out
 }
 
+// gitCommand — 모든 git 자식 프로세스는 이걸 거친다. 윈도우에서 콘솔 창이 번쩍이지 않게
+// hideConsole 을 붙인다(콘솔 없는 부모가 gil 을 돌릴 때, git 호출마다 cmd 창이 계단식으로
+// 뜨고 꺼지는 실사용 공포 방지). 유닉스에선 no-op 이라 무해하다.
+func gitCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	hideConsole(cmd)
+	return cmd
+}
+
 // gitTry 는 git을 실행하고 (stdout, err). 호출자가 실패를 흡수할 수 있게 한다.
 func gitTry(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := gitCommand(args...)
 	var out strings.Builder
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -37,7 +46,7 @@ func gitTry(args ...string) (string, error) {
 
 // gitInput 은 stdin으로 msg를 넣고 git을 실행한다(commit/hash-object/mktree/commit-tree).
 func gitInput(msg string, args ...string) string {
-	cmd := exec.Command("git", args...)
+	cmd := gitCommand(args...)
 	cmd.Stdin = strings.NewReader(msg)
 	var out strings.Builder
 	cmd.Stdout = &out
@@ -49,7 +58,7 @@ func gitInput(msg string, args ...string) string {
 
 // gitOK 는 git을 실행하고 성공 여부만 준다(merge-base --is-ancestor 등 판정용).
 func gitOK(args ...string) bool {
-	err := exec.Command("git", args...).Run()
+	err := gitCommand(args...).Run()
 	return err == nil
 }
 
