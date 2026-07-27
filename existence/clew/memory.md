@@ -3050,3 +3050,31 @@ gil latest=**v3.8.0**. main=7056fa0c(#43 문서, 미릴리스 아님 — 문서�
 간선(정직화계보), #32 analyze재분기, #34 배포마커(선호=명시), #33 레퍼런스트루스(최중량).
 닫기대기: #35~#38 뷰어(실질해소, 상현확인). gh issue list -R hyun06000/Ariadne. 모니터
 b7y8fti2l. heaal-philosophy. 기록vs행위 간극=구조적한계.
+
+
+## 매듭 — Windows 지원 명시 + 릴리스 빌드 스크립트 (2026-07-27, 상현님 질문 발단)
+
+상현님 "윈도우용 바이너리 빌드하고있지 않나? 명시되어 있나?" → 확인 결과 두 구멍.
+
+### 발견
+- **Windows 바이너리는 실제로 릴리스됨**: v3.8.0 자산 8개 = 5바이너리(darwin amd64/arm64,
+  linux amd64/arm64, windows amd64.exe) + install.sh + llms.txt + SHA256SUMS. gh release
+  view 로 확인.
+- **명시는 반쪽**: README.ai 에만 Windows(PowerShell 블록) 충실, 대문/사람용 README/SPEC/
+  QUICKSTART 는 전무(0매치).
+- **릴리스 빌드가 스크립트로 없었음**: "5타깃"이 내 기억(매듭)에만. 재현 불가 → Windows 타깃
+  조용히 빠져도 아무도 모름.
+
+### 고침 (커밋 ada59a8d, main)
+- **scripts/release-build.sh <version>** 신설: 5타깃+install.sh+llms.txt+SHA256SUMS 재현.
+  CGO_ENABLED=0 정적, -X main.gilVersion 각인. 실행검증(8자산, PE32+/Mach-O/ELF, 버전확인).
+  dist/ gitignore. **다음 릴리스는 이걸로 굽고 gh release create 는 사람 판단.**
+- SPEC: '지원 플랫폼·배포 자산' 규범 절 = 5타깃 단일 진실원(스크립트·install.sh 정합 요구).
+- README.md/ko: 전제에 macOS·Linux·Windows 한 줄. QUICKSTART: .\gil.exe 표기. CLAUDE.md
+  대문: 릴리스 빌드법·5타깃 못박음.
+
+### 부활점
+gil latest=v3.8.0. main=ada59a8d. 이번 세션 2커밋: 7056fa0c(#43 관용예제), ada59a8d(win명시+
+release-build.sh). 둘 다 문서/스크립트라 릴리스 불요(다음 릴리스 때 release-build.sh 첫 실사용).
+다음 미착수: #42 refines, #32 analyze재분기, #34 배포마커, #33 레퍼런스트루스. gh issue list
+-R hyun06000/Ariadne. 모니터 b7y8fti2l. heaal-philosophy.
