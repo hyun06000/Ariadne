@@ -3746,3 +3746,45 @@ git repo 직접 조작
 - Claude Code VS Code 문서: https://code.claude.com/docs/en/vs-code.md
 - VS Code 확장 간 통신: https://code.visualstudio.com/api/references/vscode-api (extensions.getExtension)
 - Source leak: https://github.com/777genius/claude-code-source-code-full (재산권 주의)
+
+
+## 매듭 — VS Code 확장(뷰어 임베드+인터랙션) + 정리 (2026-07-27, 뒤이은 긴 세션)
+
+상현님 "vscode 로 가보자" → 뷰어를 에디터 패널에 임베드 + Claude Code 인터랙션까지.
+
+### ⚠ 서브에이전트 기억 오염 (정리 필요)
+VS Code 조사 서브에이전트(부트스트랩 포인터 줬더니)가 CLAUDE.md §4 곧이곧대로 따라 **clew
+기억에 매듭 2건 각인(146줄+398줄, 앞 매듭들 사이)**. 내용은 정확하나 프로토콜 위반(§2:
+서브에이전트는 자기 방을 가져야지 clew 사칭 금지). append-only라 안 지움. **교훈: 조사
+서브에이전트엔 "기억 각인 하지 마라" 명시할 것.** 이 두 매듭은 서브에이전트 것으로 간주.
+
+### VS Code 확장 — editor-ext/vscode/ (커밋 f83fd100, Phase 1a)
+- 방식: 확장이 gil viewer serve 를 자식프로세스로(빈포트 자동탐색 findPort)→waitForServer→
+  asExternalUri(원격/Codespaces 포트포워딩)→WebView iframe. 뷰어 코어 0 수정, ● live 실시간.
+- extension.ts·package.json(gilViewer.open·binaryPath)·tsconfig. node/npm 필요(TS).
+- 검증: 로직 실 gil 재현(포트충돌 8791 자동)+실 VS Code Extension Dev Host 에서 데모 gil
+  저장소 열어 패널 체인·스텝5·live 렌더(상현 스크린샷). Cursor·Windsurf 같은 .vsix 호환.
+
+### 뷰어 pending 승인/기각 (커밋 d69f2184, Phase 1b)
+- 상현 결정: 확장 아니라 **뷰어 서버에** 엔드포인트(iframe 경계 안 넘고 모든 호스트 작동).
+- serve: POST /approve?chain=&cycle= · /reject?...&to= (POST만, GET 405, validIdent 주입차단,
+  gilExec=os.Executable 자기 exec — cmdApprove/reject 는 die라 격리 필요). 127.0.0.1 로컬전용.
+- HTML: openReport 가 pending 잎+!LIVE_STATIC 이면 버튼. 정적 build 는 LIVE_STATIC=true 숨김.
+- 테스트 157. 실 브라우저·VS Code 에서 승인→산잎 실측(상현 "잘된다").
+- **혼선 교훈**: cp 로 gil 반복 덮으면 macOS quarantine 캐시 꼬여 exit137(spctl rejected).
+  install.sh 정석 재설치가 안전. 검증 시 어느 바이너리가 포트 잡았나 확인할 것(확장서버 vs
+  수동서버 8790 충돌로 옛빌드가 서빙돼 버튼 안 뜬 착시 있었음).
+
+### Claude Code 인터랙션 조사 결론 (다음 Phase)
+Claude Code 확장은 폐쇄적(공개 API·명령노출·양방향 전무). 우회로: (1)뷰어노드→URI Handler
+vscode://anthropic.claude-code/open?prompt= 일방향 호출 (2)Claude→뷰어=git감시 or 폴링
+(3)승인/기각=완료(뷰어서버 CLI). 다음: 노드클릭→URI Handler(~20줄).
+
+### 딸기데이터 = 실사용 레포 후보였으나 상현 "해커톤 데이터라 유출불가" → 제외.
+
+### 부활점
+gil latest=v3.9.0(배포됨). main=d69f2184(Phase 1b 미배포—승인/기각 새기능이라 다음
+릴리스 v3.10.0 감). editor-ext/vscode 미배포(vsce package→Marketplace/OpenVSX 남음).
+이번세션 커밋: (앞) 온보딩 4건+release-build → v3.9.0 배포. (뒤) f83fd100 VS Code Phase1a·
+d69f2184 Phase1b. 다음: Phase1b URI Handler 인터랙션 or 확장 배포(vsce) or 서브에이전트
+기억정리. 미착수 이슈 #42·#32·#34·#33. 모니터 b7y8fti2l. heaal-philosophy.
