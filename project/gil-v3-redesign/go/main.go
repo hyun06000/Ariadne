@@ -129,7 +129,7 @@ func printUsage() {
   gil chain <name> --purpose <p>  새 체인 개설 (닫힌 체인 끝에서만)
   gil open <chain>/<cycle> --author <a> --purpose <p>   새 사이클
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
-  gil close <chain>/<cycle> --verdict <v>               사이클 닫기
+  gil close <chain>/<cycle> --verdict <v> [--abandon]   사이클 닫기 (--abandon: fail만인 죽은 사이클도)
   gil chain-close <chain> --verdict <v>                 체인 닫기 (모든 사이클 닫힌 뒤 — 국면 완결)
   gil deploy --at <chain>/<cycle>/<step> --tag <v> [--url <u>]  배포(공개) 지점 마커 — 뷰어에 🚀
   gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)

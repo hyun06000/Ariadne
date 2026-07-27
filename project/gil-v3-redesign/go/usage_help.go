@@ -69,8 +69,11 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/human-in-the-loop.md",
 	},
 	"close": {
-		"gil close <chain>/<cycle> [--verdict supported]\n" +
-			"  산 잎(success)이 있는 사이클을 봉인한다. 산 잎 없으면 거부.",
+		"gil close <chain>/<cycle> [--verdict supported] [--abandon]\n" +
+			"  산 잎(success)이 있는 사이클을 봉인한다. 산 잎 없으면 거부 —\n" +
+			"  단 --abandon 을 주면 fail 잎만 있는 '죽은 사이클'도 봉인한다(이슈 #46):\n" +
+			"  fail=이 가설의 죽음이지 사이클의 죽음이 아니다. 그 define 을 사람이 막다른\n" +
+			"  길로 판단해 포기할 때만 --abandon(정직: 없는 성공을 날조하지 않는다).",
 		"docs/gil/lifecycle.md · docs/gil/deployment.md",
 	},
 	"deploy": {

@@ -72,14 +72,22 @@ func currencyBanner() []string {
 func pendingBanner() []string {
 	nodes := collectNodes("--branches")
 	hasChild := map[string]bool{}
+	superseded := map[string]bool{} // 정정(approve/reject)으로 대체된 스텝 — pending 이 풀린 표식
 	for _, n := range nodes {
 		if n.parent != "" && n.parent != "null" {
 			hasChild[stepKey(n.chain, n.cycle, n.parent)] = true
 		}
+		// approve/reject 는 pending 을 부모로 삼지 않고(AIL #41) Gil-Supersedes 로 대체한다 —
+		// 그래서 정정된 pending 은 childless 로 남아 여기서 계속 '대기'로 잡히던 결함(이슈 #44).
+		// supersede 간선을 함께 봐서 '이미 풀린 pending'을 대기 목록에서 뺀다.
+		if n.supersedes != "" {
+			superseded[stepKey(n.chain, n.cycle, n.supersedes)] = true
+		}
 	}
 	var waiting []node
 	for _, n := range nodes {
-		if n.kind == "pending" && !hasChild[stepKey(n.chain, n.cycle, n.step)] {
+		k := stepKey(n.chain, n.cycle, n.step)
+		if n.kind == "pending" && !hasChild[k] && !superseded[k] {
 			waiting = append(waiting, n)
 		}
 	}

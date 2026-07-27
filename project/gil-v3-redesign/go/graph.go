@@ -430,16 +430,23 @@ type cycleAgg struct {
 // 아닌 마지막(가장 최근)을 고른다. 살아있는 잎이 없으면(전부 죽음) 마지막 스텝을 반환.
 func (c *cycleAgg) liveTip() node {
 	referenced := map[string]bool{}
+	superseded := map[string]bool{}
 	for _, s := range c.steps {
 		if s.parent != "" && s.parent != "null" {
 			referenced[s.parent] = true
+		}
+		// approve/reject 로 정정된 pending 은 Gil-Supersedes 로 대체되지 부모가 되지 않는다
+		// (AIL #41) — 그래서 childless 로 남아 팁으로 오인되던 결함(이슈 #44). 정정된 스텝은
+		// 팁이 아니다: 대체한 fail/success 가 진짜 종결이다.
+		if s.supersedes != "" {
+			superseded[s.supersedes] = true
 		}
 	}
 	var best *node
 	for i := range c.steps {
 		s := c.steps[i]
-		if referenced[s.step] {
-			continue // 잎 아님(자식이 있음)
+		if referenced[s.step] || superseded[s.step] {
+			continue // 잎 아님(자식이 있음) 또는 정정으로 대체됨
 		}
 		if isDeadLeaf(s) {
 			continue // 죽은 잎은 팁 아님

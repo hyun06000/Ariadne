@@ -2142,5 +2142,117 @@ class TestDeploy(GilFixture):
         self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Url"), "")
 
 
+class TestFailClosure(GilFixture):
+    """fail/종결 처리 — 이슈 #44·#45·#46 (fail=이 가설의 죽음, 사이클의 죽음이 아니다)."""
+
+    def _fail_only_cycle(self, chain="c", cycle="dead"):
+        """산 잎 없이 fail 잎만 있는 사이클을 만든다(refuted→fail)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", chain, "--purpose", "P")
+        self.gil("open", f"{chain}/{cycle}", "--author", "clew", "--purpose", "Q", "--body", "정의")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "verify", "--title", "V", "--verdict", "refuted")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "analyze", "--title", "A")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "fail", "--to", "s1", "--title", "벽")
+
+    # ── #46: fail 잎만 있는 사이클 close ──
+    def test_close_fail_only_refused_without_abandon(self):
+        """산 잎 없으면 기본 close 거부 — 두 정직한 길(재분기/포기)을 안내."""
+        self._fail_only_cycle()
+        r = self.gil("close", "c/dead")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("--abandon", out)  # 포기 경로 안내
+        self.assertIn("hypothesis", out)  # 재분기 경로 안내
+
+    def test_close_abandon_seals_dead_cycle(self):
+        """--abandon 이면 fail 잎만 있는 죽은 사이클도 봉인된다(이슈 #46)."""
+        self._fail_only_cycle()
+        r = self.gil("close", "c/dead", "--abandon")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "close")
+        self.assertEqual(self.trailer("HEAD", "Gil-Abandoned"), "true")
+
+    def test_chain_close_counts_abandoned_cycle(self):
+        """abandon 봉인된 사이클은 chain-close 가 '닫힌 것'으로 센다(이슈 #46)."""
+        self._fail_only_cycle()
+        self.gil("close", "c/dead", "--abandon")
+        r = self.gil("chain-close", "c")
+        self.assertEqual(r.returncode, 0, "abandoned 사이클이 있어도 체인 닫혀야: " + r.stderr)
+
+    def test_close_abandon_needs_a_dead_leaf(self):
+        """봉인할 죽은 잎조차 없으면 --abandon 도 거부."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/d", "--author", "clew", "--purpose", "Q", "--body", "정의")
+        r = self.gil("close", "c/d", "--abandon")  # define 만 있음, fail 잎 없음
+        self.assertNotEqual(r.returncode, 0)
+
+    # ── #45: fail 후속 안내 + 미해결 사이클 방치 경고 ──
+    def test_fail_step_gives_rebranch_or_abandon_guidance(self):
+        """fail 스텝 뒤 gil 이 재분기/포기 두 길을 안내한다(이슈 #45)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/x", "--author", "clew", "--purpose", "Q", "--body", "정의")
+        self.gil("step", "c/x", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "c/x", "--kind", "verify", "--title", "V", "--verdict", "refuted")
+        self.gil("step", "c/x", "--kind", "analyze", "--title", "A")
+        r = self.gil("step", "c/x", "--kind", "fail", "--to", "s1", "--title", "벽")
+        out = r.stdout + r.stderr
+        self.assertIn("--abandon", out)
+        self.assertIn("hypothesis --to", out)
+
+    def test_open_warns_on_stranded_cycle(self):
+        """미해결(fail만·미종결) 사이클이 있으면 새 사이클 open 시 경고(이슈 #45)."""
+        self._fail_only_cycle(chain="c", cycle="dead")
+        r = self.gil("open", "c/fresh", "--author", "clew", "--purpose", "새것", "--body", "정의2")
+        self.assertEqual(r.returncode, 0, "경고일 뿐 거부는 아님: " + r.stderr)
+        self.assertIn("dead", r.stdout + r.stderr)  # 방치된 사이클 이름 언급
+
+    def test_open_no_warn_when_cycle_abandoned(self):
+        """abandon 으로 봉인된 사이클은 더 이상 '방치'가 아니다 — 경고 없음."""
+        self._fail_only_cycle(chain="c", cycle="dead")
+        self.gil("close", "c/dead", "--abandon")
+        r = self.gil("open", "c/fresh", "--author", "clew", "--purpose", "새것", "--body", "정의2")
+        self.assertNotIn("미해결 사이클", r.stdout + r.stderr)
+
+    # ── #44: 어긋난 브랜치에서 reject 해도 대상 계보에 얹히고 pending 이 풀린다 ──
+    def test_reject_from_wrong_branch_resolves_pending(self):
+        """다른 사이클 브랜치가 체크아웃된 상태에서 reject 해도 대상 계보에 얹히고
+        handoff 가 더 이상 pending 을 요구하지 않는다(이슈 #44)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "lr", "--purpose", "P")
+        self.gil("open", "lr/measure", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.gil("step", "lr/measure", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "lr/measure", "--kind", "verify", "--title", "V", "--verdict", "supported")
+        self.gil("step", "lr/measure", "--kind", "pending", "--title", "물음")
+        # 다른 브랜치를 파고 체크아웃해 HEAD 를 measure 팁에서 떨군다.
+        self._git("checkout", "-q", "-b", "lr-transfer")
+        self._git("commit", "-q", "--allow-empty", "-m", "transfer 작업")
+        r = self.gil("reject", "lr/measure", "--to", "s1", "--title", "실패 종결")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # s6 fail 이 measure 계보(s4)를 부모로 하고 s5 pending 을 supersede 한다.
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "fail")
+        self.assertNotEqual(self.trailer("HEAD", "Gil-Supersedes"), "")
+        # handoff 가 이제 measure pending 을 대기로 안 띄운다(정정된 pending).
+        h = self.gil("handoff").stdout
+        self.assertNotIn("measure/s5", h)
+
+    def test_reject_from_wrong_branch_then_abandon_closes(self):
+        """#44 정정 후 그 죽은 사이클을 --abandon 으로 닫을 수 있다(#44+#46 결합)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "lr", "--purpose", "P")
+        self.gil("open", "lr/m", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.gil("step", "lr/m", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "lr/m", "--kind", "verify", "--title", "V", "--verdict", "supported")
+        self.gil("step", "lr/m", "--kind", "pending", "--title", "물음")
+        self._git("checkout", "-q", "-b", "lr-other")
+        self._git("commit", "-q", "--allow-empty", "-m", "other")
+        self.gil("reject", "lr/m", "--to", "s1", "--title", "기각")
+        r = self.gil("close", "lr/m", "--abandon")
+        self.assertEqual(r.returncode, 0, "정정된 fail 사이클도 abandon 봉인 가능: " + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

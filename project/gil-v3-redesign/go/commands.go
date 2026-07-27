@@ -73,6 +73,14 @@ func guideNext(kind string) {
 		stderr("  ⟹ 다음은 반드시 analyze — 검증 결과가 무엇을 뜻하는지 해석하라(그다음이 종결).")
 	case "analyze":
 		stderr("  ⟹ 다음은 종결 — success(산 잎)/fail(죽은 잎)/pending(사람 대기). 또는 backtrack(hypothesis --to <조상 define>), 문제 정의가 틀렸으면 새 사이클 open.")
+	case "fail":
+		// fail 은 이 가설의 죽음이지 사이클의 죽음이 아니다(이슈 #45). success 처럼 다음-행동을
+		// 명시해, fail 을 '사이클 끝'으로 오인하고 미해결 define 을 방치한 채 새 사이클로 도망치는
+		// 걸 막는다. 두 정직한 길만 있다 — 재분기(답을 계속 푼다) 또는 포기(막다른 길로 봉인).
+		stderr("  ⟹ fail 은 이 가설의 죽음이지 사이클의 죽음이 아니다. define 의 답을 아직 못 얻었다. 두 길뿐:")
+		stderr("     (1) 재분기 — gil step <chain>/<cycle> --kind hypothesis --to <조상 define> --inherit <교훈>  (새 가설로 다시 푼다)")
+		stderr("     (2) 포기 — gil close <chain>/<cycle> --abandon  (이 define 이 막다른 길로 확인됐다 — 죽은 사이클로 봉인)")
+		stderr("     ⚠ 재분기도 포기도 없이 새 사이클을 open 하지 마라 — 이 define 이 미해결로 방치되고 계보가 끊긴다(이슈 #45).")
 	case "pending":
 		stderr("  ⟹ 다음은 사람뿐 — gil approve(승인) | gil reject --to <조상 define>(기각). 이 사이클은 사람의 답 전엔 못 이어간다(AIL #41).")
 	}
@@ -121,6 +129,35 @@ func currentCycle(chain, cycle string) []node {
 		}
 	}
 	return out
+}
+
+// alignHeadToTip — 선형 append(step/reject/approve)가 대상 사이클의 팁 커밋 위에 얹히도록
+// HEAD 를 그 팁으로 맞춘다(이슈 #44). gil step/approve/reject 는 현재 HEAD 브랜치에 커밋하는데,
+// 여러 사이클을 병렬로 열고 다른 사이클 브랜치가 체크아웃된 상태에서 대상 사이클을 조작하면,
+// 종결 커밋이 엉뚱한 브랜치 팁에 얹혀 대상 사이클 팁은 안 움직이고 pending 도 안 풀린다(교착).
+// HEAD 가 이미 팁이면 아무것도 안 한다. 아니면 그 팁을 가리키는 브랜치가 있으면 그 브랜치로,
+// 없으면 팁 커밋으로 분리(detached) 체크아웃한다 — 어느 쪽이든 커밋이 옳은 계보에 이어진다.
+func alignHeadToTip(tipSHA, ref string) {
+	if tipSHA == "" {
+		return
+	}
+	head := strings.TrimSpace(git("rev-parse", "HEAD"))
+	if strings.HasPrefix(head, tipSHA) || head == tipSHA {
+		return // 이미 팁 위 — 정합
+	}
+	// 팁 커밋을 정확히 가리키는 로컬 브랜치가 있으면 그 브랜치로 옮겨탄다(브랜치 포인터도 함께
+	// 전진하도록). 없으면 팁 커밋으로 분리 체크아웃(계보만 맞으면 충분).
+	target := tipSHA
+	refs := strings.TrimSpace(git("for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"))
+	for _, ln := range strings.Split(refs, "\n") {
+		name, sha, ok := strings.Cut(strings.TrimSpace(ln), " ")
+		if ok && strings.HasPrefix(strings.TrimSpace(sha), tipSHA) {
+			target = strings.TrimSpace(name)
+			break
+		}
+	}
+	git("checkout", "-q", target)
+	stderr("  ▸ HEAD 를 " + ref + " 의 팁(" + tipSHA + ")으로 옮겼다 — 종결 커밋이 옳은 사이클 계보에 얹히도록(이슈 #44).")
 }
 
 // nextStepID — 참조: _next_step_id.
@@ -318,6 +355,17 @@ func cmdOpen(args []string) {
 	if (len(*parents) > 0 || len(*refutes) > 0) && strings.TrimSpace(*inherit) == "" {
 		die("거부: 계보 간선(--parent/--refutes)이 있으면 --inherit <전수> 필요 — 부모에게서 물려받은 " +
 			"사전지식·전제·교훈을 명시하고 출발하라. 계보를 포인터 그물이 아니라 지식의 강으로(AIL #3).")
+	}
+	// 미해결 define 방치 경고(이슈 #45). 이 체인에 '산 잎 없이 fail 잎만 있고 아직 안 닫힌'
+	// 사이클이 있으면, 그 define 은 답을 못 얻은 채 방치된 것이다 — 재분기(hypothesis --to)나
+	// 포기(close --abandon) 없이 새 사이클로 도망치면 계보가 끊긴다. 거부는 않는다(병렬 사이클은
+	// 정당할 수 있다) — 사람이 보고 판단하도록 경고만 한다.
+	if stranded := strandedCycles(chain); len(stranded) > 0 {
+		stderr("  ⚠ 이 체인에 미해결 사이클이 있다(fail 잎만, 미종결): " + strings.Join(stranded, " "))
+		stderr("    그 define 의 답을 아직 못 얻었다. 새 사이클로 넘어가기 전에 확인하라 —")
+		stderr("      재분기: gil step " + chain + "/<그 사이클> --kind hypothesis --to <조상 define> --inherit <교훈>")
+		stderr("      포기:   gil close " + chain + "/<그 사이클> --abandon   (막다른 길로 봉인)")
+		stderr("    (정말 병렬로 여는 것이면 그대로 진행해도 된다 — 다만 저 define 을 방치하지 마라. 이슈 #45.)")
 	}
 	showPurposeContext(chain, cycle, *purpose)
 
@@ -717,6 +765,12 @@ func cmdStep(args []string) {
 		tr = append(tr, [2]string{"Gil-Merge", m})
 	}
 	// 형제 가지면 새 브랜치 분기(createFrom), 아니면 현재 사이클 가지에 이어서.
+	// 선형 append(분기 아님)은 HEAD 를 대상 사이클 팁으로 맞춘다 — 다른 사이클 브랜치가
+	// 체크아웃된 상태에서 조작해도 옳은 계보에 얹히도록(이슈 #44). 분기(branch!="")는
+	// commitOn 이 createFrom 에서 스스로 체크아웃하므로 건드리지 않는다.
+	if branch == "" && tip != nil {
+		alignHeadToTip(tip.sha, ref)
+	}
 	commitOn(branch, createFrom, subject, stBody, tr, true)
 
 	tail := ""
@@ -779,6 +833,7 @@ func cmdApprove(args []string) {
 		{"Gil-Step", sid}, {"Gil-Kind", "success"}, {"Gil-Parent", orNull(tip.parent)},
 		{"Gil-Approval", "approved"}, {"Gil-Supersedes", tip.step},
 	}
+	alignHeadToTip(tip.sha, ref) // 대상 사이클 팁으로 HEAD 정합 — 승인 커밋이 옳은 계보에(이슈 #44)
 	commit(subject, stBody, tr, true)
 	println2("approve: " + ref + "/" + sid + " success (사람 승인 ⤳정정 " + tip.step + ")")
 	reportGuide("success", bodyThin(stBody))
@@ -828,6 +883,7 @@ func cmdReject(args []string) {
 		{"Gil-Step", sid}, {"Gil-Kind", "fail"}, {"Gil-Parent", orNull(tip.parent)},
 		{"Gil-Backtrack", *to}, {"Gil-Approval", "rejected"}, {"Gil-Supersedes", tip.step},
 	}
+	alignHeadToTip(tip.sha, ref) // 대상 사이클 팁으로 HEAD 정합 — 기각 커밋이 옳은 계보에(이슈 #44)
 	commit(subject, stBody, tr, true)
 	println2("reject: " + ref + "/" + sid + " fail (사람 기각 ⤳정정 " + tip.step + " ⟶" + *to + ")")
 	reportGuide("fail", bodyThin(stBody))
@@ -838,9 +894,16 @@ func cmdReject(args []string) {
 func cmdClose(args []string) {
 	fs := newFlags("gil close")
 	verdict := fs.str("verdict", "supported")
+	// --abandon: 산 잎 없이 fail 잎만 남은 사이클을 '죽은 사이클'로 봉인한다(이슈 #46).
+	// fail = 이 가설의 죽음이지 사이클의 죽음이 아니다 — 기본은 define 의 답을 얻을 때까지
+	// 재분기해야 한다(hypothesis --to <조상 define>). 하지만 사람이 그 define 을 포기하기로
+	// 판단하면(막다른 길로 확인됨), 죽은 사이클도 종결의 한 형태다. 그 판단을 --abandon 으로
+	// 명시적으로 받는다 — gil 이 자동으로 죽이지 않는다(정직: 없는 성공을 날조하지도, 정직한
+	// 실패를 영구 미종결로 벌하지도 않는다). success=산 종결, fail-only+abandon=죽은 종결.
+	abandon := fs.boolFlag("abandon")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil close <chain>/<cycle> [--verdict V]")
+		die("사용: gil close <chain>/<cycle> [--verdict V] [--abandon]")
 	}
 	ref := pos[0]
 	chain, cycle, _ := cut(ref, "/")
@@ -848,14 +911,39 @@ func cmdClose(args []string) {
 	if len(steps) == 0 {
 		die("거부: " + ref + " 없음")
 	}
-	var live []string
+	var live, dead []string
 	for _, s := range steps {
 		if isLiveLeaf(s) {
 			live = append(live, s.step)
+		} else if isDeadLeaf(s) {
+			dead = append(dead, s.step)
 		}
 	}
 	if len(live) == 0 {
-		die("거부: 산 잎(success 스텝) 없음 — 닫을 수 없다")
+		// 산 잎이 없다. --abandon 이면 죽은 사이클로 봉인(이슈 #46), 아니면 두 정직한 길을 안내.
+		if *abandon {
+			if len(dead) == 0 {
+				die("거부: 종결 잎(fail)이 하나도 없다 — 봉인할 죽은 가지가 없다. 먼저 analyze→fail 로 벽을 남겨라.")
+			}
+			sort.Strings(dead)
+			subject := "gil " + chain + "/" + cycle + " close: " + orDefault(*verdict, "abandoned") + " (abandoned)"
+			body := "죽은 사이클 봉인(abandoned). 죽은 잎 [" + strings.Join(dead, " ") + "]. " +
+				"이 define 은 막다른 길로 판단돼 사람이 포기했다 — 벽의 지도로 영원히 남는다(이슈 #46)."
+			tr := [][2]string{
+				{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
+				{"Gil-Kind", "close"}, {"Gil-Verdict", orDefault(*verdict, "abandoned")},
+				{"Gil-Abandoned", "true"},
+			}
+			commit(subject, body, tr, true)
+			println2("close: " + ref + " — abandoned (죽은 사이클로 봉인, 죽은 잎 [" + strings.Join(dead, " ") + "])")
+			return
+		}
+		die("거부: 산 잎(success 스텝) 없음 — 닫을 수 없다.\n" +
+			"  fail 은 이 가설의 죽음이지 사이클의 죽음이 아니다. 두 정직한 길:\n" +
+			"    (1) 재분기 — gil step " + ref + " --kind hypothesis --to <조상 define> --inherit <교훈>\n" +
+			"        (이 define 의 답을 아직 못 얻었다 — 새 가설로 다시 푼다)\n" +
+			"    (2) 포기 — gil close " + ref + " --abandon\n" +
+			"        (이 define 이 막다른 길로 확인됐다 — 죽은 사이클로 봉인, 벽의 지도로 남긴다)")
 	}
 	// 극성 close 대면 (AIL #13, 옵션 B — success 가드의 이중 방어). 산 잎(success)이 딛은
 	// verify 가 supported 인데 그 가설의 극성이 goal-missed 면, 이 사이클은 "목표 실패를 확인"한
@@ -889,6 +977,34 @@ func cmdClose(args []string) {
 	}
 	commit(subject, body, tr, true)
 	println2("close: " + ref + " — " + *verdict)
+}
+
+// strandedCycles — 이 체인에서 '미해결로 방치된' 사이클들(이슈 #45). 정의: 산 잎(success)이
+// 하나도 없고, 죽은 잎(fail)이 하나 이상이며, 아직 close 커밋이 없는 사이클. 그런 사이클의
+// define 은 답을 못 얻은 채(fail 후 재분기도, abandon 봉인도 없이) 남아 있다. cmdOpen 이
+// 새 사이클을 열 때 이걸 경고해 계보가 끊기는 걸 막는다. cmdClose 의 live/dead 판정과 대칭.
+func strandedCycles(chain string) []string {
+	closed := closedCycles("--branches")
+	cyc, order := cyclesOf(chain)
+	var out []string
+	for _, id := range order {
+		if closed[chain+"\x01"+id] {
+			continue // 이미 닫힘(abandon 포함) — 방치 아님
+		}
+		c := cyc[id]
+		hasLive, hasDead := false, false
+		for _, s := range c.steps {
+			if isLiveLeaf(s) {
+				hasLive = true
+			} else if isDeadLeaf(s) {
+				hasDead = true
+			}
+		}
+		if !hasLive && hasDead {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // ── gil deploy — 배포(공개) 지점을 그래프의 1급 시민으로 (이슈 #34, 상현님) ──
