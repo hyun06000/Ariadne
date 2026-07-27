@@ -3927,3 +3927,30 @@ e6508461(#33 레퍼런스 최소형)·87a6455c(#33 인터뷰 폼) — 다음 릴
 (define/hypothesis 디폴트 승인모드—안전한 가설 방지) [4]chain-close --retro(회고·시드) [5]fail
 반전·진량 가시화. 설계 아티팩트: claude.ai/code/artifact/f5ce81a5-9f4f-4a90-a7c6-d5d992dca96a.
 남은 딴 이슈: #35(뷰어 기본값 두줄)·#39설치·#40온보딩·#41(제안3만)·#42/#32정직화.
+
+
+## 매듭 — v3.11.0 배포 (2026-07-27)
+
+미배포 4커밋을 v3.11.0 으로 릴리스. release-build.sh 세 번째 실사용. 상현 "배포해서 써보겠다"
+→ "내가 끝까지 실행" 명시 승인 → 태그·릴리스 전 과정 내가 실행.
+
+### 담긴 것 (v3.10.0 이후)
+- 25742b42 #34 gil deploy (배포 마커 🚀)
+- 9768274a #44/45/46 fail 종결 재설계 (--abandon, 재분기 안내, 브랜치 정합)
+- e6508461 #33 레퍼런스 최소형 (gil chain --reference)
+- 87a6455c #33 인터뷰 폼 (gil interview, 뷰어 폼→제출→레퍼런스 커밋)
+
+### 실행 순서 (중요 교훈)
+1. git tag -a v3.11.0 push — **먼저 태그만 밀었더니 원격 main 이 아직 d69f2184 였음**(내 4커밋
+   로컬만). git branch -r --contains 로 발견. 2. git push origin main (d69f2184..87a6455c
+   fast-forward, protect-main 안 건드림). 3. gh release create v3.11.0 8자산 + RELEASE_NOTES.
+   **교훈: 릴리스 전 git push origin main 먼저 확인할 것 — 태그가 원격에 없는 커밋 가리키면 안 됨.**
+- 수신자 E2E: 공개 install.sh 신선설치→v3.11.0 각인 확인→interview 실동작→fsck 0.
+- install.sh·llms.txt v3.10.0 이후 무변경 재사용.
+
+### 부활점
+gil latest=**v3.11.0**(배포됨·검증됨). main=87a6455c(원격 동기화됨). editor-ext/vscode 미게시.
+'실패 안 두려워하는 문법' 진행: [1]레퍼런스 최소형✓ [2]인터뷰 폼✓ [3]승인 관문(define/
+hypothesis 디폴트 승인—다음) [4]chain-close --retro [5]fail 반전·진량 가시화. 설계 아티팩트
+f5ce81a5. 남은 이슈: #35(뷰어 기본값)·#39설치·#40온보딩·#41(제안3)·#42/#32정직화·#36/37/38
+(대부분 구현됨, 닫기 후보). 다음: 인터뷰 폼 실사용 피드백 받거나 승인 관문 착수.
