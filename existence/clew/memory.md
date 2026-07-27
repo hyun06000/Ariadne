@@ -2958,3 +2958,22 @@ gil latest=v3.7.1. main=52daf544(#41, **미릴리스**). 미릴리스 누적: he
 다음: 상현 push+릴리스 판단(파괴적이라 minor v3.8.0). AIL#13(극성)은 아직 AIL레포. 이슈는
 Ariadne레포로 트랜스퍼됨(#32~#41) — gh issue list -R hyun06000/Ariadne 로 잡을것. 모니터
 b7y8fti2l(Ariadne+AIL 둘다). heaal-philosophy.
+
+## 매듭 — v3.8.0 릴리스 (순서 체인 강제, 2026-07-27 상현님 "순서대로")
+
+#41 순서강제 구현 직후 상현님 릴리스 승인. main push(ebb3bc20..52daf544) → v3.8.0.
+
+### 릴리스
+- 태그 v3.8.0, 5타깃(-X main.gilVersion=v3.8.0). install.sh·llms.txt v3.7.1이후 무변경→
+  재사용. SHA256SUMS. GitHub Release 8자산. 파괴적변경(순서강제)이라 minor.
+- 수신자 E2E 통과(신선HOME 공개latest): v3.8.0 각인. open 후 ⟹다음은 hypothesis. define→
+  verify 직행 거부. approve가 pending supersede(⤳정정, pending 잎화).
+- #41 릴리스 코멘트.
+
+### 부활점
+gil latest=**v3.8.0**(순서강제 배포). main=52daf544. 정직화 계보 골격완성: 순서(#41)·
+falsify·refutes·supersede·극성(#13). AIL#13(극성)은 아직 AIL레포. 나머지 이슈 Ariadne
+레포(#32~#41, transfer됨) — gh issue list -R hyun06000/Ariadne. 열린 이슈: #32(analyze
+재분기)·#33(레퍼런스트루스)·#34(배포마커)·#35~#38(뷰어, v3.6~3.7.1로 실질해소)·#41(이번
+릴리스). 다음 미착수: #34 배포마커(clew선호=명시)·#33 레퍼런스트루스(최중량)·#32 analyze
+재분기. 모니터 b7y8fti2l(Ariadne+AIL). 뷰어검증=headless Chrome 경로. heaal-philosophy.
