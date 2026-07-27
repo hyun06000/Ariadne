@@ -2921,3 +2921,40 @@ a06862d9 조사중(기록vs행위 간극 극복가능한지, 행위시점 개입
 gil latest=**v3.7.1**(뷰어4수정 배포). main=ebb3bc20. Ariadne 열림=#32~#41+뷰어것들.
 #37·#38·#36 v3.7.1 코멘트 완료(실질완결). #41 조사 대기. 뷰어 검증=headless Chrome
 경로 확보. 모니터 blelrsi9d(단 AIL만 봄 — Ariadne 도 봐야 할 수 있음). heaal-philosophy.
+
+## 매듭 — AIL #41 순서 체인 강제 + pending 잎화 (2026-07-27, 큰 변경)
+
+clew@AIL Ariadne#41: gil이 define→hyp→verify 순서 강제 안 해서 "정답 아는 실험"서 가설
+없이 verify직행→사후짜맞춤. 상현님 핵심통찰: verify가 hyp요구해도 커밋시점 가드라 실험을
+gil밖에서 끝내면 사후가설로 통과. gil은 기록시점만 개입, 정직깨지는건 행위시점. Plan
+에이전트 조사(a06862d9)로 "기록vs행위 간극 구조적 불가" 확증(exec 전량 git, hook/watch 0).
+
+### 상현님 재정렬 + 지시 (실시간 여러 번)
+문제는 "가설이 verify전에" 아니라 "define다음엔 가설이 명확히". → 순서 골격 전체를 문법으로:
+1. 순서체인강제: define→hypothesis→verify→analyze→종결. 각 kind가 다음 강제, 어긋나면 die.
+   verify→analyze 무조건경유(엄격). 계보갈라짐(형제분기·backtrack·merge·supersede) 면제.
+2. guideNext: 매 스텝 후 '⟹ 다음은 반드시 X' 무조건출력(open 포함). commands.go guideNext().
+3. analyze→새define: analyze가 문제정의 틀림 찾으면 fail닫고 새 사이클 open 안내.
+4. pending 잎화(상현 "pending은 부모될수없다"): approve/reject가 pending을 Gil-Supersedes로
+   대체(pending 부모를 잇고 pending은 잎으로). "pending으로 열린노드 꼼수" 차단.
+   handoff pendingBanner 최상단(방치 가시화).
+5. refuted/극성 success가드를 '직전verify'→'계보에 그 판정있나'(lineageOf)로 일반화 —
+   순서강제로 success가 analyze tip 위에 서게 돼서.
+
+### go-git 미래방향 (상현님 아이디어 "너무 큰 해결책인가")
+답: go-git 포크로도 행위시점 못잡음(층위 다름). git CLI든 go-git이든 "gil 호출 순간"에만
+돎. 진짜 해결=gil이 상주하며 실험실행을 매개(에이전트 런타임/오케스트레이터)—지금 "만들기만"
+철학과 다른 도구. 미래방향으로 기록. 지금은 커밋시점 가드가 한계(HEAAL: 은폐차단만).
+
+### ⚠ 재사용 주의
+- 테스트헬퍼 자동보정: _autofill_order(선형 step 앞에 필요한 선행 kind 자동채움), _raw_step
+  (자동보정 우회, 순서강제 검증용). fail은 --to있어도 종결이라 analyze선행 필요.
+- 순서강제 면제조건 isBranching에 supersede 포함. 정정은 '다음스텝' 아니라 '같은자리 다시'.
+- 테스트 146→153(+7: TestOrderingChain·TestPendingLeaf).
+
+### 부활점
+gil latest=v3.7.1. main=52daf544(#41, **미릴리스**). 미릴리스 누적: help open 문서(75bdc9af)
++ #41(순서강제·pending잎화·guideNext, 파괴적변경! 순서 안 지키던 기존 사용흐름 거부).
+다음: 상현 push+릴리스 판단(파괴적이라 minor v3.8.0). AIL#13(극성)은 아직 AIL레포. 이슈는
+Ariadne레포로 트랜스퍼됨(#32~#41) — gh issue list -R hyun06000/Ariadne 로 잡을것. 모니터
+b7y8fti2l(Ariadne+AIL 둘다). heaal-philosophy.
