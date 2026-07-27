@@ -59,6 +59,25 @@ func reportGuide(kind string, thin bool) {
 	stderr("    (뷰어가 이 본문을 마크다운으로 렌더한다 — 표·코드블록·이미지 ![](data:...) 가능.)")
 }
 
+// guideNext — 방금 새긴 스텝(kind)의 '다음에 반드시 올 스텝'을 무조건 출력한다(AIL #41,
+// 상현님). 순서 체인(define→hypothesis→verify→analyze→종결)을 매 스텝마다 경고로 각인해,
+// 사람도 AI도 다음 강제를 잊고 새지 않게 한다. reportGuide 가 '이 스텝 본문'을 안내한다면
+// guideNext 는 '다음 스텝 kind'를 강제로 못박는다.
+func guideNext(kind string) {
+	switch kind {
+	case "define":
+		stderr("  ⟹ 다음은 반드시 hypothesis — 무엇을 세우고 무엇이 관측되면 틀리나(--falsify). 문제 정의만 하고 실험으로 새지 마라(AIL #41).")
+	case "hypothesis":
+		stderr("  ⟹ 다음은 반드시 verify — 이 가설을 실측으로 검증하라(--verdict supported|refuted).")
+	case "verify":
+		stderr("  ⟹ 다음은 반드시 analyze — 검증 결과가 무엇을 뜻하는지 해석하라(그다음이 종결).")
+	case "analyze":
+		stderr("  ⟹ 다음은 종결 — success(산 잎)/fail(죽은 잎)/pending(사람 대기). 또는 backtrack(hypothesis --to <조상 define>), 문제 정의가 틀렸으면 새 사이클 open.")
+	case "pending":
+		stderr("  ⟹ 다음은 사람뿐 — gil approve(승인) | gil reject --to <조상 define>(기각). 이 사이클은 사람의 답 전엔 못 이어간다(AIL #41).")
+	}
+}
+
 // commitOn — 지정한 브랜치 위에 커밋한다. 분기는 진짜 git 브랜치로(상현님, SPEC 원칙 3).
 //   branch=="" : 현재 HEAD 에 커밋(브랜치 이동 없음).
 //   createFrom!="" : createFrom 커밋/브랜치에서 새 브랜치 branch 를 파고(checkout -b) 커밋.
@@ -123,6 +142,30 @@ func growingTip(steps []node) *node {
 		return nil
 	}
 	return &steps[0]
+}
+
+// lineageOf — 사이클 안에서 tipID 스텝부터 Gil-Parent 를 따라 조상으로 거슬러 이 가지의
+// 스텝들을 모은다(AIL #41). 순서 강제로 verify→analyze→종결이 되면서, refuted/극성 success
+// 가드가 '직전 verify' 가 아니라 '이 가지 계보에 그 판정이 있나'를 봐야 해서 필요해졌다.
+func lineageOf(steps []node, tipID string) []node {
+	byID := map[string]node{}
+	for _, s := range steps {
+		byID[s.step] = s
+	}
+	var out []node
+	cur := tipID
+	for i := 0; i < 1000; i++ {
+		n, ok := byID[cur]
+		if !ok {
+			break
+		}
+		out = append(out, n)
+		if n.parent == "" || n.parent == "null" || n.parent == cur {
+			break
+		}
+		cur = n.parent
+	}
+	return out
 }
 
 // countClaims — --falsify 가 몇 개의 주장으로 열거됐나(AIL #1 A). 개행/세미콜론을 명백한
@@ -320,6 +363,7 @@ func cmdOpen(args []string) {
 		guideRefutes(*refutes)
 	}
 	reportGuide("define", bodyThin(body))
+	guideNext("define") // 다음은 반드시 hypothesis (AIL #41)
 }
 
 // ── gil step ──
@@ -449,6 +493,42 @@ func cmdStep(args []string) {
 		die("거부: " + ref + " 팁이 pending(" + tip.step + ") — 사람의 답을 먼저 받아야 한다. " +
 			"승인: gil approve " + ref + "  |  기각: gil reject " + ref + " --to <조상 define>")
 	}
+	// ── 순서 체인 강제 (AIL #41, 상현님) ──
+	// 사고의 골격을 문법으로 굳힌다: define→hypothesis→verify→analyze→종결(success/fail/pending),
+	// 그리고 analyze 는 backtrack(→조상 define 으로 새 가설)도. 각 kind 는 '다음에 올 kind'가
+	// 정해져 있고, 어긋나면 거부한다. "define 만 하고 밖에서 실험"(가설 건너뛰기)·"verify 없이
+	// success"·"analyze 없이 종결" 같은 일자화 우회를 앞단에서 막는다.
+	// 단 계보가 갈라지는 자리(형제분기 hypothesis --to / backtrack / merge)는 선형 규칙 면제 —
+	// 그건 순서가 아니라 분기다(죽은 잎·success 가드가 따로 관장). 선형(직전 tip 위에 곧장)일
+	// 때만 이 순서를 강제한다.
+	// 정정(--supersede)도 순서 면제 — 정정은 '다음 스텝'이 아니라 '같은 자리 다시 쓰기'다.
+	isBranching := (*kind == "hypothesis" && *to != "") || *outcome == "backtrack" ||
+		len(*merge) > 0 || strings.TrimSpace(*supersede) != ""
+	if tip != nil && !isBranching {
+		// tip.kind 별로 선형 다음에 허용되는 kind 집합.
+		allowedNext := map[string]map[string]bool{
+			"define":     {"hypothesis": true},
+			"hypothesis": {"verify": true},
+			"verify":     {"analyze": true},
+			"analyze":    {"success": true, "fail": true, "pending": true},
+			// success/fail/pending(종결)·죽은 잎 위 선형은 아래 다른 가드가 이미 거부한다.
+		}
+		if nexts, governed := allowedNext[tip.kind]; governed && !nexts[*kind] {
+			want := []string{}
+			for k := range nexts {
+				want = append(want, k)
+			}
+			sort.Strings(want)
+			hint := map[string]string{
+				"define":     "gil step " + ref + " --kind hypothesis --falsify <반증조건> --falsify-to s1  — 무엇을 세우고 무엇이 관측되면 틀리나. (define 다음은 반드시 가설 — 문제 정의만 하고 실험으로 새면 사고가 일자로 흐른다, AIL #41)",
+				"hypothesis": "gil step " + ref + " --kind verify --verdict supported|refuted  — 가설을 실측으로 검증하라.",
+				"verify":     "gil step " + ref + " --kind analyze  — 검증 결과가 무엇을 뜻하는지 해석하라(다음은 종결).",
+				"analyze":    "gil step " + ref + " --kind success|fail|pending  — 산 잎/죽은 잎/사람대기로 종결. 또는 backtrack(--kind hypothesis --to <조상 define>)으로 같은 문제의 새 가지를. 분석하다 문제 정의 자체가 틀렸음을(새 define 을) 찾았다면 fail 로 닫고 새 사이클을 열어라: gil open <chain>/<새사이클> --refutes|--parent … --inherit '이 분석에서 진짜 문제는 …'.",
+			}[tip.kind]
+			die("거부: 직전이 " + tip.kind + "(" + tip.step + ")인데 다음이 " + *kind + " 다 — 순서를 건너뛴다. " +
+				"다음은 " + strings.Join(want, "/") + " 여야 한다:\n  " + hint)
+		}
+	}
 	// 제안 3 완화 (AIL #1) — fail 잎은 죽은 채로 지도에 남아야 한다. tip 이 죽은 잎(fail/
 	// analyze-fail/backtrack)이면 그 위에 선형으로 잇지 못한다. 재가설은 반드시 새 가지 —
 	// 형제분기(--kind hypothesis --to <define>) 나 backtrack(--outcome backtrack --to)로만.
@@ -461,33 +541,39 @@ func cmdStep(args []string) {
 				"gil step " + ref + " --kind hypothesis --to <조상 define> --falsify … --falsify-to …(AIL #1).")
 		}
 	}
-	// 제안 1 success 가드 (AIL #1) — 직전 verify 가 가설을 반증(refuted)했으면 success 를
-	// 문법으로 거부한다. 반증 뒤에는 fail(죽은 잎) 이나 backtrack(새 가지)만 허용 — 마찰이
-	// 있는데 success 로 뭉개고 앞으로 가던 길(체인 일자화의 핵심)을 구조로 막는다.
-	if *kind == "success" && tip != nil && tip.kind == "verify" && tip.verdict == "refuted" {
-		die("거부: 직전 verify(" + tip.step + ")가 가설을 반증(refuted)했다 — success 로 닫을 수 없다. " +
-			"fail(gil step … --kind fail --to <define>) 로 죽은 잎을 남기거나 " +
-			"backtrack(gil step … --kind hypothesis --to <define>) 으로 새 가지를 파라(AIL #1).")
+	// 제안 1 success 가드 (AIL #1) — 이 가지 계보에 refuted verify 가 있으면 success 거부.
+	// 순서 강제(AIL #41)로 verify 다음은 analyze 라, success 는 analyze tip 위에서 찍힌다 —
+	// 그래서 '직전 verify' 가 아니라 '계보에 refuted verify 가 있나'로 본다(analyze 를 거쳐도
+	// 그 반증 판정은 유효하다). 마찰이 있는데 success 로 뭉개는 걸 구조로 막는다.
+	if *kind == "success" && tip != nil {
+		for _, s := range lineageOf(steps, tip.step) {
+			if s.kind == "verify" && s.verdict == "refuted" {
+				die("거부: 이 가지의 verify(" + s.step + ")가 가설을 반증(refuted)했다 — success 로 닫을 수 없다. " +
+					"fail(gil step … --kind fail --to <define>) 로 죽은 잎을 남기거나 " +
+					"backtrack(gil step … --kind hypothesis --to <define>) 으로 새 가지를 파라(AIL #1).")
+			}
+		}
 	}
 	// 극성 success 가드 (AIL #13) — verify 가 supported 라도, 그 가설의 극성이 goal-missed 면
 	// 그 supported 는 "목표 실패를 확인함"(부정적 발견)이다. 가설 supported ≠ 목표 달성 —
 	// refuted 가드가 막는 병("마찰을 success 로 뭉갬")의 다른 얼굴이다. success 를 거부하고
 	// fail(벽으로 못박음)/backtrack(다른 접근)을 요구한다. 부정적 발견은 그래프에서 가장 값진
 	// 벽의 지도여야지 가짜 success 가 아니다.
-	if *kind == "success" && tip != nil && tip.kind == "verify" && tip.verdict == "supported" {
-		// verify 의 부모 hypothesis 를 찾아 극성을 본다.
-		var hyp *node
-		for i := range steps {
-			if steps[i].step == tip.parent && steps[i].kind == "hypothesis" {
-				hyp = &steps[i]
-				break
-			}
+	if *kind == "success" && tip != nil {
+		lin := lineageOf(steps, tip.step)
+		byID := map[string]node{}
+		for _, s := range steps {
+			byID[s.step] = s
 		}
-		if hyp != nil && hyp.polarity == "goal-missed" {
-			die("거부: 직전 verify(" + tip.step + ")는 supported 지만, 그 가설(" + hyp.step + ")의 극성이 " +
-				"goal-missed 다 — 가설이 맞았다는 건 사이클 목표의 '실패'를 확인한 것(부정적 발견)이다. " +
-				"success 가 아니라:\n  fail(gil step … --kind fail --to <define>) 로 '이 방향은 막혔다'를 벽으로 못박거나\n" +
-				"  backtrack(gil step … --kind hypothesis --to <define> --inherit <이 벽의 교훈>) 으로 다른 접근을 파라(AIL #13).")
+		for _, s := range lin {
+			if s.kind == "verify" && s.verdict == "supported" {
+				if hyp, ok := byID[s.parent]; ok && hyp.kind == "hypothesis" && hyp.polarity == "goal-missed" {
+					die("거부: 이 가지의 verify(" + s.step + ")는 supported 지만, 그 가설(" + hyp.step + ")의 극성이 " +
+						"goal-missed 다 — 가설이 맞았다는 건 사이클 목표의 '실패'를 확인한 것(부정적 발견)이다. " +
+						"success 가 아니라:\n  fail(gil step … --kind fail --to <define>) 로 '이 방향은 막혔다'를 벽으로 못박거나\n" +
+						"  backtrack(gil step … --kind hypothesis --to <define> --inherit <이 벽의 교훈>) 으로 다른 접근을 파라(AIL #13).")
+				}
+			}
 		}
 	}
 	defineIDs := map[string]bool{}
@@ -647,6 +733,7 @@ func cmdStep(args []string) {
 		guideRefutes(*refutes)
 	}
 	reportGuide(*kind, bodyThin(stBody))
+	guideNext(*kind) // 다음 강제 스텝을 무조건 각인 (AIL #41)
 }
 
 // pendingTip — 이 사이클의 팁이 pending 이면 그 pending 노드를, 아니면 nil.
@@ -684,14 +771,18 @@ func cmdApprove(args []string) {
 	if stBody == "" {
 		stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 가지는 산 잎."
 	}
+	// pending 은 부모가 될 수 없다(AIL #41, 상현님) — pending 을 부모로 삼는 대신, pending 의
+	// 부모를 이어받고 pending 자체는 Gil-Supersedes 로 대체(정정). pending 은 잎으로 남고
+	// "⤳정정됨" 표시되며, 이 success 가 진짜 종결이 된다. 사람 답 없이 열린 채 두는 꼼수 차단.
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
-		{"Gil-Step", sid}, {"Gil-Kind", "success"}, {"Gil-Parent", tip.step},
-		{"Gil-Approval", "approved"},
+		{"Gil-Step", sid}, {"Gil-Kind", "success"}, {"Gil-Parent", orNull(tip.parent)},
+		{"Gil-Approval", "approved"}, {"Gil-Supersedes", tip.step},
 	}
 	commit(subject, stBody, tr, true)
-	println2("approve: " + ref + "/" + sid + " success (사람 승인 ←" + tip.step + ")")
+	println2("approve: " + ref + "/" + sid + " success (사람 승인 ⤳정정 " + tip.step + ")")
 	reportGuide("success", bodyThin(stBody))
+	guideNext("success")
 }
 
 // ── gil reject — pending 에 대한 사람의 명시적 기각. 기각=죽은 잎(analyze/backtrack). ──
@@ -731,14 +822,16 @@ func cmdReject(args []string) {
 	if stBody == "" {
 		stBody = "사람이 pending(" + tip.step + ")을 기각했다 — 죽은 잎. " + *to + " 로 되돌아간다."
 	}
+	// pending 은 부모가 될 수 없다(AIL #41) — pending 의 부모를 잇고 pending 은 supersede(정정).
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
-		{"Gil-Step", sid}, {"Gil-Kind", "fail"}, {"Gil-Parent", tip.step},
-		{"Gil-Backtrack", *to}, {"Gil-Approval", "rejected"},
+		{"Gil-Step", sid}, {"Gil-Kind", "fail"}, {"Gil-Parent", orNull(tip.parent)},
+		{"Gil-Backtrack", *to}, {"Gil-Approval", "rejected"}, {"Gil-Supersedes", tip.step},
 	}
 	commit(subject, stBody, tr, true)
-	println2("reject: " + ref + "/" + sid + " fail (사람 기각 ⤳" + *to + ")")
+	println2("reject: " + ref + "/" + sid + " fail (사람 기각 ⤳정정 " + tip.step + " ⟶" + *to + ")")
 	reportGuide("fail", bodyThin(stBody))
+	guideNext("fail")
 }
 
 // ── gil close ──

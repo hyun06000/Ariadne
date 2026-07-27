@@ -65,11 +65,43 @@ func currencyBanner() []string {
 	return L
 }
 
+// pendingBanner — 사람 답을 기다리는 pending 잎을 최상단에 모아 띄운다(AIL #41, 상현님).
+// pending 은 종결이 아니라 '사람 대기'다 — 답 없이 방치되면 사이클이 열린 채 잊힌다. gil 은
+// 커밋 시점만 개입하니 "언제까지 답하라"는 강제할 수 없지만(행위 시점), 부활 첫 화면에 대기를
+// 못박아 방치를 드러낸다. pending 을 종결로 위장해 열린 노드를 만드는 꼼수의 가시화.
+func pendingBanner() []string {
+	nodes := collectNodes("--branches")
+	hasChild := map[string]bool{}
+	for _, n := range nodes {
+		if n.parent != "" && n.parent != "null" {
+			hasChild[stepKey(n.chain, n.cycle, n.parent)] = true
+		}
+	}
+	var waiting []node
+	for _, n := range nodes {
+		if n.kind == "pending" && !hasChild[stepKey(n.chain, n.cycle, n.step)] {
+			waiting = append(waiting, n)
+		}
+	}
+	if len(waiting) == 0 {
+		return nil
+	}
+	var L []string
+	L = append(L, "⏳ 사람 답 대기(pending) — 종결 아님, 답 전엔 못 이어간다:")
+	for _, n := range waiting {
+		ref := n.chain + "/" + n.cycle
+		L = append(L, "  · "+ref+"/"+n.step+"  — 승인: gil approve "+ref+"  |  기각: gil reject "+ref+" --to <조상 define>")
+	}
+	L = append(L, "")
+	return L
+}
+
 // handoffReport — 세션 부활 정보를 문자열로. 참조: _handoff_report.
 func handoffReport() string {
 	var L []string
 	L = append(L, "═══ gil handoff — 세션 부활 정보 ═══", "")
 	L = append(L, currencyBanner()...)
+	L = append(L, pendingBanner()...)
 	chains, order := chainsFromGraph()
 
 	var openOrder []string

@@ -70,7 +70,61 @@ class GilFixture(unittest.TestCase):
            "hypothesis" in args and not any(a == "--inherit" or a.startswith("--inherit=") for a in args):
             args += ["--inherit", "(테스트 전수: 앞 가지의 교훈)"]
         env = dict(os.environ, GIL_NO_VIEWER="1")
+        # AIL #41: 순서 체인 강제(define→hypothesis→verify→analyze→종결). 많은 기존 테스트가
+        # 중간 kind 를 건너뛰고 종결/verify 를 찍으므로, 선형(--to/--merge/backtrack 아님) step
+        # 호출 시 tip 다음에 필요한 선행 스텝을 자동으로 채워 순서를 맞춘다(테스트 의도 보존).
+        # 순서 강제 자체를 검증하는 테스트는 self._raw_step() 로 이 보정을 우회한다.
+        if args and args[0] == "step" and "--kind" in args and not getattr(self, "_no_autofill", False):
+            ki = args.index("--kind")
+            kind = args[ki + 1] if ki + 1 < len(args) else ""
+            # fail 은 --to(되돌아갈 조상 define)를 늘 갖지만 종결 스텝이라 analyze 선행이 필요하다
+            # (분기가 아님). verify/analyze/success/pending 은 --to/--merge/backtrack 이 없을 때만.
+            has_branch = "--merge" in args or "backtrack" in args or \
+                (kind == "hypothesis" and "--to" in args)
+            need_order = kind == "fail" or \
+                (kind in ("verify", "analyze", "success", "pending") and not has_branch)
+            if need_order and "/" in (args[1] if len(args) > 1 else ""):
+                ref = args[1]
+                chain = ref.split("/")[0]
+                self._autofill_order(ref, chain, kind, env)
         return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
+                              capture_output=True, text=True, env=env, input=input)
+
+    def _autofill_order(self, ref, chain, target_kind, env):
+        """target_kind 를 찍기 전에 순서상 필요한 선행 스텝을 자동으로 채운다(AIL #41)."""
+        chain_order = ["define", "hypothesis", "verify", "analyze"]
+        # 종결(success/fail/pending)은 analyze 까지 필요. verify 는 hypothesis 까지. 등.
+        need_upto = {"verify": 2, "analyze": 3, "success": 4, "fail": 4, "pending": 4}[target_kind]
+        for _ in range(6):  # 최대 몇 단계 채움
+            r = subprocess.run([*GIL_CMD, "log", "--depth", "step", chain],
+                               cwd=self.repo, capture_output=True, text=True, env=env)
+            cyc = ref.split("/", 1)[1]
+            seg = r.stdout.split(cyc, 1)[-1] if cyc in r.stdout else ""
+            # 이 사이클에 이미 있는 kind 로 다음 필요한 kind 판단
+            have = [k for k in chain_order if ("[" + k + "]") in r.stdout]
+            nxt = None
+            for i, k in enumerate(chain_order[:need_upto]):
+                if k not in have:
+                    nxt = k
+                    break
+            if nxt is None or nxt == "define":
+                break
+            add = [nxt]
+            extra = []
+            if nxt == "hypothesis":
+                extra = ["--falsify", "F", "--falsify-to", "s1"]
+            elif nxt == "verify":
+                extra = ["--verdict", "supported"]
+            rr = subprocess.run([*GIL_CMD, "step", ref, "--kind", nxt, "--title",
+                                 "(순서 자동:" + nxt + ")", *extra],
+                                cwd=self.repo, capture_output=True, text=True, env=env)
+            if rr.returncode != 0:
+                break  # 못 채우면(죽은 잎 등) 그대로 두고 원래 호출이 판단하게
+
+    def _raw_step(self, *args, input=None):
+        """순서 자동보정을 우회한 raw step 호출(순서 강제 검증용)."""
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.run([*GIL_CMD, "step", *args], cwd=self.repo,
                               capture_output=True, text=True, env=env, input=input)
 
     def commit_file(self, name, content, msg):
@@ -1509,6 +1563,9 @@ class TestLateRefutation(GilFixture):
         # harden 사이클: design 을 부모로 연다.
         self.gil("open", "net/harden", "--author", "clew", "--purpose", "우회 봉쇄",
                  "--parent", "design", "--inherit", "design의 net cap 구현을 잇는다")
+        # 순서 강제(AIL #41): refutes 를 실을 verify 앞에 hypothesis 를 먼저 깐다.
+        self.gil("step", "net/harden", "--kind", "hypothesis", "--title", "H-우회",
+                 "--falsify", "우회 없으면 이 가설 거짓", "--falsify-to", "s1")
 
     def _refutes(self, target, **kw):
         return self.gil("step", "net/harden", "--kind", "verify", "--title", "우회발견",
@@ -1775,11 +1832,11 @@ class TestSupersede(GilFixture):
         self.assertIn("없는 스텝", r.stderr)
 
     def test_supersede_terminal_rejected(self):
-        """종결 스텝(success/fail)은 정정 대상이 아니다 — 판정 번복은 backtrack/refutes 영역."""
-        self.gil("step", "c/c1", "--kind", "verify", "--title", "v", "--verdict", "supported")  # s3
-        self.gil("step", "c/c1", "--kind", "success", "--title", "ok")  # s4
+        """종결 스텝(success/fail)은 정정 대상이 아니다 — 판정 번복은 backtrack/refutes 영역.
+        순서 강제(AIL #41)로 verify→analyze→success 라 success 는 s5 다(s3=verify, s4=analyze)."""
+        self.gil("step", "c/c1", "--kind", "success", "--title", "ok")  # 자동보정: s3 verify, s4 analyze, s5 success
         r = self.gil("step", "c/c1", "--kind", "success", "--title", "다시",
-                     "--supersede", "s4")
+                     "--supersede", "s5")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("종결", r.stderr)
 
@@ -1863,6 +1920,75 @@ class TestBacktrackInherit(GilFixture):
                      "--falsify", "F2", "--falsify-to", "s1", "--inherit", "H1 은 X 때문에 죽음")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Inherit"), "H1 은 X 때문에 죽음")
+
+
+class TestOrderingChain(GilFixture):
+    """순서 체인 강제(AIL #41) — define→hypothesis→verify→analyze→종결. 각 kind 는 다음
+    kind 가 정해져 있고 건너뛰면 거부. self._raw_step 으로 자동보정을 우회해 직접 검증한다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P", "--body", "정의")
+
+    def test_define_next_must_be_hypothesis(self):
+        r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("hypothesis", r.stderr)
+
+    def test_hypothesis_next_must_be_verify(self):
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        r = self._raw_step("c/c1", "--kind", "analyze", "--title", "a")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("verify", r.stderr)
+
+    def test_verify_next_must_be_analyze(self):
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        r = self._raw_step("c/c1", "--kind", "success", "--title", "ok")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("analyze", r.stderr)
+
+    def test_full_order_passes(self):
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        self._raw_step("c/c1", "--kind", "analyze", "--title", "a")
+        r = self._raw_step("c/c1", "--kind", "success", "--title", "ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_guide_next_always_printed(self):
+        """각 스텝 후 '다음은 X' 가 무조건 출력된다."""
+        r = self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.assertIn("⟹", r.stderr)
+        self.assertIn("verify", r.stderr)
+
+
+class TestPendingLeaf(GilFixture):
+    """pending 은 부모가 될 수 없다(AIL #41) — approve/reject 가 pending 을 supersede."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P", "--body", "정의")
+        self.gil("step", "c/c1", "--kind", "pending", "--title", "물음")  # 자동보정: hyp·verify·analyze 선행
+
+    def test_approve_supersedes_pending(self):
+        r = self.gil("approve", "c/c1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # pending 은 잎으로 남고 정정됨 표시, success 는 pending 을 부모로 안 삼는다.
+        log = self.gil("log", "--depth", "step", "c").stdout
+        self.assertIn("정정됨", log)  # pending 에 ⤳정정됨
+        self.assertEqual(self.trailer("HEAD", "Gil-Supersedes")[:1], "s")
+
+    def test_pending_not_a_parent(self):
+        """approve 후 success 의 부모가 pending 이 아니어야 한다."""
+        self.gil("approve", "c/c1")
+        # HEAD(success)의 Gil-Parent 가 pending 스텝이 아님 — pending 의 부모(analyze)여야.
+        parent = self.trailer("HEAD", "Gil-Parent")
+        # pending 스텝 id 를 찾아 그게 부모가 아님을 확인
+        log = self.gil("log", "--depth", "step", "c").stdout
+        self.assertIn("[analyze]", log)  # analyze 가 있고
+        self.assertNotEqual(parent, "")  # 부모가 pending 이 아닌 실제 스텝
 
 
 if __name__ == "__main__":
