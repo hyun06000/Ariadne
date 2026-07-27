@@ -4064,3 +4064,45 @@ open·step·close·approve·reject·log·handoff) (4) interview 를 Elicit 으�
 go/gil 덮음—-o /dev/null 로).
 '실패 안 두려워' 비전 남은조각: [4]chain-close --retro [5]승인관문 심화 [6]fail 반전. 남은 이슈
 #35·#36~38(뷰어 대부분 구현됨)·#39설치·#40온보딩·#41(제안3)·#42/#32정직화.
+
+
+## 매듭 — MCP 단계 A+B+C 구현·v3.12.0 배포 (2026-07-28)
+
+지난 매듭의 "다음 세션 착수점"(MCP A+B)을 그대로 이어받아 A·B·C 를 한 세션에 끝내고 배포했다.
+
+### 구현 (커밋 3건, main)
+- **17a4cbae — gil mcp serve (A+B)**. 12툴이 기존 cmd* 함수를 그대로 부르는 얇은 래퍼(규율이
+  CLI/MCP 로 갈라지지 않게). 인터뷰=Elicitation: text→string, radio→enum, checkbox→선택지별
+  boolean(평면 스키마만 허용). 폼 못 띄우면 옛 뷰어 경로 폴백, 사람이 취소하면 기준 미생성.
+  **MCP 모드 두 제약**: stdout 은 JSON-RPC 전송선이라 모든 출력을 버퍼로(outRaw), die/gilExit
+  는 프로세스가 아니라 그 호출만 끝낸다(gilAbort+recover). 후자 안 했으면 첫 거부에서 세션이
+  통째로 끊긴다 — 거부가 gil 의 본체라 이게 핵심이었다.
+- **f6843c40 — MCP Apps (C)**. ui://gil/graph · text/html;profile=mcp-app · gil_graph 의
+  _meta.ui.resourceUri · initialize 확장 io.modelcontextprotocol/ui. 넷 중 하나만 어긋나도
+  호스트가 **조용히** 안 그린다(원인 못 찾는 실패) → 계약을 테스트로 문자 그대로 못박음.
+  브리지: ui/initialize 핸드셰이크 · size-changed · tool-result 팁서명 비교→낡음 배너.
+- **2fec4ca6 — 문서 표면**. commands.md MCP 절 + llms.txt. 안 적힌 기능은 없는 기능이다.
+
+### 설계 판단 (기록해 둘 것)
+**신선도 정직성.** 체인 그래프 SVG 레이아웃은 Go(chainLayout)가 그린다. 스펙의 이상형인
+"정적 껍데기 + 데이터 주입"으로 쪼개려면 레이아웃을 JS 로 이중화해야 하는데 그게 나중에
+어긋나는 빚이다. 그래서 **읽는 시점 통째 렌더** + 낡으면 화면이 스스로 밝히기를 택했다.
+살아있는 척하지 않는다 — 낡음을 숨기는 화면이 없는 화면보다 나쁘다.
+
+### 검증
+example 197 통과(신규 10: MCP 5 + MCP Apps 5). 5타깃 크로스컴파일 OK, linux 여전히
+statically linked(go-sdk 추가해도 CGO 없음 — 논쟁점 1 해소). 호스트 iframe 하네스로 실렌더
+확인(체인 11·스텝 117 정상, 브리지 3동작). 배포판 신선설치 E2E: v3.12.0 각인 → elicitation
+왕복 → 인터뷰 게이트 통과 → open → ui 리소스 → fsck 0.
+
+### v3.12.0 배포
+push 먼저(308c8460..2fec4ca6) → 태그 → gh release 8자산. 교훈 지킴.
+
+### 부활점
+gil latest=**v3.12.0**. main=2fec4ca6. editor-ext/vscode 미게시.
+**다음: 상현님이 Claude Desktop 에 실제로 물려 밟는 피드백.** 설정은
+`{"mcpServers":{"gil":{"command":"gil","args":["mcp","serve","--repo","/경로"]}}}`.
+관찰할 것: (a) Elicitation 폼이 Desktop 에서 실제로 어떻게 보이는지 (b) MCP Apps iframe 이
+정말 렌더되는지(Desktop 의 ui 확장 지원 여부는 우리가 확인 못 함) (c) 낡음 배너가 뜨는 조건.
+'실패 안 두려워' 비전 남은조각: [4]chain-close --retro [5]승인관문 심화 [6]fail 반전.
+남은 이슈 #35·#36~38·#39·#40·#41·#42/#32. 설계 아티팩트 f5ce81a5(비전)·747f5bfe(MCP).
