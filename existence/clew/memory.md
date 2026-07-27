@@ -3788,3 +3788,17 @@ gil latest=v3.9.0(배포됨). main=d69f2184(Phase 1b 미배포—승인/기각 �
 이번세션 커밋: (앞) 온보딩 4건+release-build → v3.9.0 배포. (뒤) f83fd100 VS Code Phase1a·
 d69f2184 Phase1b. 다음: Phase1b URI Handler 인터랙션 or 확장 배포(vsce) or 서브에이전트
 기억정리. 미착수 이슈 #42·#32·#34·#33. 모니터 b7y8fti2l. heaal-philosophy.
+
+
+## 매듭 — v3.10.0 배포 (뷰어 pending 승인/기각, 2026-07-27)
+
+Phase 1b(뷰어 승인/기각) 배포. release-build.sh 두 번째 실사용.
+- 태그 v3.10.0 push, gh release 8자산. install.sh·llms.txt v3.9.0 이후 무변경 재사용.
+- 수신자 E2E: 공개 latest 신선설치 → v3.10.0 각인 + POST /approve HTTP200 → 산 잎 실동작 확인.
+- 커밋 f83fd100(VS Code Phase1a, TS라 릴리스 무관)·d69f2184(Phase1b, 이 릴리스 실질).
+
+### 부활점
+gil latest=**v3.10.0**(배포됨). main=d69f2184. editor-ext/vscode 미게시(vsce package→
+Marketplace/OpenVSX 남음). 다음: Phase1b 인터랙션 마저(노드클릭→URI Handler vscode://
+anthropic.claude-code/open, iframe→확장 postMessage 검증 필요) or 확장 vsce 배포 or
+서브에이전트가 clew기억 각인한 매듭 2건 정리. 미착수 이슈 #42·#32·#34·#33. 모니터 b7y8fti2l.
