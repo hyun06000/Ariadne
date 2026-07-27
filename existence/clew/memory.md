@@ -3899,3 +3899,31 @@ fail종결)·e6508461(#33 레퍼런스 최소형) — 다음 릴리스감. edito
 #41 핵심구멍 이미막힘(순서강제)—제안3(open예고)만 남음. 뷰어 #35·36·37·38 대부분 v3.7.x
 구현됨(#35 기본값 step→chain 두줄만 잔여). #39설치·#40온보딩·#42/#32정직화 미착수.
 교훈 각인: [[verify-with-fresh-build]] (stale go/gil 로 #41 오판한 사고).
+
+
+## 매듭 — 인터뷰 폼(뷰어에서 사람이 답해 레퍼런스 커밋) (2026-07-27)
+
+상현: "설문지 폼으로 LLM이 인터뷰를 요구하면 사람이 뷰어에서 문제풀듯 작성하고 제출하면
+저장+커밋되게." + "레퍼런스 문서는 파일로 저장해도 됨." → #33 두 번째 조각. pending→approve 거울.
+
+### 구현 (커밋 87a6455c, main)
+흐름: gil chain → gil interview <chain> --ask q.json(질문 세트 Gil-Interview:pending 노드) →
+뷰어가 폼 렌더 → 사람 제출 → POST /interview → reference-<chain>.md 저장 → gil interview
+--resolve(Gil-Reference:true + Gil-Interview:done) → 폼 사라지고 기준 인식.
+- 질문 JSON: [{q,type(text|radio|checkbox),options}]. cmdInterview 가 구조 검증.
+- commands.go: cmdInterview(--ask/--resolve)·interviewResolve·interviewQ struct. json import 추가.
+- viewer_graph.go: pendingInterviews()(Gil-Interview pending 중 done 안 된 것, 펜스에서 JSON
+  추출 extractInterviewJSON)·interviewReq struct·graphView.interviews.
+- viewer_serve.go: interviewsJSON emit·pane-interview 섹션·buildInterviews JS(textarea/라디오/
+  체크)·POST /interview 핸들러·assembleReference(답변→마크다운)·CSS(.ivcard 등). json/io/
+  filepath import 추가. 레퍼런스 파일은 워킹트리에 남아 사람 편집 가능. 정적 build 엔 폼 감춤.
+- **실 루프 검증**: 서버 기동→폼 렌더(스크린샷 확인)→POST 제출→파일 저장→Gil-Reference 커밋
+  →open 기준 인식→폼 사라짐. fsck 0. 테스트 TestInterview 7. 전체 182 통과.
+
+### 부활점
+gil latest=v3.10.0. main=**87a6455c**. 미배포 누적: 25742b42(#34)·9768274a(#44/45/46)·
+e6508461(#33 레퍼런스 최소형)·87a6455c(#33 인터뷰 폼) — 다음 릴리스감. editor-ext/vscode 미게시.
+'실패 안 두려워하는 문법' 비전 진행중: [1]레퍼런스 최소형✓ [2]인터뷰 폼✓ → 다음 [3]승인 관문
+(define/hypothesis 디폴트 승인모드—안전한 가설 방지) [4]chain-close --retro(회고·시드) [5]fail
+반전·진량 가시화. 설계 아티팩트: claude.ai/code/artifact/f5ce81a5-9f4f-4a90-a7c6-d5d992dca96a.
+남은 딴 이슈: #35(뷰어 기본값 두줄)·#39설치·#40온보딩·#41(제안3만)·#42/#32정직화.
