@@ -32,7 +32,9 @@ gil은 당신의 **AI 코딩 에이전트**(Claude Code 등)가 운전하는 도
 남고, 되돌아가(backtrack) 문제를 작은 스텝으로 쪼개 정답에 이르는 과정이 그대로 보입니다.
 이것이 gil이 남기는 것입니다. ([소스 레포](https://github.com/hyun06000/ariadne-example))
 
-**전제:** `git`, 그리고 AI 코딩 에이전트. 그게 전부입니다.
+**전제:** `git`, 그리고 AI 코딩 에이전트. 그게 전부입니다. gil은 정적 단일 바이너리로
+**macOS·Linux·Windows**(해당 시 Intel/ARM)에서 돕니다 — 에이전트가 플랫폼을 감지해 맞는
+바이너리를 설치하고, Windows에서는 PowerShell로 `gil-windows-amd64.exe`를 받습니다.
 
 <sub>내부가 어떻게 도는지 궁금하면 계속 읽으세요. 하지만 쓰는 데는 아래 내용이 전혀 필요 없습니다.</sub>
 

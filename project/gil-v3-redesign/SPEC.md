@@ -10,6 +10,23 @@
 흔적이 없어 재현·계보 추적이 끊긴다. 침묵은 관전자에게 멈춤과 구별되지 않는다. **작업하기
 전에 그 작업을 담을 스텝이 열려 있어야 하고, 작업의 결과는 그 스텝의 본문·산출물로 남는다.**
 
+## 지원 플랫폼 · 배포 자산 (규범)
+
+gil은 **git만 있으면 되는 정적 단일 바이너리**다(CGO 없음). 릴리스는 아래 **5개 타깃**을
+빠짐없이 굽는다 — 이 목록이 단일 진실원이며, `scripts/release-build.sh`·`install.sh`의 플랫폼
+감지·아래 항목이 서로 일치해야 한다.
+
+| OS | 아키텍처 | 자산 이름 |
+|---|---|---|
+| macOS (darwin) | amd64 · arm64 | `gil-darwin-amd64` · `gil-darwin-arm64` |
+| Linux | amd64 · arm64 | `gil-linux-amd64` · `gil-linux-arm64` |
+| Windows | amd64 | `gil-windows-amd64.exe` |
+
+각 GitHub 릴리스는 위 5개 바이너리 + `install.sh` + `llms.txt` + `SHA256SUMS`(무결성 게이트,
+`install.sh`가 필수 검증)로 구성된다. 빌드는 `scripts/release-build.sh <version>`이 재현하며,
+버전은 `-ldflags "-X main.gilVersion=<version>"`로 각인된다(`version.go`). Windows 사용자는
+PowerShell로 `.exe`를 받고 셸에서 `.\gil.exe`로 호출한다(POSIX의 `gil`/`./gil`에 대응).
+
 ## 0. 브랜치 개념 3층 (상현님 확정, 2026-07-23) — git 브랜치에 매핑
 
 gil의 위계 3층은 **git 브랜치**로 표현된다. 이게 v3의 뼈대다.

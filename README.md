@@ -30,7 +30,10 @@ of letting it evaporate when the session ends.
 *failing* (a dead leaf), *backtracking*, and reaching the right answer by splitting the
 problem into small steps. This is what gil leaves behind. ([source repo](https://github.com/hyun06000/ariadne-example))
 
-**Prerequisites:** `git`, and an AI coding agent. That's it.
+**Prerequisites:** `git`, and an AI coding agent. That's it. gil ships as a single static
+binary and runs on **macOS, Linux, and Windows** (Intel/ARM as applicable) — your agent
+detects the platform and installs the right one; on Windows it grabs `gil-windows-amd64.exe`
+via PowerShell.
 
 <sub>Curious how it works under the hood? Read on. But you don't need any of this to use it.</sub>
 

@@ -17,6 +17,11 @@ git이 "코드가 어떻게 이 모습이 됐나"를 커밋 그래프로 남기�
 
 gil은 **git만 있으면** 돈다. 다른 의존성이 없다(단일 Go 바이너리). 실행: `gil <명령>`.
 
+> **플랫폼.** gil은 정적 단일 바이너리로 **macOS·Linux·Windows**에서 돈다(릴리스 5타깃:
+> darwin amd64/arm64 · linux amd64/arm64 · windows amd64 — 상세는 [SPEC 지원 플랫폼](SPEC.md)).
+> **호출 표기**: 호스트 설치면 어디서든 `gil <명령>`. 저장소-로컬(`--dir .`)이면 `./gil`.
+> **Windows(PowerShell)면 `.\gil.exe <명령>`** 로 읽어라 — 아래 예시의 `gil`과 같은 명령이다.
+
 ---
 
 ## 1. git과 gil의 차이 — 무엇이 다른가
