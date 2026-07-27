@@ -145,8 +145,9 @@ define ──▶ hypothesis ──▶ verify ──▶ analyze ──▶ success
 긴 본문은 파일로 두고 `--body-file` 로 싣는 게 편하다:
 
 ```
-gil step demo/c001 --kind verify --title "홀드아웃 성능 측정" --body-file report.md
+gil step demo/c001 --kind verify --title "홀드아웃 성능 측정" --verdict supported --body-file report.md
 ```
+(verify 는 `--verdict supported|refuted` 필수 — 가설이 실측으로 지지됐는지/뒤집혔는지.)
 
 **분석(analyze) 스텝은 특히 보고서를 충실히.** "왜 산 잎/죽은 잎인가"가 그래프의 실을
 따라가는 사람에게 그대로 읽혀야 한다.
@@ -155,18 +156,24 @@ gil step demo/c001 --kind verify --title "홀드아웃 성능 측정" --body-fil
 
 예기치 못한 벽(성능·반증·결함)에 부딪히면 **접근을 조용히 갈아타지 않는다.** 반드시:
 
-1. **`analyze --outcome backtrack --to <조상 define>`** 으로 벽을 **죽은 잎**에 새긴다.
+1. **`analyze`** 로 벽을 해석하고, 그 가지를 **`fail --to <조상 define>`** (죽은 잎)로 닫는다.
    벽을 그래프에 데이터로 못박아야 재현되고, 다음에 같은 벽을 안 되풀이한다. (=벽의 지도)
 2. 그 조상 **define으로 되돌아가** 문제를 재정의한다.
-3. **`hypothesis --to <그 define>`** 으로 **새 형제 가지**를 뻗어 다른 길로 나아간다.
+3. **`hypothesis --to <그 define> --inherit <교훈>`** 으로 **새 형제 가지**를 뻗는다 —
+   backtrack 은 `--inherit` 필수: 죽은 가지의 교훈을 새 가지에 지고 가라.
 
 ```
-gil step demo/c001 --kind analyze --outcome backtrack --to s1 --title "벽: 62초 성능 한계"
-gil step demo/c001 --kind hypothesis --to s1 --title "다른 접근: 일괄 파싱"   # s1의 새 형제
+gil step demo/c001 --kind analyze --title "벽: 62초 성능 한계" --body-file wall.md
+gil step demo/c001 --kind fail --to s1 --title "단일 파싱은 성능 벽" --body-file wall.md
+gil step demo/c001 --kind hypothesis --to s1 --inherit "단일 파싱 62초 한계 — 재시도 말 것" \
+  --title "다른 접근: 일괄 파싱" --falsify "일괄도 60초 넘으면 거짓" --falsify-to s1 --body-file h2.md
 ```
 
-- **산 잎**(analyze/success) = 성공한 가지. 나중에 머지·close의 대상.
-- **죽은 잎**(backtrack/fail) = 실패한 가지. 지우지 않는다 — **벽의 지도로 영원히 남는다.**
+- **산 잎**(success) = 성공한 가지. 나중에 머지·close의 대상.
+- **죽은 잎**(fail) = 실패한 가지. 지우지 않는다 — **벽의 지도로 영원히 남는다.**
+
+> (하위호환: 옛 `analyze --outcome backtrack/success/fail` 한 스텝 관용도 계속 돌지만, 위
+> **분석과 종결을 별도 스텝으로 나누는** 흐름이 v3.8.0 순서강제의 권장 관용이다.)
 
 ### 3-3. 사이클을 닫는다 — 산 잎이 있어야
 
@@ -299,18 +306,29 @@ gil global checkout <path> [dest] | push | pull | sync
 # 1. 체인을 연다 (작업의 큰 줄기)
 gil chain login-fix --purpose "로그인 간헐 실패를 없앤다"
 
-# 2. 사이클을 연다 (하나의 문제 = s1 define 자동)
-gil open login-fix/c001 --author clew --purpose "세션 토큰 만료가 원인인지 규명"
+# 2. 사이클을 연다 (하나의 문제 = s1 define 자동). open 은 --body(문제 정의) 필수.
+gil open login-fix/c001 --author clew --purpose "세션 토큰 만료가 원인인지 규명" \
+    --body "로그인 실패가 정확히 15분 주기로 재현된다. 원인이 세션 토큰 TTL 인지 규명한다."
 
-# 3. 가설 → 검증 → 분석
+# 3. 가설 → 검증 → 분석 → 종결 (순서 강제 — 각 스텝이 다음을 강제한다, v3.8.0)
+#    hypothesis: --falsify(무엇이 관측되면 틀리나) + --falsify-to(반증 시 되돌아갈 define) 필수
 gil step login-fix/c001 --kind hypothesis --title "가설: 토큰 TTL이 너무 짧다" \
+    --falsify "TTL 을 1h 로 올려도 15분 주기 실패가 계속되면 거짓" --falsify-to s1 \
     --body "로그를 보면 실패가 정확히 15분 주기. TTL=15m 의심."
-gil step login-fix/c001 --kind verify --title "TTL을 1h로 올려 재현 시도"
-gil step login-fix/c001 --kind analyze --outcome success --title "산 잎: TTL이 원인 확정"
+#    verify: --verdict supported|refuted 필수
+gil step login-fix/c001 --kind verify --title "TTL을 1h로 올려 재현 시도" --verdict supported \
+    --body "TTL 1h 로 올린 뒤 24h 관측 — 15분 주기 실패 소멸. supported."
+#    analyze: 순수 분석(판정은 다음 종결 스텝) — verify 다음은 반드시 analyze
+gil step login-fix/c001 --kind analyze --title "TTL이 원인 확정" \
+    --body "짧은 TTL 이 만료를 유발. 근본원인 확정, 회귀 위험·모니터링 항목 정리."
+#    종결(산 잎): 문제정의부터 누적한 종합 보고서
+gil step login-fix/c001 --kind success --title "산 잎: TTL이 원인" \
+    --body "문제정의→가설→검증→분석 종합. 조치: TTL 1h. 재발 방지 알림 추가."
 
-# (만약 막혔다면 — 벽을 새기고 되돌아간다)
-# gil step login-fix/c001 --kind analyze --outcome backtrack --to s1 --title "벽: TTL 아님, 재현 안 됨"
-# gil step login-fix/c001 --kind hypothesis --to s1 --title "다른 가설: 서버 시계 드리프트"
+# (만약 막혔다면 — 벽을 새기고 되돌아간다: analyze → fail → hypothesis --to --inherit)
+# gil step login-fix/c001 --kind fail --to s1 --title "벽: TTL 아님, 재현 안 됨" --body "…"
+# gil step login-fix/c001 --kind hypothesis --to s1 --inherit "TTL 은 원인 아님(1h 로도 재현)" \
+#     --title "다른 가설: 서버 시계 드리프트" --falsify "NTP 동기 후 실패 지속되면 거짓" --falsify-to s1 --body "…"
 
 # 4. approval 모드라면 사람에게 확인 — pending 뒤엔 approve/reject 만 허용된다
 # gil step login-fix/c001 --kind pending --title "상현님: TTL 1h로 확정 배포할까요?"

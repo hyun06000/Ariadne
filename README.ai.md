@@ -214,32 +214,71 @@ Step 0에서 *처음*이라고 한 사람에겐, 진짜 문제로 들어가기 �
 
 ## Step C — 첫 체인·사이클 (여기서 사람에게 묻는다)
 
-사람에게 **딱 하나** 물어라: *"가장 먼저 정복하고 싶은 가장 작은 문제가 뭔가요?"* 그 답을
-체인과 첫 사이클로 옮긴다:
+사람에게 **딱 하나** 물어라: *"가장 먼저 정복하고 싶은 가장 작은 문제가 뭔가요?"*
+
+### 관용 예제 — 한 사이클을 끝까지 (복붙 가능, 실제로 도는 시퀀스)
+
+개념(define→hypothesis→verify→analyze→종결)만 읽고 명령을 짜맞추지 마라 — **아래 한 벌이
+실제로 끝까지 도는 최소 관용이다.** 그대로 값만 바꿔 쓰고, 각 스텝 뒤 gil이 출력하는
+`⟹ 다음은 반드시 …` 안내를 따르면 된다. (`<sum-100>`은 예시 이름 — 네 문제로 바꿔라.)
 
 ```bash
-./gil chain <이름> --purpose "<정복할 큰 문제>"          # 체인 = <이름> git 브랜치
-./gil open <이름>/<사이클> --author clew --purpose "<이 사이클의 작은 문제>"
+# 1. 체인(큰 문제) → 사이클(작은 문제) 열기. open 은 --body 필수 — 문제 정의가 곧 사이클의 뿌리(s1 define)다.
+./gil chain paradox --purpose "데이터셋의 역설 규명"
+./gil open paradox/c001 --author clew --purpose "합이 100인 두 수 찾기" \
+  --body "합이 100이 되는 두 자연수를 찾는다. 왜 필요한지·성공 기준을 여기 적는다."
+#   ↑ open 이 s1 (define) 을 자동으로 만든다. 따로 --kind define 스텝을 또 찍지 마라(거부된다).
+
+# 2. 가설 — --falsify(무엇이 관측되면 틀리나) + --falsify-to(반증 시 되돌아갈 define, 보통 s1) 둘 다 필수.
+./gil step paradox/c001 --kind hypothesis --title "40+60 가설" \
+  --falsify "40+60 이 100 이 아니면 거짓" --falsify-to s1 \
+  --body-file - <<'MD'
+# 가설
+40 과 60 의 합이 100 일 것이다. 근거·검증 방법·기대 결과를 적는다.
+MD
+
+# 3. 검증 — --verdict supported|refuted 필수. (verify 다음은 반드시 analyze — 건너뛸 수 없다.)
+./gil step paradox/c001 --kind verify --title "산술 검증" --verdict supported \
+  --body-file - <<'MD'
+# 검증
+40 + 60 = 100. 관측·데이터·재현 절차를 적는다. verdict: supported.
+MD
+
+# 4. 분석 — 검증 결과가 무엇을 뜻하는지 해석(그다음이 종결).
+./gil step paradox/c001 --kind analyze --title "해석" \
+  --body-file - <<'MD'
+# 분석
+가설이 지지됐다. 원인·한계·다음 사이클로 넘길 교훈을 적는다.
+MD
+
+# 5. 종결(산 잎) — 본문은 문제정의부터 누적한 종합 보고서. 그리고 close.
+./gil step paradox/c001 --kind success --title "찾음: 40 과 60" \
+  --body-file - <<'MD'
+# 종합 보고서
+문제정의 → 가설 → 검증 → 분석 전 과정과 결론. 답: 40, 60.
+MD
+./gil close paradox/c001
 ```
 
-그다음 사고 단계를 **스텝**으로 새긴다. **각 스텝의 본문은 반드시 상세한 마크다운 보고서다
-(한 줄 금지).** gil이 스텝을 새긴 뒤 출력하는 안내(reportGuide)가 그 kind의 본문이 어떤
-보고서여야 하는지 알려준다 — 따르라. 그림은 matplotlib 등으로 만들어 data URI로 임베딩하라.
+**본문은 한 줄이 아니라 보고서다.** `--body-file -` 는 stdin(위 heredoc)에서 읽어 임시 .md
+파일을 안 남긴다. gil이 스텝마다 출력하는 안내(reportGuide)가 그 kind의 본문이 무엇을 담아야
+하는지 알려준다 — 따르라. 그림은 matplotlib 등으로 만들어 data URI로 임베딩한다.
+
+### 관용 예제 — 막히면 되돌아가 분기 (backtrack)
+
+첫 가설이 틀렸다면(verify가 refuted, 또는 산술이 안 맞음): analyze로 벽을 해석한 뒤, 조상
+define(s1)에서 **형제 가지**로 새 가설을 낸다 — 진짜 git 브랜치 분기다. **backtrack
+(hypothesis --to <define>)은 `--inherit` 필수** — 죽은 가지의 교훈을 새 가지에 지고 가라.
 
 ```bash
-./gil step <이름>/<사이클> --kind define    --title "..." --body-file 1-define.md
-./gil step <이름>/<사이클> --kind hypothesis --title "..." --body-file 2-hyp.md
-./gil step <이름>/<사이클> --kind verify     --title "..." --body-file 3-verify.md
-./gil step <이름>/<사이클> --kind analyze    --title "..." --body-file 4-analyze.md
-```
-
-**막히면 되돌아가 분기하라.** analyze로 벽을 분석한 뒤, 조상 define 커밋에서 `--to`로 **형제
-가지**(새 가설)를 낸다 — 이건 진짜 git 브랜치 분기다. 죽은 가지는 `fail`(--to 필수)로, 산
-가지는 `success`로 마감한다. 종결 스텝의 본문은 **문제정의부터 누적한 종합 보고서**여야 한다.
-
-```bash
-./gil step <이름>/<사이클> --kind success --title "..." --body-file 5-success.md   # 산 잎
-./gil close <이름>/<사이클>
+# 첫 가설이 틀렸다 → analyze 로 벽을 적고, 그 가지를 fail(죽은 잎)로 닫는다(--to 필수).
+./gil step paradox/c001 --kind fail --to s1 --title "50+50 은 두 '다른' 수 아님" \
+  --body "왜 벽인지·무엇을 배웠는지."
+# s1(define) 에서 새 형제 가설 — 죽은 가지의 교훈을 --inherit 로 물려받아 지고 간다.
+./gil step paradox/c001 --kind hypothesis --to s1 --inherit "50+50 은 서로 다른 두 수 조건 위반" \
+  --title "40+60 재시도" --falsify "40+60 이 100 이 아니면 거짓" --falsify-to s1 \
+  --body "이번엔 서로 다른 두 수 조건을 지킨다."
+# 이후 verify → analyze → success 로 산 가지를 마감(위 관용과 동일).
 ```
 
 **사람의 승인이 필요한 지점은 `pending` 스텝으로.** approval 모드에서 pending 뒤에는 일반

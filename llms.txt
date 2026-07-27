@@ -20,6 +20,14 @@
 - [사고의 생애 — 스텝 흐름과 분기](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/lifecycle.md): define→hypothesis→verify→analyze→success/fail, 막힘·형제 가지·종결.
 - [존재와 기억 (refs/gil/global)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/existence.md): 정체성·기억은 브랜치가 아니라 전용 ref에 산다. 세션을 넘어 부활.
 
+## 관용 예제 (개념만으론 조합이 안 될 때 — 실제로 도는 명령 시퀀스)
+
+개념 페이지는 *무엇*인지 알려주지만, *어떻게 이어 치는지*는 예제가 알려준다. 필수 플래그·순서
+(open 의 `--body`, hypothesis 의 `--falsify`/`--falsify-to`, verify 의 `--verdict`,
+verify→analyze 경유)가 검증된 복붙 시퀀스로 있어야 처음 쓰는 모델도 하드코딩 없이 조합한다.
+
+- [관용 예제 — 한 사이클 끝까지 + backtrack](https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md): README.ai 의 Step C — open→hypothesis→verify→analyze→success→close 한 벌과, 막혔을 때 fail→`hypothesis --to --inherit` 형제 가지 분기. 값만 바꿔 그대로 돈다.
+
 ## 워크플로우
 
 - [목적성 가드](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/purpose-guard.md): 시작마다 목적을 띄우고 정합을 판단한다.
