@@ -2883,3 +2883,41 @@ gil latest=v3.7.0. main=75bdc9af(미릴리스 누적: help open 문서). 코드�
 실사용 증거+설계판단 답변만). #13 실질 완결(극성 실증). AIL 열림 동일. 다음: clew@AIL의
 reassess s5 verify는 다음 세션(함정 과제 설계 필요). 뷰어 픽셀(#6·#7·#9) 대기. #5·#4.
 모니터 blelrsi9d. heaal-philosophy.
+
+## 매듭 — 뷰어 픽셀 4수정 v3.7.1 + ⚠이슈 트랜스퍼 발견 + 번호매핑 (2026-07-27)
+
+상현님 "뷰어 안 고쳐진것같아" → headless Chrome(/Applications/Google Chrome.app/
+Contents/MacOS/Google Chrome --headless --screenshot)으로 실 AIL 데이터 렌더해 진짜
+픽셀버그 잡음. 헤드리스 렌더 검증경로 확보(이 세션 큰 교훈: 뷰어는 데이터검증 아니라
+실사용규모 브라우저렌더로 봐야 픽셀버그 보임).
+
+### v3.7.1 뷰어 4수정 (전부 브라우저 실측)
+- 75bdc9af: gil help open 상세에 --refutes/--inherit 명시(die usage엔 있었음).
+- 0afcbad1: 집계모드(사이클/체인뎁스) 라벨 겹침 — colW 34px고정→이름폭기준 넓힘+padX.
+  stagger는 스텝맵 사이클박스에만 있었고 agglabel엔 없던 게 원인. 상현이 본 진짜 버그.
+- d7a8f75b: 스텝뷰 엣지교차 — barycenter 재도입. #38에서 단순fixture로 효과0이라 철회
+  했다가 실 216노드서 교차 162→48(70%↓) 확인하고 되돌림. 교훈: 실데이터로 측정.
+- ebb3bc20: 체인그래프 위로꺾임 — chainLayout row가 depth별 등장순서카운터라 아래층
+  자식이 맨위 배치→엣지 위로꺾임. 자식을 부모row 물려받게. 실AIL 위로꺾임 1→0.
+- #7 고스트 stub 실데이터 확인: spec-v01 카드에 ←genesis/s6 진입고스트 정상 렌더.
+
+### ⚠⚠ 결정적: 이슈가 AIL→Ariadne 로 트랜스퍼됨. 번호 전부 재부여!
+내가 이 세션 내내 "AIL #4~#12"로 부른 이슈들은 상현님이 Ariadne 레포로 이전(transfer)함.
+gh api AIL/issues/N 은 리다이렉트로 되지만 close/새코멘트는 Ariadne 번호로 해야 함
+(gh issue list -R AIL 은 #13만 보임 = 나머지 이전됨). 매핑:
+  AIL#8→Ariadne#32, #4→#33, #5→#34, #6→#35, #7→#36, #9→#37, #10→#38, #11→#39,
+  #12→#40. AIL#13(극성)은 아직 AIL#13. Ariadne#41=clew@AIL 새이슈(가설없이 verify직행).
+순간 "코멘트 실재안함" 의심했으나 상현님이 트랜스퍼 짚어줌 — 다 실재, 번호만 바뀜.
+**다음세션: gh issue list -R hyun06000/Ariadne 로 잡을 것(AIL 아님).**
+
+### 진행중: Ariadne #41 (정직화 계보 최앞단 구멍)
+clew@AIL: gil이 define→hypothesis→verify 순서 강제안해서, 정답아는실험서 가설없이
+verify직행→사후짜맞춤. 상현님 핵심통찰: **verify가 hypothesis 요구해도 '커밋시점 가드'라,
+실험을 커밋없이 gil밖에서 끝내면 사후짜맞춰 통과. gil은 기록시점만 개입, 정직깨지는건
+행위시점. 이 간극은 커밋가드로 못 메움.** → "더 큰 설계 조사" 지시. Plan 에이전트
+a06862d9 조사중(기록vs행위 간극 극복가능한지, 행위시점 개입이 gil철학과 양립하는지).
+
+### 부활점
+gil latest=**v3.7.1**(뷰어4수정 배포). main=ebb3bc20. Ariadne 열림=#32~#41+뷰어것들.
+#37·#38·#36 v3.7.1 코멘트 완료(실질완결). #41 조사 대기. 뷰어 검증=headless Chrome
+경로 확보. 모니터 blelrsi9d(단 AIL만 봄 — Ariadne 도 봐야 할 수 있음). heaal-philosophy.
