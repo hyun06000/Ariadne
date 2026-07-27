@@ -3078,3 +3078,35 @@ gil latest=v3.8.0. main=ada59a8d. 이번 세션 2커밋: 7056fa0c(#43 관용예�
 release-build.sh). 둘 다 문서/스크립트라 릴리스 불요(다음 릴리스 때 release-build.sh 첫 실사용).
 다음 미착수: #42 refines, #32 analyze재분기, #34 배포마커, #33 레퍼런스트루스. gh issue list
 -R hyun06000/Ariadne. 모니터 b7y8fti2l. heaal-philosophy.
+
+
+## 매듭 — handoff 핸드오프 유도 + 대문 갱신 체크리스트 (2026-07-27, 상현님 아이디어)
+
+상현님: "사이클 많이 쌓이면 핸드오프 유도 + 핸드오프때 md 갱신 유도. 우리는 gil 안 쓰지만
+gil은 그것까지 돕는 기능을 가진다." → gil 사용자(외부 에이전트) 위한 기능.
+
+### 조사(Explore 에이전트 a8ee01aa)로 파악
+- handoff.go: handoffReport() 가 currencyBanner·pendingBanner 를 배너로 쌓는 패턴. line 144
+  에 이미 "사이클만 계속 늘리지 말 것" 안내 존재(상현 직관과 일치).
+- cyclesOf(chain) 이 사이클별 status(solved/dead/pending/in_progress) 부여 — 닫힌=solved+dead.
+- 대문(gate) 개념: cmdChainClose 가 "대문 체인 넘어 계승", handoff 가 부모없는 체인 (대문) 표시.
+
+### 상현님 결정(HEAAL)
+- 강도: 신호→권고까지만. **거부는 안 함** ("딱히 그럴 필요까지 있니? 권유까지만"). gil은 커밋
+  시점만 개입 → 사이클 많다고 open 거부하면 정당 작업 부당 방해. 이 층위엔 안내가 옳다.
+- 대문 갱신: 템플릿/체크리스트 제시(gil이 직접 md 안 씀 — 내용 몰라 오염 위험).
+
+### 구현 (커밋 b2098d8c, main)
+- cycleLoadBanner(handoff.go): 열린 체인 닫힌 사이클 수 3↑ 신호·5↑ 강한 권유(매듭각인·
+  chain-close 안내). handoffReport 에서 closedPerChain 한 번 집계해 호출.
+- gateChecklist: handoff 맨 끝 체크리스트(매듭각인·CLAUDE.md/README 현행화·다음순서명기).
+  감지 아닌 상시 안내라 거짓양성 0.
+- 테스트 3(경계 2안뜸/3신호/5강권유·체크리스트상시). 전체 155 통과.
+- 문서: docs/gil/commands.md·QUICKSTART handoff 설명 반영.
+
+### 부활점
+gil latest=v3.8.0. main=b2098d8c. 이번 세션 3커밋: 7056fa0c(#43 관용예제), ada59a8d(win명시+
+release-build.sh), b2098d8c(handoff 유도+체크리스트). 셋 다 미릴리스 — 다음 릴리스는 minor
+v3.9.0 감(handoff 신기능+관용예제+release-build.sh 첫실사용). 상현 push/릴리스 판단 대기.
+다음 미착수: #42 refines, #32 analyze재분기, #34 배포마커, #33 레퍼런스트루스. gh issue
+list -R hyun06000/Ariadne. 모니터 b7y8fti2l. heaal-philosophy. release-build.sh <version> 로 5타깃.
