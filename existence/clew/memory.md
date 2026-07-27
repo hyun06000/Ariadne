@@ -3202,3 +3202,149 @@ gil latest=**v3.9.0**. main=ca52380f. 뷰어 임베드=문서로 해결(코드 �
 Anthropic 버그 대기(우회로 있음). 다음 후보: MCP Apps 이슈에 "브라우저로 이렇게 우회" 기여
 (상현: 구현성공 후 해결책으로), 온보딩 재검증(Codex/Cowork로 오프닝 흐름 확인). 미착수 이슈:
 #42 refines·#32·#34·#33. gh issue list -R hyun06000/Ariadne. 모니터 b7y8fti2l. heaal-philosophy.
+
+## 매듭 — VS Code 확장 구현 설계 조사 (2026-07-27, 상현님 발단)
+
+상현님: "VS Code 확장으로 뷰어를 에디터 패널에 띄우고 싶다. Cursor/Windsurf도 지원해야 한다."
+→ 최신 VS Code API 문서 + 원격 개발/Codespaces 호환성 + 배포 절차까지 조사 완료.
+
+### 핵심 결론 (실증 기반, 설계만 — 코드 미구현)
+
+**1. localhost iframe은 환경별 다름**
+- 지역 개발: `<iframe src="http://127.0.0.1:8790"></iframe>` 직작 ✓
+- 원격/Codespaces: 실패 ✗ (localhost = 원격 머신 가리킴)
+- **해결**: vscode.env.asExternalUri (1.40+) — 포트 포워딩 자동, 모든 환경 ✓
+
+**2. 두 임베드 방식 (둘 다 구현 가능)**
+
+방식 A: serve + asExternalUri (추천)
+- 구현: 약 300줄 (findAvailablePort, spawn, kill, postMessage)
+- 실시간: ✓ (1.5초 폴링 그대로)
+- 원격: ✓ (asExternalUri 자동)
+- 포트: 동적 할당 (충돌 회피)
+- 단점: 자식 프로세스 관리 복잡
+
+방식 B: build → HTML 인라인 (심플)
+- 구현: 약 100줄 (execSync로 html 받아 panel.webview.html 주입)
+- 실시간: ✗ (재빌드 필요, 폴링 없음)
+- 원격: ✓ (웹소켓 불필요)
+- 단점: 수동 새로고침
+
+**방식 A 채택 근거**: 이전 메모리에서 실사용자 관찰 ("실시간 먼저 시도, 정적은 폴백").
+그리고 실무적으로 브라우저에서 이미 serve로 보고 있음.
+
+**3. WebView CSP & localhost 정책**
+- CSP 기본 제약: 외부 iframe 차단 (보안)
+- localhost는 특례: 기본 접근 가능 (local dev 가정)
+- 원격에서: asExternalUri 반환값 사용 → 자동 터널 + 허용
+
+**4. 최소 스캐폴드 (package.json + extension.ts)**
+
+package.json:
+```json
+{
+  "engines": {"vscode": "^1.60.0"},
+  "activationEvents": ["onCommand:gilViewer.open"],
+  "contributes": {
+    "commands": [{"command": "gilViewer.open", "title": "Gil: Open Viewer"}]
+  }
+}
+```
+
+extension.ts 핵심 3단계:
+1. findAvailablePort() → 동적 포트 할당
+2. cp.spawn('gil', ['viewer', 'serve', '--repo', ..., '--port', port])
+3. vscode.env.asExternalUri(localhost:port) → webview.html에 iframe src 작성
+
+**5. Cursor/Windsurf 호환성: 완전 호환 (같은 .vsix)**
+- Cursor = VS Code 포크 → 확장 100% 호환
+- Windsurf = VS Code 포크 + MCP → 확장 호환 (WebView API 동일)
+- 마켓플레이스: VS Code Marketplace (주) + Open VSX (선택)
+- 결론: 한 번 만들면 둘 다 동작
+
+**6. 배포 절차 (vsce 도구)**
+- vsce package → .vsix 생성 (ZIP 형식)
+- vsce login + publish → VS Code Marketplace
+- vsce publish --registryUrl https://open-vsx.org → Open VSX (선택)
+- .vsix 크기 예상: 약 120MB (5개 플랫폼 바이너리 번들 포함 시)
+
+**7. Gil 바이너리 위치: 번들 권장**
+- 옵션 1 (PATH 가정): 간단, 사용자 설치 필요 (불친화)
+- 옵션 2 (번들): .vsix 내 bin/ 폴더에 5개 플랫폼 바이너리 포함
+  → 사용자 한 클릭 (친화적), .vsix 약 120MB (현대적 표준)
+- 옵션 3 (다운로드): .vsix 작음, 첫 실행 느림
+
+### 실증 사실 (WebFetch 기반, VS Code Webview API 공식 문서)
+
+**asExternalUri 구현**:
+- vscode 1.40+ 표준 API
+- 로컬에선 no-op (그냥 localhost 반환)
+- 원격/Codespaces에선 터널 생성 + 외부 URL 반환
+- 주의: 캐시하면 안 됨 (포트 터널이 닫힐 수 있음) → 매번 호출 필수
+
+**createWebviewPanel**: 싱글톤 패턴 권장
+```typescript
+if (panelInstance) panelInstance.reveal();  // 이미 열린 창 재활용
+else { ... create new ... }
+panelInstance.onDidDispose(() => panelInstance = undefined);
+```
+
+**자식 프로세스 정리**: context.subscriptions.push에 dispose() 등록
+→ 확장 비활성화 또는 VS Code 종료 시 자동 정리
+
+### 웹뷰 내 통신 옵션 (설계 선택 미결)
+
+**옵션 1 (현재 계획)**: iframe만 사용
+- 뷰어 폴링 (1.5초) 자동 작동
+- 갱신 신호 필요 없음
+- 제약: localStorage 미지원 (iframe 샌드박스)
+
+**옵션 2**: 메시지 패싱 기반
+- extension이 localhost 접근 → 결과 webview로 postMessage
+- 뷰어 폴링 로직을 extension으로 옮김
+- 복잡도 높음
+
+### 미결정 항목
+
+1. **(a) build --out 스펙**: 현재 `--out <file>` 파일 출력만 지원 확인됨
+   → stdout 모드(`--out -`) 추가 필요한지 확인 필요
+
+2. **(b) 자동 새로고침 토글**: serve의 1.5초 폴링을 끌 수 있나?
+   → 대역폭 절약 필요 여부 따라 기능 추가
+
+3. **(c) 원격 머신 gil 바이너리**: 확장이 workspace extension (원격 머신 실행)인 경우,
+   원격에도 gil 설치 필요 → 사용자 안내 문서 필수
+
+### 구현 체크리스트 (우선순위)
+
+Phase 1: 최소 실행 (~300줄, 1-2시간)
+- [ ] TypeScript 스캐폴드 (package.json, tsconfig.json, src/extension.ts)
+- [ ] createWebviewPanel + asExternalUri 구현
+- [ ] findAvailablePort (포트 충돌 회피)
+- [ ] 자식 프로세스 관리 (spawn → kill)
+- [ ] 에러 처리 (길 찾지 못함, 포트 실패 등)
+
+Phase 2: 배포 (PATH 가정)
+- [ ] vsce package
+- [ ] VS Code Marketplace 계정/인증
+- [ ] vsce publish
+- [ ] Cursor에서 설치 후 실행 확인
+
+Phase 3: 번들 (선택, 사용성 향상)
+- [ ] 5개 플랫폼 바이너리 릴리스 받기
+- [ ] bin/ 폴더 구조
+- [ ] 플랫폼 감지 로직 (process.platform, process.arch)
+- [ ] .vsix 크기 관리
+
+### 부활점
+
+gil latest=v3.9.0. main=ca52380f. 뷰어 임베드 설계=완료(코드 0, 설계문서만).
+권장 방식: serve + asExternalUri + 번들 (실시간·원격·친화 모두 충족).
+
+타이밍: Phase 1 (PATH 가정, ~300줄)으로 빠르게 검증 후,
+실사용 피드백받아 Phase 2(배포) → Phase 3(번들) 진행 추천.
+
+미착수: 구현(extension.ts), vsce 설정, 테스트(Cursor·로컬호스트).
+
+다음 세션: (1) extension.ts 스캐폴드 작성 (2) 간단히 Cursor에서 테스트 (PATH 가정)
+(3) 피드백받아 기능 결정. 또는 상현님 우선순위 지시.
