@@ -296,7 +296,8 @@ gil chain-merge <newchain> --purpose <P> <tip>...
 # ── 읽는다 ──
 gil log [chain]        스텝 노드를 오래된→새 순으로. 부모(←)·판정(=)·머지(⋈) 표시.
 gil fsck [rev-range]   커밋 그래프 무결성 검사(위계·id문법·kind·dangling parent·계보).
-gil handoff            세션 부활 정보: 열린 체인·사이클, 각 팁, 다음 허용 동작, pending, 계보.
+gil handoff            세션 부활 정보 + 핸드오프 유도: 열린 체인·사이클·팁·다음 동작·pending·계보,
+                       사이클 누적 신호(3↑)·강한 권유(5↑), 대문(md) 갱신 체크리스트.
 
 # ── 글로벌 진실원 (refs/gil/global) ──
 gil global list | read <name> | write <name> <file> | write-tree <path>...

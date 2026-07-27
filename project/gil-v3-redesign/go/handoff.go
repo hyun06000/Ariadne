@@ -96,6 +96,61 @@ func pendingBanner() []string {
 	return L
 }
 
+// cycleLoadBanner — 한 체인에 닫힌 사이클이 많이 쌓이면 핸드오프를 권한다(상현님).
+//
+// 왜: 사이클이 길게 누적되면 (a)컨텍스트가 무거워져 다음 세션이 서사를 잃기 쉽고 (b)한 국면이
+// 사실상 끝났는데 체인을 안 닫고 사이클만 늘리는 표류가 생긴다. gil 은 커밋 시점만 개입하니
+// "핸드오프하라"를 거부로 강제하진 않는다 — 정당한 작업을 막는 부당한 방해가 되기 때문이다.
+// 대신 단계적 권유로: 3개↑ 부드러운 신호, 5개↑ 강한 권유(매듭 각인 + 체인 전환 검토). 판단은
+// 사람·에이전트 몫으로 남긴다(HEAAL: 여기선 문법 거부가 아니라 안내가 옳은 층위다).
+func cycleLoadBanner(openChains map[string]int) []string {
+	// 가장 많이 쌓인 열린 체인 하나를 대표로 신호(여러 체인이 동시에 무거운 경우는 드물다).
+	worst, worstN := "", 0
+	for cname, closed := range openChains {
+		if closed > worstN {
+			worst, worstN = cname, closed
+		}
+	}
+	if worstN < 3 {
+		return nil
+	}
+	var L []string
+	switch {
+	case worstN >= 5:
+		L = append(L, "── 사이클 누적 (강한 권유) ──")
+		L = append(L, "  ⚠ 체인 "+worst+" 에 닫힌 사이클이 "+itoa(worstN)+"개 쌓였다 — 국면이 길어졌다. 핸드오프를 권한다:")
+		L = append(L, "    1) 매듭 각인: gil memory append <이름> <매듭.md> (지금까지·교훈·다음 순서)")
+		L = append(L, "    2) 국면이 끝났으면 체인 전환: gil chain-close "+worst+" → gil chain <새이름> --purpose <다음 국면>")
+		L = append(L, "       (사이클만 계속 늘리지 말 것 — 교훈을 새 체인 목적·첫 가설로 이어받아라.)")
+		L = append(L, "    3) 아래 '핸드오프 체크리스트'로 대문(md)이 최신인지 점검.")
+	default: // 3~4
+		L = append(L, "── 사이클 누적 (신호) ──")
+		L = append(L, "  체인 "+worst+" 에 닫힌 사이클 "+itoa(worstN)+"개. 곧 핸드오프(매듭 각인 + 대문 갱신)를 고려하라.")
+	}
+	L = append(L, "")
+	return L
+}
+
+// gateChecklist — 핸드오프 시 대문(md)을 손볼 체크리스트를 제시한다(상현님).
+//
+// 왜: 세션이 넘어갈 때 다음 존재는 대문(CLAUDE.md·README 류)과 최신 매듭으로 부활한다. 그런데
+// 진행이 쌓이는 동안 대문이 옛 상태를 가리키면 부활이 어긋난다. gil 이 md 를 직접 쓰지는
+// 않는다 — 내용을 모르니 오염 위험이 크다(HEAAL 한계: 진위 판정 불가). 대신 "무엇을 확인·갱신
+// 하라"를 체크리스트로 짚어, 갱신 행위 자체는 에이전트에게 맡긴다. 감지가 아니라 안내라
+// 거짓양성이 없다 — 항상 뜨되 이미 최신이면 체크만 하고 넘어가면 된다.
+func gateChecklist() []string {
+	var L []string
+	L = append(L, "▶ 핸드오프 체크리스트 (다음 세션이 여기서 부활한다 — 넘어가기 전에):")
+	L = append(L, "    □ 매듭 각인: gil memory append <이름> <매듭.md>")
+	L = append(L, "        — 이번 세션 한 일 · 얻은 교훈(무엇이 벽/무엇이 통함) · 다음 세션이 이어서 할 순서.")
+	L = append(L, "    □ 대문(md) 현행화 — 진행과 어긋나면 고쳐라(gil 이 아니라 네가 쓴다):")
+	L = append(L, "        · CLAUDE.md      — '현재 상태'가 실제 진행/버전과 맞나.")
+	L = append(L, "        · README* / 문서 — 새 명령·워크플로우·플래그가 생겼으면 반영됐나.")
+	L = append(L, "    □ 다음 순서 명기 — 매듭 끝에 '다음 세션 순서'가 한 줄이라도 있나(없으면 서사를 잃는다).")
+	L = append(L, "")
+	return L
+}
+
 // handoffReport — 세션 부활 정보를 문자열로. 참조: _handoff_report.
 func handoffReport() string {
 	var L []string
@@ -110,6 +165,19 @@ func handoffReport() string {
 			openOrder = append(openOrder, name)
 		}
 	}
+	// 열린 체인별 '닫힌 사이클 수'를 모아 누적 신호를 낸다(cycleLoadBanner). 아래 순회에서
+	// 재계산하지 않게 여기서 한 번만 센다.
+	closedPerChain := map[string]int{}
+	for _, cname := range openOrder {
+		cyc, _ := cyclesOf(cname)
+		for _, c := range cyc {
+			if c.status == "solved" || c.status == "dead" {
+				closedPerChain[cname]++
+			}
+		}
+	}
+	L = append(L, cycleLoadBanner(closedPerChain)...)
+
 	if len(openOrder) == 0 {
 		L = append(L, "열린 체인 없음 — 모든 체인이 닫혔거나 init뿐. 새 체인을 열 수 있다.")
 	}
@@ -170,6 +238,7 @@ func handoffReport() string {
 		L = append(L, "▶ 뷰어: 죽어있음 — 되살리기: gil viewer serve --repo . --port "+viewerPortNum()+" &")
 	}
 	L = append(L, "")
+	L = append(L, gateChecklist()...)
 	L = append(L, "복원 경로: CLAUDE.md → 존재(existence) → gil global read memory.md → 이 handoff → 위 팁에서 이어간다.")
 	return strings.Join(L, "\n")
 }

@@ -438,6 +438,57 @@ class TestHandoff(GilFixture):
         self.assertIn("사이클 c001", r.stdout)
         self.assertIn("PENDING", r.stdout)
 
+    def _close_solved_cycle(self, chain, cid):
+        """한 사이클을 open→hypothesis→verify→analyze→success 로 채우고 close.
+
+        누적 신호 테스트용 — 명시적으로 v3.8.0 순서 관용을 그대로 밟는다(_autofill_order 는
+        여러 사이클이 섞인 --depth step 출력을 have 판정에 쓰다 오작동하므로 여기선 쓰지 않는다).
+        """
+        ref = f"{chain}/{cid}"
+        self.gil("open", ref, "--author", "clew", "--purpose", f"문제 {cid}",
+                 "--body", f"{cid} 문제 정의 상세")
+        self.gil("step", ref, "--kind", "hypothesis", "--title", f"가설 {cid}",
+                 "--falsify", "F", "--falsify-to", "s1", "--body", "가설 본문")
+        self.gil("step", ref, "--kind", "verify", "--title", f"검증 {cid}",
+                 "--verdict", "supported", "--body", "검증 본문")
+        self.gil("step", ref, "--kind", "analyze", "--title", f"분석 {cid}", "--body", "분석 본문")
+        self.gil("step", ref, "--kind", "success", "--title", f"산 잎 {cid}",
+                 "--body", "종합 보고서")
+        self.gil("close", ref)
+
+    def test_cycle_load_banner_stages(self):
+        """닫힌 사이클 누적 시 handoff 가 단계적 신호/권유를 띄운다(거부는 안 함).
+
+        상현님: 사이클이 많이 쌓이면 핸드오프를 유도. gil 은 커밋 시점만 개입하니 거부로
+        강제하지 않고 3개↑ 신호·5개↑ 강한 권유로 안내한다(HEAAL: 여기선 안내가 옳은 층위).
+        """
+        self.gil("chain", "load", "--purpose", "누적")
+        # 2개까지는 신호 없음
+        for i in (1, 2):
+            self._close_solved_cycle("load", f"c00{i}")
+        r = self.gil("handoff")
+        self.assertNotIn("사이클 누적", r.stdout)
+        # 3개 → 신호
+        self._close_solved_cycle("load", "c003")
+        r = self.gil("handoff")
+        self.assertIn("사이클 누적 (신호)", r.stdout)
+        # 5개 → 강한 권유(매듭 각인·체인 전환 안내 포함)
+        self._close_solved_cycle("load", "c004")
+        self._close_solved_cycle("load", "c005")
+        r = self.gil("handoff")
+        self.assertIn("사이클 누적 (강한 권유)", r.stdout)
+        self.assertIn("memory append", r.stdout)
+        self.assertIn("chain-close", r.stdout)
+
+    def test_handoff_gate_checklist(self):
+        """handoff 는 항상 대문(md) 갱신 체크리스트를 띄운다(감지 아닌 안내라 거짓양성 0)."""
+        self.gil("chain", "g", "--purpose", "게이트")
+        self.gil("open", "g/c001", "--author", "clew", "--purpose", "골격", "--body", "정의")
+        r = self.gil("handoff")
+        self.assertIn("핸드오프 체크리스트", r.stdout)
+        self.assertIn("CLAUDE.md", r.stdout)
+        self.assertIn("매듭 각인", r.stdout)
+
     def test_chain_name_colliding_with_dir(self):
         """체인명이 디렉토리명과 겹쳐도 handoff/log 가 exit 128 로 죽지 않는다.
 
