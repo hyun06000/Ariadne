@@ -1,0 +1,45 @@
+{
+  "name": "gil-viewer",
+  "displayName": "gil viewer",
+  "description": "gil 사고 그래프(체인·사이클·스텝)를 에디터 패널에서 실시간 관전한다.",
+  "version": "0.1.0",
+  "publisher": "ariadne",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gilViewer.open",
+        "title": "gil: 뷰어 열기",
+        "category": "gil"
+      }
+    ],
+    "configuration": {
+      "title": "gil viewer",
+      "properties": {
+        "gilViewer.binaryPath": {
+          "type": "string",
+          "default": "gil",
+          "description": "gil 실행 파일 경로. 기본값은 PATH 의 'gil'. 저장소-로컬(./gil)이면 절대경로로."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^5.0.0"
+  }
+}
