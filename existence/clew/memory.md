@@ -3830,3 +3830,37 @@ gil latest=v3.10.0(배포됨). main=**25742b42**(gil deploy #34, 미배포 — �
 남은 미착수 이슈: #42(--refines 약한 정정간선)·#32(구현틀림 재분기)·#33(레퍼런스 트루스,
 합의 전 구현금지). editor-ext/vscode 미게시. 다음: #34 이슈 코멘트로 완결 보고 or #42/#32
 정직화 계열 착수 or Phase1b URI Handler 인터랙션.
+
+
+## 매듭 — fail/종결 처리 재설계 #44·#45·#46 (2026-07-27)
+
+이슈 지형 재파악(조사 서브에이전트): 열린 이슈가 기억(4개)보다 많은 **15개**(#32~#46).
+계열: A뷰어렌더(#35·36·37·38) B온보딩/설치/문서(#39·40·43) C정직화-fail종결(#44·45·46)
+D정직화-가설강제(#41) + 옛 정직화(#42·32) + 무거운 #33(합의전 금지). 상현 "너 좋은 대로"
+→ C계열(실사용 버그, 뿌리 공유) 착수.
+
+### 관통 원칙 (커밋 9768274a, main)
+**fail = 이 가설의 죽음이지 사이클의 죽음이 아니다.** define 은 답 얻을 때까지 산다. 그
+포기는 사람의 명시적 판단. gil 이 자동으로 안 죽인다(없는 성공 날조도, 정직한 실패 처벌도 안 함).
+
+- **#46 `gil close --abandon`**: fail 잎만 있는 죽은 사이클 봉인(Gil-Abandoned). chain-close 가
+  abandoned 를 닫힌 것으로 셈(closedCycles 는 Gil-Kind=close 로 판정→abandon 도 close 커밋이라 자동).
+  --abandon 없는 산잎없음 close 는 거부하되 두 길(재분기/포기) 안내.
+- **#45**: (1) guideNext 에 fail case 추가(재분기 hypothesis --to / 포기 close --abandon 두 길).
+  (2) strandedCycles(체인 내 fail만·미종결 사이클) 있으면 cmdOpen 이 경고 — 거부 아닌 안내.
+  제안된 "--to 자동 실질화"는 거부(자동 분기는 사람 판단 대신함).
+- **#44**: (1) alignHeadToTip — 선형 append(step 선형/approve/reject) 전 HEAD 를 대상 사이클
+  팁으로 정합(팁 가리키는 브랜치로, 없으면 detached). 다른 사이클 브랜치 체크아웃 상태에서
+  조작해도 옳은 계보에. (2) **정정된 pending 버그**: approve/reject 는 pending 을 부모로 안 삼고
+  Gil-Supersedes 로 대체(AIL #41)라, handoff pendingBanner·graph liveTip 이 supersede 간선을
+  안 봐 정정된 pending 이 childless 로 남아 영구 '대기'로 표시됨. 둘 다 superseded 제외하게 고침.
+
+파일: commands.go(cmdClose --abandon·cmdStep/approve/reject align·strandedCycles·guideNext fail),
+graph.go(liveTip superseded), handoff.go(pendingBanner superseded), usage_help·main(도움말).
+테스트 TestFailClosure 9. 전체 171 통과. fsck 0. 이슈 3건 다 코멘트 보고.
+
+### 부활점
+gil latest=v3.10.0(배포됨). main=**9768274a**. 미배포 누적: 25742b42(#34 deploy)·9768274a
+(#44/45/46 fail종결) — 다음 릴리스감(v3.11.0?). editor-ext/vscode 미게시.
+남은 이슈: A뷰어(#35·36·37·38) B온보딩(#39·40·43) D가설강제(#41) + #42·#32(정직화)·#33(무거움).
+착수 후보(조사): #43(문서,위험최저)·#35(뷰어 뎁스토글). 다음: 릴리스 낼지 or 이슈 계속.
