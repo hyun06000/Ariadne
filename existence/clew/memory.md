@@ -3954,3 +3954,35 @@ gil latest=**v3.11.0**(배포됨·검증됨). main=87a6455c(원격 동기화됨)
 hypothesis 디폴트 승인—다음) [4]chain-close --retro [5]fail 반전·진량 가시화. 설계 아티팩트
 f5ce81a5. 남은 이슈: #35(뷰어 기본값)·#39설치·#40온보딩·#41(제안3)·#42/#32정직화·#36/37/38
 (대부분 구현됨, 닫기 후보). 다음: 인터뷰 폼 실사용 피드백 받거나 승인 관문 착수.
+
+
+## 매듭 — 윈도우 콘솔 공포 수정 + v3.11.1 배포 (2026-07-27)
+
+상현: "이제 Claude Desktop 앱에서 Claude Code 쓰는 걸 기준으로. 뷰어랑 같이 수정하자."
+윈도우 비개발자 친구 피드백 3건:
+1. 설치 때 git 없어 PowerShell 로 설치→cmd 창 계단식 주르륵→공포.
+2. 뷰어 새로고침마다 cmd 창 뜨고 꺼지고 반복.
+3. 127.0.0.1 날 IP만 보고 뭔지 몰라 넘어감→브라우저 자동실행 필요.
+
+### 진단·수정 (커밋 844cdf93, main)
+- **결함 A(핵심)**: 콘솔 없는 부모(Claude Desktop·GUI)가 gil→git 호출마다 새 cmd 창 번쩍.
+  뷰어 폴링 1.5초마다라 깜빡임 반복. → hideConsole 헬퍼(detach_windows.go=CREATE_NO_WINDOW
+  0x08000000, detach_unix.go=no-op) + gitCommand 팩토리로 모든 git 자식(git.go·utils.go·
+  viewer_graph.viewerGit 폴링경로·viewer_serve.gilExec) 경유. **1·2 둘 다 이게 원인.**
+- **결함 B**: openBrowser(win=cmd /c start ""·mac=open·linux=xdg-open, hideConsole). 뷰어 뜨면
+  자동 오픈. launchViewer 부모가 1회(자식은 GIL_NO_BROWSER=1 이중방지), 수동 serve 도 오픈.
+  안내문구 날 IP→"브라우저로 열었다 →url". viewer_launch.go·viewer_serve.go.
+- **결함 C**: winget --silent 안내(requireGit main.go + README.ai.md). git 설치관리자 자체
+  창은 gil 이 못 막음 — gil 자신의 cmd 폭포는 A 로 해결.
+- 검증(mac): gil init→뷰어+브라우저 1회오픈·200, 수동 serve 오픈. win/linux 크로스컴파일 OK.
+  전체 182 통과. cross-compile 생성 gil.exe 는 루트 .gitignore 추가.
+
+### v3.11.1 배포
+main push 먼저(87a6455c..844cdf93, 지난 교훈)→태그→gh release 8자산. 수신자 E2E: 신선설치
+v3.11.1 각인 확인. **교훈 재확인: 릴리스 전 git push origin main 먼저.**
+
+### 부활점
+gil latest=**v3.11.1**(배포됨). main=844cdf93(동기화됨). editor-ext/vscode 미게시.
+이제 실사용 기준 = Claude Desktop 앱에서 Claude Code. 윈도우 친구가 v3.11.1 로 재테스트 예정
+→ 다음 피드백 기다림. '실패 안 두려워하는 문법' 비전: [1]레퍼런스✓[2]인터뷰폼✓ → [3]승인관문
+[4]retro [5]fail반전. 설계 아티팩트 f5ce81a5. 남은 이슈 #35·#39·#40·#41·#42/#32·#36/37/38.
