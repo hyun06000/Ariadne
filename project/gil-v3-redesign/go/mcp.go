@@ -184,6 +184,8 @@ type inTarget struct {
 type inChainName struct {
 	Name    string `json:"name" jsonschema:"체인 이름"`
 	Verdict string `json:"verdict,omitempty"`
+	Retro   string `json:"retro,omitempty" jsonschema:"회고 파일 경로 — 기준 대비 달성도. 기준(인터뷰)이 있는 체인은 필수"`
+	Seed    string `json:"seed,omitempty" jsonschema:"다음 체인 인터뷰의 재료가 될 시드 파일 경로"`
 }
 
 type inApprove struct {
@@ -260,9 +262,11 @@ func registerGilTools(s *mcp.Server) {
 			return a
 		}, cmdClose)
 
-	tool(s, "gil_chain_close", "체인을 완결로 봉인한다. 모든 사이클이 닫혀야 한다.",
+	tool(s, "gil_chain_close", "체인을 완결로 봉인한다. 모든 사이클이 닫혀야 하고, 사람이 세운 기준(인터뷰)이 있는 체인은 그 기준 대비 회고(retro)가 필수다.",
 		func(in inChainName) []string {
-			return addFlag([]string{in.Name}, "verdict", in.Verdict)
+			a := addFlag([]string{in.Name}, "verdict", in.Verdict)
+			a = addFlag(a, "retro", in.Retro)
+			return addFlag(a, "seed", in.Seed)
 		}, cmdChainClose)
 
 	tool(s, "gil_approve", "approval 체인에서 pending 사이클을 승인한다(사람의 판단).",

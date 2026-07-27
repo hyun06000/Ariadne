@@ -92,6 +92,48 @@ func chainReferenceApproved(chain, revRange string) bool {
 	return false
 }
 
+// chainReferenceText — 이 체인의 기준 문서(레퍼런스 트루스) 전문(이슈 #33). 회고를 요구할 때
+// "무엇에 비추어 쓰라는 건지"를 그 자리에서 보여주려고 읽는다 — 기준을 다시 찾아 헤매게
+// 하지 않는다. 인터뷰로 확정된 레퍼런스 커밋의 본문이 곧 기준이다.
+func chainReferenceText(chain, revRange string) string {
+	fmt := "%H" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Reference") + sep
+	out := gitlog("--format="+fmt, revRange)
+	for _, rec := range strings.Split(out, sep) {
+		parts := strings.SplitN(strings.TrimSpace(rec), fsep, 3)
+		if len(parts) < 3 {
+			continue
+		}
+		if strings.TrimSpace(parts[1]) != chain || strings.TrimSpace(parts[2]) != "true" {
+			continue
+		}
+		body := stripTrailers(gitlog("-1", "--format=%B", parts[0]))
+		if i := strings.Index(body, "── 기준 문서(레퍼런스 트루스) ──"); i >= 0 {
+			body = strings.TrimSpace(body[i:])
+		}
+		return body
+	}
+	return ""
+}
+
+// chainSeed — 닫힌 체인이 남긴 '다음 체인의 시드'(Gil-Seed-Ref, 이슈 #33). 회고가 "다음엔
+// 무엇을 물어야 하는가"를 남기면, 그게 다음 체인 인터뷰의 출발 재료가 된다. 시드는 기준을
+// **대체하지 않는다** — 기준은 언제나 사람의 답이고, 시드는 그 물음을 짜는 재료다.
+func chainSeed(revRange string) (chain, seed string) {
+	fmt := "%H" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Seed-Ref") + sep
+	out := gitlog("--format="+fmt, revRange)
+	for _, rec := range strings.Split(out, sep) {
+		parts := strings.SplitN(strings.TrimSpace(rec), fsep, 3)
+		if len(parts) < 3 || strings.TrimSpace(parts[2]) != "true" {
+			continue
+		}
+		body := stripTrailers(gitlog("-1", "--format=%B", parts[0]))
+		if i := strings.Index(body, "── 다음 체인의 시드 ──"); i >= 0 {
+			return strings.TrimSpace(parts[1]), strings.TrimSpace(body[i:])
+		}
+	}
+	return "", ""
+}
+
 // chainInterviewPending — 이 체인에 아직 사람 답을 못 받은 인터뷰(Gil-Interview:pending)가
 // 있나(이슈 #33). done 마커가 있으면 해소된 것. LLM 이 인터뷰를 심어 사람에게 물어놓고, 답을
 // 안 기다린 채 스스로 진행하는 걸 막는 데 쓴다 — 인터뷰=pending 통합(상현님). pending 이면

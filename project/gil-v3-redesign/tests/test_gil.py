@@ -76,6 +76,16 @@ class GilFixture(unittest.TestCase):
         if args and args[0] == "step" and "--kind" in args and "--to" in args and \
            "hypothesis" in args and not any(a == "--inherit" or a.startswith("--inherit=") for a in args):
             args += ["--inherit", "(테스트 전수: 앞 가지의 교훈)"]
+        # 이슈 #33: 사람이 세운 기준(인터뷰)이 있는 체인은 그 기준 대비 회고 없이 못 닫는다.
+        # 대부분 테스트는 chain-close 자체가 아니라 그 뒤 흐름을 검증하므로, --retro 가 없으면
+        # 기본 회고를 자동 주입한다(테스트 의도 보존). 회고 강제 자체를 검증하는 테스트는
+        # self._no_retro_autofill 로 이 보정을 우회한다.
+        if args and args[0] == "chain-close" and not getattr(self, "_no_retro_autofill", False) \
+           and not any(a == "--retro" or a.startswith("--retro=") for a in args):
+            rf = os.path.join(self.repo, ".test-retro.md")
+            with open(rf, "w", encoding="utf-8") as f:
+                f.write("# 테스트 회고\n기준 대비 달성도(자동 주입)\n")
+            args += ["--retro", ".test-retro.md"]
         env = dict(os.environ, GIL_NO_VIEWER="1")
         # AIL #41: 순서 체인 강제(define→hypothesis→verify→analyze→종결). 많은 기존 테스트가
         # 중간 kind 를 건너뛰고 종결/verify 를 찍으므로, 선형(--to/--merge/backtrack 아님) step
@@ -2720,6 +2730,105 @@ class TestMCPApps(GilFixture):
     def _chain_for_ui(self):
         r = self.gil("chain", "uiprobe", "--purpose", "UI 리소스 확인")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class TestChainRetro(GilFixture):
+    """체인 생애주기의 닫는 쪽 — 회고와 시드 (이슈 #33).
+
+    인터뷰가 체인을 열 때 '무엇을 기준으로 할 것인가'를 사람에게 물었다면, 회고는 닫을 때
+    '그 기준에 얼마나 합당했나'를 답한다. 이게 없으면 체인은 열 때만 사람의 기준에 매이고
+    닫을 때는 LLM 자기확신으로 끝난다 — 생애주기의 반쪽이 비는 것이다.
+    """
+
+    def _chain_with_reference(self, name="alpha"):
+        """인터뷰로 사람 승인 기준이 선 체인 하나를, 사이클까지 닫아 둔다."""
+        self.gil("chain", name, "--purpose", "회고 생애주기")
+        self.gil("open", f"{name}/c001", "--author", "clew", "--purpose", "한 사이클",
+                 "--body", "정의")
+        self.gil("step", f"{name}/c001", "--kind", "success", "--title", "S", "--body", "B")
+        r = self.gil("close", f"{name}/c001")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _write(self, name, text):
+        path = os.path.join(self.repo, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return name
+
+    def test_reference_chain_cannot_close_without_retro(self):
+        """기준이 있는 체인은 회고 없이 닫히지 않는다 — 회고 없는 종결은 '됐다'는 자기확신."""
+        self._chain_with_reference()
+        self._no_retro_autofill = True
+        r = self.gil("chain-close", "alpha")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("회고", r.stderr)
+
+    def test_refusal_shows_the_standard_to_measure_against(self):
+        """거부는 기준 전문을 그 자리에 펼친다 — 무엇에 비추어 쓰라는 건지 찾아 헤매지 않게."""
+        self._chain_with_reference()
+        self._no_retro_autofill = True
+        r = self.gil("chain-close", "alpha")
+        self.assertIn("이 체인의 기준", r.stderr)
+        self.assertIn("기준 문서", r.stderr)
+        # 기계용 트레일러가 사람 읽을 자리에 섞이지 않는다.
+        self.assertNotIn("Gil-Kind:", r.stderr)
+
+    def test_chain_without_reference_closes_freely(self):
+        """기준 없는 체인까지 소급해 막지는 않는다 — 없는 잣대에 성적표를 요구하지 않는다."""
+        self.gil("chain", "legacy", "--purpose", "기준 없이 열린 옛 체인")
+        self._no_retro_autofill = True
+        r = self.gil("chain-close", "legacy")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_empty_retro_is_rejected(self):
+        """빈 회고는 회고가 아니다 — 형식만 채우는 파일을 게이트가 받지 않는다."""
+        self._chain_with_reference()
+        self._no_retro_autofill = True
+        self._write("empty.md", "   \n")
+        r = self.gil("chain-close", "alpha", "--retro", "empty.md")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("비었다", r.stderr)
+
+    def test_retro_and_seed_land_in_the_graph(self):
+        """회고·시드는 종결 커밋 본문에 담기고 트레일러로 표식된다 — 그래프가 성적표를 안다."""
+        self._chain_with_reference()
+        self._no_retro_autofill = True
+        self._write("retro.md", "# 회고\n기준 대비: 달성.\n분기했어야 할 지점: s2.\n")
+        self._write("seed.md", "# 시드\n다음 물음: 회고가 형해화되지 않으려면?\n")
+        r = self.gil("chain-close", "alpha", "--retro", "retro.md", "--seed", "seed.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Retro"), "true")
+        self.assertEqual(self.trailer("HEAD", "Gil-Seed-Ref"), "true")
+        body = subprocess.run(["git", "show", "-s", "--format=%B", "HEAD"], cwd=self.repo,
+                              capture_output=True, text=True).stdout
+        self.assertIn("분기했어야 할 지점", body)
+        self.assertIn("다음 물음", body)
+
+    def test_seed_is_handed_to_the_next_chain(self):
+        """시드는 다음 체인을 열 때 건네진다 — 생애주기가 닫힌다(회고→시드→다음 인터뷰)."""
+        self._chain_with_reference()
+        self._no_retro_autofill = True
+        self._write("retro.md", "# 회고\n달성.\n")
+        self._write("seed.md", "# 시드\n다음 물음: 무엇을 더 물어야 하나?\n")
+        self.gil("chain-close", "alpha", "--retro", "retro.md", "--seed", "seed.md")
+        r = self.gil("chain", "beta", "--purpose", "시드에서 이어간다")
+        out = r.stdout + r.stderr
+        self.assertIn("시드", out)
+        self.assertIn("무엇을 더 물어야 하나", out)
+        # 시드가 기준을 대체하지 않는다 — 여전히 인터뷰가 게이트다.
+        self.assertIn("gil interview beta", out)
+
+    def test_seed_does_not_bypass_the_interview_gate(self):
+        """시드가 있어도 사이클은 못 연다 — 기준은 언제나 사람의 답이다."""
+        self._chain_with_reference()
+        self._no_retro_autofill = True
+        self._write("retro.md", "# 회고\n달성.\n")
+        self._write("seed.md", "# 시드\n다음 물음.\n")
+        self.gil("chain-close", "alpha", "--retro", "retro.md", "--seed", "seed.md")
+        self.gil("chain", "beta", "--purpose", "다음 국면")
+        self._no_interview_autofill = True
+        r = self.gil("open", "beta/c001", "--author", "clew", "--purpose", "P", "--body", "B")
+        self.assertNotEqual(r.returncode, 0, "시드는 인터뷰를 대신하지 못한다")
 
 
 if __name__ == "__main__":

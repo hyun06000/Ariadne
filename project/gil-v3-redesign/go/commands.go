@@ -1254,9 +1254,14 @@ func interviewResolve(chain, refFile string) {
 func cmdChainClose(args []string) {
 	fs := newFlags("gil chain-close")
 	verdict := fs.str("verdict", "supported")
+	// 회고와 시드(이슈 #33): 체인 생애주기의 닫는 쪽. 인터뷰가 "무엇을 기준으로 할 것인가"를
+	// 열 때 사람에게 물었다면, 회고는 "그 기준에 얼마나 합당했나"를 닫을 때 답한다. 시드는
+	// 그 회고에서 자라나는 다음 물음 — 다음 체인 인터뷰의 재료다(기준의 대체가 아니다).
+	retro := fs.str("retro", "")
+	seed := fs.str("seed", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil chain-close <chain> [--verdict V]")
+		die("사용: gil chain-close <chain> [--verdict V] [--retro <회고파일|->] [--seed <시드파일|->]")
 	}
 	chain := pos[0]
 	if !idRe.MatchString(chain) {
@@ -1282,16 +1287,70 @@ func cmdChainClose(args []string) {
 		die("거부: 아직 닫히지 않은 사이클이 남음 — 먼저 gil close 로 닫아라: " +
 			strings.Join(open, " ") + ". (완결의 정의: 모든 사이클이 닫혀야 체인을 닫는다.)")
 	}
+	// 회고 강제(이슈 #33) — 단, **기준이 있는 체인에서만**. 사람이 인터뷰로 세운 기준이 있는
+	// 체인은 그 기준 대비 달성도를 남기지 않고 닫을 수 없다. 기준 없이 닫히던 옛 체인까지
+	// 소급해 막지는 않는다 — 없는 잣대에 대고 성적표를 요구하는 건 형식만 채우게 만든다.
+	refText := ""
+	if chainReferenceApproved(chain, "--branches") {
+		refText = chainReferenceText(chain, "--branches")
+		if strings.TrimSpace(*retro) == "" {
+			msg := "거부: 체인 \"" + chain + "\" 은 사람이 세운 기준이 있다 — 그 기준 대비 회고 없이 닫을 수 없다(이슈 #33).\n" +
+				"  체인을 열 때 인터뷰로 '무엇을 기준으로 할 것인가'를 물었다면, 닫을 때는 '그 기준에\n" +
+				"  얼마나 합당했나'를 답해야 생애주기가 닫힌다. 회고 없는 종결은 '됐다'는 자기확신이다.\n" +
+				"    gil chain-close " + chain + " --retro <회고파일|-> [--seed <다음 물음 시드|->]\n" +
+				"  회고에 담을 것: 기준의 각 항목을 달성했나·못 했나(정직하게), 무엇이 그렇게 만들었나,\n" +
+				"  **반드시 분기했어야 할 지점**은 어디였나(돌아보면 보이는 갈림길).\n" +
+				"  --seed 는 다음 체인 인터뷰의 재료다 — 남은 물음·새로 생긴 물음을 적어라."
+			if refText != "" {
+				msg += "\n\n── 이 체인의 기준(이것에 비추어 써라) ──\n" + refText
+			}
+			die(msg)
+		}
+	}
+	retroBody := ""
+	if strings.TrimSpace(*retro) != "" {
+		retroBody = strings.TrimSpace(resolveBody("", *retro))
+		if retroBody == "" {
+			die("거부: --retro 회고 파일이 비었다 — 빈 회고는 회고가 아니다")
+		}
+	}
+	seedBody := ""
+	if strings.TrimSpace(*seed) != "" {
+		seedBody = strings.TrimSpace(resolveBody("", *seed))
+		if seedBody == "" {
+			die("거부: --seed 시드 파일이 비었다")
+		}
+	}
+
 	subject := "gil " + chain + " chain-close: " + *verdict
 	body := "체인 [" + chain + "] 봉인. 판정: " + *verdict + ".\n\n" +
 		"이 국면은 완결됐다. 다음은 이 닫힌 끝에서 새 체인을 연다 " +
 		"(gil chain <name> --purpose ...) — 대문·존재·교훈이 체인을 넘어 이어진다."
+	if retroBody != "" {
+		body += "\n\n── 회고(기준 대비 달성도) ──\n\n" + retroBody
+	}
+	if seedBody != "" {
+		body += "\n\n── 다음 체인의 시드 ──\n\n" + seedBody
+	}
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Kind", "chain-close"}, {"Gil-Verdict", *verdict},
 	}
+	if retroBody != "" {
+		tr = append(tr, [2]string{"Gil-Retro", "true"})
+	}
+	if seedBody != "" {
+		tr = append(tr, [2]string{"Gil-Seed-Ref", "true"})
+	}
 	commit(subject, body, tr, true)
 	println2("chain-close: " + chain + " — " + *verdict)
+	if retroBody != "" {
+		println2("  회고 심음(기준 대비 달성도) — 이 체인의 성적표가 그래프에 남았다.")
+	}
 	println2("NEXT 닫힌 체인의 끝에서 새 체인을 연다: gil chain <name> --purpose <다음 국면의 목적>")
+	if seedBody != "" {
+		println2("     시드를 남겼다 — 다음 체인의 인터뷰 질문을 이 시드에서 짜라(시드는 기준이 아니다.")
+		println2("     기준은 언제나 사람의 답이다: gil interview <새체인> --ask ...).")
+	}
 	println2("     이전 체인의 교훈(gil memory read)을 새 체인 목적·첫 가설에 이어받아라.")
 }
 
@@ -1357,6 +1416,16 @@ func cmdChain(args []string) {
 	// 체인은 거의 늘 앞 체인의 교훈 위에 선다 — 부모가 위상 유도라 강제는 안 하되 안내(AIL #3).
 	if strings.TrimSpace(*inherit) == "" {
 		stderr("  ▸ 이 체인이 앞 체인/사이클에서 물려받은 전제·교훈이 있으면 --inherit 로 명시하라(AIL #3) — 계보를 지식의 강으로.")
+	}
+	// 생애주기를 닫는 고리(이슈 #33): 앞 체인이 회고에서 시드를 남겼으면 여기서 건네준다.
+	// 시드는 다음 인터뷰의 **재료**지 기준이 아니다 — 기준은 언제나 사람의 답이라, 시드를
+	// 그대로 레퍼런스로 삼는 지름길은 열지 않는다(그건 사람 우회다).
+	if seedChain, seed := chainSeed("--branches"); seed != "" {
+		println2("")
+		println2("  ▸ 앞 체인 [" + seedChain + "] 이 회고에서 다음 물음의 시드를 남겼다 —")
+		println2("    이 시드에서 인터뷰 질문을 짜라: gil interview " + name + " --ask <질문JSON|->")
+		println2("")
+		println2(seed)
 	}
 }
 

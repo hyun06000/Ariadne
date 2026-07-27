@@ -30,9 +30,15 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/concepts.md · docs/gil/deployment.md",
 	},
 	"chain-close": {
-		"gil chain-close <chain> [--verdict supported]\n" +
+		"gil chain-close <chain> [--verdict supported] [--retro <회고파일|->] [--seed <시드파일|->]\n" +
 			"  체인을 완결로 봉인한다 — 모든 사이클이 닫힌 뒤에만. 사이클 close 와 다르다:\n" +
-			"  이건 그 위 국면(배포 순환의 한 단계)을 닫는다. 닫으면 새 체인으로 교훈을 잇는다.",
+			"  이건 그 위 국면(배포 순환의 한 단계)을 닫는다. 닫으면 새 체인으로 교훈을 잇는다.\n" +
+			"  --retro: 기준(인터뷰로 선 레퍼런스) 대비 달성도 회고. **기준이 있는 체인은 필수**(이슈 #33) —\n" +
+			"    열 때 사람에게 '무엇을 기준으로 할 것인가'를 물었으면 닫을 때 '얼마나 합당했나'를 답해야\n" +
+			"    생애주기가 닫힌다. 담을 것: 기준 항목별 달성/미달(정직하게), 그렇게 만든 원인,\n" +
+			"    **반드시 분기했어야 할 지점**(돌아보면 보이는 갈림길).\n" +
+			"  --seed: 다음 체인 인터뷰의 재료(남은 물음·새 물음). 다음 gil chain 이 이걸 건네준다.\n" +
+			"    시드는 기준이 아니다 — 기준은 언제나 사람의 답이라 인터뷰를 대신하지 못한다.",
 		"docs/gil/deployment.md",
 	},
 	"open": {
