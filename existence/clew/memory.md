@@ -3110,3 +3110,52 @@ release-build.sh), b2098d8c(handoff 유도+체크리스트). 셋 다 미릴리�
 v3.9.0 감(handoff 신기능+관용예제+release-build.sh 첫실사용). 상현 push/릴리스 판단 대기.
 다음 미착수: #42 refines, #32 analyze재분기, #34 배포마커, #33 레퍼런스트루스. gh issue
 list -R hyun06000/Ariadne. 모니터 b7y8fti2l. heaal-philosophy. release-build.sh <version> 로 5타깃.
+
+
+## 매듭 — 뷰어 앱 임베드 생태계 조사 (2026-07-27, 상현님 발단, 결정 보류)
+
+상현님: "로컬호스트 뷰어 불편·비친화적. Claude Code/Cowork 같은 앱에 뷰어 녹여넣는 생태계
+있나?" → 목표: **Claude계열·Codex계열·CLI계열(로컬호스트)·VS Code계열(커서) 모두** 기능 제공.
+상현님 통찰: "범용 코드 하나는 어렵다"(맞음), "주변에 Claude Desktop/Cowork 쓰는 사람 많으니
+거기 먼저 만들어 피드백 받자". **최종 결정은 '일단 멈춤 — 더 생각'.**
+
+### 확정 사실 (에이전트 3회 조사, 결정과 무관하게 참)
+**뷰어 코어는 이미 어댑터 구조 (재사용 준비됨)**: viewer_graph.go buildGraph()→graphView,
+viewer_serve.go renderHTML(g,static)→자기완결HTML, tipSignature()→변경감지. serve/build/text
+는 얇은 어댑터. `gil viewer build --out x.html` = 외부의존0·CSS/JS/본문 전부 인라인 522KB
+단일HTML(검증함). → 새 계열 = cmdViewer 서브커맨드 + 어댑터 함수 하나. 코어 안 건드림.
+
+**4계열 임베드 매핑**:
+- CLI(Claude Code·Codex CLI): 웹뷰 없음 → 브라우저로 serve(현행). 완성.
+- VS Code(Cursor·Windsurf): 별도 확장 WebView, 표준 API, localhost 폴링 그대로 = **실시간
+  확실히 됨**. Claude특화 아니라 에디터특화라 범용성 안전.
+- Claude(Desktop·Cowork·웹) + ChatGPT: **MCP Apps** ui:// iframe = 한 표준. ChatGPT Apps
+  SDK = MCP Apps 구현체라 어댑터 하나로 두 생태계. 
+- Codex(CLI/IDE/데스크톱): MCP도구는 O, **ui:// iframe UI 미지원**(openai/codex #21019 미해결).
+  현재 임베드 불가. ChatGPT 표면만 됨.
+
+### ⚠ 결정적 블로커 — MCP Apps iframe 지금 렌더 안 됨 (버그)
+2026-01-26 발표·9파트너 탑재했으나, **Claude Desktop·claude.ai 둘 다 ui:// iframe 실제
+안 그림**. 프로토콜협상·HTML페칭까진 O, 마지막 iframe렌더 미구현. ext-apps#671, claude-ai-mcp
+#165(handshake 미실행), Cowork 3P모드 #236. 사용자는 텍스트폴백만 봄. → **지금 MCP Apps로
+가면 hello iframe조차 안 뜸.** CSP폴링(connectDomains에 127.0.0.1)·522KB넣기 다 원리상 가능
+하나 앞단이 막혀 관찰불가. 수정시점 Anthropic통제(예상 2-4주, 불확실).
+
+### 타이밍 딜레마 (미해결)
+실사용자는 Claude Desktop 많음(상현 관찰) BUT 그 경로가 버그로 막힘. VS Code는 실사용자
+중간이나 지금 확실히 됨. 갈래: A)VS Code로 지금 피드백+MCP설계만 B)Claude 버그 기다림(피드백0)
+C)병행(조사추천). 상현 '멈춤—더생각'. **다음 세션: 이 타이밍 판단부터 이어서.**
+
+### 범용성 긴장 (미해결, will.md #4)
+임베드 경로 전부 특정앱 특화. 완화책 후보: gil코어=viewer serve/build(범용)만, 앱통합은
+바깥 껍질(별도 스킬/플러그인/확장 레포)로. 코어 순수·껍질 얇게. 상현 '아직 모름'.
+
+### 커넥터/플러그인/스킬 정리(상현 질문)
+셋 다 UI 직접렌더 X. 플러그인=명령/도구/에이전트 번들단위. 커넥터=MCP서버 연결(+MCP Apps로
+UI). 스킬=SKILL.md 모델지시(Artifact 발행을 '지시'는 가능). CLI 안 웹뷰=셋 다 불가.
+
+### 부활점
+gil latest=v3.8.0. main=b2098d8c. 이번 세션 3커밋(관용예제#43·release-build.sh+win명시·
+handoff유도). 뷰어 임베드=조사만 완료, 코드 0(결정 보류). 다음: 임베드 타이밍 결정(A/B/C) →
+정해지면 해당 어댑터. VS Code 유력(지금 됨·범용성안전). MCP Apps는 Anthropic 버그 대기
+(ext-apps#671·claude-ai-mcp#165 구독). 미착수 이슈: #42 refines·#32·#34·#33. 모니터 b7y8fti2l.
