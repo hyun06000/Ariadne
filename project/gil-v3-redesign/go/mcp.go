@@ -93,8 +93,9 @@ func cmdMCP(args []string) {
 		Name:    "gil",
 		Title:   "gil — 사고 역사를 git 커밋 그래프 위에",
 		Version: gilVersion,
-	}, nil)
+	}, &mcp.ServerOptions{Capabilities: uiCapabilities()})
 	registerGilTools(s)
+	registerGilUI(s)
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		mcpMode = false
 		die("gil mcp: 서버 종료: " + err.Error())

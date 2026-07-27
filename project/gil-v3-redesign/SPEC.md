@@ -272,3 +272,27 @@ CLI 와 **같은 함수**를 MCP 툴(`gil_chain`·`gil_open`·`gil_step`·`gil_c
 
 의존성은 공식 Go SDK(`modelcontextprotocol/go-sdk`) 하나뿐이고, CGO 없이 5타깃 전부
 정적 단일 바이너리가 유지된다(§지원 플랫폼 불변).
+
+### 4.2 MCP Apps — 뷰어를 호스트 안으로 (SEP-1865, 2026-07-28)
+
+뷰어의 마찰은 늘 **바깥**에 있었다: `127.0.0.1:8790` 이라는 날 주소를 사람이 못 알아보고,
+포트가 충돌하면 시스템 브라우저로 새고, 샌드박스 호스트에선 아예 안 열렸다. MCP Apps 는 그
+바깥을 없앤다 — 서버가 `ui://` 리소스로 HTML 을 내주면 호스트가 자기 안의 샌드박스 iframe 에
+직접 그린다. 주소도 포트도 브라우저도 없다.
+
+계약(규범 문자 그대로 — 하나만 어긋나도 호스트는 **조용히** 안 그린다):
+
+| 항목 | 값 |
+| --- | --- |
+| 리소스 URI | `ui://gil/graph` |
+| mimeType | `text/html;profile=mcp-app` |
+| 툴→UI 고리 | `gil_graph` 의 `_meta.ui.resourceUri` |
+| 확장 선언 | initialize 캐퍼빌리티 `extensions["io.modelcontextprotocol/ui"].mimeTypes` |
+| iframe↔호스트 | postMessage 위 JSON-RPC (`ui/initialize` 핸드셰이크, `ui/notifications/*`) |
+
+**신선도에 대한 정직성.** 체인 그래프 SVG 레이아웃은 Go 가 그린다(`chainLayout`). "빈 껍데기 +
+데이터 주입"으로 쪼개려면 레이아웃을 JS 로 이중화해야 하는데, 그 이중화가 나중에 어긋나는
+종류의 빚이다. 그래서 리소스를 **읽는 시점에 통째로 렌더**한다(읽는 순간의 데이터는 언제나
+최신). 대신 호스트가 템플릿을 캐시해 낡은 화면이 남을 수 있으므로, 페이지가
+`ui/notifications/tool-result` 로 최신 팁 서명을 받아 자기 것과 다르면 **낡았다고 스스로 밝힌다**.
+살아있는 척하지 않는다 — 낡음을 숨기는 화면이 없는 화면보다 나쁘다.

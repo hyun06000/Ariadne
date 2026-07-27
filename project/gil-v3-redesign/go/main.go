@@ -151,7 +151,7 @@ v2 이주:
   gil viewer build --out <파일>             정적 자기완결 HTML(Pages 등 정적 호스팅용)
 
 MCP (Claude Desktop 등 호스트에 gil 을 툴로 물린다):
-  gil mcp serve [--repo <경로>]             stdio MCP 서버. 인터뷰를 호스트 네이티브 폼으로 묻는다
+  gil mcp serve [--repo <경로>]             stdio MCP 서버. 인터뷰=네이티브 폼, 그래프=호스트 내 앱
 
 버전:
   gil version [--check|--update]  현재 버전 · 최신과 대조 · SHA256 검증 후 자기갱신

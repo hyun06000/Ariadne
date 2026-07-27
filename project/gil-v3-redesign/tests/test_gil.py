@@ -2628,5 +2628,99 @@ class TestMCPServe(GilFixture):
         self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "pending")
 
 
+class TestMCPApps(GilFixture):
+    """MCP Apps(SEP-1865) — 그래프 뷰어를 호스트 안 iframe 에 띄우는 UI 표면.
+
+    왜 여기까지 테스트하나. 뷰어의 마찰은 늘 '바깥'에 있었다 — 127.0.0.1 날 주소, 포트 충돌,
+    샌드박스에서 안 열리는 브라우저. ui:// 리소스는 그 바깥을 없앤다. 다만 규범(URI 스킴·
+    mimeType·_meta.ui·확장 선언)이 하나라도 어긋나면 호스트는 조용히 안 그린다 — 조용한 실패라
+    사람이 원인을 못 찾는다. 그래서 계약을 문자 그대로 못박는다.
+    """
+
+    UI_URI = "ui://gil/graph"
+    UI_MIME = "text/html;profile=mcp-app"
+    UI_EXT = "io.modelcontextprotocol/ui"
+
+    def _session(self, fn):
+        """MCP 세션을 열어 fn(send, read) 을 돌린다."""
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1"))
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        read = lambda: json.loads(p.stdout.readline())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                             "clientInfo": {"name": "test", "version": "1"}}})
+            init = read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            return fn(send, read, init)
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
+    def test_declares_ui_extension_capability(self):
+        """MCP Apps 는 옵트인 확장 — initialize 에서 선언하지 않으면 호스트가 안 그린다."""
+        init = self._session(lambda send, read, init: init)
+        ext = init["result"]["capabilities"].get("extensions", {})
+        self.assertIn(self.UI_EXT, ext)
+        self.assertEqual(ext[self.UI_EXT]["mimeTypes"], [self.UI_MIME])
+
+    def test_ui_resource_is_declared(self):
+        """ui:// 스킴과 mcp-app 프로파일 mimeType — 규범 문자 그대로."""
+        def go(send, read, init):
+            send({"jsonrpc": "2.0", "id": 2, "method": "resources/list", "params": {}})
+            return read()["result"]["resources"]
+        res = self._session(go)
+        got = [r for r in res if r["uri"] == self.UI_URI]
+        self.assertEqual(len(got), 1, res)
+        self.assertEqual(got[0]["mimeType"], self.UI_MIME)
+
+    def test_tool_points_at_its_ui_resource(self):
+        """툴은 _meta.ui.resourceUri 로 자기 UI 를 가리킨다 — 이 고리가 없으면 앱이 안 뜬다."""
+        def go(send, read, init):
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+            return {t["name"]: t for t in read()["result"]["tools"]}
+        tools = self._session(go)
+        self.assertIn("gil_graph", tools)
+        self.assertEqual(tools["gil_graph"]["_meta"]["ui"]["resourceUri"], self.UI_URI)
+
+    def test_ui_resource_renders_graph_with_bridge(self):
+        """리소스를 읽으면 그 시점 그래프가 통째로 든 자기완결 HTML + 호스트 브리지가 온다."""
+        self._chain_for_ui()
+        def go(send, read, init):
+            send({"jsonrpc": "2.0", "id": 2, "method": "resources/read",
+                  "params": {"uri": self.UI_URI}})
+            return read()["result"]["contents"][0]
+        c = self._session(go)
+        self.assertEqual(c["mimeType"], self.UI_MIME)
+        html = c["text"]
+        self.assertTrue(html.startswith("<!doctype html>"), html[:40])
+        self.assertIn("uiprobe", html)                     # 그 시점 그래프가 실려 있다
+        self.assertIn("ui/initialize", html)               # 핸드셰이크
+        self.assertIn("ui/notifications/tool-result", html)  # 낡음 감지
+        self.assertIn("gil-stale-banner", html)
+
+    def test_graph_tool_reports_tip_signature(self):
+        """툴 결과엔 팁 서명이 실린다 — 화면이 자기가 낡았는지 스스로 알 수 있게."""
+        self._chain_for_ui()
+        def go(send, read, init):
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": "gil_graph", "arguments": {}}})
+            return read()["result"]
+        r = self._session(go)
+        self.assertFalse(r.get("isError"), r)
+        self.assertIn("tipSignature", r["structuredContent"])
+        self.assertTrue(r["structuredContent"]["tipSignature"].strip())
+
+    def _chain_for_ui(self):
+        r = self.gil("chain", "uiprobe", "--purpose", "UI 리소스 확인")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

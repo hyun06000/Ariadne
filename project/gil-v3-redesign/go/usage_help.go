@@ -147,6 +147,8 @@ var helpTable = map[string]helpEntry{
 			"\nClaude Desktop 같은 MCP 호스트가 gil 명령을 툴(gil_chain·gil_open·gil_step…)로 직접\n" +
 			"부른다. 인터뷰(gil_interview)는 호스트의 네이티브 폼(Elicitation)으로 사람에게 그 자리에서\n" +
 			"묻고 답을 받아 기준 문서를 확정한다 — 뷰어 폼·localhost 링크를 거치지 않아 대기가 하나뿐이다.\n" +
+			"그래프 관전은 MCP Apps(SEP-1865)로 호스트 안 iframe 에 뜬다 — gil_graph 툴이\n" +
+			"ui://gil/graph 리소스를 가리키므로 localhost 주소·포트 충돌·브라우저가 필요 없다.\n" +
 			"기존 CLI 는 그대로다(터미널·다른 에이전트용). 호스트 설정 예:\n" +
 			"  { \"mcpServers\": { \"gil\": { \"command\": \"gil\", \"args\": [\"mcp\", \"serve\", \"--repo\", \"/경로/내레포\"] } } }",
 		"docs/gil/human-in-the-loop.md",
