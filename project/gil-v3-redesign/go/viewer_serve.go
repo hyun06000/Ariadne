@@ -104,15 +104,40 @@ func chainLayout(g graphView) (map[string]xy, int, int) {
 	for _, ch := range g.chains {
 		d(ch.name, map[string]bool{})
 	}
-	// depth 별 행 인덱스.
-	rowAt := map[int]int{}
+	// 행(row) 배정 — 자식 체인은 부모의 row 를 물려받아 그 옆(같은 높이)에 놓는다. 그래야
+	// 부모→자식 엣지가 수평으로 흐른다(상현님 관전: 예전엔 depth 별 '등장 순서' 로만 row 를
+	// 매겨, 아래층 가지의 자식이 다음 depth 의 첫 체인이면 row 0(맨 위)에 배치돼 엣지가 위로
+	// 꺾여 올라갔다). 물려받을 row 가 이미 그 depth 에서 찼으면 아래 빈 row 로 밀어 겹침만 피한다.
+	rowChosen := map[string]int{} // 체인명 → row
+	usedAtDepth := map[int]map[int]bool{}
+	take := func(dep, want int) int {
+		if usedAtDepth[dep] == nil {
+			usedAtDepth[dep] = map[int]bool{}
+		}
+		r := want
+		for usedAtDepth[dep][r] {
+			r++
+		}
+		usedAtDepth[dep][r] = true
+		return r
+	}
 	pos := map[string]xy{}
 	const colW, rowH, padX, padY = 210, 90, 70, 60
 	maxCol, maxRow := 0, 0
-	for _, ch := range g.chains { // 등장 순서 유지 → 같은 depth 안에서 안정적
+	// 부모가 먼저 row 를 얻도록 depth 오름차순으로 처리(등장 순서는 같은 depth 안 tie-break).
+	order := make([]chainView, len(g.chains))
+	copy(order, g.chains)
+	sort.SliceStable(order, func(i, j int) bool { return depth[order[i].name] < depth[order[j].name] })
+	for _, ch := range order {
 		dep := depth[ch.name]
-		row := rowAt[dep]
-		rowAt[dep]++
+		want := 0
+		if p := g.parents[ch.name]; p != "" {
+			if pr, ok := rowChosen[p]; ok {
+				want = pr // 부모 row 를 물려받아 수평으로
+			}
+		}
+		row := take(dep, want)
+		rowChosen[ch.name] = row
 		pos[ch.name] = xy{padX + dep*colW, padY + row*rowH}
 		if dep > maxCol {
 			maxCol = dep
