@@ -3986,3 +3986,37 @@ gil latest=**v3.11.1**(배포됨). main=844cdf93(동기화됨). editor-ext/vscod
 이제 실사용 기준 = Claude Desktop 앱에서 Claude Code. 윈도우 친구가 v3.11.1 로 재테스트 예정
 → 다음 피드백 기다림. '실패 안 두려워하는 문법' 비전: [1]레퍼런스✓[2]인터뷰폼✓ → [3]승인관문
 [4]retro [5]fail반전. 설계 아티팩트 f5ce81a5. 남은 이슈 #35·#39·#40·#41·#42/#32·#36/37/38.
+
+
+## 매듭 — 인터뷰 문법 강제 + v3.11.2 (2026-07-27)
+
+상현 실사용(gil-test-2, Claude Desktop+Claude Code 기준): (1)브라우저 시스템브라우저로 뜸(포트충돌
+우회) (2)LLM이 레퍼런스를 스스로 작성, 인터뷰 안 씀 (3)pending인데 뷰어는 뷰어대로 pending이고
+LLM은 또 질문지 만듦 — 둘 중 하나 없거나 연동돼야.
+
+### 로그 확인 (gil-test-2)
+strawberry-b 체인: chain→c001/s1 define 직행, **gil interview 커밋 아예 없음**. LLM이 인터뷰
+건너뛰고 기준 자기작성. 인터뷰가 선택적 안내라 회피됨. AIL meta-fail 세션서 clew 자신도 결론:
+"자기규율(프롬프트/메모리)은 원리적 불충분, 도구 하드블록만 작동." → 안내 아니라 문법 거부.
+
+### 구현 (커밋 308c8460, main)
+두 하드블록(cmdOpen):
+- **기준 필수**: chainReferenceApproved(=Gil-Interview:done)없으면 open 거부. chain --reference
+  자기작성은 게이트 못 넘음(인터뷰 제출만 인정). 상현 지시 "체인 열면 인터뷰 필수".
+- **pending 잠금**: chainInterviewPending 있으면 open·새 interview 둘 다 거부. 두 대기 통합.
+- graph.go: chainReferenceApproved·chainInterviewPending. commands.go: cmdOpen 가드 2, cmdInterview
+  재질문 가드.
+- 부수: chainClosed 게이트 HEAD→--branches(cmdChainClose 대칭, 인터뷰가 HEAD 옮겨도 정확).
+  viewer_launch: 이미 떠도 브라우저 열기.
+- 테스트: TestInterviewGate 5. 하네스 _autofill_interview 추가(기존 open 테스트 187개 보존).
+  전체 187 통과. win/linux 크로스컴파일 OK(단 -o /dev/null 로 — 안 그러면 go/gil 덮음, 실수함).
+
+### v3.11.2 배포
+main push 먼저(844cdf93..308c8460)→태그→릴리스 8자산. 신선설치 v3.11.2 확인.
+
+### 부활점
+gil latest=**v3.11.2**. main=308c8460. 실사용기준=Claude Desktop+Claude Code(레포 gil-test-2).
+남은 브라우저 이슈: 포트충돌시 시스템브라우저 우회(내장브라우저 문제)—미해결, 상현 재테스트로
+관찰. '실패 안 두려워' 비전: [1]레퍼런스✓[2]인터뷰폼✓[3]인터뷰 강제✓ → [4]chain-close --retro
+[5]승인관문(define/hypothesis)[6]fail반전. 다음: 상현 v3.11.2 재테스트 피드백.
+[[verify-with-fresh-build]] 재확인(크로스컴파일이 go/gil 덮는 사고).
