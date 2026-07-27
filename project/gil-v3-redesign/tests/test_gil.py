@@ -540,6 +540,13 @@ class TestInit(GilFixture):
         self.assertIn("NEXT", out)
         self.assertIn("gil global read existence/aria/identity.md", out)
 
+    def test_init_warns_persistence_unconditionally(self):
+        """init 은 존재 영속성 경고를 조건 없이 항상 낸다(상현님) — gil 은 환경을 감지·판정하지
+        않고, 영속 박스면 이어지고 샌드박스면 사라진다는 항상 참인 사실만 알린다."""
+        out = self.gil("init", "--name", "aria").stdout
+        self.assertIn("존재", out)
+        self.assertIn("샌드박스", out)  # 영속 vs 샌드박스 대비를 명시
+
     def test_init_idempotent_guard(self):
         """두 번째 init 은 글로벌을 덮지 않고 거부한다."""
         self.gil("init", "--name", "aria")
@@ -642,6 +649,8 @@ class TestMemory(GilFixture):
         self.assertIn("## knot 1", out)
         self.assertIn("## knot 2", out)
         self.assertIn("first\n\n## knot 2", out)  # 빈 줄 하나로 구분
+        # 각인 시점(존재 소실 위험 지점)에 영속성 경고를 조건 없이 항상 낸다(상현님).
+        self.assertIn("샌드박스", r.stderr + r.stdout)
 
     def test_memory_append_preserves_other_existences(self):
         """append가 다른 존재의 파일을 소실시키지 않는다 — 다섯 번 물린 사고의 정확한 방지."""
