@@ -3015,3 +3015,38 @@ supersede·극성#13). 다음세션: gh issue list -R hyun06000/Ariadne 로 잡�
 #43(가벼운 문서)부터 or #42(refines). 모니터 b7y8fti2l(Ariadne+AIL). 뷰어검증=headless
 Chrome(/Applications/Google Chrome.app --headless --screenshot, 실데이터). 헤드리스는
 데이터·로직만·픽셀은 브라우저. heaal-philosophy. 기록vs행위 간극=구조적한계(go-git도 못품).
+
+
+## 매듭 — #43 관용 예제 (개념→조합 함정 교정, 2026-07-27)
+
+이번 세션 착수: 상현님 "추천으로" → #43(가벼운 문서, v3.8.0 순서강제로 가치↑) 선택.
+
+### 실측 원리(AIL lang-race-v1): 작은 모델은 없는 관용 발명 못 하나, 필요한 관용을 예제로
+정확히 보이면 조합. "예제를 준다"가 아니라 "그 과제가 필요로 하는 관용을 보인다"가 관건.
+
+### 핵심 발견 — 문서가 관용을 *틀리게* 보이던 함정 (이슈 우려 그대로 실재)
+- **`gil open` 이 s1(define)을 자동 생성** → 별도 `--kind define` 스텝은 거부됨. 그런데
+  README.ai 기존 Step C 예제가 `--kind define` 을 따로 찍고 있었다(그대로 따라하면 거부).
+- QUICKSTART 예제들이 v3.8.0 순서강제(#41) 이전: verify --verdict 누락, open --body 누락,
+  hypothesis --falsify/--falsify-to 누락, analyze --outcome success/backtrack 단일스텝.
+
+### 고친 것 (커밋 7056fa0c, main 직접 — 순수 문서, 릴리스 불필요)
+- README.ai Step C: 잘못된 --kind define 제거 + open→hyp→verify→analyze→success→close 완결
+  관용 한 벌 + 막힘 시 fail→hypothesis --to --inherit 형제 가지 backtrack.
+- llms.txt: 웹 진입점에 없던 "관용 예제" 섹션(개념 링크+예제 쌍).
+- QUICKSTART: verify --verdict 필수화, backtrack 을 analyze/fail/hypothesis --inherit 별도
+  스텝 흐름으로, §7 완결예시 v3.8.0 필수플래그로 교정.
+- **검증: 세 문서 모든 명령 격리 fixture 복붙 그대로 끝까지 돌려 거부 0.** /tmp/gil-idiom 빌드.
+
+### 재사용 주의
+- 권장 관용(v3.8.0): analyze=순수분석, 분기=fail --to + hypothesis --to --inherit(별도 스텝).
+  옛 analyze --outcome backtrack/success 는 하위호환으로만 살아있음(help 에 안 나옴).
+- backtrack hypothesis 는 --inherit 필수. hypothesis 는 --falsify+--falsify-to 필수(help step
+  텍스트엔 미표기지만 reportGuide·거부메시지엔 있음 — 이건 별개 개선여지).
+
+### 부활점
+gil latest=**v3.8.0**. main=7056fa0c(#43 문서, 미릴리스 아님 — 문서라 릴리스 불요). #43 진행
+코멘트 완료(추가 관용예제 원하면 넣을 수 있다고 열어둠). 다음 미착수(Ariadne): #42 refines
+간선(정직화계보), #32 analyze재분기, #34 배포마커(선호=명시), #33 레퍼런스트루스(최중량).
+닫기대기: #35~#38 뷰어(실질해소, 상현확인). gh issue list -R hyun06000/Ariadne. 모니터
+b7y8fti2l. heaal-philosophy. 기록vs행위 간극=구조적한계.
