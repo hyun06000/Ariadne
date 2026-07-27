@@ -3348,3 +3348,401 @@ gil latest=v3.9.0. main=ca52380f. 뷰어 임베드 설계=완료(코드 0, 설�
 
 다음 세션: (1) extension.ts 스캐폴드 작성 (2) 간단히 Cursor에서 테스트 (PATH 가정)
 (3) 피드백받아 기능 결정. 또는 상현님 우선순위 지시.
+
+# VS Code 확장에서 뷰어 ↔ Claude Code 상호작용 — 실현 가능성 조사
+
+## 요청 배경
+상현님: "우리 뷰어와 Claude Code 에이전트가 상호작용하길 원함"
+- 우선순위 1: 뷰어 → Claude Code (그래프 노드 클릭 → 에이전트에 명령 전달)
+- 우선순위 2: Claude Code → 뷰어 (에이전트 작업 중 뷰어 제어·갱신·하이라이트)
+- 우선순위 3: 승인/기각 (뷰어 버튼 → gill approve/reject)
+
+## 핵심 질문 3가지
+
+### Q1: Claude Code VS Code 확장이 서드파티 확장에 API를 여나?
+
+**결론: 제한적·폐쇄적. 공개 API 없음 (추측 포함)**
+
+#### 사실
+- Claude Code VS Code 확장은 **Anthropic 공식** (anthropic.claude-code)
+- 공식 문서(code.claude.com/docs/en/vs-code.md): 확장 기능 설명 상세하나, **서드파티 통신 경로 명시 없음**
+- 확장은 "side-by-side diff 뷰어, @-mention, 탭 이력" 등 UI만 제공
+- 내부: 번들된 CLI를 래핑한 것 (깊은 통합 없음)
+
+#### 시작점: URI Handler 발견
+공식 문서에 한 가지 경로 발견:
+```
+vscode://anthropic.claude-code/open?prompt=<url-encoded>&session=<session-id>
+```
+- **목적**: 외부 도구(웹, 스크립트)에서 Claude Code 탭을 열기
+- **방식**: VS Code URI handler 등록 (표준 메커니즘)
+- **제약**: 읽기만 (탭 열기), 양방향 통신 불가
+
+#### vscode.extensions.getExtension() 가능성
+VS Code 표준 API: 다른 확장의 exports 접근 가능
+```typescript
+const claudeExt = vscode.extensions.getExtension('anthropic.claude-code');
+const api = claudeExt?.exports;  // 공개 API가 있다면
+```
+
+**그런데 Claude Code 확장은 exports를 공개하지 않음** (코드 확인 불가, 문서 없음)
+→ getExtension()은 이론상 가능하나 실제로 쓸 API 없음
+
+#### vscode.commands.executeCommand() 경로
+```typescript
+vscode.commands.executeCommand('anthropic.claude-code.open', {prompt: '...'});
+```
+
+**마찬가지로**: 문서에 공개된 명령 없음. URI handler만 있음.
+
+**결론 Q1: "Claude Code 확장에 직접 붙는 경로는 없다" (추측 포함 — 소스코드 접근 불가)**
+
+---
+
+### Q2: VS Code 확장 간 통신 메커니즘 (우리 확장이 Claude Code를 트리거할 수 있나?)
+
+**결론: 표준 경로는 있으나, Claude Code 확장이 호응하지 않음**
+
+#### 방법 1: URI Handler (유일한 공개 경로)
+
+우리 확장에서:
+```typescript
+// vscode://anthropic.claude-code/open 호출
+const uri = encodeURI('vscode://anthropic.claude-code/open?prompt=this%20is%20step%20X%2C%20continue%20it');
+await vscode.env.openExternal(vscode.Uri.parse(uri));
+```
+
+**작동**: VS Code URI 시스템이 Claude Code 확장을 활성화, 새 탭 열기, prompt 미리 채우기
+**제약**:
+- 읽기만 (Claude → 뷰어는 불가)
+- 사용자 승인 필요 (터미널 열기 같은 경고 없지만, 외부 통신이라 검증 필요)
+- 세션 ID로 기존 탭 재활용 가능 (query param `session=<id>`)
+
+#### 방법 2: vscode.commands.executeCommand (표준이나 미지원)
+
+```typescript
+vscode.commands.executeCommand('anthropic.claude-code.open', options);
+```
+
+**이론**: VS Code 표준. 다른 확장 명령 호출.
+**현실**: Claude Code 확장이 **commands.registerCommand로 "open" 명령을 노출하지 않음** (문서 확인 불가)
+→ 사용 불가
+
+#### 방법 3: exports + getExtension (이론상만)
+
+```typescript
+const ext = vscode.extensions.getExtension('anthropic.claude-code');
+const api = ext?.exports;  // TypeScript 타입 추론 불가 (미공개)
+```
+
+**현실**: Claude Code 문서에 공개 API 없음
+→ 사용 불가
+
+**결론 Q2: "URI Handler만 유일한 경로 (vscode://anthropic.claude-code/open)"**
+
+---
+
+### Q3: 우리 확장이 자체적으로 할 수 있는 것 (폴백 경로)
+
+**결론: 상당 부분 가능. CLI/터미널로 충분.**
+
+#### 경로 1: WebView ↔ 확장 통신 (표준, 완전 지원)
+
+뷰어(WebView 내 HTML/JS):
+```javascript
+// 노드 클릭 이벤트
+document.querySelector('.node').addEventListener('click', () => {
+    vscode.postMessage({
+        command: 'continueStep',
+        stepId: 'step-123',
+        chainId: 'chain-45'
+    });
+});
+```
+
+확장 (extension.ts):
+```typescript
+panel.webview.onDidReceiveMessage((msg) => {
+    if (msg.command === 'continueStep') {
+        // 우리 확장이 처리:
+        // (A) CLI 호출
+        // (B) URI handler로 Claude Code 열기
+        // (C) 메시지 표시
+    }
+});
+```
+
+**상태**: ✓ 완벽 지원. VS Code 표준 API.
+
+#### 경로 2: 터미널에서 CLI 명령 실행
+
+```typescript
+// 방법 A: 새 터미널 생성 → 명령 전송
+const terminal = vscode.window.createTerminal('Gil CLI');
+terminal.sendText('gil step --chain chain-45 --prompt "이 스텝 이어서 작업해줘"');
+terminal.show();
+
+// 방법 B: 기존 터미널 재활용
+const existingTerminal = vscode.window.activeTerminal;
+if (existingTerminal) {
+    existingTerminal.sendText('gil approve step-123');
+}
+```
+
+**제약**: 
+- sendText는 그냥 stdin 입력 (명령 숨김 불가, 출력만 보임)
+- 비동기 → 결과 캡처 어려움
+- 사용자가 "Claude Code로 가서 계속" 중 선택 필요
+
+**상태**: ✓ 작동. 하지만 UX 거칠음.
+
+#### 경로 3: 자식 프로세스로 직접 CLI 호출
+
+```typescript
+import * as cp from 'child_process';
+
+// approve/reject/step 등 gil 명령 직접 호출
+const result = cp.execSync(`gil approve ${stepId}`, {
+    cwd: repoPath,
+    encoding: 'utf-8'
+});
+```
+
+**제약**:
+- git 환경 필요 (별도 setup 불필요, git 있으면 됨)
+- 권한 프롬프트 없음 (확장이 조용히 실행)
+- 에러 처리 필수
+
+**상태**: ✓ 작동. 자동화 가능.
+
+#### 경로 4: Claude Code → 뷰어 제어
+
+뷰어에서 사용자가 뭔가 했음을 extension이 감지 → 뷰어 갱신:
+
+```typescript
+panel.webview.onDidReceiveMessage((msg) => {
+    if (msg.command === 'continueBtnClicked') {
+        // 뷰어 갱신 (새 그래프 데이터)
+        const newGraph = getLatestGraph();  // git 읽기
+        panel.webview.postMessage({
+            command: 'updateGraph',
+            data: newGraph,
+            highlightStepId: msg.stepId
+        });
+    }
+});
+```
+
+WebView 내:
+```javascript
+window.addEventListener('message', (event) => {
+    if (event.data.command === 'updateGraph') {
+        renderGraph(event.data.data);
+        highlightNode(event.data.highlightStepId);  // CSS glow 등
+    }
+});
+```
+
+**상태**: ✓ 완벽 지원.
+
+**결론 Q3: "CLI 호출(자식 프로세스) + WebView 메시지 패싱으로 충분. Claude Code 직접 붙기 필요 없음"**
+
+---
+
+## 실현 가능 인터랙션 맵
+
+### 우선순위 1: "뷰어에서 Claude Code 호출"
+
+**방안 A (권장): URI Handler + 자동**
+```
+뷰어 노드 클릭
+  ↓ (WebView postMessage)
+확장 수신 onDidReceiveMessage
+  ↓ vscode.env.openExternal(vscode://anthropic.claude-code/open?prompt=...)
+  ↓
+Claude Code 탭 열기 (사용자가 본다)
+```
+
+**구현**:
+```typescript
+panel.webview.onDidReceiveMessage((msg) => {
+    if (msg.command === 'continueStep') {
+        const prompt = `Continue from step ${msg.stepId} in chain ${msg.chainId}`;
+        const uri = vscode.Uri.parse(
+            `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}&session=${msg.sessionId}`
+        );
+        vscode.env.openExternal(uri);
+    }
+});
+```
+
+**장점**:
+- 실시간 (클릭 → 즉시 Claude 탭)
+- Claude Code의 UI·권한·검증 그대로 사용
+
+**단점**:
+- Claude Code 탭이 별도 → 사용자 클릭 필요
+- 양방향 (Claude → 뷰어) 불가 (경로 없음)
+
+**방안 B: CLI + 터미널**
+```
+뷰어 노드 클릭
+  ↓
+확장이 터미널에 `claude --prompt "..."` 전송
+  ↓
+사용자가 터미널에서 Claude 상호작용 (CLI 모드)
+```
+
+**장점**:
+- 순수 CLI (Claude Code 확장 의존 없음)
+- terminal.sendText로 구현 간단
+
+**단점**:
+- 터미널 노이즈 (명령 표시)
+- 사용자 친화도 낮음
+
+**권장**: A번 (URI Handler) + C번(cli approve/reject은 자동)
+
+---
+
+### 우선순위 2: "Claude Code → 뷰어 제어"
+
+**불가능 (Claude Code 확장이 우리 확장에 콜백 못함)**
+
+BUT 우회:
+- 뷰어 자체가 1.5초마다 git 폴링 (현재 구조) → 자동 갱신
+- 또는: 우리 확장이 git 감시 → 변화 감지 시 WebView 갱신
+
+```typescript
+// 우리 확장: git 변화 감시
+const watcher = vscode.workspace.createFileSystemWatcher('**/.git/**');
+watcher.onDidChange(() => {
+    // git 그래프 재읽기
+    const newGraph = buildGraph(repoPath);
+    panel.webview.postMessage({
+        command: 'updateGraph',
+        data: newGraph
+    });
+});
+```
+
+**현실적**: 뷰어 iframe의 1.5초 폴링이 이미 실시간을 만족. Claude Code 직접 콜백 불필요.
+
+---
+
+### 우선순위 3: "승인/기각"
+
+**구현**: 뷰어 버튼 → WebView postMessage → 확장 자식 프로세스로 CLI 호출
+
+```typescript
+// 뷰어 HTML
+<button onclick="vscode.postMessage({command: 'approvePending', stepId: 'step-X'})">
+    승인
+</button>
+
+// 확장
+panel.webview.onDidReceiveMessage(async (msg) => {
+    if (msg.command === 'approvePending') {
+        const output = cp.execSync(`gil approve ${msg.stepId}`, {cwd: repoPath});
+        // 뷰어 갱신
+        panel.webview.postMessage({command: 'refreshGraph'});
+    }
+});
+```
+
+**상태**: ✓ 완벽 구현 가능
+
+---
+
+## Claude Code 확장 소스 코드 상태
+
+**사실(2026-07-27 현재)**:
+- Anthropic 공식: github.com/anthropics/claude-code (지배적 배포 binary/docs)
+- 소스코드: **2026-03-31 leaked** (npm .map 파일 노출)
+  - 777genius/claude-code-source-code-full (GitHub archive)
+  - chauncygu/collection-claude-code-source-code (v2.1.88 decompiled)
+  - **재산권 주의**: Anthropic 소유, 공식 릴리스 아님
+
+**시사점**: 
+- 소스는 접근 가능하나, 서드파티 통합 의도 없음 (API 미공개)
+- VS Code 확장도 번들 CLI 래핑 + UI 뿐 (깊은 상태 노출 없음)
+
+---
+
+## 최종 권장 아키텍처
+
+### 1단계: 뷰어 ↔ 확장 양방향 (완전 지원)
+
+```
+WebView (뷰어 iframe)
+    ↕ postMessage / onDidReceiveMessage
+Extension (우리 extension.ts)
+```
+
+- **뷰어 → 확장**: 노드 클릭, 승인/기각 버튼 etc.
+- **확장 → 뷰어**: 그래프 갱신, 하이라이트 등
+
+### 2단계: 확장 → Claude Code (URI Handler)
+
+```
+확장
+    ↓ vscode.env.openExternal(vscode://anthropic.claude-code/open?...)
+Claude Code 탭 (새 창)
+```
+
+- 사용자가 명시적으로 탭 전환
+- 일방향 (프롬프트만 전달)
+
+### 3단계: 자동 CLI 처리 (우리 확장)
+
+```
+WebView 버튼 (승인/기각)
+    ↓ postMessage
+확장 onDidReceiveMessage
+    ↓ cp.execSync('gil approve/reject/step ...')
+git repo 직접 조작
+    ↓
+뷰어 갱신 (WebView postMessage)
+```
+
+---
+
+## 미결정 항목 & 다음 단계
+
+1. **Claude Code 공개 API**: Anthropic이 향후 extension.activate()의 exports 공개할까?
+   → 지금은 계획 명시 없음. 우회로(URI Handler)로 충분.
+
+2. **WebView ↔ 확장 메시지 프로토콜 정의**: 
+   - 뷰어가 보낼 수 있는 메시지 타입 (continueStep, approvePending, etc.)
+   - 확장이 보낼 타입 (updateGraph, highlight, etc.)
+
+3. **실시간 폴링 vs. 이벤트 기반**:
+   - 현재: 뷰어 iframe의 1.5초 폴링
+   - 향상: 확장이 git 감시 → 변화 즉시 반영
+
+4. **Claude Code 탭 관리**:
+   - 여러 탭 열릴 때 포커스 정책
+   - 세션 ID 추적 (resume)
+
+---
+
+## 요약
+
+| 요구사항 | 가능성 | 방법 | 구현 난이도 |
+|---------|--------|------|-----------|
+| 뷰어 → Claude 호출 | ✓ | URI Handler + WebView postMessage | 낮음 |
+| Claude → 뷰어 갱신 | ✓ (우회) | 뷰어 폴링 or 확장 git 감시 | 중간 |
+| 승인/기각 | ✓ | WebView + CLI 직접 호출 | 낮음 |
+| **Claude 직접 API** | ✗ | 없음 (확장 폐쇄적) | - |
+| **Claude 명령 등록** | ✗ | 없음 (공개 안 함) | - |
+
+**폴백 전략**: Claude Code 확장이 잠시 폐쇄적이어도, CLI + 우리 WebView 메시지 패싱만으로 원하는 인터랙션 대부분 구현 가능.
+
+---
+
+## 참고
+
+- VS Code Webview API: https://code.visualstudio.com/api/extension-guides/webview
+- Claude Code VS Code 문서: https://code.claude.com/docs/en/vs-code.md
+- VS Code 확장 간 통신: https://code.visualstudio.com/api/references/vscode-api (extensions.getExtension)
+- Source leak: https://github.com/777genius/claude-code-source-code-full (재산권 주의)
