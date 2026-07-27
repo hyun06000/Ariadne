@@ -34,9 +34,14 @@ func launchViewer() {
 	}
 	url := "http://127.0.0.1:" + viewerPortNum()
 
-	// 이미 그 포트가 열려 있으면(뷰어가 이미 떠 있으면) 중복 기동하지 않는다.
+	// 이미 그 포트가 열려 있으면(뷰어가 이미 떠 있으면) 중복 기동하지 않는다 — 대신 브라우저를
+	// 연다(실사용 피드백: 이미 떠 있을 때 아무 일도 안 하면 사람이 뷰어를 못 찾는다).
 	if portOpen(viewerPortNum()) {
-		println2("  뷰어: 이미 " + url + " 에서 관전 중.")
+		if openBrowser(url) {
+			println2("  뷰어: 이미 관전 중 — 브라우저로 열었다. (" + url + ")")
+		} else {
+			println2("  뷰어: 이미 관전 중 → 브라우저에서 열어라 → " + url)
+		}
 		return
 	}
 

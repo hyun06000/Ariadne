@@ -39,6 +39,9 @@ var helpTable = map[string]helpEntry{
 		"gil open <chain>/<cycle> --author <who> --purpose <자연어> (--body B | --body-file F|- | --title T)\n" +
 			"           [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--inherit <전수>]\n" +
 			"  새 사이클을 연다(s1 define 자동) — git 브랜치 <chain>-<cycle> 을 판다.\n" +
+			"  ⚠ 기준 필수(이슈 #33): 체인을 열면 인터뷰가 먼저다. 사람이 승인한 기준 문서(gil interview\n" +
+			"    제출)가 없으면 거부한다 — LLM 이 스스로 기준을 정하지 말고 사람에게 물어라. 인터뷰가\n" +
+			"    사람 답 대기(pending)면 답이 올 때까지 못 연다.\n" +
 			"  본문 필수: --body/--body-file -(stdin)/--title 중 하나로 s1 define 의 문제 정의를 여는 순간 채운다.\n" +
 			"    (빈 채로 열 수 없다 — raw git amend 로 채우던 우회를 문법으로 막는다. AIL #12)\n" +
 			"  --parent   이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).\n" +

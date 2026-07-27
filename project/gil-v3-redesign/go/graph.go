@@ -76,6 +76,45 @@ func chainHasReference(chain, revRange string) bool {
 	return false
 }
 
+// chainReferenceApproved — 이 체인의 기준이 '사람이 승인한' 것인가(이슈 #33). 인터뷰 제출로
+// 확정된 레퍼런스만(Gil-Interview:done) 인정한다 — LLM 이 gil chain --reference 로 자기가 쓴
+// 기준은 인정하지 않는다(상현님: '됐다'는 판단이 LLM 자기확신이 아니라 사람 기준에 비추어야).
+// 작업 사이클 open 의 게이트가 이걸 본다: 사람 승인 기준 없으면 인터뷰가 먼저다.
+func chainReferenceApproved(chain, revRange string) bool {
+	fmt := trailer("Gil-Chain") + fsep + trailer("Gil-Interview") + sep
+	out := gitlog("--format="+fmt, revRange)
+	for _, rec := range strings.Split(out, sep) {
+		c, iv, _ := cut(rec, fsep)
+		if strings.TrimSpace(c) == chain && strings.TrimSpace(iv) == "done" {
+			return true
+		}
+	}
+	return false
+}
+
+// chainInterviewPending — 이 체인에 아직 사람 답을 못 받은 인터뷰(Gil-Interview:pending)가
+// 있나(이슈 #33). done 마커가 있으면 해소된 것. LLM 이 인터뷰를 심어 사람에게 물어놓고, 답을
+// 안 기다린 채 스스로 진행하는 걸 막는 데 쓴다 — 인터뷰=pending 통합(상현님). pending 이면
+// 그 체인의 다음 스텝(open·재-interview)을 거부한다: 사람이 뷰어 폼으로 답할 때까지 잠긴다.
+func chainInterviewPending(chain, revRange string) bool {
+	fmt := trailer("Gil-Chain") + fsep + trailer("Gil-Interview") + sep
+	out := gitlog("--format="+fmt, revRange)
+	// new→old 순회: 이 체인의 가장 최근 Gil-Interview 상태가 pending 이면 잠김, done 이면 해소.
+	for _, rec := range strings.Split(out, sep) {
+		c, iv, _ := cut(rec, fsep)
+		if strings.TrimSpace(c) != chain {
+			continue
+		}
+		switch strings.TrimSpace(iv) {
+		case "pending":
+			return true
+		case "done":
+			return false
+		}
+	}
+	return false
+}
+
 // cyclePurpose — 사이클 목적성. 참조: cycle_purpose.
 func cyclePurpose(chain, cycle, revRange string) string {
 	fmt := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +

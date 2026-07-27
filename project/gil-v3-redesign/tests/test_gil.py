@@ -63,6 +63,13 @@ class GilFixture(unittest.TestCase):
            not any(a in ("--body", "--body-file", "--title") or
                    a.startswith(("--body=", "--body-file=", "--title=")) for a in args):
             args += ["--body", "(테스트 문제 정의)"]
+        # 이슈 #33: 작업 사이클 open 은 이제 '사람이 승인한 기준(인터뷰 제출)'을 요구한다.
+        # 대부분 테스트는 open 뒤 흐름을 검증하므로, 그 체인에 승인된 기준이 없으면 인터뷰
+        # 심고 즉시 해소(resolve)해 게이트를 자동 충족한다(테스트 의도 보존). 인터뷰 게이트
+        # 자체를 검증하는 테스트는 self._no_interview_autofill 로 이 보정을 우회한다.
+        if args and args[0] == "open" and not getattr(self, "_no_interview_autofill", False) \
+           and "/" in (args[1] if len(args) > 1 else ""):
+            self._autofill_interview(args[1].split("/")[0])
         # AIL #13: backtrack(step --kind hypothesis --to <define>)은 --inherit 필수(누적 반성
         # 전수). 대부분 테스트는 backtrack 위상 자체를 검증하므로, --inherit 이 없으면 기본을
         # 자동 주입한다(테스트 의도 보존). 전수 강제 자체를 검증하는 테스트는 명시 호출로 우회.
@@ -89,6 +96,36 @@ class GilFixture(unittest.TestCase):
                 self._autofill_order(ref, chain, kind, env)
         return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
                               capture_output=True, text=True, env=env, input=input)
+
+    def _autofill_interview(self, chain):
+        """작업 사이클 open 전, 그 체인에 '사람 승인 기준'이 없으면 인터뷰를 심고 즉시 해소해
+        게이트를 자동 충족한다(이슈 #33). 이미 done 이면 아무것도 안 한다."""
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        # 이미 인터뷰 done(사람 승인 기준)이 있으면 건너뛴다.
+        r = subprocess.run(["git", "log", "--all",
+                            "--format=%(trailers:key=Gil-Chain,valueonly)\x1f%(trailers:key=Gil-Interview,valueonly)"],
+                           cwd=self.repo, capture_output=True, text=True)
+        for line in r.stdout.splitlines():
+            c, _, iv = line.partition("\x1f")
+            if c.strip() == chain and iv.strip() == "done":
+                return  # 이미 승인된 기준 있음
+        # 체인이 선언돼 있을 때만(없으면 open 이 알아서 거부).
+        pr = subprocess.run([*GIL_CMD, "interview", chain, "--ask", "-"],
+                            cwd=self.repo, capture_output=True, text=True, env=env,
+                            input='[{"q":"(테스트) 무엇을 풀려는가","type":"text"}]')
+        if pr.returncode != 0:
+            return  # 체인 미선언 등 — open 이 거부하게 둔다
+        refp = os.path.join(self.repo, f"reference-{chain}.md")
+        with open(refp, "w", encoding="utf-8") as f:
+            f.write("# (테스트) 기준 문서\n성공 기준: 테스트 통과")
+        subprocess.run([*GIL_CMD, "interview", chain, "--resolve", f"reference-{chain}.md"],
+                       cwd=self.repo, capture_output=True, text=True, env=env)
+        # 기준 전문은 커밋 본문에 담겼으니 워킹트리 파일은 지운다 — 안 지우면 '미커밋 작업'으로
+        # 잡혀 클린 상태를 검증하는 테스트를 깬다.
+        try:
+            os.remove(refp)
+        except OSError:
+            pass
 
     def _autofill_order(self, ref, chain, target_kind, env):
         """target_kind 를 찍기 전에 순서상 필요한 선행 스텝을 자동으로 채운다(AIL #41)."""
@@ -176,6 +213,7 @@ class TestCycleAndStep(GilFixture):
     def setUp(self):
         super().setUp()
         self.gil("chain", "c", "--purpose", "체인목적")
+        self._autofill_interview("c")  # #33: open 게이트(사람 승인 기준) 자동 충족
 
     def test_open_requires_purpose(self):
         r = self.gil("open", "c/c001", "--author", "clew")
@@ -1255,6 +1293,13 @@ class TestViewer(GilFixture):
                                           capture_output=True, text=True)
             g("init", "--name", "clew")
             g("chain", "demo", "--purpose", "P")
+            # #33: open 게이트(사람 승인 기준) 충족 — 인터뷰 심고 즉시 해소.
+            subprocess.run([*GIL_CMD, "interview", "demo", "--ask", "-"], cwd=work, env=env,
+                           capture_output=True, text=True, input='[{"q":"q","type":"text"}]')
+            with open(os.path.join(work, "reference-demo.md"), "w", encoding="utf-8") as f:
+                f.write("# 기준")
+            g("interview", "demo", "--resolve", "reference-demo.md")
+            os.remove(os.path.join(work, "reference-demo.md"))
             g("open", "demo/c001", "--author", "clew", "--purpose", "Q", "--body", "문제 정의")
             g("step", "demo/c001", "--kind", "hypothesis", "--title", "H", "--body", "b", "--falsify", "F", "--falsify-to", "s1")
             subprocess.run(["git", "-C", work, "push", "-q", "--all", "origin"], check=True)
@@ -2286,12 +2331,76 @@ class TestReference(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("기준 문서", r.stdout + r.stderr)
 
-    def test_open_no_reference_no_surface(self):
-        """기준 없는 체인은 그 안내가 뜨지 않는다."""
+    def test_open_blocked_without_approved_reference(self):
+        """사람 승인 기준(인터뷰 done)이 없으면 작업 사이클 open 이 거부된다(#33 게이트).
+        (자동 인터뷰 보정을 끄고 게이트 자체를 검증한다.)"""
         self._init()
         self.gil("chain", "plain", "--purpose", "그냥")
-        r = self.gil("open", "plain/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
-        self.assertNotIn("레퍼런스 트루스", r.stdout + r.stderr)
+        self._no_interview_autofill = True
+        try:
+            r = self.gil("open", "plain/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        finally:
+            self._no_interview_autofill = False
+        self.assertNotEqual(r.returncode, 0, "기준 없는 open 이 거부되지 않음")
+        self.assertIn("인터뷰", r.stdout + r.stderr)
+
+
+class TestInterviewGate(GilFixture):
+    """인터뷰 필수 + pending 잠금 게이트 (이슈 #33, 상현님 실사용).
+
+    LLM 이 사람에게 묻는 마찰을 회피하고 스스로 기준을 정해 진행하는 걸 문법으로 막는다.
+    이 클래스는 게이트 자체를 검증하므로 자동 인터뷰 보정을 끈다."""
+
+    def setUp(self):
+        super().setUp()
+        self._no_interview_autofill = True  # 게이트 검증 — 자동 충족 끔
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "sb", "--purpose", "딸기 예측")
+
+    def _put_interview(self):
+        return self.gil("interview", "sb", "--ask", "-",
+                        input='[{"q":"무엇을 풀려는가","type":"text"}]')
+
+    def _resolve(self):
+        ref = os.path.join(self.repo, "reference-sb.md")
+        with open(ref, "w", encoding="utf-8") as f:
+            f.write("# 기준 문서\n성공: RMSE 하한")
+        return self.gil("interview", "sb", "--resolve", "reference-sb.md")
+
+    def test_open_blocked_without_interview(self):
+        """기준(인터뷰 done) 없이 작업 사이클 open 거부 — 인터뷰가 먼저."""
+        r = self.gil("open", "sb/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("인터뷰", r.stdout + r.stderr)
+
+    def test_open_blocked_while_interview_pending(self):
+        """인터뷰가 사람 답 대기(pending) 중이면 open 거부 — pending 잠금."""
+        self._put_interview()
+        r = self.gil("open", "sb/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("대기", r.stdout + r.stderr)
+
+    def test_second_interview_blocked_while_pending(self):
+        """이미 pending 인터뷰가 있으면 새 질문지를 또 못 만든다 — LLM 자가진행 차단."""
+        self._put_interview()
+        r = self.gil("interview", "sb", "--ask", "-",
+                     input='[{"q":"또 질문","type":"text"}]')
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_open_allowed_after_resolve(self):
+        """사람이 폼으로 답(resolve)하면 기준이 확정되고 그제서야 open 이 열린다."""
+        self._put_interview()
+        self._resolve()
+        r = self.gil("open", "sb/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_self_authored_reference_does_not_satisfy_gate(self):
+        """gil chain --reference(LLM 자기작성)만으로는 게이트를 못 넘는다 — 인터뷰 done 이라야."""
+        self.gil("chain", "self", "--purpose", "P", "--reference", "-",
+                 input="# 내가 쓴 기준")
+        r = self.gil("open", "self/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.assertNotEqual(r.returncode, 0, "자기작성 기준이 게이트를 통과하면 안 됨")
+        self.assertIn("인터뷰", r.stdout + r.stderr)
 
 
 class TestInterview(GilFixture):
