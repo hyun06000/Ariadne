@@ -3802,3 +3802,31 @@ gil latest=**v3.10.0**(배포됨). main=d69f2184. editor-ext/vscode 미게시(vs
 Marketplace/OpenVSX 남음). 다음: Phase1b 인터랙션 마저(노드클릭→URI Handler vscode://
 anthropic.claude-code/open, iframe→확장 postMessage 검증 필요) or 확장 vsce 배포 or
 서브에이전트가 clew기억 각인한 매듭 2건 정리. 미착수 이슈 #42·#32·#34·#33. 모니터 b7y8fti2l.
+
+
+## 매듭 — gil deploy 배포 마커 (이슈 #34, 2026-07-27)
+
+미착수 이슈 중 #34 착수·완결. 상현 "너 추천대로 갈게" → 가장 익은 이슈(설계 명확·되돌리기
+안전·v3.10.0 신선 실증) 선택.
+
+### 구현 (커밋 25742b42, main)
+- `gil deploy --at <chain>/<cycle>/<step> --tag <v> [--url]`: 특정 스텝에 배포 마커.
+  Gil-Deploy·Gil-Deploy-At·Gil-Deploy-Url 트레일러. **Gil-Step 안 달아 추론노드 아님**
+  → 그래프 위상 불변·fsck 위반 0(얇은 주석 커밋). cmdDeploy in commands.go, main.go 디스패치,
+  usage_help.go.
+- 명시적 명령 채택(상현 선호): "언제 왜 배포"를 배포 시점에. git tag 자동감지는 "왜" 못 담아 배제.
+- 뷰어 2곳: viewer_graph.go 가 Gil-Step 없는 커밋에서 Gil-Deploy-At 모아 대상 노드에 얹음
+  (deployTag/deployURL 필드). viewer_serve.go — buildGraph JSON(스텝카드)·dagJSON(전체맵)
+  양쪽 emit + SVG 🚀 배지(deploybadge/dagdeploy 클래스, 청록 #2dd4bf 테)+범례.
+- 테스트 5(TestDeploy). 전체 162 통과. 헤드리스 Chrome 렌더로 전체맵에 🚀 v0.2.0 실표시 확인.
+
+### 주의: go/gil 바이너리
+레포에 과거 커밋된 tracked 바이너리 있으나 최근 소스커밋(f83fd100·d69f2184)들이 갱신 안 함
+→ **stale, 커밋 안 하는 게 관례**(gil-dev-vs-release-isolation: 소스가 진실, go run/release-build
+가 바이너리 생산). 이번에도 rebuild 한 gil 은 unstage/restore 하고 소스+테스트만 커밋.
+
+### 부활점
+gil latest=v3.10.0(배포됨). main=**25742b42**(gil deploy #34, 미배포 — 다음 릴리스감).
+남은 미착수 이슈: #42(--refines 약한 정정간선)·#32(구현틀림 재분기)·#33(레퍼런스 트루스,
+합의 전 구현금지). editor-ext/vscode 미게시. 다음: #34 이슈 코멘트로 완결 보고 or #42/#32
+정직화 계열 착수 or Phase1b URI Handler 인터랙션.
