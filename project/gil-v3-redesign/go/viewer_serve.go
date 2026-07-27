@@ -7,9 +7,41 @@ import (
 	"html"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 )
+
+// validIdent — approve/reject 인자(체인·사이클·스텝 id) 검증. 명령 주입/경로 이탈을 막는다:
+// 뷰어는 자기 자신(gil)을 exec 하므로, 사용자가 못 보내는 값은 애초에 서버가 거부한다.
+// gil id 문법과 같은 보수적 집합만 허용(영숫자·- · _).
+func validIdent(s string) bool {
+	if s == "" || len(s) > 128 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// gilExec — 뷰어가 관전 중인 저장소에서 gil 하위명령을 자식 프로세스로 돌린다. cmdApprove/
+// cmdReject 는 실패 시 die(프로세스 종료)라 함수로 직접 부르면 서버가 죽는다 — 별도 프로세스로
+// 격리한다. gil 바이너리는 지금 도는 자기 자신(os.Executable). --repo 대신 -C 로 실행 위치를
+// 옮긴다(gil 은 cwd 의 git 을 본다).
+func gilExec(args ...string) ([]byte, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(self, args...)
+	cmd.Dir = viewerRepoDir
+	cmd.Env = append(os.Environ(), "GIL_NO_VIEWER=1") // 자식이 또 뷰어를 띄우지 않게
+	return cmd.CombinedOutput()
+}
 
 func serve(args []string) {
 	port := "8790"
@@ -46,6 +78,41 @@ func serve(args []string) {
 		}
 		w.Write(out)
 	})
+	// POST /approve?chain=&cycle=  ·  POST /reject?chain=&cycle=&to=
+	// pending 스텝을 사람이 뷰어에서 직접 승인/기각한다(상현님). 상태를 바꾸므로 POST 만
+	// 허용(GET 은 CSRF/오작동 방지). 서버는 127.0.0.1 만 바인딩하니 로컬 전용이다.
+	pendingAction := func(w http.ResponseWriter, r *http.Request, kind string) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		q := r.URL.Query()
+		chain, cycle := q.Get("chain"), q.Get("cycle")
+		if !validIdent(chain) || !validIdent(cycle) {
+			http.Error(w, "bad chain/cycle", http.StatusBadRequest)
+			return
+		}
+		ref := chain + "/" + cycle
+		var out []byte
+		var err error
+		if kind == "approve" {
+			out, err = gilExec("approve", ref)
+		} else {
+			to := q.Get("to")
+			if !validIdent(to) {
+				http.Error(w, "reject 는 --to <define> 필요", http.StatusBadRequest)
+				return
+			}
+			out, err = gilExec("reject", ref, "--to", to)
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest) // gil 이 거부(pending 아님 등) — 본문에 이유
+		}
+		w.Write(out)
+	}
+	http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "approve") })
+	http.HandleFunc("/reject", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "reject") })
 	addr := "127.0.0.1:" + port
 	fmt.Println("gil 뷰어 서버 → http://" + addr + "  (관전 레포: " + viewerRepoDir + ")")
 	if err := http.ListenAndServe(addr, nil); err != nil {
@@ -225,7 +292,12 @@ func renderHTML(g graphView, static bool) string {
 	if !static {
 		script = jsPoll + js // serve 모드에만 폴링을 앞에 붙인다
 	}
-	b.WriteString(`</main><script>` + script + `</script></body></html>`)
+	// LIVE_STATIC: 정적 build(서버 없음)면 true — 승인/기각 버튼처럼 서버가 필요한 UI 를 숨긴다.
+	staticFlag := "false"
+	if static {
+		staticFlag = "true"
+	}
+	b.WriteString(`</main><script>const LIVE_STATIC=` + staticFlag + `;` + script + `</script></body></html>`)
 	return b.String()
 }
 
@@ -550,6 +622,17 @@ svg.cygraph{display:block}
 .badge.k-dead{border-color:#ff6b6b;color:#ff6b6b}
 .badge.k-pending{border-color:#ffd166;color:#ffd166}
 .badge.k-here{border-color:var(--here);color:var(--here);font-weight:700}
+/* pending 승인/기각 액션 박스(서버 /approve·/reject) */
+.pendbox{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 16px 0;padding:10px 12px;
+ background:var(--bg);border:1px solid #ffd166;border-radius:8px;font-size:12px}
+.pendmsg{color:#ffd166;font-weight:700}
+.pendbtn{font:inherit;font-size:12px;font-weight:700;padding:4px 12px;border-radius:6px;cursor:pointer;border:1px solid}
+.pendbtn.approve{border-color:#3ddc84;color:#3ddc84;background:none}
+.pendbtn.approve:hover:not(:disabled){background:#3ddc84;color:#08351d}
+.pendbtn.reject{border-color:#ff6b6b;color:#ff6b6b;background:none}
+.pendbtn.reject:hover:not(:disabled){background:#ff6b6b;color:#3a0d0d}
+.pendbtn:disabled{opacity:.5;cursor:default}
+.pendstatus{color:var(--dim)}
 .lineage{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 16px 0;padding:8px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font-size:11px}
 .lineage .lgroup{display:inline-flex;flex-wrap:wrap;gap:4px}
 .lchip{font-size:11px;border:1px solid var(--line);border-radius:5px;padding:1px 7px;color:var(--fg);background:var(--card);font-family:inherit}
@@ -971,6 +1054,33 @@ async function openReport(chain,cycle,n){
   if(n.outcome)badge('=' +n.outcome);
   if(n.here)badge('◀ 현재위치','k-here');
   rc.appendChild(meta);
+
+  // pending 잎이면 사람이 여기서 직접 승인/기각한다(상현님). 버튼이 서버 /approve·/reject 를
+  // 쳐서 gil approve/reject 를 실행 → 폴링이 곧 갱신하지만 즉시 리로드해 반영한다. 정적 build
+  // 모드(서버 없음)에선 버튼을 숨긴다(누를 서버가 없다).
+  if(n.kind==='pending' && !LIVE_STATIC){
+    const box=document.createElement('div');
+    box.className='pendbox';
+    const msg=document.createElement('span'); msg.className='pendmsg'; msg.textContent='⏳ 사람 답 대기 —';
+    const ok=document.createElement('button'); ok.className='pendbtn approve'; ok.textContent='✓ 승인(산 잎)';
+    const no=document.createElement('button'); no.className='pendbtn reject'; no.textContent='✕ 기각(되돌림)';
+    const status=document.createElement('span'); status.className='pendstatus';
+    const act=async(kind)=>{
+      ok.disabled=no.disabled=true; status.textContent=' 처리 중…';
+      const qs='chain='+encodeURIComponent(chain)+'&cycle='+encodeURIComponent(cycle)+
+        (kind==='reject'?'&to=s1':''); // 기각은 사이클 뿌리 define(s1)로 되돌린다
+      try{
+        const res=await fetch('/'+kind+'?'+qs,{method:'POST'});
+        const txt=await res.text();
+        if(res.ok){ status.textContent=' ✓ 완료 — 갱신 중'; setTimeout(()=>location.reload(),400); }
+        else{ status.textContent=' ✕ '+txt.split('\n')[0]; ok.disabled=no.disabled=false; }
+      }catch(e){ status.textContent=' ✕ '+e; ok.disabled=no.disabled=false; }
+    };
+    ok.addEventListener('click',ev=>{ev.stopPropagation();act('approve');});
+    no.addEventListener('click',ev=>{ev.stopPropagation();act('reject');});
+    box.appendChild(msg); box.appendChild(ok); box.appendChild(no); box.appendChild(status);
+    rc.appendChild(box);
+  }
 
   // 지식 전파 계보(피드백 3): 이 스텝이 무엇을 이어받고(들어오는) 무엇을 낳는지(나가는).
   rc.appendChild(lineage(chain,cycle,n));

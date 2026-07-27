@@ -1159,6 +1159,48 @@ class TestViewer(GilFixture):
             except Exception:
                 p.kill()
 
+    def test_viewer_approve_endpoint(self):
+        """serve 의 POST /approve 가 pending 을 승인 → 산 잎(상현님, 뷰어 인터랙션).
+
+        뷰어에서 사람이 pending 스텝의 승인 버튼을 누르면 서버가 gil approve 를 exec 한다.
+        모든 호스트(브라우저·확장)에서 도는 범용 경로. GET 은 거부(상태 변경이라 POST 만)."""
+        import socket, time, urllib.request, urllib.error
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "t", "--purpose", "승인")
+        self.gil("open", "t/c001", "--author", "clew", "--purpose", "p", "--body", "정의")
+        self._autofill_order("t/c001", "t", "pending", dict(os.environ, GIL_NO_VIEWER="1"))
+        self.gil("step", "t/c001", "--kind", "pending", "--title", "대기", "--body", "승인 요청")
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo,
+                              "--port", str(port)], env=env,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            base = f"http://127.0.0.1:{port}"
+            for _ in range(40):
+                try:
+                    urllib.request.urlopen(base + "/", timeout=1); break
+                except Exception:
+                    time.sleep(0.05)
+            # GET 은 405(POST only)
+            try:
+                urllib.request.urlopen(base + "/approve?chain=t&cycle=c001", timeout=1)
+                self.fail("GET /approve 가 허용됨 — POST 만 허용해야")
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 405)
+            # POST 로 승인 → 산 잎
+            req = urllib.request.Request(base + "/approve?chain=t&cycle=c001", method="POST")
+            body = urllib.request.urlopen(req, timeout=3).read().decode()
+            self.assertIn("success", body)
+        finally:
+            p.terminate()
+            try:
+                p.wait(timeout=3)
+            except Exception:
+                p.kill()
+        # 승인 후 그래프에 success 산 잎이 생겼다.
+        self.assertIn("success", self.gil("viewer").stdout)
+
     def test_viewer_text_output(self):
         self._seed_graph()
         r = self.gil("viewer")   # 서브명령 없으면 텍스트 트리
