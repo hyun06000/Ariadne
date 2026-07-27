@@ -2254,5 +2254,45 @@ class TestFailClosure(GilFixture):
         self.assertEqual(r.returncode, 0, "정정된 fail 사이클도 abandon 봉인 가능: " + r.stderr)
 
 
+class TestReference(GilFixture):
+    """레퍼런스 트루스 최소 형태 — gil chain --reference (이슈 #33, 강제 없이 존재·참조)."""
+
+    def _init(self):
+        self.gil("init", "--name", "clew")
+
+    def test_chain_reference_pins_trailer_and_body(self):
+        """--reference 는 Gil-Reference 트레일러를 달고 전문을 chain-root 본문에 담는다."""
+        self._init()
+        r = self.gil("chain", "audit", "--purpose", "감사",
+                     "--reference", "-", input="# 기준\n성공: 30% 절감\n실패: 정확도 하락")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("audit", "Gil-Reference"), "true")
+        body = self._git("log", "-1", "audit", "--format=%b").stdout
+        self.assertIn("30% 절감", body)  # 기준 전문이 본문에 있다
+
+    def test_chain_without_reference_still_ok(self):
+        """--reference 는 강제 아님(최소 형태) — 없어도 체인은 열린다."""
+        self._init()
+        r = self.gil("chain", "plain", "--purpose", "그냥")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("plain", "Gil-Reference"), "")
+
+    def test_open_surfaces_reference_when_present(self):
+        """기준 있는 체인에서 사이클을 열면 '기준을 읽으라' 안내가 뜬다."""
+        self._init()
+        self.gil("chain", "audit", "--purpose", "감사",
+                 "--reference", "-", input="# 기준 문서 전문")
+        r = self.gil("open", "audit/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("기준 문서", r.stdout + r.stderr)
+
+    def test_open_no_reference_no_surface(self):
+        """기준 없는 체인은 그 안내가 뜨지 않는다."""
+        self._init()
+        self.gil("chain", "plain", "--purpose", "그냥")
+        r = self.gil("open", "plain/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+        self.assertNotIn("레퍼런스 트루스", r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

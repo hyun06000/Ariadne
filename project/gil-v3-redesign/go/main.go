@@ -126,7 +126,7 @@ func printUsage() {
   gil memory append <이름> <file> 기억에 매듭 이어붙임 (안전, 자동 push)
 
 사고 기록 (체인 > 사이클 > 스텝):
-  gil chain <name> --purpose <p>  새 체인 개설 (닫힌 체인 끝에서만)
+  gil chain <name> --purpose <p> [--reference <기준문서>]  새 체인 개설 (--reference: 기준 문서, #33)
   gil open <chain>/<cycle> --author <a> --purpose <p>   새 사이클
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
   gil close <chain>/<cycle> --verdict <v> [--abandon]   사이클 닫기 (--abandon: fail만인 죽은 사이클도)

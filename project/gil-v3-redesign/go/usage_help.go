@@ -21,9 +21,12 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/existence.md · docs/gil/index.md",
 	},
 	"chain": {
-		"gil chain <name> --purpose <자연어>\n" +
+		"gil chain <name> --purpose <자연어> [--reference <기준문서|->] [--inherit <전수>]\n" +
 			"  새 체인(작업 큰 줄기)을 연다 — git 브랜치 <name> 을 판다. --purpose 필수.\n" +
-			"  닫힌 체인 끝에서만(대문/이전 닫힌 체인 이어받음, orphan 아님).",
+			"  닫힌 체인 끝에서만(대문/이전 닫힌 체인 이어받음, orphan 아님).\n" +
+			"  --reference: 이 체인의 기준 문서(레퍼런스 트루스, 이슈 #33) — 사람과의 인터뷰로\n" +
+			"    문제를 명확히 한 산출물. chain-root 본문에 전문이 담기고, 이후 사이클의 define·\n" +
+			"    가설·성패판정이 무엇에 비추어 합당한지의 잣대가 된다. 아직 강제 아님(존재·참조만).",
 		"docs/gil/concepts.md · docs/gil/deployment.md",
 	},
 	"chain-close": {

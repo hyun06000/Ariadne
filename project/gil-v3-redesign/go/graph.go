@@ -62,6 +62,20 @@ func chainPurpose(chain, revRange string) string {
 	return ""
 }
 
+// chainHasReference — 이 체인의 chain-root 에 기준 문서(Gil-Reference)가 심겨 있나(이슈 #33).
+// 사이클을 열 때 "이 체인엔 기준이 있으니 읽고 그에 비추어 정의·판정하라"를 안내하는 데 쓴다.
+func chainHasReference(chain, revRange string) bool {
+	fmt := trailer("Gil-Chain") + fsep + trailer("Gil-Reference") + sep
+	out := gitlog("--format="+fmt, revRange)
+	for _, rec := range strings.Split(out, sep) {
+		c, r, _ := cut(rec, fsep)
+		if strings.TrimSpace(c) == chain && strings.TrimSpace(r) == "true" {
+			return true
+		}
+	}
+	return false
+}
+
 // cyclePurpose — 사이클 목적성. 참조: cycle_purpose.
 func cyclePurpose(chain, cycle, revRange string) string {
 	fmt := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +
@@ -83,6 +97,12 @@ func showPurposeContext(chain, cycle, cyclePurposeStr string) {
 	cp := chainPurpose(chain, "HEAD")
 	if cp != "" {
 		stderr("─ 체인 [" + chain + "] 목적: " + cp)
+	}
+	// 이 체인에 기준 문서(레퍼런스 트루스)가 있으면 읽고 그에 비추어 정의·판정하라(이슈 #33).
+	// chain-root 커밋 본문에 전문이 있다 — 사이클의 define·가설·성패판정의 잣대.
+	if chainHasReference(chain, "HEAD") {
+		stderr("─ 이 체인엔 기준 문서(레퍼런스 트루스)가 있다 — 읽어라: gil log " + chain +
+			" (chain-root 본문) 또는 뷰어 체인 카드. 이 사이클의 정의·가설·성패를 그 기준에 비추어라.")
 	}
 	if cycle != "" {
 		pu := cyclePurposeStr

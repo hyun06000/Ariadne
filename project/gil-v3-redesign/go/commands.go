@@ -1130,9 +1130,15 @@ func cmdChain(args []string) {
 	fs := newFlags("gil chain")
 	purpose := fs.str("purpose", "")
 	inherit := fs.str("inherit", "") // 물려받은 전수(AIL #3). 체인 부모는 위상 유도라 선택.
+	// --reference: 이 체인의 기준 문서(레퍼런스 트루스, 이슈 #33). 인터뷰로 문제를 명확히 한
+	// 산출물 — 이후 사이클의 define·가설·성패판정·기각이 무엇에 비추어 합당한지의 잣대가 된다.
+	// 최소 형태(이번 조각): '기준의 존재와 참조'만 심는다. 강제도 매 사이클 인용 강제도 아직 없다
+	// — 형해화(빈 문서 양산) 위험을 관전한 뒤 강제 강도를 올린다(#33 논쟁점 1, falsify가 준 교훈).
+	// purpose=한 줄 요약, reference=근거 전문(파일 또는 - stdin).
+	reference := fs.str("reference", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil chain <name> --purpose <자연어> [--inherit <전수>]")
+		die("사용: gil chain <name> --purpose <자연어> [--reference <기준문서|->] [--inherit <전수>]")
 	}
 	name := pos[0]
 	if *purpose == "" {
@@ -1150,9 +1156,18 @@ func cmdChain(args []string) {
 	subject := "gil " + name + " chain: " + *purpose
 	body := "체인 [" + name + "] 개설. 목적: " + *purpose + "\n\n" +
 		"이 목적은 이후 사이클·스텝 시작 때 떠올라, 그 작업이 이 체인에 정합하는지 판단하는 근거가 된다."
+	// 기준 문서를 chain-root 커밋 본문에 통째로 담는다(뷰어가 마크다운으로 렌더). 트레일러엔
+	// '기준 있음' 표식만 — 전문은 본문에, 참조는 트레일러로.
+	refBody := resolveBody("", *reference)
+	if strings.TrimSpace(refBody) != "" {
+		body += "\n\n── 기준 문서(레퍼런스 트루스, 이슈 #33) ──\n\n" + refBody
+	}
 	tr := [][2]string{
 		{"Gil-Chain", name}, {"Gil-Kind", "chain-root"},
 		{"Gil-Chain-Purpose", *purpose},
+	}
+	if strings.TrimSpace(refBody) != "" {
+		tr = append(tr, [2]string{"Gil-Reference", "true"}) // 기준 문서 있음(본문에 전문)
 	}
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
@@ -1160,6 +1175,15 @@ func cmdChain(args []string) {
 	// 체인 = git 브랜치. 현재 위치(대문/닫힌 체인 끝)에서 분기해 대문을 이어받는다(orphan 아님).
 	commitOn(name, "HEAD", subject, body, tr, true)
 	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
+	if strings.TrimSpace(refBody) != "" {
+		println2("  ✓ 기준 문서(레퍼런스 트루스) 심음 — 이후 사이클의 define·가설·성패판정이 이걸 잣대로 선다.")
+	} else {
+		// 강제 아닌 안내(#33 최소 형태) — 기준 없이 여는 체인은 "무엇에 비추어 성패인가"가 없어,
+		// 사람이 봤을 때 미달을 짚을 근거도, LLM 이 스스로 방향을 잡을 잣대도 흐려진다.
+		stderr("  ▸ 이 체인의 기준 문서가 있으면 --reference <파일|-> 로 심어라(이슈 #33) — 사람과의 인터뷰로")
+		stderr("    문제를 명확히 한 산출물. 이후 사이클의 define·가설·성패판정이 무엇에 비추어 합당한지의")
+		stderr("    잣대가 된다. 기준이 없으면 '됐다'는 판단이 LLM 자기확신에 그친다.")
+	}
 	// 체인은 거의 늘 앞 체인의 교훈 위에 선다 — 부모가 위상 유도라 강제는 안 하되 안내(AIL #3).
 	if strings.TrimSpace(*inherit) == "" {
 		stderr("  ▸ 이 체인이 앞 체인/사이클에서 물려받은 전제·교훈이 있으면 --inherit 로 명시하라(AIL #3) — 계보를 지식의 강으로.")
