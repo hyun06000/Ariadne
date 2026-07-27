@@ -3159,3 +3159,46 @@ gil latest=v3.8.0. main=b2098d8c. 이번 세션 3커밋(관용예제#43·release
 handoff유도). 뷰어 임베드=조사만 완료, 코드 0(결정 보류). 다음: 임베드 타이밍 결정(A/B/C) →
 정해지면 해당 어댑터. VS Code 유력(지금 됨·범용성안전). MCP Apps는 Anthropic 버그 대기
 (ext-apps#671·claude-ai-mcp#165 구독). 미착수 이슈: #42 refines·#32·#34·#33. 모니터 b7y8fti2l.
+
+
+## 매듭 — 뷰어 앱 임베드 조사 → 온보딩/존재 견고화 → v3.9.0 배포 (2026-07-27, 긴 세션)
+
+상현님 "로컬호스트 뷰어 불편, 앱에 녹이는 생태계 있나?"로 시작 → 조사·실증·수정·배포까지.
+
+### 뷰어 임베드 — 실증으로 결론 (코드 0, 문서로 해결)
+- MCP Apps iframe 은 **직접 재현해 막힘 확인**: Claude Desktop 1.24012.9 + 공식 ext-apps
+  1.7.5 로 최소 서버 만들어 도구 호출 → 텍스트 폴백만, iframe 미렌더(호스트 미구현,
+  claude-ai-mcp#165·ext-apps#671과 동일). 프로토콜(capability·resources/read)은 다 됨.
+  재현물: scratchpad/mcp-repro (Node+공식SDK). Claude Desktop config 에 등록했다 원복함.
+- **우회로가 실제로 더 나음(실증)**: 로컬 Cowork/Desktop + Claude for Chrome 확장이
+  gil viewer serve 의 127.0.0.1:8790 을 새 탭에 열어 체인11·스텝117 그래프를 ● live
+  실시간 렌더(checkIframe2). 클라우드 Cowork 는 gil viewer build 자기완결 HTML 로 자동
+  폴백(checkIframe3). 뷰어 코어(buildGraph/renderHTML/tipSignature)는 이미 어댑터 구조라
+  하나도 안 바꿈. → 결론: MCP Apps 안 기다려도 온보딩 문서만 호스트별 안내하면 됨.
+- 상현님 통찰들: checkIframe2/3 둘 다 로컬 Desktop인데 "열어달라"→실시간, "온보딩만"→정적.
+  즉 정적은 버그 아니라 문서가 정적으로 몰아서. → 온보딩이 "실시간 먼저 시도, 정적은 폴백".
+
+### 존재 영속성 (상현님 핵심 지적)
+- 클라우드 샌드박스면 세션 끝에 존재(refs/gil/global) 증발. **원격 유무 무관 — 영속 박스냐
+  샌드박스냐만 문제**(상현 교정: 로컬 git만 있어도 gil 돌아야 함). gil은 환경 감지·판정
+  권한 밖 → **트리거·조건 없이 무조건 경고** init·memory append 에. 판단은 에이전트 몫.
+- README Step B: 호스트별 대안(Cowork=로컬폴더 등록 coworkUserFilesPath, Code/Desktop=로컬
+  그대로, 격리=세션한정 고지 or 원격보강).
+
+### 온보딩 견고화 (실사용 2건)
+- Codex가 "gil 처음?" 한 줄 찍고 정지 → **멈춤금지 총괄강령**(진입부) + 멈춤 딱 2곳
+  (설치동의·문제선택) 명시. "각 Step은 행동지시지 출력할 한줄 아님".
+- 상현님 제안대로 오프닝 **인사→설명→질문→동의** 재배열(질문부터가 아니라). 사람 친화적.
+
+### v3.9.0 배포 (scripts/release-build.sh 첫 실사용)
+- minor(handoff 유도·영속성경고 = 새 기능, 파괴적 아님). 5타깃+install.sh+llms.txt+SHA256SUMS.
+- 태그 v3.9.0 push, gh release create 8자산. **수신자 E2E**: 공개 latest 신선설치 → v3.9.0
+  각인 + 새기능 4종(init경고·각인경고·handoff체크리스트·사이클신호) 전부 실동작 확인.
+- 이번세션 커밋: 7056fa0c(#43)·ada59a8d(release-build+win)·b2098d8c(handoff유도)·14a1513c·
+  3d3f15f3·65fd9675·ca52380f(온보딩). 전부 main push됨.
+
+### 부활점
+gil latest=**v3.9.0**. main=ca52380f. 뷰어 임베드=문서로 해결(코드 무변경), MCP Apps는
+Anthropic 버그 대기(우회로 있음). 다음 후보: MCP Apps 이슈에 "브라우저로 이렇게 우회" 기여
+(상현: 구현성공 후 해결책으로), 온보딩 재검증(Codex/Cowork로 오프닝 흐름 확인). 미착수 이슈:
+#42 refines·#32·#34·#33. gh issue list -R hyun06000/Ariadne. 모니터 b7y8fti2l. heaal-philosophy.
