@@ -2484,6 +2484,99 @@ class TestInterview(GilFixture):
         self.assertIn("기준 문서", r.stdout + r.stderr)
 
 
+class TestInterviewWait(GilFixture):
+    """인터뷰 제출을 에이전트가 알 수단 (이슈 #58, 상현님 실사용).
+
+    사람이 뷰어 폼에 제출해도 통지가 없어, 에이전트는 바쁜대기(무의미한 git log 반복)나
+    우회(내가 기준을 쓴다) 중 하나로 밀렸다. '기다려라'는 안내가 기다릴 수단 없는 지시였다.
+    그래서 기다림을 정직한 한 줄(--status)과 진짜 대기(--wait)로 만든다."""
+
+    def setUp(self):
+        super().setUp()
+        self._no_interview_autofill = True
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "sb", "--purpose", "딸기 예측")
+
+    def _ask(self):
+        return self.gil("interview", "sb", "--ask", "-",
+                        input='[{"q":"무엇을 풀려는가","type":"text"}]')
+
+    def _resolve(self):
+        with open(os.path.join(self.repo, "reference-sb.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준 문서\n성공: RMSE 하한")
+        return self.gil("interview", "sb", "--resolve", "reference-sb.md")
+
+    def test_status_none_before_ask(self):
+        """심어둔 인터뷰가 없으면 none — 그리고 무엇을 해야 하는지 한 수를 준다."""
+        r = self.gil("interview", "sb", "--status")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("none", out)
+        self.assertIn("--ask", out)
+
+    def test_status_pending_after_ask(self):
+        """질문을 심고 사람이 답하기 전에는 pending — git show 를 뒤지지 않아도 알 수 있다."""
+        self._ask()
+        r = self.gil("interview", "sb", "--status")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("pending", r.stdout + r.stderr)
+
+    def test_status_done_after_resolve_shows_reference(self):
+        """사람이 제출하면 done 이고, 확정된 기준 문서를 그 자리에서 돌려준다."""
+        self._ask()
+        self._resolve()
+        r = self.gil("interview", "sb", "--status")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("done", out)
+        self.assertIn("RMSE 하한", out)
+
+    def test_wait_returns_immediately_when_done(self):
+        """이미 제출됐으면 --wait 는 기다리지 않고 바로 기준을 뱉는다."""
+        self._ask()
+        self._resolve()
+        r = self.gil("interview", "sb", "--wait", "--timeout", "5")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("done", r.stdout + r.stderr)
+
+    def test_wait_times_out_without_fabricating(self):
+        """시간초과는 실패가 아니라 '아직 pending' 이다 — 기준을 대신 쓰라고 하지 않는다."""
+        self._ask()
+        r = self.gil("interview", "sb", "--wait", "--timeout", "3")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("시간초과", out)
+        self.assertIn("대신 쓰지 마라", out)
+
+    def test_wait_wakes_on_submission(self):
+        """사람이 뒤늦게 제출하면 대기가 풀린다 — 이게 없어서 세션이 멈춰 있었다."""
+        import threading
+        self._ask()
+        t = threading.Timer(3.0, self._resolve)
+        t.start()
+        try:
+            r = self.gil("interview", "sb", "--wait", "--timeout", "40")
+        finally:
+            t.cancel()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("done", r.stdout + r.stderr)
+        self.assertIn("RMSE 하한", r.stdout + r.stderr)
+
+    def test_wait_refuses_when_nothing_to_wait_for(self):
+        """기다릴 인터뷰가 없는데 기다리게 두지 않는다 — 먼저 질문을 심어라."""
+        r = self.gil("interview", "sb", "--wait", "--timeout", "3")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--ask", r.stdout + r.stderr)
+
+    def test_handoff_surfaces_pending_interview(self):
+        """이어받은 세션의 복구 지점 — 이 체인이 사람 답을 기다리는 중임이 handoff 에 뜬다."""
+        self._ask()
+        r = self.gil("handoff")
+        out = r.stdout + r.stderr
+        self.assertIn("인터뷰 답 대기 중", out)
+        self.assertIn("--status", out)
+
+
 class TestMCPServe(GilFixture):
     """gil mcp serve — 호스트(Claude Desktop 등)가 gil 을 툴로 부르는 경로.
 
@@ -2557,7 +2650,8 @@ class TestMCPServe(GilFixture):
             p.wait(timeout=20)
             p.stdout.close()
             p.stderr.close()
-        for want in ("gil_chain", "gil_open", "gil_step", "gil_close", "gil_interview", "gil_log"):
+        for want in ("gil_chain", "gil_open", "gil_step", "gil_close", "gil_interview",
+                     "gil_interview_status", "gil_log"):
             self.assertIn(want, names)
 
     def test_reject_does_not_kill_server(self):
@@ -2593,7 +2687,10 @@ class TestMCPServe(GilFixture):
         self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "done")
 
     def test_interview_declined_is_not_answered_by_llm(self):
-        """사람이 폼을 취소하면 기준은 만들어지지 않는다 — LLM 이 대신 답하지 못하게."""
+        """폼이 accept 로 안 돌아오면 기준은 만들어지지 않는다 — LLM 이 대신 답하지 못하게.
+
+        (이슈 #57 이후) 취소/거절은 뷰어 폼으로 물러나되, 기준은 여전히 비어 있어 게이트가 닫혀
+        있다. 즉 '물러남'이 '통과'가 되지 않는다."""
         import json
         self.gil("init")   # MCP 툴은 gil 로 관리되는 저장소를 요구한다(requireReady)
         p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
@@ -2621,6 +2718,12 @@ class TestMCPServe(GilFixture):
             msg = read()
             body = json.dumps(msg, ensure_ascii=False)
             self.assertIn("cancel", body)
+            # 이슈 #57: 폼이 사람 화면에 뜬 적이 있는지 우리는 모른다. 없던 사람 의사를
+            # 단언하면 에이전트가 그걸 근거로 우회한다 — 단언하지 않는다.
+            self.assertNotIn("사람에 의해", body)
+            self.assertIn("구분할 수 없다", body)
+            # 물음은 사라지지 않는다 — 뷰어 폼으로 심겨 사람이 답할 자리가 남는다.
+            self.assertEqual(self.trailer("probe", "Gil-Interview"), "pending")
         finally:
             p.stdin.close()
             p.wait(timeout=20)

@@ -153,15 +153,23 @@ gil mcp serve [--repo <경로>]
 gil 을 **stdio MCP 서버**로 연다. Claude Desktop 같은 호스트가 CLI 문자열을 조립하는 대신
 gil 명령을 툴로 직접 부른다: `gil_chain`·`gil_open`·`gil_step`·`gil_close`·`gil_chain_close`·
 `gil_approve`·`gil_reject`·`gil_log`·`gil_fsck`·`gil_handoff`·`gil_deploy`·`gil_interview`·
-`gil_graph`. 툴은 CLI 와 **같은 함수**를 부르므로 문법 거부(기준 필수·pending 잠금·falsify
+`gil_interview_status`·`gil_graph`. 툴은 CLI 와 **같은 함수**를 부르므로 문법 거부(기준 필수·pending 잠금·falsify
 강제)가 두 표면에서 갈라지지 않는다. 기존 CLI 는 그대로다 — 터미널·다른 에이전트용.
 
 **인터뷰가 한 홉이 된다.** 지금까지 인터뷰는 "LLM 이 대화창에서 질문을 심고 → 사람이 뷰어
 폼에서 답하고 → 뷰어가 resolve 를 부른다"는 3홉이었다. 두 대기가 서로를 몰라서, LLM 은
 pending 인 줄 모르고 또 질문지를 만들었다. MCP 에서는 `gil_interview` 한 번 안에서 호스트의
 **네이티브 폼**(Elicitation)이 뜨고 사람 답이 그 자리에서 기준 문서가 된다. 대기가 하나뿐이라
-그 실패가 구조적으로 불가능하다. 호스트가 폼을 못 띄우면 옛 뷰어 경로로 물러나고(물음은
-사라지지 않는다), 사람이 취소하면 기준은 만들어지지 않는다(LLM 이 대신 답하는 길은 없다).
+그 실패가 구조적으로 불가능하다. 폼이 accept 로 돌아오지 않으면 — 호스트가 못 띄웠든 사람이
+취소했든 — 기준은 만들어지지 않고(LLM 이 대신 답하는 길은 없다) 질문은 옛 뷰어 경로로 심겨
+남는다. 이때 gil 은 **"사람이 거절했다"고 단언하지 않는다**(이슈 #57): 폼이 화면에 뜬 적이
+있는지 서버는 알 수 없고, 구분 못 하는 것을 단언하면 에이전트에게 없던 사람 의사가 심겨
+우회 압력이 된다.
+
+뷰어 폼 제출은 자동 통지되지 않으므로 확인 수단을 따로 둔다(이슈 #58):
+`gil_interview_status` (MCP) 또는 `gil interview <chain> --status` → `pending | done`,
+그리고 `gil interview <chain> --wait [--timeout <초>]` 는 제출될 때까지 기다렸다 확정된 기준
+문서를 돌려준다. "기다려라"는 안내가 기다릴 수단 없는 지시가 되지 않게 하는 짝이다.
 
 **그래프가 호스트 안에 뜬다.** `gil_graph` 는 MCP Apps(SEP-1865) 리소스 `ui://gil/graph` 를
 가리킨다 — 호스트가 자기 안 샌드박스 iframe 에 그래프를 직접 그린다. `127.0.0.1` 주소도,

@@ -318,7 +318,8 @@ gil 의 힘은 **거부**에서 나온다(HEAAL: 규율은 안내가 아니라 �
 ### 4.1 MCP 표면 — `gil mcp serve` (2026-07-28)
 
 CLI 와 **같은 함수**를 MCP 툴(`gil_chain`·`gil_open`·`gil_step`·`gil_close`·`gil_chain_close`·
-`gil_approve`·`gil_reject`·`gil_log`·`gil_fsck`·`gil_handoff`·`gil_deploy`·`gil_interview`)로
+`gil_approve`·`gil_reject`·`gil_log`·`gil_fsck`·`gil_handoff`·`gil_deploy`·`gil_interview`·
+`gil_interview_status`)로
 노출한다. 규율(인터뷰 필수·pending 잠금·falsify 강제…)이 두 표면에서 갈라지지 않도록 래퍼는
 얇게 — 검증은 한 곳에만 산다.
 
@@ -327,8 +328,22 @@ CLI 와 **같은 함수**를 MCP 툴(`gil_chain`·`gil_open`·`gil_step`·`gil_c
 (실사용 붕괴, gil-test-2), 사람은 127.0.0.1 링크·포트충돌과 씨름했다. MCP 에서는 한 홉이다 —
 `gil_interview` 가 호스트의 **Elicitation**(네이티브 폼)으로 그 자리에서 묻고 답을 받아
 레퍼런스를 확정한다. 대기가 하나뿐이라 "두 대기가 따로 논다"는 실패가 구조적으로 불가능하다.
-호스트가 폼을 못 띄우면 옛 뷰어 경로(pending 커밋)로 물러난다 — 물음은 사라지지 않는다.
-사람이 폼을 취소하면 기준은 만들어지지 않는다(LLM 이 대신 답하는 길은 열리지 않는다).
+폼이 `accept` 로 돌아오지 않으면 — 호스트가 못 띄웠든 사람이 취소했든 — 기준은 만들어지지
+않고(LLM 이 대신 답하는 길은 열리지 않는다) 질문은 옛 뷰어 경로(pending 커밋)로 심겨 남는다.
+
+**단언하지 않는 것이 규범이다(이슈 #57).** 서버는 폼이 사람 화면에 뜬 적이 있는지 알 수 없다 —
+실사용에서 Claude Code 가 폼을 렌더하지 못한 채 즉시 `decline` 을 돌려줬고, gil 은 그걸 "사람이
+decline 했다"고 단언했다. 구분 못 하는 것을 단언하면 에이전트에게 **없던 사람 의사가 심기고**,
+그게 "사람이 원치 않으니 내가 기준을 쓰자"는 우회 압력이 된다. 레일이 사람 의사를 잘못 전달하면
+레일을 뚫는 게 합리적으로 보이기 시작한다. 그래서 사실만 적고(무엇이 돌아왔는지) 다음 한 수를
+준다.
+
+**기다림에는 수단이 따른다(이슈 #58).** 뷰어 폼 제출은 자동 통지되지 않는다 — MCP 툴은
+요청-응답이라 스스로 깨어나지 못한다. "답을 기다려라"만 말하면 에이전트는 바쁜대기(무의미한
+`git log` 반복)나 우회로 밀린다. 그러니 기다림을 실행 가능한 것으로 만든다:
+`gil interview <chain> --status`(`pending|done`, MCP `gil_interview_status`)와
+`gil interview <chain> --wait [--timeout <초>]`(제출될 때까지 블록 후 확정 기준을 반환).
+시간초과는 실패가 아니라 "아직 pending" 이며, 그때도 기준을 대신 쓰라고 하지 않는다.
 
 **제약 두 가지.** (a) stdout 은 JSON-RPC 전송선이라 모든 출력이 버퍼로 간다(`outRaw`).
 (b) 거부(`die`)가 프로세스를 죽이면 첫 거부에서 세션이 끊긴다 — MCP 모드에서 `die`/`gilExit`

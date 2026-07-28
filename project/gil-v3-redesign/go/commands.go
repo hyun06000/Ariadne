@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // 브랜치 네이밍 (D/F 충돌 회피: 슬래시 대신 하이픈). 위상은 git 브랜치, 의미는 트레일러.
@@ -1184,15 +1185,28 @@ func cmdInterview(args []string) {
 	// 레퍼런스 파일을 이 체인에 심고(Gil-Reference) 인터뷰를 done 으로 닫는다. 사람이 CLI 로 직접
 	// 쓸 일은 드물다 — 보통 뷰어 폼이 대신 부른다.
 	resolve := fs.str("resolve", "")
+	// --status/--wait (이슈 #58): 사람이 뷰어 폼에 제출해도 에이전트는 그 사실을 알 방법이 없었다.
+	// 유일한 확인 수단이 git show 로 커밋 본문을 읽는 것 — gil 의 추상을 뚫고 내려가는 일이라
+	// 에이전트가 스스로 떠올리지 못한다. 그래서 "기다려라"는 안내가 기다릴 수단 없는 지시였고,
+	// 바쁜대기(무의미한 git log 반복) 아니면 우회(내가 기준을 쓴다)로 밀었다.
+	status := fs.boolFlag("status")
+	wait := fs.boolFlag("wait")
+	timeout := fs.str("timeout", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil interview <chain> --ask <질문JSON|-> [--title T]\n" +
+			"  또는: gil interview <chain> --status            (pending|done 한 줄)\n" +
+			"  또는: gil interview <chain> --wait [--timeout <초>]  (제출될 때까지 기다렸다 기준 문서를 뱉는다)\n" +
 			"  또는: gil interview <chain> --resolve <레퍼런스파일>  (뷰어 제출이 호출)\n" +
 			"  질문 형식: [{\"q\":\"질문\",\"type\":\"text|radio|checkbox\",\"options\":[\"...\"]}]")
 	}
 	chain := pos[0]
 	if *resolve != "" {
 		interviewResolve(chain, *resolve)
+		return
+	}
+	if *status || *wait {
+		interviewWatch(chain, *wait, *timeout)
 		return
 	}
 	if *ask == "" {
@@ -1270,6 +1284,73 @@ func cmdInterview(args []string) {
 	println2("  ▸ 뷰어를 열어라(gil viewer serve / VS Code 패널). 사람이 제출하면 reference-" + chain +
 		".md 로 저장되고 레퍼런스가 커밋된다 — 폴링이 곧 반영한다.")
 	println2("  ▸ 사람 답 전엔 이 기준이 비어 있다 — 답을 기다려라(pending 처럼).")
+	// "기다려라"만 말하고 기다릴 수단을 안 주면 바쁜대기 아니면 우회로 민다(이슈 #58).
+	println2("  ▸ 제출됐는지 묻는 법: gil interview " + chain + " --status   (pending|done 한 줄)")
+	println2("  ▸ 제출될 때까지 기다리는 법: gil interview " + chain + " --wait [--timeout <초>]")
+}
+
+// interviewWatch — 인터뷰가 사람 답을 받았는지 묻는다(--status), 또는 받을 때까지 기다린다(--wait).
+//
+// 왜 (이슈 #58, 상현님 실사용): 사람이 뷰어 폼에 제출해도 에이전트는 알 방법이 없었다. MCP 툴은
+// 요청-응답이라 스스로 깨어나지 못하고, 사람이 말을 걸어주지 않으면 세션이 멈춘다. 그 상태는
+// 에이전트를 둘 중 나쁜 쪽으로 민다 — 바쁜대기(무의미한 git log 반복)거나 우회(내가 기준을 쓴다).
+// 레일이 사람의 응답을 전달하지 못하면 레일을 뚫는 게 합리적으로 보이기 시작한다. 그래서 기다림을
+// 정직한 한 줄(--status)과 진짜 대기(--wait)로 만든다.
+func interviewWatch(chain string, wait bool, timeoutS string) {
+	if chainPurpose(chain, "--branches") == "" {
+		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — 먼저 gil chain 으로 열어라.")
+	}
+	done := func() bool { return chainReferenceApproved(chain, "--branches") }
+	report := func() {
+		println2("interview: " + chain + " — done (사람이 제출해 기준 문서가 확정됐다)")
+		if ref := chainReferenceText(chain, "--branches"); strings.TrimSpace(ref) != "" {
+			println2("")
+			println2("── 확정된 기준 문서 ──")
+			println2(ref)
+		}
+		println2("▸ 이제 작업 사이클을 열 수 있다: gil open " + chain + "/<cycle> --author <a> --purpose <p>")
+	}
+	if done() {
+		report()
+		return
+	}
+	pending := chainInterviewPending(chain, "--branches")
+	if !wait {
+		if pending {
+			println2("interview: " + chain + " — pending (사람 답 대기 중)")
+			println2("▸ 사람에게 뷰어 폼 제출을 청하라. 답이 오면 이 명령이 done 으로 바뀐다.")
+			println2("▸ 기다리려면: gil interview " + chain + " --wait [--timeout <초>]")
+		} else {
+			println2("interview: " + chain + " — none (심어둔 인터뷰가 없다)")
+			println2("▸ 먼저 질문을 심어라: gil interview " + chain + " --ask <질문JSON|->")
+		}
+		return
+	}
+	if !pending {
+		die("거부: \"" + chain + "\" 에 기다릴 인터뷰가 없다 — 먼저 질문을 심어라:\n" +
+			"    gil interview " + chain + " --ask <질문JSON|->")
+	}
+	secs := 600
+	if strings.TrimSpace(timeoutS) != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(timeoutS))
+		if err != nil || n <= 0 {
+			die("거부: --timeout 은 양의 정수(초) — 받음: \"" + timeoutS + "\"")
+		}
+		secs = n
+	}
+	println2("interview: " + chain + " — 사람 답을 기다린다(최대 " + strconv.Itoa(secs) + "초). 뷰어 폼 제출을 청하라.")
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(2 * time.Second)
+		if done() {
+			report()
+			return
+		}
+	}
+	// 시간초과는 실패가 아니다 — 사람이 아직 안 답했을 뿐이다. 지어내지 말고 그대로 알린다.
+	die("시간초과: \"" + chain + "\" 인터뷰가 " + strconv.Itoa(secs) + "초 안에 제출되지 않았다 — 아직 pending 이다.\n" +
+		"  기준을 대신 쓰지 마라. 사람에게 폼 제출을 청하고 다시 기다려라:\n" +
+		"    gil interview " + chain + " --wait --timeout " + strconv.Itoa(secs))
 }
 
 // interviewResolve — 인터뷰를 해소한다(뷰어 제출이 호출). 답변으로 조립된 레퍼런스 파일을

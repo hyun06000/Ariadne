@@ -52,12 +52,14 @@ func cmdHandoff(args []string) {
 // viewerDirective — "그래프를 지금 띄워라"는 지시. 선택이 아니라 규범으로 쓴다(이슈 #55).
 func viewerDirective() string {
 	url := "http://127.0.0.1:" + viewerPortNum()
+	head := "── 관전 뷰어 (지금 열어라) ──\n"
 	if !portOpen(viewerPortNum()) {
-		return "── 관전 뷰어 ──\n" +
-			"  뷰어가 아직 안 떴다. 지금 띄워라:  gil viewer serve\n" +
-			"  그리고 나온 주소를 **인앱 브라우저 패널로 열어라**(밖의 브라우저 창 말고)."
+		// 뷰어가 아직 안 떴다고 레일이 약해지면 안 된다 — 규범은 그대로 두고 띄우는 한 수만
+		// 앞에 붙인다. (안 떴을 때만 안내조로 빠지던 탓에 이 가지의 테스트 3개가 빨갰다.)
+		head = "── 관전 뷰어 (지금 띄우고 열어라) ──\n" +
+			"  아직 안 떴다. 먼저:  gil viewer serve\n"
 	}
-	return "── 관전 뷰어 (지금 열어라) ──\n" +
+	return head +
 		"  " + url + "\n" +
 		"  **이 주소를 네 인앱 브라우저 패널로 지금 열어라.** 선택이 아니다 — 계보가 수십 개가\n" +
 		"  되면 텍스트 나열로는 분기·죽은 잎·현재위치(HEAD)가 눈에 안 들어온다. 그래프를 안 보고\n" +
@@ -220,7 +222,14 @@ func handoffReport() string {
 	}
 	for _, cname := range openOrder {
 		cinfo := chains[cname]
-		L = append(L, "▶ 열린 체인: "+cname+" ("+cinfo.mode+" 모드)")
+		L = append(L, "▶ 열린 체인: "+cname+" ("+cinfo.mode+" 모드 — 스텝 승인 방식일 뿐, 체인 앞 인터뷰는 어느 모드든 필수)")
+		// 세션이 끊겼다 이어질 때의 복구 지점(이슈 #58): 이 체인이 사람 답을 기다리는 중이면
+		// 그것이 지금 유일하게 할 일이다. 안 적으면 이어받은 세션이 "왜 open 이 거부되지"로 헤맨다.
+		if chainInterviewPending(cname, "--branches") && !chainReferenceApproved(cname, "--branches") {
+			L = append(L, "    ⏳ 인터뷰 답 대기 중 — 사람이 뷰어 폼(📋 인터뷰)에 제출해야 사이클을 열 수 있다.")
+			L = append(L, "        · 사람에게 제출을 청하라. 기준을 대신 쓰지 마라.")
+			L = append(L, "        · 제출 여부 확인: gil interview "+cname+" --status  (기다리려면 --wait)")
+		}
 		cyc, cycOrder := cyclesOf(cname)
 		hasOpen := false
 		for _, cid := range cycOrder {

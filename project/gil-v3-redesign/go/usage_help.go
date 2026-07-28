@@ -96,6 +96,9 @@ var helpTable = map[string]helpEntry{
 			"  그래프에 심으면 뷰어가 폼(서술 textarea·라디오·체크박스)으로 렌더한다 — 사람이 답하고\n" +
 			"  제출하면 reference-<chain>.md 로 저장되고 레퍼런스가 커밋된다(pending→approve 의 거울).\n" +
 			"  질문: [{\"q\":\"질문\",\"type\":\"text|radio|checkbox\",\"options\":[\"...\"]}]\n" +
+			"  gil interview <chain> --status  — 사람이 제출했나 한 줄로(pending|done, 이슈 #58).\n" +
+			"  gil interview <chain> --wait [--timeout <초>]  — 제출될 때까지 기다렸다 기준 문서를 뱉는다.\n" +
+			"    (제출은 자동 통지되지 않는다 — '기다려라'는 이 둘로 실행한다. 기준을 대신 쓰지 마라.)\n" +
 			"  gil interview <chain> --resolve <파일>  — 뷰어 제출이 호출(사람이 직접 쓸 일은 드묾).",
 		"docs/gil/concepts.md",
 	},

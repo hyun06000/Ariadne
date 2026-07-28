@@ -414,6 +414,19 @@ func registerGilTools(s *mcp.Server) {
 	})
 
 	registerInterviewTool(s)
+
+	// 사람 제출을 에이전트가 확인할 수단(이슈 #58). MCP 툴은 스스로 깨어나지 못하니 블로킹 대기
+	// 대신 "물어보면 정직하게 답하는 한 줄"을 준다 — 사람이 "제출했어"라고 말할 때 부르면 된다.
+	tool(s, "gil_interview_status",
+		"인터뷰가 사람 답을 받았는지 확인한다(pending|done). 뷰어 폼으로 넘어간 인터뷰는 사람이 "+
+			"제출해도 자동 통지가 없다 — 사람이 제출했다고 하면 이걸로 확인하고, 확인 전에는 기준을 "+
+			"대신 쓰지 마라.",
+		func(in inInterviewStatus) []string { return []string{in.Chain, "--status"} },
+		cmdInterview)
+}
+
+type inInterviewStatus struct {
+	Chain string `json:"chain" jsonschema:"확인할 체인 이름"`
 }
 
 type inInit struct {
@@ -462,22 +475,19 @@ func registerInterviewTool(s *mcp.Server) {
 			RequestedSchema: json.RawMessage(elicitSchema(qs)),
 		})
 		if err != nil {
-			// --ask 는 파일 경로(또는 -)를 받는다 — 질문 JSON 을 임시 파일로 건넨다.
-			qf, qerr := writeTemp("gil-interview-*.json", string(askJSON))
-			if qerr != nil {
-				return nil, nil, qerr
-			}
-			defer os.Remove(qf)
-			out, ferr := runGil(func() { cmdInterview(append([]string{in.Chain}, askArgs(qf, in.Title)...)) })
-			if ferr != nil {
-				return nil, nil, ferr
-			}
-			return text(out + "\n(호스트가 네이티브 폼을 지원하지 않아 뷰어 폼으로 넘겼다: " + err.Error() + ")"), nil, nil
+			return interviewFallback(in.Chain, in.Title, askJSON,
+				"이 호스트는 네이티브 폼을 렌더하지 못한다("+err.Error()+")")
 		}
 		if res.Action != "accept" {
-			// 취소·거절도 사람의 선택이다. 답을 지어내지 말고 그대로 멈춘다.
-			return nil, nil, errString("인터뷰가 사람에 의해 " + res.Action + " 되었다 — 기준 문서는 만들어지지 않았다. " +
-				"답을 대신 지어내지 말고, 무엇을 물어야 할지 사람과 대화로 정한 뒤 다시 물어라.")
+			// 이슈 #57(상현님 실사용): 여기서 "사람이 decline 했다"고 단언했었다. 그런데 폼이 사람
+			// 화면에 뜬 적조차 없었다 — 호스트가 렌더하지 못하고 즉시 decline 으로 돌려준 것이다.
+			// 우리는 이 자리에서 둘(사람이 거절함 / 호스트가 못 띄움)을 구분할 수 없다. 구분 못 하는
+			// 것을 단언하면 에이전트에게 없던 사람 의사를 심고, 그게 "사람이 원치 않으니 내가 기준을
+			// 쓰자"는 우회 압력이 된다. 그래서 단언하지 않고 뷰어 폼 경로로 넘긴 뒤, 사람에게 직접
+			// 확인하라고 말한다 — 어느 쪽이든 사람의 답이 기준이라는 성질은 지켜진다.
+			return interviewFallback(in.Chain, in.Title, askJSON,
+				"호스트가 폼을 \""+res.Action+"\" 로 돌려줬다 — 사람이 취소한 것인지, 호스트가 폼을 "+
+					"띄우지 못한 것인지 여기서는 구분할 수 없다")
 		}
 
 		// 2) 답을 기준 문서(markdown)로 조립해 레퍼런스로 확정한다.
@@ -493,6 +503,25 @@ func registerInterviewTool(s *mcp.Server) {
 		}
 		return text(out + "\n\n── 확정된 기준 문서 ──\n" + ref), nil, nil
 	})
+}
+
+// interviewFallback — 네이티브 폼이 성립하지 않았을 때 옛 경로(질문을 pending 으로 심고 뷰어
+// 폼에서 사람이 답한다)로 넘긴다. why 에는 "왜 폼 경로가 아닌가"를 사실 그대로 적는다 —
+// 사람의 의사를 추측해 적지 않는다(이슈 #57).
+func interviewFallback(chain, title string, askJSON []byte, why string) (*mcp.CallToolResult, any, error) {
+	// --ask 는 파일 경로(또는 -)를 받는다 — 질문 JSON 을 임시 파일로 건넨다.
+	qf, qerr := writeTemp("gil-interview-*.json", string(askJSON))
+	if qerr != nil {
+		return nil, nil, qerr
+	}
+	defer os.Remove(qf)
+	out, ferr := runGil(func() { cmdInterview(append([]string{chain}, askArgs(qf, title)...)) })
+	if ferr != nil {
+		return nil, nil, ferr
+	}
+	return text(out + "\n(" + why + " — 질문을 뷰어 폼으로 심었다. 사람은 아직 답하지 않았다.)\n" +
+		"▸ 다음 한 수: 사람에게 뷰어 폼(📋 인터뷰)에 답해 달라고 지금 말로 청하라. 답을 대신 지어내지 마라.\n" +
+		"▸ 제출됐는지는 gil_interview_status 로 확인한다(pending|done). 사람이 \"제출했어\"라고 하면 그때 부르면 된다."), nil, nil
 }
 
 func askArgs(askJSON, title string) []string {
