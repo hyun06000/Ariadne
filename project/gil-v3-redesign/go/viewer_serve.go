@@ -301,7 +301,22 @@ func chainLayout(g graphView) (map[string]xy, int, int) {
 		return r
 	}
 	pos := map[string]xy{}
-	const colW, rowH, padX, padY = 210, 90, 70, 60
+	// 간격은 **그려질 글자 크기에서** 나와야 한다(이슈 #71). 옛 상수는 라벨을 셈에 넣지
+	// 않아, 라벨(dy=48)과 한 줄 아래 노드의 HEAD ▼(y-44) 가 포갰다 — 실측: "gil-v3-redesign"
+	// 위로 주황 ▼ 가 얹혔다. 가로도 같다: 이름이 길면 이웃 라벨과 부딪힌다.
+	// clabel 은 12px(≈7.2px/글자, 한글은 더 넓어 8px 로 잡는다), 라벨 baseline dy=48.
+	longest := 0
+	for _, ch := range g.chains {
+		if n := len([]rune(ch.name)); n > longest {
+			longest = n
+		}
+	}
+	labelW := longest*8 + 24
+	colW := labelW + 60
+	if colW < 210 {
+		colW = 210
+	}
+	const rowH, padX, padY = 118, 70, 60 // rowH: 라벨 바닥(≈52) + ▼ 높이(≈44) + 여유
 	maxCol, maxRow := 0, 0
 	// 부모가 먼저 row 를 얻도록 depth 오름차순으로 처리(등장 순서는 같은 depth 안 tie-break).
 	order := make([]chainView, len(g.chains))
@@ -1021,7 +1036,12 @@ function openCard(chain){
   card.appendChild(head);
 
   // 사이클 노드-엣지 그래프(내부 SVG). 가로 배치, 순차 엣지.
-  const gap=104, r=24, padX=34, padY=30;
+  // 간격을 이름 길이에서 뽑는다(이슈 #71) — cyname 은 12px, 한글·긴 이름이면 104px 로는
+  // 이웃과 겹친다(실측: label-overlap-case-01 류가 서로 파고들었다).
+  const r=24, padY=30;
+  let longestCy=0; cy.forEach(c=>{ longestCy=Math.max(longestCy,(c.name||'').length); });
+  const gap=Math.max(104, longestCy*8+20);
+  const padX=Math.max(34, longestCy*4+10);
   const w=Math.max(160, padX*2+(cy.length-1)*gap+r*2);
   const h=padY*2+r*2+18;
   const svg=svgEl('svg',{class:'cygraph',viewBox:'0 0 '+w+' '+h,width:w,height:h});
@@ -1545,7 +1565,16 @@ function buildStepMap(){
   // padTop: 라벨이 들어갈 머리 공간. 스텝 뎁스는 사이클 라벨 + 체인 라벨 두 종류가 쌓이고
   // 둘 다 겹치면 계단식으로 최대 2단씩 더 올라가므로 그만큼 확보한다(이슈 #37).
   // 좁게 잡으면 위로 피한 라벨이 화면 밖으로 잘려 "겹침 대신 실종"이 된다.
-  const padTop = aggMode ? 38 : 62;
+  // 사이클 라벨은 박스보다 길면 통째로 생략됐다 — 겹침 대신 실종(이슈 #37 의 대가). 상현님
+  // 제안대로 **기울여** 그리면 가로 폭이 줄어 살아난다: 폭 W 라벨이 35° 기울면 가로는
+  // W·cos35(≈0.82W), 대신 세로로 W·sin35(≈0.57W)를 먹는다. 그래서 기울일 만큼 머리 공간을
+  // 미리 확보한다 — 확보 없이 기울이면 위로 잘려 실종만 모양을 바꾼다(이슈 #71).
+  const ROT=35, RAD=ROT*Math.PI/180;
+  let longestCyName=0;
+  if(!aggMode) DAG.forEach(n=>{ longestCyName=Math.max(longestCyName,(n.cycle||'').length); });
+  const cyLabelW=longestCyName*6;                       // cyclabel 9px ≈ 6px/글자
+  const rotHead=Math.min(120, Math.ceil(cyLabelW*Math.sin(RAD)));
+  const padTop = aggMode ? 38 : 62+rotHead;
   let longestLabel=0;
   if(aggMode) DAG.forEach(n=>{ const s=(MAP_DEPTH==='cycle'?n.cycle:n.chain)||''; longestLabel=Math.max(longestLabel,s.length); });
   const colW = aggMode ? Math.max(48, longestLabel*7+18) : 34; // ~7px/글자 + 여백
@@ -1608,9 +1637,18 @@ function buildStepMap(){
   //    (실측: 64 사이클 저장소에서 사이클 라벨이 64개 중 1개만 그려졌다).
   boxes.forEach(b=>{
     const boxW=b.x2-b.x1, lblW=cylW(b.k), name=b.k.slice(b.k.indexOf('/')+1);
-    if(lblW > boxW+colW) return; // 박스보다 긴 라벨은 애초에 생략(박스 title 로 남는다)
-    placeLabel(b.x1+2, b.y1-3, lblW, 11, y=>{
+    if(lblW <= boxW+colW){ // 박스에 눕혀도 들어간다 — 읽기 쉬운 가로가 우선.
+      placeLabel(b.x1+2, b.y1-3, lblW, 11, y=>{
+        const t=svgEl('text',{class:'cyclabel',x:b.x1+2,y:y},name);
+        t.appendChild(svgEl('title',{},b.k)); return t;
+      });
+      return;
+    }
+    // 눕히면 이웃을 침범한다 — 기울여 세운다. 자리 다툼은 **기울인 실제 footprint**로 한다.
+    const fw=Math.ceil(lblW*Math.cos(RAD)), fh=Math.ceil(lblW*Math.sin(RAD))+4;
+    placeLabel(b.x1+2, b.y1-3, fw, fh, y=>{
       const t=svgEl('text',{class:'cyclabel',x:b.x1+2,y:y},name);
+      t.setAttribute('transform','rotate(-'+ROT+','+(b.x1+2)+','+y+')');
       t.appendChild(svgEl('title',{},b.k)); return t;
     });
   });

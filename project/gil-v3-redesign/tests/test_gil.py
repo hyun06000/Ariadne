@@ -1399,6 +1399,21 @@ class TestViewer(GilFixture):
         self.assertIn("gil 계보 그래프", html)
         self.assertNotIn("진짜 커밋 그래프", html)
 
+    def test_layout_spacing_comes_from_label_size(self):
+        """간격은 그려질 글자 크기에서 나온다 (이슈 #71).
+
+        옛 상수(체인 rowH=90 · 사이클 gap=104)는 라벨을 셈에 넣지 않아, 이름이 길면 라벨이
+        아래 노드의 HEAD ▼ 와, 이웃 사이클 라벨과 겹쳤다(브라우저 실측: 체인 1건 · 사이클
+        7건). 상수로 되돌아가면 같은 겹침이 조용히 살아나므로 계산식의 존재를 못박는다."""
+        self._seed_graph()
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("longestCy*8+20", html)      # 사이클 그래프 gap = 이름 길이에서
+        self.assertNotIn("const gap=104", html)    # 옛 고정 간격이 남아 있으면 안 된다
+        self.assertIn("rotate(-", html)            # 긴 라벨은 기울여 세운다(상현님 제안)
+
     def test_viewer_build_requires_out(self):
         self._seed_graph()
         r = self.gil("viewer", "build")
