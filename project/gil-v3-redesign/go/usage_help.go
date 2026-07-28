@@ -43,7 +43,8 @@ var helpTable = map[string]helpEntry{
 	},
 	"open": {
 		"gil open <chain>/<cycle> --author <who> --purpose <자연어> (--body B | --body-file F|- | --title T)\n" +
-			"           [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--inherit <전수>]\n" +
+			"           [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...]\n" +
+			"           [--inherit <전수>]\n" +
 			"  새 사이클을 연다(s1 define 자동) — git 브랜치 <chain>-<cycle> 을 판다.\n" +
 			"  ⚠ 기준 필수(이슈 #33): 체인을 열면 인터뷰가 먼저다. 사람이 승인한 기준 문서(gil interview\n" +
 			"    제출)가 없으면 거부한다 — LLM 이 스스로 기준을 정하지 말고 사람에게 물어라. 인터뷰가\n" +
@@ -52,13 +53,19 @@ var helpTable = map[string]helpEntry{
 			"    (빈 채로 열 수 없다 — raw git amend 로 채우던 우회를 문법으로 막는다. AIL #12)\n" +
 			"  --parent   이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).\n" +
 			"  --refutes  이 사이클이 앞서 닫힌 supported verify 를 소급 반증한다(과거 불변, forward 간선). 재판정에 쓴다.\n" +
-			"  --inherit  --parent/--refutes 간선이 있으면 필수 — 무엇을 물려받거나 무엇을 뒤집고 무엇은 계승하나.",
+			"  --refines  앞서 닫힌 verify·analyze 의 *해석*만 정밀화한다(이슈 #42) — 판정(verdict)은 그대로 선다.\n" +
+			"             refutes 가 극성 전환이면 refines 는 해석 심화다. \"원인을 더 좁혔다\"에 쓰고,\n" +
+			"             판정 자체가 틀렸으면 refutes 를 써라(약한 refutes 로 오용하면 정직화가 무뎌진다).\n" +
+			"  --inherit  --parent/--refutes/--refines 간선이 있으면 필수 — 무엇을 물려받거나, 무엇을 뒤집고\n" +
+			"             무엇은 계승하나, 앞 해석의 어디까지가 맞았나.",
 		"docs/gil/concepts.md · docs/gil/lifecycle.md",
 	},
 	"step": {
 		"gil step <chain>/<cycle> --kind <K> [옵션]\n" +
 			"  스텝(커밋 노드) 하나. --kind: define|hypothesis|verify|analyze | success|fail|pending\n" +
-			"  --to <define>  (fail·backtrack 되돌아갈 곳 / hypothesis 형제 가지 뿌리)\n" +
+			"  --to <define|analyze>  (fail·backtrack 되돌아갈 곳 / hypothesis 형제 가지 뿌리)\n" +
+			"    hypothesis 의 뿌리는 조상 define 또는 조상 analyze 다(이슈 #32): 가설 자체가 틀렸으면\n" +
+			"    define 으로 완전 회귀, 가설은 맞고 방법만 틀렸으면 그걸 밝힌 analyze 로 — 분석을 버리지 마라.\n" +
 			"    형식은 **짧은 스텝 이름**이다 — 예: --to s1 (경로형 <chain>/<cycle>/s1 이나 커밋\n" +
 			"    해시도 받아 정규화한다. --falsify-to 도 같다.)\n" +
 			"  --title <요약>  --body <본문> | --body-file <경로>(마크다운·이미지, 뷰어 렌더)\n" +
@@ -68,6 +75,7 @@ var helpTable = map[string]helpEntry{
 			"    (raw amend 로 옛 스텝을 지우지 마라 — 정정은 은폐가 아니라 이력에 남는다. 종결 스텝은 대상 아님. AIL #12)\n" +
 			"  --if-supported goal-met|goal-missed  (hypothesis) 이 가설이 supported 면 사이클 목표가 달성인가 실패인가.\n" +
 			"    기본 goal-met. 부정적 발견(가설 맞음=목표 막힘)이면 goal-missed — 그땐 verify supported 라도 success 거부(fail/backtrack). AIL #13\n" +
+			"  --refines <c>/<cy>/<step>  앞 verify·analyze 의 해석만 정밀화(판정 불변, 이슈 #42). --inherit 필수.\n" +
 			"  ※ backtrack(hypothesis --to <define>)은 --inherit <전수> 필수 — 죽은 가지의 교훈을 새 가지에 지고 가라. AIL #13\n" +
 			"  ※ 본문은 한 줄이 아니라 보고서다 — 아래 wiki 참조.",
 		"docs/gil/lifecycle.md · docs/gil/reports.md",

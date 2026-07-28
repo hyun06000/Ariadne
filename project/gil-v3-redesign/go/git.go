@@ -89,6 +89,7 @@ type node struct {
 	verdict      string   // verify 스텝: supported|refuted (제안 1, AIL #1)
 	falsify      string   // hypothesis 스텝: 반증조건 (제안 2, AIL #1)
 	refutes      []string // 이 스텝/사이클이 소급 반증하는 verify 스텝들 (제안 B, AIL #1)
+	refines      []string // 이 스텝/사이클이 해석을 정밀화하는 verify·analyze 스텝들 (이슈 #42)
 	inherit      string   // 부모에게서 물려받은 지식·전제·교훈 (AIL #3)
 	supersedes   string   // 이 스텝이 정정(대체)하는 앞선 같은-kind 스텝 (AIL #12)
 	polarity     string   // hypothesis 극성: supported 면 목표 달성(goal-met)인가 실패(goal-missed)인가 (AIL #13)
@@ -112,6 +113,7 @@ func collectNodes(revRange string) []node {
 		trailer("Gil-Verdict"),
 		trailer("Gil-Falsify"),
 		trailerMulti("Gil-Refutes"),
+		trailerMulti("Gil-Refines"),
 		trailer("Gil-Inherit"),
 		trailer("Gil-Supersedes"),
 		trailer("Gil-Goal-Polarity"),
@@ -126,7 +128,7 @@ func collectNodes(revRange string) []node {
 			continue
 		}
 		f := strings.Split(rec, fsep)
-		if len(f) < 18 {
+		if len(f) < 19 {
 			continue
 		}
 		step := strings.TrimSpace(f[4])
@@ -149,9 +151,10 @@ func collectNodes(revRange string) []node {
 			verdict:      strings.TrimSpace(f[12]),
 			falsify:      strings.TrimSpace(f[13]),
 			refutes:      splitMulti(f[14]),
-			inherit:      strings.TrimSpace(f[15]),
-			supersedes:   strings.TrimSpace(f[16]),
-			polarity:     strings.TrimSpace(f[17]),
+			refines:      splitMulti(f[15]),
+			inherit:      strings.TrimSpace(f[16]),
+			supersedes:   strings.TrimSpace(f[17]),
+			polarity:     strings.TrimSpace(f[18]),
 		})
 	}
 	return nodes

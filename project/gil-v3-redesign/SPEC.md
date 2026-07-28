@@ -154,7 +154,8 @@ pending은 "진행 중, 사람 대기"를 그래프에 남긴다 — 답이 오�
 | `Gil-Falsify-To` | 조상 define id | **hypothesis 필수** — 반증 시 되돌아갈 define(AIL #1) |
 | `Gil-Verdict` | supported\|refuted | **verify 필수** — 지지/반증. refuted면 success 문법 거부(AIL #1) |
 | `Gil-Refutes` | `<chain>/<cycle>/<step>` | 소급 반증 간선 — 이 스텝/사이클이 앞서 닫힌 supported verify 판정을 뒤늦게 반증(AIL #1 B). 여러 줄 허용 |
-| `Gil-Inherit` | 자유텍스트 | 부모에게서 물려받은 지식·전제·교훈(AIL #3). 계보 간선(--parent/--merge/--refutes)이 있으면 **필수** |
+| `Gil-Refines` | `<chain>/<cycle>/<step>` (다중) | 이 스텝/사이클이 **해석만** 정밀화하는 앞 verify·analyze(이슈 #42). 대상 verdict 불변 |
+| `Gil-Inherit` | 자유텍스트 | 부모에게서 물려받은 지식·전제·교훈(AIL #3). 계보 간선(--parent/--merge/--refutes/--refines)이 있으면 **필수** |
 
 ### 사이클 루트 스텝(s1)에만
 | 키 | 값 | 뜻 |
@@ -216,6 +217,22 @@ gil은 커밋 그래프를 훑어 아래를 검사한다. 위반이면 새 노�
      앞에 산다"). 대상 무결성만 강제: 실재·닫힌 사이클·verify kind·verdict=supported. 미래의
      반증은 문법으로 못 낳으니 강제가 아니라 **가시화** — 뷰어가 그 판정에 ⚠refuted-by 를 붙여
      "흠 없는 success" 착시를 깬다. fsck 는 dangling refutes 대상을 잡는다.
+   - **해석 층의 두 표면(이슈 #32·#42, 2026-07-28)**: verify 노드에는 **판정(verdict)과
+     해석(원인·방법)** 두 층이 있는데, 위 간선들은 판정 층만 다룬다 — refutes 는 뒤집고,
+     backtrack 은 define 까지 완전 회귀한다. 그래서 두 흔한 경우가 표면을 못 가졌다:
+     - *판정은 옳고 해석만 불완전했다* — 정직한 탐구는 원인을 점층적으로 좁힌다("언어 공백
+       같다" → "아니 문서였다"). refutes 를 걸면 앞 사이클의 유효한 성과까지 부정하는 과잉이
+       되고, inherit 로만 두면 정정 관계가 그래프에서 사라진다. → **`--refines
+       <chain>/<cycle>/<step>`**(open·step 양쪽). 대상의 verdict 는 **불변**이고, 해석만
+       정밀화한다. 대상 무결성: 실재·닫힌 사이클·kind 가 verify 또는 analyze(해석을 담는
+       노드). verdict 는 묻지 않는다 — refuted 해석도 더 좁혀질 수 있다. `--inherit` 필수.
+       가시화는 양방향: 정밀화한 쪽에 `⤳refines`, 정밀화된 쪽에 `⤳refined-by` — 판정만 읽고
+       멈추는 걸 막는다. refutes 가 극성 전환이면 refines 는 해석 심화다.
+     - *가설은 맞고 구현·방법만 틀렸다* — 반증에는 두 층위가 있다. 가설 자체가 틀렸으면 define
+       완전 회귀가 옳지만, analyze 가 "가설은 유효하고 방법이 틀렸다"를 밝힌 경우 define 까지
+       되돌리는 건 **그 분석을 버리는 일**이다. 옛 문법은 재분기 앵커를 define 으로만 받아
+       분석의 결론이 재분기의 뿌리가 되지 못했다. → **`hypothesis --to <조상 analyze>`** 허용.
+       거부 메시지가 두 갈래를 다 짚는다(가설이 틀렸나 / 방법만 틀렸나).
    - **지식 전수 명시(AIL #3)**: 계보 간선이 *새로 생기는* 자리 — 새 사이클(`open --parent`),
      소급 반증(`open/step --refutes`), 머지(`step --merge`) — 에서 `--inherit <전수>`를 요구한다.
      부모에게서 물려받은 사전지식·전제·교훈을 명시하고 출발한다. 같은 사이클 안 선형 스텝은

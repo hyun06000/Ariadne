@@ -1701,6 +1701,156 @@ class TestBranchingEnforcement(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class TestRefinesAndAnalyzeAnchor(GilFixture):
+    """해석 층의 두 표면 — 약한 정정 간선(#42)과 analyze 재분기 앵커(#32).
+
+    같은 공백의 두 얼굴이다. verify 노드에는 **판정(verdict)과 해석(원인·방법)** 두 층이
+    있는데, 옛 문법의 간선은 판정 층만 다뤘다: refutes 는 뒤집고, backtrack 은 define 까지
+    완전 회귀한다. 그래서 "판정은 그대로인데 해석만 정밀화"(#42)도, "가설은 맞고 방법만
+    틀림"(#32)도 적을 자리가 없었다.
+
+    두 경우 모두 과잉 아니면 소실로 밀렸다 — refutes 를 걸면 앞 사이클의 유효한 성과까지
+    부정하고, inherit·define회귀로 두면 정정 관계와 분석 결론이 그래프에서 사라진다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "race", "--purpose", "언어 비교")
+        # sortgap 사이클 — supported verify 로 닫는다(해석이 나중에 정밀화될 대상).
+        self.gil("open", "race/sortgap", "--author", "clew", "--purpose", "L5 실패 원인",
+                 "--body", "왜 L5 파이프라인이 실패하나")
+        self.gil("step", "race/sortgap", "--kind", "hypothesis", "--title", "H-sort",
+                 "--falsify", "sort 를 넣어도 L3 가 안 풀리면 거짓", "--falsify-to", "s1")
+        self.gil("step", "race/sortgap", "--kind", "verify", "--title", "실측",
+                 "--verdict", "supported",
+                 "--body", "sort 로 L3 풀림. L5 실패는 언어 공백 + 모델 벽으로 해석한다.")  # s3
+        self.gil("step", "race/sortgap", "--kind", "success", "--title", "성립", "--body", "sort 성과")
+        self.gil("close", "race/sortgap")
+
+    # ── #42 — 약한 정정 간선 ──
+
+    def _open_mapdoc(self, *extra):
+        return self.gil("open", "race/mapdoc", "--author", "clew", "--purpose", "진짜 원인",
+                        "--body", "원인을 더 좁힌다", *extra)
+
+    def test_refines_imprints_trailer(self):
+        """정상 --refines 는 Gil-Refines 를 각인한다 — 판정은 건드리지 않는다."""
+        r = self._open_mapdoc("--refines", "race/sortgap/s3",
+                              "--inherit", "sort 성과는 계승, 원인 해석만 좁힌다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Refines"), "race/sortgap/s3")
+        # 정밀화는 뒤집기가 아니다 — 반증 간선을 몰래 달지 않는다.
+        self.assertEqual(self.trailer("HEAD", "Gil-Refutes"), "")
+
+    def test_refines_requires_inherit(self):
+        """정밀화도 계보 간선이다 — 무엇을 물려받고 어디까지가 맞았나를 적어야 한다."""
+        r = self._open_mapdoc("--refines", "race/sortgap/s3")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("inherit", r.stdout + r.stderr)
+
+    def test_refines_target_must_exist(self):
+        r = self._open_mapdoc("--refines", "race/sortgap/s99", "--inherit", "X")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("실재", r.stdout + r.stderr)
+
+    def test_refines_target_must_be_closed(self):
+        """열린 사이클 안의 해석은 --supersede 로 그 자리에서 정정한다."""
+        self.gil("open", "race/live", "--author", "clew", "--purpose", "열린 채",
+                 "--body", "아직 안 닫음")
+        self.gil("step", "race/live", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "race/live", "--kind", "verify", "--title", "V",
+                 "--verdict", "supported", "--body", "해석")
+        r = self._open_mapdoc("--refines", "race/live/s3", "--inherit", "X")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("닫", r.stdout + r.stderr)
+
+    def test_refines_target_must_carry_interpretation(self):
+        """정밀화되는 건 해석이다 — verify·analyze 만 대상(define·success 는 아니다)."""
+        r = self._open_mapdoc("--refines", "race/sortgap/s1", "--inherit", "X")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("verify", out)
+        self.assertIn("--refutes", out)   # 판정을 뒤집는 것이면 무엇을 쓸지 알려준다
+
+    def test_refines_target_may_be_refuted_verify(self):
+        """refutes 와 달리 verdict 를 묻지 않는다 — refuted 해석도 더 좁혀질 수 있다."""
+        self.gil("open", "race/neg", "--author", "clew", "--purpose", "반증", "--body", "B")
+        self.gil("step", "race/neg", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "race/neg", "--kind", "verify", "--title", "V",
+                 "--verdict", "refuted", "--body", "반증됨 — 원인은 A 로 본다")
+        self.gil("step", "race/neg", "--kind", "fail", "--title", "막힘",
+                 "--to", "s1", "--body", "벽")
+        self.gil("close", "race/neg", "--abandon")
+        r = self._open_mapdoc("--refines", "race/neg/s3", "--inherit", "원인 해석을 좁힌다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_refines_shows_both_directions_in_log(self):
+        """그래프가 관계를 말한다 — 정밀화한 쪽에 ⤳refines, 정밀화된 쪽에 ⤳refined-by."""
+        self._open_mapdoc("--refines", "race/sortgap/s3", "--inherit", "sort 성과는 계승")
+        out = self.gil("log", "--all").stdout
+        self.assertIn("⤳refines race/sortgap/s3", out)
+        self.assertIn("⤳refined-by", out)
+
+    def test_refines_on_step_too(self):
+        """정정을 관측한 순간이 verify 스텝이면 그 자리에서 잇는다(refutes 와 대칭)."""
+        self._open_mapdoc()
+        self.gil("step", "race/mapdoc", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        r = self.gil("step", "race/mapdoc", "--kind", "verify", "--title", "실측",
+                     "--verdict", "supported", "--refines", "race/sortgap/s3",
+                     "--inherit", "언어 공백이 아니라 문서 발견성이었다",
+                     "--body", "each 는 처음부터 map 됐다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Refines"), "race/sortgap/s3")
+
+    # ── #32 — analyze 를 재분기 앵커로 ──
+
+    def _stuck(self):
+        """가설은 맞고 방법이 틀린 상황: refuted verify → analyze 가 원인을 밝힘 → fail."""
+        self.gil("open", "race/impl", "--author", "clew", "--purpose", "구현",
+                 "--body", "이 op 가 필요하다")
+        self.gil("step", "race/impl", "--kind", "hypothesis", "--title", "H-op",
+                 "--falsify", "op 없이 풀리면 거짓", "--falsify-to", "s1")
+        self.gil("step", "race/impl", "--kind", "verify", "--title", "실측",
+                 "--verdict", "refuted", "--body", "안 됨")
+        self.gil("step", "race/impl", "--kind", "analyze", "--title", "원인",
+                 "--body", "가설(op 필요)은 맞다. 틀린 건 만든 방식이다.")  # s4
+        self.gil("step", "race/impl", "--kind", "fail", "--title", "이 방식은 막힘",
+                 "--to", "s1", "--body", "벽")
+
+    def test_rebranch_from_analyze(self):
+        """분석의 결론이 재분기의 뿌리가 된다 — define 까지 되돌리면 그 분석을 버리는 일이다."""
+        self._stuck()
+        r = self.gil("step", "race/impl", "--kind", "hypothesis", "--to", "s4",
+                     "--title", "새 방식", "--falsify", "이 방식도 안 되면 거짓",
+                     "--falsify-to", "s1",
+                     "--inherit", "s4 분석: 가설은 유효, 방법만 틀렸다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Parent"), "s4")
+
+    def test_rebranch_from_define_still_works(self):
+        """가설 자체가 틀렸을 땐 여전히 define 완전 회귀가 옳다 — 길이 좁아지지 않는다."""
+        self._stuck()
+        r = self.gil("step", "race/impl", "--kind", "hypothesis", "--to", "s1",
+                     "--title", "다른 가설", "--falsify", "F", "--falsify-to", "s1",
+                     "--inherit", "가설 진술 자체가 과장이었다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_rebranch_anchor_must_be_define_or_analyze(self):
+        """아무 스텝이나 뿌리가 되진 않는다 — 거부가 두 갈래를 다 알려준다."""
+        self._stuck()
+        r = self.gil("step", "race/impl", "--kind", "hypothesis", "--to", "s3",
+                     "--title", "X", "--falsify", "F", "--falsify-to", "s1",
+                     "--inherit", "I")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("analyze", out)
+        self.assertIn("s4", out)          # 이 사이클의 analyze 를 짚어준다
+        self.assertIn("방법만", out)      # 어느 쪽을 골라야 하는지까지
+
+
 class TestLateRefutation(GilFixture):
     """AIL #1 제안 B — 사이클 간 늦은 반증. 후속 사이클이 앞서 닫힌 supported verify
     판정을 뒤늦게 반증했음을 --refutes 간선으로 계보에 남긴다(verdict 는 불변 보존).

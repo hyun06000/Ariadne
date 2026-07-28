@@ -334,6 +334,60 @@ func resolveRefutes(targets []string) {
 	}
 }
 
+// resolveRefines — --refines <chain>/<cycle>/<step> 약한 정정 간선의 무결성을 검증한다(이슈 #42).
+//
+// 왜 refutes 로는 안 되나. 정직한 탐구는 원인을 점층적으로 좁힌다("언어 공백 같다" → "아니
+// 문서였다"). 이때 앞 verify 는 **가설도 실험도 맞았고 verdict 도 옳다** — 불완전했던 건 그
+// 본문의 *원인 해석*뿐이다. 여기에 refutes 를 걸면 "그 사이클이 틀렸다"고 과하게 말해 유효한
+// 성과까지 부정하고, inherit 로만 두면 정정 관계가 그래프에서 사라진다. 그래서 그 사이를 낸다:
+// **대상의 verdict 는 불변, 해석만 정밀화한다.** refutes 가 극성 전환이면 refines 는 해석 심화다.
+//
+// 대상은 반드시 (a) 실재하는 스텝, (b) 그 사이클이 close 로 봉인됨, (c) kind 가 verify 또는
+// analyze — 해석을 담는 노드. verdict 는 묻지 않는다(supported 든 refuted 든 해석은 정밀화된다).
+func resolveRefines(targets []string) {
+	if len(targets) == 0 {
+		return
+	}
+	all := collectNodes("--branches")
+	byKey := map[string]node{}
+	for _, n := range all {
+		byKey[stepKey(n.chain, n.cycle, n.step)] = n
+	}
+	closed := closedCycles("--branches")
+	for _, t := range targets {
+		parts := strings.Split(t, "/")
+		if len(parts) != 3 {
+			die("거부: --refines 대상 \"" + t + "\"는 <chain>/<cycle>/<step> 꼴이어야 함 (스텝 단위)")
+		}
+		tc, tcy, ts := parts[0], parts[1], parts[2]
+		n, ok := byKey[stepKey(tc, tcy, ts)]
+		if !ok {
+			die("거부: --refines 대상 " + t + " 실재 안 함 (dangling)")
+		}
+		if !closed[tc+"\x01"+tcy] {
+			die("거부: --refines 대상 " + t + "의 사이클이 아직 안 닫혔다 — 정밀화는 닫힌 해석만 대상\n" +
+				"  (열린 사이클 안에서는 --supersede 로 그 자리에서 정정하라)")
+		}
+		if n.kind != "verify" && n.kind != "analyze" {
+			die("거부: --refines 대상 " + t + "는 verify 또는 analyze 스텝이어야 함 (정밀화되는 건 해석이다). " +
+				"현재 kind=" + n.kind + "\n" +
+				"  판정 자체를 뒤집는 것이면 --refines 가 아니라 --refutes 다.")
+		}
+	}
+}
+
+// guideRefines — 정밀화 간선을 놓은 뒤, 그 관계가 무엇을 뜻하는지 못박는다. refines 를
+// "약한 refutes" 로 오용하면(실은 판정이 틀렸는데 정밀화라 적으면) 정직화 장치가 무뎌진다.
+func guideRefines(targets []string) {
+	stderr("")
+	for _, t := range targets {
+		stderr("  ▸ 정밀화(--refines " + t + "): 그 판정(verdict)은 그대로 선다 — 이 사이클은 그 본문의")
+		stderr("    *원인 해석*을 더 좁힌다. 앞 사이클의 성과를 부정하는 게 아니다.")
+	}
+	stderr("    (판정 자체가 틀렸다면 정밀화가 아니라 소급 반증이다: --refutes <c>/<cy>/<step>)")
+	stderr("    본문에 적어라: 앞선 해석이 어디까지 맞았고, 무엇이 진짜 원인이었나.")
+}
+
 // ── gil open ──
 func cmdOpen(args []string) {
 	fs := newFlags("gil open")
@@ -344,10 +398,11 @@ func cmdOpen(args []string) {
 	bodyFile := fs.str("body-file", "")
 	parents := fs.strList("parent")
 	refutes := fs.strList("refutes") // 소급 반증 간선(AIL #1 제안 B): 이 사이클이 뒤집는 앞 verify 스텝
+	refines := fs.strList("refines") // 약한 정정 간선(이슈 #42): 판정은 두고 해석만 정밀화
 	inherit := fs.str("inherit", "") // 물려받은 지식·전제·교훈(AIL #3): 계보 간선 생기면 필수
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
+		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
 	}
 	if *author == "" {
 		die("거부: --author 필요")
@@ -417,11 +472,12 @@ func cmdOpen(args []string) {
 		}
 	}
 	resolveRefutes(*refutes) // 소급 반증 대상 무결성(AIL #1 B)
+	resolveRefines(*refines) // 정밀화 대상 무결성(이슈 #42)
 	// 제안 A (AIL #3) — 계보 간선이 새로 생기면 물려받은 지식·전제·교훈을 명시한다. 부모
 	// 사이클(--parent)이나 소급 반증(--refutes) 간선이 있으면 --inherit 필수 — 간선의 존재는
 	// 문법이, 내용의 진실성은 존재가 보증한다("정직 강제 불가, 은폐 영속화만 차단", AIL #1).
-	if (len(*parents) > 0 || len(*refutes) > 0) && strings.TrimSpace(*inherit) == "" {
-		die("거부: 계보 간선(--parent/--refutes)이 있으면 --inherit <전수> 필요 — 부모에게서 물려받은 " +
+	if (len(*parents) > 0 || len(*refutes) > 0 || len(*refines) > 0) && strings.TrimSpace(*inherit) == "" {
+		die("거부: 계보 간선(--parent/--refutes/--refines)이 있으면 --inherit <전수> 필요 — 부모에게서 물려받은 " +
 			"사전지식·전제·교훈을 명시하고 출발하라. 계보를 포인터 그물이 아니라 지식의 강으로(AIL #3).")
 	}
 	// 미해결 define 방치 경고(이슈 #45). 이 체인에 '산 잎 없이 fail 잎만 있고 아직 안 닫힌'
@@ -468,6 +524,9 @@ func cmdOpen(args []string) {
 	for _, rf := range *refutes {
 		tr = append(tr, [2]string{"Gil-Refutes", rf}) // 소급 반증 간선(AIL #1 B)
 	}
+	for _, rf := range *refines {
+		tr = append(tr, [2]string{"Gil-Refines", rf}) // 정밀화 간선(이슈 #42)
+	}
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
 	}
@@ -477,6 +536,9 @@ func cmdOpen(args []string) {
 	println2("open: " + ref + "/s1 define (브랜치 " + cb + ")")
 	if len(*refutes) > 0 {
 		guideRefutes(*refutes)
+	}
+	if len(*refines) > 0 {
+		guideRefines(*refines)
 	}
 	reportGuide("define", bodyThin(body))
 	guideNext("define") // 다음은 반드시 hypothesis (AIL #41)
@@ -508,7 +570,9 @@ func cmdStep(args []string) {
 	// 제안 B (AIL #1): 소급 반증 간선 — 이 스텝이 앞서 닫힌 supported verify 판정을 뒤늦게
 	// 반증한다. verify 스텝에서 우회를 관측한 순간이 가장 정직한 자리라 step 도 받는다.
 	refutes := fs.strList("refutes")
-	inherit := fs.str("inherit", "") // 물려받은 전수(AIL #3): 머지/refutes 간선 생기면 필수
+	// 약한 정정 간선(이슈 #42): 앞 verify/analyze 의 *해석*만 정밀화한다. verdict 는 불변.
+	refines := fs.strList("refines")
+	inherit := fs.str("inherit", "") // 물려받은 전수(AIL #3): 머지/refutes/refines 간선 생기면 필수
 	// 스텝 정정(AIL #12): 같은 kind 의 앞선 스텝을 이 스텝이 대체한다. raw amend 로 옛 커밋을
 	// 지우는 대신(trailer 소실·이력 은폐), 새 커밋으로 덮고 옛 것은 이력에 남긴다 — append-only
 	// 보존. 뷰어가 옛 스텝에 "⤳정정됨"을 붙인다. --refutes 가 verdict 를 supersede 하지 않고
@@ -591,12 +655,14 @@ func cmdStep(args []string) {
 		}
 	}
 	resolveRefutes(*refutes) // 소급 반증 대상 무결성(AIL #1 B)
+	resolveRefines(*refines) // 정밀화 대상 무결성(이슈 #42)
 	// 제안 A (AIL #3) — 머지/소급반증 간선이 새로 생기면 --inherit 필수. 같은 사이클 안
 	// 선형 스텝(직전 Gil-Parent)은 전수랄 게 없어 면제 — 매 스텝 강제는 형해화만 낳는다
 	// (clew@AIL 실사용: 같은 내용 복붙). 계보가 실제로 갈라지는 자리에만 요구한다.
-	if (len(*merge) > 0 || len(*refutes) > 0) && strings.TrimSpace(*inherit) == "" {
-		die("거부: 계보 간선(--merge/--refutes)이 있으면 --inherit <전수> 필요 — 이 갈래에서 " +
-			"무엇을 물려받았나(머지) 혹은 무엇을 뒤집고 무엇은 계승하나(refutes)를 명시하라(AIL #3).")
+	if (len(*merge) > 0 || len(*refutes) > 0 || len(*refines) > 0) && strings.TrimSpace(*inherit) == "" {
+		die("거부: 계보 간선(--merge/--refutes/--refines)이 있으면 --inherit <전수> 필요 — 이 갈래에서 " +
+			"무엇을 물려받았나(머지), 무엇을 뒤집고 무엇은 계승하나(refutes), 앞 해석의 어디까지가 " +
+			"맞았나(refines)를 명시하라(AIL #3).")
 	}
 	// backtrack 전수 강제 (AIL #13, 요구 5) — 조상 define 으로 되돌아가 새 형제 가지를 팔 때
 	// (hypothesis --to <define>), 죽은 가지에서 얻은 "누적된 반성"을 --inherit 으로 잇게 한다.
@@ -702,10 +768,14 @@ func cmdStep(args []string) {
 		}
 	}
 	defineIDs := map[string]bool{}
+	analyzeIDs := map[string]bool{} // 재분기 앵커 후보(이슈 #32) — 분석의 결론에서 갈라진다.
 	liveLeaves := map[string]bool{}
 	for _, s := range steps {
 		if s.kind == "define" {
 			defineIDs[s.step] = true
+		}
+		if s.kind == "analyze" {
+			analyzeIDs[s.step] = true
 		}
 		if isLiveLeaf(s) {
 			liveLeaves[s.step] = true
@@ -774,9 +844,20 @@ func cmdStep(args []string) {
 		parent = (*merge)[0]
 		mergeRest = (*merge)[1:]
 	case *kind == "hypothesis" && *to != "":
-		// 되돌아가 새 형제 가지 — 조상 define 커밋에서 진짜 git 브랜치를 분기.
-		if !defineIDs[*to] {
-			die("거부: --to " + *to + "는 조상 define이어야 함")
+		// 되돌아가 새 형제 가지 — 조상 define(또는 analyze) 커밋에서 진짜 git 브랜치를 분기.
+		//
+		// analyze 앵커(이슈 #32). 반증에는 두 층위가 있다: (1) 가설 자체가 틀림 — define 완전
+		// 회귀가 옳다. (2) 가설은 맞고 구현·방법만 틀림 — 이때 define 까지 되돌리면 **그 사이
+		// 밝혀낸 분석을 버리는 일**이 된다. 옛 문법은 앵커를 define 으로만 받아, analyze 가
+		// "가설은 유효하고 방법이 틀렸다"를 밝혀도 새 가설은 define 에서만 갈라졌다 — 분석의
+		// 결론이 재분기의 뿌리가 되지 못하는 병목. 그래서 조상 analyze 도 앵커로 받는다.
+		// (analyze 는 원인을 밝힌 노드다 — 거기서 갈라지면 그 분석 위에 새 가설이 선다.)
+		if !defineIDs[*to] && !analyzeIDs[*to] {
+			die("거부: --to " + *to + "는 조상 define 또는 analyze 여야 함 (재분기의 뿌리)\n" +
+				"  이 사이클의 define: " + strings.Join(sortedIDs(defineIDs), " ") + "\n" +
+				"  이 사이클의 analyze: " + strings.Join(sortedIDs(analyzeIDs), " ") + "\n" +
+				"  · 가설 자체가 틀렸다면 → define 으로 완전 회귀.\n" +
+				"  · 가설은 맞고 방법만 틀렸다면 → 그걸 밝힌 analyze 로 (분석을 버리지 마라, 이슈 #32).")
 		}
 		parent = *to
 		// 그 define 에서 이미 몇 개의 형제 가지가 났는지 세어 유일한 이름을 만든다.
@@ -834,6 +915,9 @@ func cmdStep(args []string) {
 	for _, rf := range *refutes {
 		tr = append(tr, [2]string{"Gil-Refutes", rf}) // 소급 반증 간선(AIL #1 B)
 	}
+	for _, rf := range *refines {
+		tr = append(tr, [2]string{"Gil-Refines", rf}) // 정밀화 간선(이슈 #42)
+	}
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
 	}
@@ -870,6 +954,9 @@ func cmdStep(args []string) {
 	println2("step: " + ref + "/" + sid + " " + *kind + " ←" + parent + tail)
 	if len(*refutes) > 0 {
 		guideRefutes(*refutes)
+	}
+	if len(*refines) > 0 {
+		guideRefines(*refines)
 	}
 	reportGuide(*kind, bodyThin(stBody))
 	guideNext(*kind) // 다음 강제 스텝을 무조건 각인 (AIL #41)

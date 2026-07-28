@@ -47,6 +47,8 @@ type viewerNode struct {
 	parent, backtrack        string   // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
 	refutes                  []string // Gil-Refutes: 이 스텝/사이클이 소급 반증하는 verify 스텝들(AIL #1 B)
 	refutedBy                []string // 역인덱스: 이 스텝을 반증한 스텝들(뷰어가 ⚠refuted-by 표시)
+	refines                  []string // Gil-Refines: 이 스텝/사이클이 해석을 정밀화하는 대상들(이슈 #42)
+	refinedBy                []string // 역인덱스: 이 스텝의 해석을 정밀화한 스텝들(뷰어가 ⤳refined-by 표시)
 	cycleParents             []string // Gil-Cycle-Parent: 사이클 계보 부모(경계 stub 엣지용, AIL #7)
 	inherit                  string   // Gil-Inherit: 부모에게서 물려받은 전수(경계 라벨용, AIL #3·#7)
 	gitParents               []string // 실제 커밋 부모 SHA(9자) — 진짜 DAG 그래프용(%P).
@@ -113,6 +115,7 @@ func viewerCollectNodes() []viewerNode {
 			kind: tr["Gil-Kind"], outcome: tr["Gil-Outcome"], verdict: tr["Gil-Verdict"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
 			refutes:      trailerAll(parts[3], "Gil-Refutes"), // multi-value(map은 마지막만 남아 직접 파싱)
+			refines:      trailerAll(parts[3], "Gil-Refines"), // 정밀화 간선(이슈 #42)
 			cycleParents: trailerAll(parts[3], "Gil-Cycle-Parent"),
 			inherit:      tr["Gil-Inherit"],
 			gitParents:   gp,
@@ -130,6 +133,17 @@ func viewerCollectNodes() []viewerNode {
 			if j, ok := idx[rf]; ok {
 				src := n.chain + "/" + n.cycle + "/" + n.step
 				nodes[j].refutedBy = append(nodes[j].refutedBy, src)
+			}
+		}
+	}
+	// 정밀화 역인덱스(이슈 #42): 대상에게 "너의 해석은 뒤에 더 좁혀졌다"를 달아준다. 판정은
+	// 그대로 서 있으므로 ⚠(반증)가 아니라 ⤳(이어짐) 표식이다 — 앞 사이클의 성과를 부정하지
+	// 않으면서, 그 결론만 읽고 멈추는 걸 막는다.
+	for _, n := range nodes {
+		for _, rf := range n.refines {
+			if j, ok := idx[rf]; ok {
+				src := n.chain + "/" + n.cycle + "/" + n.step
+				nodes[j].refinedBy = append(nodes[j].refinedBy, src)
 			}
 		}
 	}
@@ -710,9 +724,15 @@ func renderText(g graphView) {
 					line += " ⟹" + n.verdict
 					// 소급 반증됨(AIL #1 B): supported 판정이 후속 사이클에 뒤집혔다.
 					// 취소선 대신(터미널 폭 안정) ⚠refuted-by 배지로 "흠 없는 success" 착시를 깬다.
+					if len(n.refinedBy) > 0 {
+						line += " ⤳refined-by " + strings.Join(n.refinedBy, ",")
+					}
 					if len(n.refutedBy) > 0 {
 						line += " ⚠refuted-by " + strings.Join(n.refutedBy, ",")
 					}
+				}
+				if len(n.refines) > 0 {
+					line += " ⤳refines " + strings.Join(n.refines, ",")
 				}
 				if len(n.refutes) > 0 {
 					line += " ⟵refutes " + strings.Join(n.refutes, ",")

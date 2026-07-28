@@ -218,6 +218,14 @@ func logDepthStep(ch string, all bool) {
 			supersededBy[n.chain+"\x01"+n.cycle+"\x01"+n.supersedes] = n.step
 		}
 	}
+	// 정밀화 역방향 맵(이슈 #42): 정밀화된 스텝 → 그를 정밀화한 스텝(사이클을 넘으므로 전체 경로 키).
+	// 판정만 읽고 멈추지 않게 — 그 해석은 뒤에서 더 좁혀졌다.
+	refinedBy := map[string]string{}
+	for _, n := range nodes {
+		for _, rf := range n.refines {
+			refinedBy[rf] = n.chain + "/" + n.cycle + "/" + n.step
+		}
+	}
 	for i := len(nodes) - 1; i >= 0; i-- { // 새→old 이므로 뒤집어 old→new
 		n := nodes[i]
 		if ch != "" && n.chain != ch {
@@ -242,6 +250,14 @@ func logDepthStep(ch string, all bool) {
 		}
 		if len(n.refutes) > 0 {
 			line += "  ⟵refutes " + strings.Join(n.refutes, ",")
+		}
+		// 정밀화 간선(이슈 #42) — refutes 가 극성 전환이면 refines 는 해석 심화다. 판정은
+		// 그대로 서 있으므로 ⤳(이어짐) 표식을 쓴다.
+		if len(n.refines) > 0 {
+			line += "  ⤳refines " + strings.Join(n.refines, ",")
+		}
+		if rb := refinedBy[n.chain+"/"+n.cycle+"/"+n.step]; rb != "" {
+			line += "  ⤳refined-by(" + rb + ")" // 이 해석은 뒤 사이클이 더 좁혔다
 		}
 		if n.inherit != "" {
 			line += "  ⇐" + n.inherit // 물려받은 전수(AIL #3) — 계보 간선의 지식 라벨
