@@ -5515,7 +5515,8 @@ class TestAtReturnsAndIdsStayUnique(GilFixture):
                   "gil a/gap/s8 analyze: 손으로 박은 중복\n\n본문\n\n"
                   "Gil-Chain: a\nGil-Cycle: gap\nGil-Step: s8\nGil-Kind: analyze\nGil-Parent: s7")
         out = self.gil("fsck").stdout + self.gil("fsck").stderr
-        self.assertIn("같은 스텝 번호가 둘이다", out)
+        # 문구는 묶음 보고로 바뀌었다(이슈 #84) — 쌍마다 한 줄이면 오염된 저장소에서 수십 줄이 된다.
+        self.assertIn("번호 중복", out)
 
     def test_falsify_to_accepts_analyze(self):
         """--to 와 --falsify-to 의 비대칭을 없앤다 — 되돌아갈 자리에도 같은 논거가 선다."""
@@ -6191,3 +6192,46 @@ class TestChainCleanup(GilFixture):
         r = self.gil("prune", "c/c1/s1", "--dry-run")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("잎이 아니다", r.stdout + r.stderr)
+
+
+class TestPollutedGraphIsRendered(GilFixture):
+    """오염된 저장소도 관전할 수 있어야 한다 (이슈 #84, 상현님 실사용).
+
+    옛 gil(≤3.28)이 같은 번호를 여러 스텝에 찍은 저장소에서, 뷰어가 번호를 노드의 정체성으로
+    쓰다 자기부모 노드를 만나 무한재귀로 죽었다. 원장은 다시 쓸 수 없다(이력 위조다) —
+    그러니 뷰어가 오염을 견뎌야 하고, fsck 가 그 오염을 먼저 말해야 한다."""
+
+    def _polluted(self):
+        """번호 중복 + 자기부모를 인위로 만든다(옛 gil 이 만든 모양)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "H")
+        # 같은 번호(s2)를 다시 쓰고 자기 자신을 부모로 가리키는 커밋을 손으로 얹는다.
+        msg = ("gil c/c1/s2 analyze: 오염된 스텝\n\n본문\n\n"
+               "Gil-Chain: c\nGil-Cycle: c1\nGil-Step: s2\nGil-Kind: analyze\nGil-Parent: s2\n")
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-F", "-"],
+                       cwd=self.repo, input=msg, text=True, capture_output=True)
+
+    def test_fsck_reports_duplicate_numbers_and_self_parent(self):
+        self._polluted()
+        r = self.gil("fsck")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout
+        self.assertIn("번호 중복", out)
+        self.assertIn("자기부모", out)
+        # 다시 번호를 매기라고 하지 않는다 — 원장을 고치는 건 이력 위조다.
+        self.assertIn("이력 위조", out)
+
+    def test_viewer_renders_polluted_cycle(self):
+        """sha 가 정체성이면 중복 번호가 남아 있어도 그래프는 옳게 그려진다."""
+        self._polluted()
+        out = os.path.join(self.repo, "v.html")
+        r = self.gil("viewer", "build", "--out", out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(out, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("seen.has(sha)", html)        # 순환 가드
+        self.assertIn("const pSha=", html)          # 부모 해석이 sha 로
+        self.assertIn("cardwarn", html)             # 실패·오염을 카드에 찍는다

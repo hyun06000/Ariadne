@@ -453,23 +453,71 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	// 스텝 번호 중복(이슈 #67 수정 중 발견): 같은 사이클에 같은 id 가 둘이면 --to·Gil-Parent
 	// 참조가 어느 쪽을 가리키는지 알 수 없다. 형제 가지가 있을 때 HEAD 계보만 보고 번호를
 	// 매기면 실제로 발생한다 — 문법으로 막았지만, 이미 그렇게 그려진 그래프는 여기서 짚는다.
-	seenStep := map[string]string{}
-	for _, n := range universe {
-		if n.cycle == "" || n.step == "" {
-			continue
-		}
-		k := stepKey(n.chain, n.cycle, n.step)
-		if prev, ok := seenStep[k]; ok && prev != n.sha {
-			violations = append(violations, "위계: "+n.chain+"/"+n.cycle+"/"+n.step+
-				" — 같은 스텝 번호가 둘이다("+prev+", "+n.sha+"). 계보 참조가 어느 쪽인지 알 수 없다.")
-			continue
-		}
-		seenStep[k] = n.sha
-	}
+	// (번호 중복은 fsckStepIdentity 가 **묶어서** 한 줄로 짚는다 — 쌍마다 한 줄씩 내면
+	//  오염된 저장소에서 수십 줄이 되어 정작 다른 위반을 덮는다. 이슈 #84 에서 실측.)
 	violations = append(violations, fsckChainStacking()...)
 	violations = append(violations, fsckMemoryLayer(nodes)...)
 	violations = append(violations, fsckUnanchoredSteps()...)
+	violations = append(violations, fsckStepIdentity(universe)...)
 	return violations
+}
+
+// fsckStepIdentity — 번호 중복과 자기부모를 짚는다(이슈 #84, 상현님).
+//
+// 왜. 옛 gil(≤3.28)은 스텝 번호를 브랜치에서 계산해, 분리된 HEAD 위에서는 같은 번호를 여러
+// 스텝에 찍었다(#83 의 곁다리). 그 저장소는 겉보기엔 멀쩡한데 뷰어가 사이클을 못 연다 —
+// 같은 번호끼리 충돌해 **자기 자신이 부모인 노드**가 생기고 배치가 무한재귀에 빠진다.
+// 진짜 손해는 크래시가 아니라 **오염된 걸 아무도 안 알려준 것**이었다("v3.24.0 구간 5개
+// 사이클이 오염된 걸 이슈를 읽고서야 알았다"). 뷰어가 못 그리는 데이터를 fsck 가 먼저 짚는다.
+//
+// 고칠 수는 없다 — 번호를 다시 매기는 건 원장을 다시 쓰는 것이고, 그건 이력 위조다. 그래서
+// 도구가 하는 일은 둘이다: 사실을 말하고(여기), 오염을 견디고(뷰어는 sha 를 정체성으로 쓴다).
+func fsckStepIdentity(nodes []node) []string {
+	type key struct{ chain, cycle, step string }
+	count := map[key][]node{}
+	var selfParent []node
+	for _, n := range nodes {
+		if n.cycle == "" || n.step == "" {
+			continue
+		}
+		k := key{n.chain, n.cycle, n.step}
+		count[k] = append(count[k], n)
+		if n.parent == n.step {
+			selfParent = append(selfParent, n)
+		}
+	}
+	var dupLines []string
+	for k, ns := range count {
+		if len(ns) < 2 {
+			continue
+		}
+		var shas []string
+		for _, n := range ns {
+			shas = append(shas, n.sha+"("+n.kind+")")
+		}
+		sort.Strings(shas)
+		dupLines = append(dupLines, "    "+k.chain+"/"+k.cycle+"/"+k.step+" ×"+itoa(len(ns))+": "+strings.Join(shas, " "))
+	}
+	var out []string
+	if len(dupLines) > 0 {
+		sort.Strings(dupLines)
+		out = append(out, "번호 중복: 같은 스텝 번호를 쓰는 커밋이 여럿이다(옛 gil ≤3.28 이 찍은 구간):\n"+
+			strings.Join(dupLines, "\n")+"\n"+
+			"    다시 번호를 매기지 않는다 — 원장을 고치는 건 이력 위조다. 뷰어는 커밋 sha 를 정체성으로\n"+
+			"    삼아 이 구간도 그대로 그린다(이슈 #84). 새 스텝부터는 번호가 다시 단조 증가한다.")
+	}
+	if len(selfParent) > 0 {
+		var lines []string
+		for _, n := range selfParent {
+			lines = append(lines, "    "+n.sha+" "+n.chain+"/"+n.cycle+"/"+n.step+" ["+n.kind+"] — 부모가 자기 자신")
+		}
+		sort.Strings(lines)
+		out = append(out, "자기부모: 스텝이 자기 자신을 부모로 가리킨다(번호 중복의 후유증):\n"+
+			strings.Join(lines, "\n")+"\n"+
+			"    계보를 따라가면 제자리를 돈다. 뷰어는 순환 가드로 견디지만, 이 구간의 부모 관계는\n"+
+			"    믿을 수 없다 — 그 자리의 계보는 커밋 그래프(gil log --depth step)로 읽어라.")
+	}
+	return out
 }
 
 // fsckUnanchoredSteps — 브랜치에서 안 닿는 스텝 커밋을 짚는다(이슈 #83 부수 제안).

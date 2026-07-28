@@ -1085,6 +1085,8 @@ svg.dag{display:block}
 .dag .dnode.here circle{stroke:var(--here);stroke-width:2.5}
 .dag .dnode .headarrow{fill:var(--here)}
 .dag .dnode.deployed circle{stroke:#2dd4bf;stroke-width:2.5}
+.cardwarn{margin:10px 16px;padding:8px 12px;border:1px solid #f59e0b;border-radius:8px;color:#f59e0b;font-size:12px;white-space:pre-wrap}
+.cardwarn.err{border-color:#e0574a;color:#e0574a}
 .planbadge{font-size:10px;font-weight:700;fill:var(--dim);text-anchor:middle;pointer-events:none}
 .planbadge.broke{fill:#f59e0b}
 .dag .dnode .dagdeploy{font-size:10px;font-weight:800;fill:#2dd4bf;text-anchor:middle;pointer-events:none}
@@ -1269,52 +1271,67 @@ function openStepCard(chain,cyc){
 
   // 스텝을 부모-자식 트리로 배치 — 형제 가지(같은 부모의 여러 자식)를 세로로 갈라
   // 진짜 분기가 보이게 한다(피드백 4). col=부모 사슬 깊이, row=DFS 분기 배정.
-  const byId={}, kids={};
-  steps.forEach(n=>{ byId[n.id]=n; (kids[n.parent]=kids[n.parent]||[]).push(n); });
+  //
+  // **키는 sha 다**(이슈 #84, 상현님). 옛 코드는 스텝 번호(s7)를 노드의 정체성으로 썼는데,
+  // 번호는 표시용 라벨일 뿐이다. 옛 gil(≤3.28)이 같은 번호를 여러 스텝에 찍은 저장소에서는
+  // byId 가 충돌해 **자기 자신이 부모인 노드**가 생기고, place() 가 무한재귀로 죽었다.
+  // 원장은 다시 쓸 수 없다(이력 위조다) — 그러니 뷰어가 오염된 데이터를 견뎌야 한다.
+  try{
+  const bySha={}, byNum={}, kids={};
+  steps.forEach(n=>{ bySha[n.sha]=n; (byNum[n.id]=byNum[n.id]||[]).push(n); });
+  // 부모 해석: 번호로 가리키므로 중복이 있으면 **자기 자신이 아닌** 첫 후보를 쓴다.
+  const pSha=n=>{
+    if(!n.parent||n.parent==='null')return '';
+    const cands=byNum[n.parent]||[];
+    for(const c of cands){ if(c.sha!==n.sha) return c.sha; }
+    return '';
+  };
+  const numSha=(id,self)=>{ // backtrack 등 번호 참조를 sha 로(자기 자신 제외)
+    const cands=byNum[id]||[];
+    for(const c of cands){ if(!self||c.sha!==self) return c.sha; }
+    return '';
+  };
+  steps.forEach(n=>{ const p=pSha(n); if(p) (kids[p]=kids[p]||[]).push(n); });
   const col={}, row={};
   let nextRow=0;
-  // 루트(parent=null 또는 없음)부터 DFS. 첫 자식은 같은 행, 둘째+ 자식은 새 행(분기).
-  function place(id, depth){
-    col[id]=depth;
-    const cs=(kids[id]||[]).slice().sort((a,b)=>stepNumJS(a.id)-stepNumJS(b.id));
+  // 루트(부모가 이 사이클 안에 없는 것)부터 DFS. 첫 자식은 같은 행, 둘째+ 자식은 새 행(분기).
+  const seen=new Set();
+  function place(sha, depth){
+    if(seen.has(sha))return;   // 순환 가드 — 데이터가 순환해도 관전 도구는 죽으면 안 된다
+    seen.add(sha);
+    col[sha]=depth;
+    const cs=(kids[sha]||[]).slice().sort((a,b)=>stepNumJS(a.id)-stepNumJS(b.id));
     cs.forEach((c,i)=>{
       if(i>0) nextRow++;      // 형제 가지 → 아래로 한 줄
-      row[c.id]=nextRow;
-      place(c.id, depth+1);
+      row[c.sha]=nextRow;
+      place(c.sha, depth+1);
     });
   }
-  // 루트 노드들(부모가 이 사이클 안에 없는 것).
-  const roots=steps.filter(n=>!n.parent||n.parent==='null'||!byId[n.parent]);
-  roots.forEach(rt=>{ row[rt.id]=nextRow; place(rt.id,0); });
+  const roots=steps.filter(n=>!pSha(n));
+  roots.forEach(rt=>{ row[rt.sha]=nextRow; place(rt.sha,0); });
+  // 어느 루트에서도 안 닿은 노드(순환에 갇힌 것)도 자리를 준다 — 안 그리면 조용히 사라진다.
+  steps.forEach(n=>{ if(col[n.sha]===undefined){ nextRow++; col[n.sha]=0; row[n.sha]=nextRow; } });
 
   const colGap=96, rowGap=82, r=20, padX=30, padYtop=48, padY=30;
   let maxCol=0,maxRow=0;
-  steps.forEach(n=>{ maxCol=Math.max(maxCol,col[n.id]||0); maxRow=Math.max(maxRow,row[n.id]||0); });
-  // 경계 stub 엣지(AIL #7): 사이클이 부모(다른 카드)에서 왔으면 왼쪽에 진입 고스트,
-  // 잎(자식 없는 산/죽은 노드)에서 다음 카드로 나가면 오른쪽에 진출 고스트를 둔다 —
-  // orphan 착시(뿌리 없는 가지)를 깬다. 진입 고스트엔 물려받은 전수(Gil-Inherit)를 라벨로.
+  steps.forEach(n=>{ maxCol=Math.max(maxCol,col[n.sha]||0); maxRow=Math.max(maxRow,row[n.sha]||0); });
   const hasEntry=!!cyc.parent;                 // 사이클 부모(Gil-Cycle-Parent)가 있으면 진입 경계.
-  // 진출 경계(이슈 #72): 카드 안에서 자식이 없다는 것만으로 "나갔다"고 그리지 않는다.
-  // 서버가 실은 exit(이 스텝을 진입 부모로 삼은 카드들)이 있을 때만 나간 것이다 — 아무도
-  // 이어받지 않은 잎에도, 잎 판정이 무너져 모든 노드에도 붙던 거짓 표시를 사실로 대체한다.
   const exited=steps.filter(n=>n.exit);
   const gx=hasEntry?1:0;                        // 진입 고스트가 있으면 실노드를 한 칸 오른쪽으로.
-  const X=id=>padX+r+(gx+(col[id]||0))*colGap;
-  const Y=id=>padYtop+r+(row[id]||0)*rowGap; // 위쪽 여유(backtrack 곡선이 위로 지나감)
+  const X=sha=>padX+r+(gx+(col[sha]||0))*colGap;
+  const Y=sha=>padYtop+r+(row[sha]||0)*rowGap; // 위쪽 여유(backtrack 곡선이 위로 지나감)
   const GEX=padX+r+(gx+maxCol+1)*colGap;        // 진출 고스트 X(맨 오른쪽 한 칸 밖).
   const w=Math.max(160, padX*2+(gx+maxCol+(exited.length?1:0))*colGap+r*2);
   const h=padYtop+padY+maxRow*rowGap+r*2;
   const svg=svgEl('svg',{class:'cygraph',viewBox:'0 0 '+w+' '+h,width:w,height:h});
-  // 고스트 노드·stub 엣지를 실노드보다 먼저(밑에) 그린다.
   const GX=padX+r; // 진입 고스트 X(맨 왼쪽 칸).
-  if(hasEntry){
-    // 진입 고스트: 부모 사이클을 가리키는 흐린 노드. 각 루트로 stub 엣지.
+  if(hasEntry&&roots.length){
     const inh=(steps[0]&&steps[0].inherit)||'';
     roots.forEach(rt=>{
       svg.appendChild(svgEl('path',{class:'stepedge ghost',fill:'none',
-        d:'M '+(GX+r)+' '+Y(rt.id)+' C '+((GX+r+X(rt.id)-r)/2)+' '+Y(rt.id)+' '+((GX+r+X(rt.id)-r)/2)+' '+Y(rt.id)+' '+(X(rt.id)-r)+' '+Y(rt.id)}));
+        d:'M '+(GX+r)+' '+Y(rt.sha)+' C '+((GX+r+X(rt.sha)-r)/2)+' '+Y(rt.sha)+' '+((GX+r+X(rt.sha)-r)/2)+' '+Y(rt.sha)+' '+(X(rt.sha)-r)+' '+Y(rt.sha)}));
     });
-    const gg=svgEl('g',{class:'snode ghost',transform:'translate('+GX+','+Y(roots[0].id)+')'});
+    const gg=svgEl('g',{class:'snode ghost',transform:'translate('+GX+','+Y(roots[0].sha)+')'});
     gg.appendChild(svgEl('title',{},'부모 사이클: '+cyc.parent+(inh?'\n물려받음: '+inh:'')));
     gg.appendChild(svgEl('circle',{r:r}));
     gg.appendChild(svgEl('text',{class:'sid',dy:3},'←'));
@@ -1323,12 +1340,11 @@ function openStepCard(chain,cyc){
     svg.appendChild(gg);
   }
   if(exited.length){
-    // 진출 고스트: **실제로 다음 카드가 이어받은** 스텝에서만 나감을 표시(흐린 노드로 수렴).
-    const anchorRow=Math.round(exited.reduce((s,n)=>s+(row[n.id]||0),0)/exited.length);
+    const anchorRow=Math.round(exited.reduce((s,n)=>s+(row[n.sha]||0),0)/exited.length);
     const GEY=padYtop+r+anchorRow*rowGap;
     exited.forEach(lf=>{
       svg.appendChild(svgEl('path',{class:'stepedge ghost',fill:'none',
-        d:'M '+(X(lf.id)+r)+' '+Y(lf.id)+' C '+((X(lf.id)+r+GEX-r)/2)+' '+Y(lf.id)+' '+((X(lf.id)+r+GEX-r)/2)+' '+GEY+' '+(GEX-r)+' '+GEY}));
+        d:'M '+(X(lf.sha)+r)+' '+Y(lf.sha)+' C '+((X(lf.sha)+r+GEX-r)/2)+' '+Y(lf.sha)+' '+((X(lf.sha)+r+GEX-r)/2)+' '+GEY+' '+(GEX-r)+' '+GEY}));
     });
     const ge=svgEl('g',{class:'snode ghost',transform:'translate('+GEX+','+GEY+')'});
     ge.appendChild(svgEl('title',{},'이어받은 곳: '+exited.map(n=>n.id+' → '+n.exit).join('\n')));
@@ -1338,22 +1354,26 @@ function openStepCard(chain,cyc){
   }
   // 엣지: 부모→자식(꺾은 선), backtrack 파선.
   steps.forEach(n=>{
-    if(n.parent&&n.parent!=='null'&&byId[n.parent]){
-      const x1=X(n.parent)+r,y1=Y(n.parent),x2=X(n.id)-r,y2=Y(n.id);
+    const p=pSha(n);
+    if(p&&bySha[p]){
+      const x1=X(p)+r,y1=Y(p),x2=X(n.sha)-r,y2=Y(n.sha);
       const mx=(x1+x2)/2;
       svg.appendChild(svgEl('path',{class:'stepedge',fill:'none',
         d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
     }
-    if(n.backtrack&&byId[n.backtrack]){ // 되돌아간 목표로 빨강 파선 — 그래프 위로 지나가 글자 안 가림(피드백 2)
+    const bt=n.backtrack?numSha(n.backtrack,n.sha):'';
+    if(bt){ // 되돌아간 목표로 빨강 파선 — 그래프 위로 지나가 글자 안 가림(피드백 2)
       svg.appendChild(svgEl('path',{class:'btedge',fill:'none',
-        d:'M '+X(n.id)+' '+(Y(n.id)-r)+' Q '+((X(n.id)+X(n.backtrack))/2)+' '+(Y(n.id)-r-28)+' '+X(n.backtrack)+' '+(Y(n.backtrack)-r)}));
+        d:'M '+X(n.sha)+' '+(Y(n.sha)-r)+' Q '+((X(n.sha)+X(bt))/2)+' '+(Y(n.sha)-r-28)+' '+X(bt)+' '+(Y(bt)-r)}));
     }
   });
   // 종결(success/fail/pending)은 이제 진짜 스텝 노드다(gil 모델 변경) — 일반 스텝 노드와
   // 같은 스타일로 그리되, kind 로 색만 구분(피드백 1·2·3). 가상 종결 노드는 없앴다.
   steps.forEach(n=>{
-    const g=svgEl('g',{class:'snode '+stepClass(n)+(n.here?' here':''),transform:'translate('+X(n.id)+','+Y(n.id)+')'});
+    const dup=(byNum[n.id]||[]).length>1;
+    const g=svgEl('g',{class:'snode '+stepClass(n)+(n.here?' here':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
     const t=svgEl('title',{},n.id+' '+n.kind+(n.outcome?' ='+n.outcome:'')+'\n'+n.subj+
+      (dup?'\n⚠ 이 번호를 쓰는 스텝이 여럿이다(옛 gil 의 번호 중복) — 정체성은 커밋 '+n.sha.slice(0,9)+' 이다':'')+
       (n.plan?'\n⚙ 고정한 설계: '+n.plan:'')+
       (n.planOutcome==='broke'?'\n⚠ 설계가 깨졌다: '+(n.planDiff||''):'')+
       (n.planOutcome==='held'?'\n⚙ 설계 유지':'')+
@@ -1363,13 +1383,11 @@ function openStepCard(chain,cyc){
     g.appendChild(svgEl('circle',{r:r}));
     g.appendChild(t);
     g.appendChild(svgEl('text',{class:'sid',dy:3},n.id));
-    g.appendChild(svgEl('text',{class:'skind',dy:r+16},n.kind));
+    g.appendChild(svgEl('text',{class:'skind',dy:r+16},n.kind+(dup?' ⚠':'')));
     if(n.here){ // 현재위치(HEAD) — 색만이 아니라 ▼HEAD 라벨+화살표로 직관화(피드백 5)
       g.appendChild(svgEl('text',{class:'headlbl',dy:-r-14},'HEAD'));
       g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
     }
-    // 설계 고정(이슈 #76) — 가설에 ⚙, 설계가 깨진 verify 에 ⚠. 깨짐은 실패가 아니라
-    // 되돌아갈 자리를 가리키는 신호라, 그래프에서 눈에 띄어야 한다.
     if(n.plan||n.planOutcome){
       const broke=n.planOutcome==='broke';
       const badge=svgEl('text',{class:'planbadge'+(broke?' broke':''),dy:n.here?-r-30:-r-14},
@@ -1378,7 +1396,6 @@ function openStepCard(chain,cyc){
       g.appendChild(badge);
     }
     if(n.deploy){ // 배포 지점(이슈 #34) — 🚀 + 태그 라벨. 이 스텝에서 세상으로 나갔다.
-      // staged 는 아직 안 올라간 것이다(이슈 #56) — 🚀 로 그리면 그래프가 거짓을 말한다.
       const staged=n.deployState==='staged';
       const rk=svgEl('text',{class:'deploybadge'+(staged?' staged':''),dy:n.here?-r-30:-r-14},
         (staged?'📦 ':'🚀 ')+n.deploy+(staged?' (staged)':''));
@@ -1400,6 +1417,24 @@ function openStepCard(chain,cyc){
   const wrap=document.createElement('div');
   wrap.className='cygraph-wrap'; wrap.appendChild(svg);
   sc.appendChild(wrap);
+  // 번호 중복은 조용히 넘기지 않는다 — 뷰어가 견딜 뿐, 저장소는 실제로 오염돼 있다.
+  const dups=Object.keys(byNum).filter(k=>byNum[k].length>1);
+  if(dups.length){
+    const warn=document.createElement('div');
+    warn.className='cardwarn';
+    warn.textContent='⚠ 이 사이클엔 번호가 겹치는 스텝이 있다('+dups.join(', ')+') — 옛 gil(≤3.28)이 찍은 구간이다. '+
+      '뷰어는 커밋 sha 를 정체성으로 삼아 그대로 그린다. 전체 점검: gil fsck';
+    sc.appendChild(warn);
+  }
+  }catch(err){
+    // 관전 도구의 침묵은 "이상 없음"과 구분이 안 된다(이슈 #84, 상현님). 실패하면 그 사유를
+    // 카드 안에 찍는다 — 사람이 "안 뜬다" 대신 "이래서 안 뜬다"를 본다.
+    const box=document.createElement('div');
+    box.className='cardwarn err';
+    box.textContent='✕ 이 사이클의 스텝 그래프를 그리지 못했다: '+(err&&err.message?err.message:err)+
+      '  (데이터는 그대로다 — 뷰어의 렌더만 실패했다. gil fsck 로 그래프를 점검하라.)';
+    sc.appendChild(box);
+  }
   showPane('pane-step',true);
 }
 
