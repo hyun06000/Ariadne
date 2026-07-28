@@ -553,6 +553,14 @@ func cmdMigrate(args []string) {
 
 	stderr("migrate: 완료 — " + itoa(migrated) + " 사이클을 v3 그래프로 이주.")
 	stderr("검증: gil fsck --all  |  gil log --all  |  뷰어로 그래프 확인.")
+	// 이주는 그래프만 옮긴다 — 기억 계층은 세우지 않는다. 그 사실을 여기서 말하지 않으면
+	// 아무도 말해주지 않는다(이슈 #69: 체인 7·사이클 70을 쌓고서야 드러났다).
+	if !globalExists() {
+		stderr("")
+		for _, ln := range globalMissingNotice("") {
+			stderr(ln)
+		}
+	}
 	if migrated != len(cycles) {
 		stderr("  ⚠ 이주 수(" + itoa(migrated) + ") ≠ 수집 수(" + itoa(len(cycles)) + ") — 확인 요망.")
 	}

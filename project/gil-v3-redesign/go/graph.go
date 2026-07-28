@@ -451,7 +451,22 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		seenStep[k] = n.sha
 	}
 	violations = append(violations, fsckChainStacking()...)
+	violations = append(violations, fsckMemoryLayer(nodes)...)
 	return violations
+}
+
+// fsckMemoryLayer — 기억 계층(refs/gil/global)이 통째로 빈 저장소를 짚는다(이슈 #69).
+//
+// 그래프 건강과는 다른 축이다. 그래도 fsck 가 맡는다: migrate 로만 온 저장소는 그래프가
+// 완벽히 건강한 채 존재·기억이 통째로 없고, 그 사실을 알려주는 자리가 어디에도 없었다.
+// 사이클을 쌓기 시작한 저장소에서만 짚는다 — 아직 아무 사고도 없는 빈 저장소에 위반을
+// 띄우면 gil init 전의 정상 상태를 결함으로 부르게 된다.
+func fsckMemoryLayer(nodes []node) []string {
+	if globalExists() || len(nodes) == 0 {
+		return nil
+	}
+	return []string{"기억계층: " + globalRef + " 없음 — 존재의 방·기억이 통째로 비었다. " +
+		"세워라: gil init --name <이름> (커밋이 있으면 대문은 건드리지 않는다)"}
 }
 
 // chainLatestCommit — 이 체인 소속(Gil-Chain) 커밋 중 가장 최근 것의 sha(이슈 #66).

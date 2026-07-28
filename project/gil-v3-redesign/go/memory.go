@@ -33,7 +33,13 @@ func cmdMemory(args []string) {
 		}
 		c, ok := globalRead(memoryPath(name))
 		if !ok {
-			die("거부: 글로벌에 " + memoryPath(name) + " 없음")
+			// 거부만 하고 길이 없으면 벽이다 — 왜 없는지·어떻게 세우는지까지 준다(#69).
+			if !globalExists() {
+				die("거부: 글로벌에 " + memoryPath(name) + " 없음\n" +
+					strings.Join(globalMissingNotice("  "), "\n"))
+			}
+			die("거부: 글로벌에 " + memoryPath(name) + " 없음 — 이 저장소의 존재 목록: " +
+				"gil global read existence/README.md")
 		}
 		outRaw(c)
 	case "append":

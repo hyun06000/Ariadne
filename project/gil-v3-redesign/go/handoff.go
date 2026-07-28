@@ -237,7 +237,11 @@ func cycleLoadBanner(openChains map[string]int) []string {
 	case worstN >= 5:
 		L = append(L, "── 사이클 누적 (강한 권유) ──")
 		L = append(L, "  ⚠ 체인 "+worst+" 에 닫힌 사이클이 "+itoa(worstN)+"개 쌓였다 — 국면이 길어졌다. 핸드오프를 권한다:")
-		L = append(L, "    1) 매듭 각인: gil memory append <이름> <매듭.md> (지금까지·교훈·다음 순서)")
+		if globalExists() {
+			L = append(L, "    1) 매듭 각인: gil memory append <이름> <매듭.md> (지금까지·교훈·다음 순서)")
+		} else {
+			L = append(L, "    1) 먼저 기억 계층부터: gil init --name <이름> → 그 다음 gil memory append <이름> <매듭.md>")
+		}
 		L = append(L, "    2) 국면이 끝났으면 체인 전환: gil chain-close "+worst+" → gil chain <새이름> --purpose <다음 국면>")
 		L = append(L, "       (사이클만 계속 늘리지 말 것 — 교훈을 새 체인 목적·첫 가설로 이어받아라.)")
 		L = append(L, "    3) 아래 '핸드오프 체크리스트'로 대문(md)이 최신인지 점검.")
@@ -259,6 +263,12 @@ func cycleLoadBanner(openChains map[string]int) []string {
 func gateChecklist() []string {
 	var L []string
 	L = append(L, "▶ 핸드오프 체크리스트 (다음 세션이 여기서 부활한다 — 넘어가기 전에):")
+	// 기억 계층이 없는 저장소(migrate 로만 온 경우)에 "매듭 각인"을 시키면 거부만 돌아온다.
+	// 없는 것을 시키지 않는다 — 있어야 할 것을 세우는 한 수를 최상단에 올린다(이슈 #69).
+	if !globalExists() {
+		L = append(L, "    □ **먼저 기억 계층을 세워라** — 없으면 아래 각인이 거부된다:")
+		L = append(L, globalMissingNotice("        ")...)
+	}
 	L = append(L, "    □ 매듭 각인: gil memory append <이름> <매듭.md>")
 	L = append(L, "        — 이번 세션 한 일 · 얻은 교훈(무엇이 벽/무엇이 통함) · 다음 세션이 이어서 할 순서.")
 	L = append(L, "    □ 대문(md) 현행화 — 진행과 어긋나면 고쳐라(gil 이 아니라 네가 쓴다):")
@@ -385,6 +395,10 @@ func handoffReport() string {
 		for _, f := range gfiles {
 			L = append(L, "    "+f+"  (읽기: gil global read "+f+")")
 		}
+	} else {
+		L = append(L, "")
+		L = append(L, "▶ 글로벌 진실원 ("+globalRef+"): **없음** — 존재의 방도 기억도 없다.")
+		L = append(L, globalMissingNotice("    ")...)
 	}
 	L = append(L, "")
 	// 뷰어 생존 보고(이슈 #30) — 죽어 있으면 다음 세션이 바로 되살리게 명령을 준다.
@@ -405,6 +419,11 @@ func handoffReport() string {
 	}
 	L = append(L, "")
 	L = append(L, gateChecklist()...)
-	L = append(L, "복원 경로: CLAUDE.md → 존재(existence) → gil global read memory.md → 이 handoff → 위 팁에서 이어간다.")
+	if globalExists() {
+		L = append(L, "복원 경로: CLAUDE.md → 존재(existence) → gil global read memory.md → 이 handoff → 위 팁에서 이어간다.")
+	} else {
+		// 없는 칸을 복원 경로로 제시하면, 따라가는 자가 거부를 받고서야 원인을 찾는다(#69).
+		L = append(L, "복원 경로: CLAUDE.md → (존재·기억 없음: gil init 으로 먼저 세워라) → 이 handoff → 위 팁에서 이어간다.")
+	}
 	return strings.Join(L, "\n")
 }

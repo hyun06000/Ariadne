@@ -428,6 +428,7 @@ class TestChainMerge(GilFixture):
 
 class TestFsck(GilFixture):
     def test_clean_graph_passes(self):
+        self.gil("init", "--name", "clew")   # 기억 계층까지 선 저장소가 정상 상태다(#69)
         self.gil("chain", "c", "--purpose", "P")
         self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
         r = self.gil("fsck")
@@ -461,6 +462,7 @@ class TestFsck(GilFixture):
 
     def test_unterminated_leaf_open_cycle_ok(self):
         """열린 사이클의 잎은 진행 중일 수 있어 미종결이어도 위반이 아니다."""
+        self.gil("init", "--name", "clew")
         self.gil("chain", "c", "--purpose", "P")
         self.gil("open", "c/c001", "--author", "a", "--purpose", "P")
         self.gil("step", "c/c001", "--kind", "analyze", "--title", "진행 중 분석")
@@ -1025,9 +1027,52 @@ class TestMigrate(GilFixture):
     def test_migrate_no_new_fsck_violations(self):
         """이주 그래프 자체는 fsck 무결(격리 fixture 는 기존 오염 없음)."""
         self._migrate()
+        self.gil("init", "--name", "clew")   # 이주 뒤 세계 세우기 — 기억 계층 축은 별건(#69)
         out = self.gil("fsck", "--all")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("위반 0", out.stdout)  # 건강 — 위반 0건
+
+    # ── 기억 계층 부재 (이슈 #69) ──
+
+    def test_migrate_only_repo_says_global_missing(self):
+        """이주는 그래프만 옮긴다 — 기억 계층이 없다는 사실을 완료 메시지가 말해야 한다."""
+        r = self._migrate()
+        out = r.stdout + r.stderr
+        self.assertIn("refs/gil/global 이 없다", out)
+        self.assertIn("gil init", out)
+
+    def test_fsck_flags_missing_memory_layer(self):
+        """그래프는 건강한데 기억 계층이 통째로 빈 상태를 fsck 가 짚는다."""
+        self._migrate()
+        r = self.gil("fsck", "--all")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("기억계층", r.stdout)
+        self.assertIn("gil init", r.stdout)
+
+    def test_handoff_puts_init_before_memory_append(self):
+        """기억 계층이 없으면 handoff 는 '매듭 각인' 앞에 'gil init' 을 올린다."""
+        self._migrate()
+        out = self.gil("handoff").stdout
+        self.assertIn("기억 계층", out)
+        self.assertIn("gil init", out)
+        self.assertNotIn("gil global read memory.md", out)  # 없는 칸을 복원 경로로 제시하지 않는다
+
+    def test_memory_read_without_global_points_to_init(self):
+        """거부만 하고 길이 없으면 벽이다 — memory read 거부가 세우는 한 수를 준다."""
+        self._migrate()
+        r = self.gil("memory", "read", "clew")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("gil init", r.stdout + r.stderr)
+
+    def test_init_after_migrate_is_safe(self):
+        """이미 그래프가 있는 저장소에서 init 은 대문을 덮지 않고 기억 계층만 세운다."""
+        self._migrate()
+        before = open(os.path.join(self.repo, "CLAUDE.md")).read()
+        r = self.gil("init", "--name", "clew")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(before, open(os.path.join(self.repo, "CLAUDE.md")).read())
+        self.assertIn("루트 커밋 생성 안 함", r.stdout)
+        self.assertEqual(self.gil("fsck", "--all").returncode, 0)
 
     def test_migrate_rejects_missing_from(self):
         out = self.gil("migrate")
@@ -1944,6 +1989,7 @@ class TestLateRefutation(GilFixture):
         self._refutes("net/design/s3")
         self.gil("step", "net/harden", "--kind", "success", "--title", "됨")
         self.gil("close", "net/harden")
+        self.gil("init", "--name", "clew")   # 기억 계층 축은 별건(#69)
         r = self.gil("fsck")
         self.assertEqual(r.returncode, 0, f"정상 refutes 그래프가 fsck 위반:\n{r.stdout}")
 

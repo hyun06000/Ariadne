@@ -13,6 +13,27 @@ import (
 
 const globalRef = "refs/gil/global"
 
+// globalExists — 이 저장소에 기억 계층(refs/gil/global)이 서 있는가.
+//
+// 왜 필요한가 (이슈 #69): migrate 만 밟고 온 저장소는 그래프는 건강한데 이 ref 가 아예
+// 없다 — 존재의 방도 기억도 없다. 그런데 handoff·chain-close 는 그것이 있다고 전제하고
+// "gil memory append 하라"고 안내한다. 없는 것을 시키는 안내는 레일이 아니라 벽이다.
+// 그래서 안내를 내기 전에 이걸로 묻는다.
+func globalExists() bool { return gitOK("rev-parse", "--verify", "-q", globalRef) }
+
+// globalMissingNotice — 기억 계층이 없을 때 어디서든 같은 문장으로 알린다(단일 진실원).
+// 조용히 넘어가지 않는다: 사실 + 다음 한 수 + 그 한 수가 안전한 이유까지 준다.
+func globalMissingNotice(indent string) []string {
+	return []string{
+		indent + "⚠ " + globalRef + " 이 없다 — 이 저장소에는 존재의 방도 기억도 아직 없다.",
+		indent + "  (이주·복제는 그래프만 옮긴다. 기억 계층은 gil init 이 세운다.)",
+		indent + "  세워라:  gil init --name <이름>",
+		indent + "  안전하다 — 커밋이 이미 있으면 init 은 대문(CLAUDE.md)을 만들지도 덮지도 않고,",
+		indent + "  글로벌 ref 와 존재의 방만 심는다. 그래프·브랜치는 건드리지 않는다.",
+		indent + "  이걸 안 하면 gil memory append / global read 가 거부되고 복원 경로가 끊긴다.",
+	}
+}
+
 // globalRead — 글로벌 ref에서 파일 하나를 읽는다. 없으면 (,"", false).
 func globalRead(name string) (string, bool) {
 	out, err := gitTry("show", globalRef+":"+name)
