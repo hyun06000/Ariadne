@@ -235,6 +235,8 @@ func chainParents() map[string]string {
 	}
 	// 커밋 sha → 그 커밋이 속한 체인 (부모 커밋의 체인을 찾기 위해).
 	shaChain := map[string]string{}
+	// 커밋 sha → Gil-Kind. "이 조상이 chain-close 였나"를 보려면 필요하다(아래 계승 판정).
+	shaKind := map[string]string{}
 	// 커밋 sha → 첫 부모 sha — 비-gil 커밋을 건너 조상 체인까지 거슬러 올라가는 사슬.
 	firstParent := map[string]string{}
 	type rootRec struct{ chain, firstParent string }
@@ -255,6 +257,7 @@ func chainParents() map[string]string {
 		if chain != "" {
 			shaChain[sha] = chain
 		}
+		shaKind[sha] = kind
 		fp := ""
 		if ps := strings.Fields(parents); len(ps) > 0 {
 			fp = ps[0]
@@ -264,16 +267,41 @@ func chainParents() map[string]string {
 			roots = append(roots, rootRec{chain, fp})
 		}
 	}
+	// **"이어받음"은 부모 체인이 닫혀 있을 때만 성립한다**(이슈 #53·#54).
+	//
+	// 계보를 git 조상관계에서 읽는 건 맞지만, 조상관계만으로는 두 가지가 구분되지 않는다:
+	//   (가) 진짜 계승 — 앞 체인을 chain-close 로 닫고 그 끝에서 새 체인을 연다(배포 순환).
+	//   (나) 병렬 작업 — 앞 체인이 아직 열려 있는데 옆에서 다른 줄기를 시작한다.
+	// 둘 다 git 에서는 "새 브랜치가 HEAD 에서 갈라진" 같은 모양이라, 옛 코드는 (나)까지
+	// "부모 체인 X 에서 이어받음"이라고 **단언**했다. 실측: v2 에서 `parent: null` 인 독립
+	// 체인 5개가 이주 뒤 한 줄로 이어졌고, 같은 기간에 서로 다른 장비에서 동시에 굴리던
+	// 트랙들이 "이어받음"으로 각인됐다. **그런 이어받음은 없었다.**
+	//
+	// 닫힘을 기준으로 삼는 근거는 gil 자신의 규칙이다 — 체인은 "닫힌 체인 끝에서만" 이어받는다
+	// (SPEC 체인 원칙). 부모가 아직 열려 있다면 그건 이어받은 게 아니라 나란히 간 것이다.
+	// 없는 계보를 그리느니 안 그린다 — 없는 성공을 날조하지 않는 것과 같은 원칙이다.
+	// 판정은 **만들어진 순간** 기준이다. "부모가 지금 닫혀 있나"로 보면, 나란히 시작한 체인도
+	// 나중에 앞 체인이 닫히는 순간 소급해서 자식이 되어버린다(실측으로 확인).
+	//
+	// 그래서 이렇게 본다: 자식 루트에서 첫 부모를 거슬러 올라가다 **처음 만나는 다른 체인의
+	// 커밋이 그 체인의 chain-close 인가**. 그렇다면 그 닫힌 끝에서 태어난 것이니 진짜 계승이다.
+	// 열린 사이클의 스텝 위에서 태어났다면 그건 나란히 간 줄기다 — 그 순간 그 체인은 진행
+	// 중이었다.
 	parent := map[string]string{}
 	for _, r := range roots {
-		parent[r.chain] = "" // 기본: 뿌리 체인
+		parent[r.chain] = "" // 기본: 뿌리 체인(독립)
 		seen := map[string]bool{}
 		for fp := r.firstParent; fp != "" && !seen[fp]; fp = firstParent[fp] {
 			seen[fp] = true
-			if ch, ok := shaChain[fp]; ok && ch != r.chain {
-				parent[r.chain] = ch
-				break
+			ch, ok := shaChain[fp]
+			if !ok || ch == r.chain {
+				continue // 비-gil 커밋이거나 아직 자기 체인 — 계속 거슬러 올라간다
 			}
+			if shaKind[fp] == "chain-close" {
+				parent[r.chain] = ch // 닫힌 끝에서 태어났다 — 진짜 계승
+			}
+			// 아니면 계보를 안 그린다: 그 순간 저 체인은 진행 중이었다(병렬).
+			break
 		}
 	}
 	return parent

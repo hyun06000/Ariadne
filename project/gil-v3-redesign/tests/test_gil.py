@@ -3309,5 +3309,98 @@ class TestRepoResolutionIsHonest(GilFixture):
         self.assertEqual(r.returncode, 0)
 
 
+class TestHandoffOpensViewer(GilFixture):
+    """세션을 이어받는 자리에서 관전 뷰어를 규범으로 띄운다 (이슈 #55).
+
+    handoff 는 새 세션이 정신모델을 세우는 첫 관문이다. 여기서 그래프를 안 보면 그 세션 내내
+    안 본다 — 계보가 수십 개면 텍스트 나열로는 분기·죽은 잎·현재위치가 눈에 안 들어오고,
+    이미 있는 가지를 못 보고 새로 파게 된다.
+
+    왜 안내가 아니라 규범인가. "에이전트가 알아서 뷰어를 열기"는 자기규율이고, 자기규율은
+    원리적으로 불충분하다(LLM 은 명시된 절차도 우회한다). 강제는 도구가 레일을 까는 쪽에
+    둔다 — 이슈 #45·#33 과 같은 계열이다.
+    """
+
+    def test_handoff_directs_to_open_the_viewer_in_app(self):
+        self.gil("init")
+        r = self.gil("handoff")
+        out = r.stdout + r.stderr
+        self.assertIn("관전 뷰어", out)
+        self.assertIn("인앱 브라우저", out)
+        self.assertIn("127.0.0.1", out)
+
+    def test_directive_is_normative_not_optional(self):
+        """'열 수 있으면 열어라'가 아니라 '지금 열어라'여야 한다."""
+        self.gil("init")
+        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
+        self.assertIn("선택이 아니다", out)
+
+    def test_outside_browser_is_last_resort(self):
+        """밖의 브라우저 창은 사람이 앱을 떠나야 하므로 마지막 수단이다."""
+        self.gil("init")
+        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
+        self.assertIn("마지막 수단", out)
+
+
+class TestChainSuccessionIsDeclaredNotInferred(GilFixture):
+    """"이어받음"은 닫힌 끝에서 태어났을 때만 (이슈 #53 · #54).
+
+    계보를 git 조상관계에서 읽는 건 맞지만, 조상관계만으로는 둘이 구분되지 않는다:
+      (가) 진짜 계승 — 앞 체인을 chain-close 로 닫고 그 끝에서 새 체인을 연다(배포 순환).
+      (나) 병렬 작업 — 앞 체인이 아직 열려 있는데 옆에서 다른 줄기를 시작한다.
+    둘 다 git 에서는 같은 모양이라, 옛 코드는 (나)까지 "부모 체인 X 에서 이어받음"이라고
+    **단언**했다. 실측: v2 에서 parent:null 인 독립 체인 5개가 이주 뒤 한 줄로 이어졌고,
+    같은 기간 서로 다른 장비에서 굴리던 트랙들이 이어받음으로 각인됐다. 그런 이어받음은 없었다.
+
+    판정은 **만들어진 순간** 기준이어야 한다. "부모가 지금 닫혀 있나"로 보면 나란히 시작한
+    체인도 앞 체인이 나중에 닫히는 순간 소급해서 자식이 된다 — 실제로 그렇게 한 번 틀렸다.
+    """
+
+    def _parents(self):
+        import json, re
+        r = self.gil("viewer", "build", "--out", "g.html")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.repo, "g.html"), encoding="utf-8") as f:
+            h = f.read()
+        m = re.search(r'id="parentdata"[^>]*>([^<]*)', h)
+        return json.loads(m.group(1)) if m else {}
+
+    def _finish_cycle(self, target):
+        self.gil("step", target, "--kind", "hypothesis", "--title", "H", "--body", "B",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", target, "--kind", "verify", "--verdict", "supported",
+                 "--title", "V", "--body", "B")
+        self.gil("step", target, "--kind", "analyze", "--title", "A", "--body", "B")
+        self.gil("step", target, "--kind", "success", "--title", "S", "--body", "B")
+        self.gil("close", target)
+
+    def test_parallel_chain_is_not_called_inheritance(self):
+        """앞 체인이 열려 있는데 옆에서 시작한 줄기는 자식이 아니다."""
+        self.gil("chain", "alpha", "--purpose", "장기 트랙 A")
+        self.gil("open", "alpha/c001", "--author", "t", "--purpose", "진행중", "--body", "B")
+        self.gil("chain", "beta", "--purpose", "동시에 굴릴 트랙 B")
+        self.assertEqual(self._parents().get("beta", ""), "",
+                         "열린 체인 옆에서 시작한 줄기를 '이어받음'이라 하면 안 된다")
+
+    def test_real_succession_from_closed_chain_is_kept(self):
+        """닫힌 끝에서 태어난 것은 진짜 계승 — 없애면 안 된다."""
+        self.gil("chain", "alpha", "--purpose", "P")
+        self.gil("open", "alpha/c001", "--author", "t", "--purpose", "P", "--body", "B")
+        self._finish_cycle("alpha/c001")
+        self.gil("chain-close", "alpha")
+        self.gil("chain", "gamma", "--purpose", "닫힌 끝에서 이어받음")
+        self.assertEqual(self._parents().get("gamma"), "alpha")
+
+    def test_closing_the_parent_later_does_not_adopt_a_sibling(self):
+        """판정은 만들어진 순간 기준 — 나중에 닫혔다고 소급 입양되지 않는다."""
+        self.gil("chain", "alpha", "--purpose", "P")
+        self.gil("open", "alpha/c001", "--author", "t", "--purpose", "P", "--body", "B")
+        self.gil("chain", "beta", "--purpose", "병렬")     # alpha 가 열린 동안 태어났다
+        self._finish_cycle("alpha/c001")
+        self.gil("chain-close", "alpha")                    # 이제야 닫는다
+        self.assertEqual(self._parents().get("beta", ""), "",
+                         "나중에 부모가 닫혔다고 형제를 자식으로 만들면 안 된다")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

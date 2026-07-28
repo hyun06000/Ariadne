@@ -33,8 +33,37 @@ func nextAllowed(tipKind, tipOutcome string) string {
 
 // cmdHandoff — 참조: cmd_handoff.
 func cmdHandoff(args []string) {
+	// 관전 뷰어를 **세션을 이어받는 자리에서 자동으로 띄운다**(이슈 #55). handoff 는 새 세션이
+	// 정신모델을 세우는 첫 관문이고, 여기서 그래프를 안 보면 그 세션 내내 안 본다.
+	//
+	// 왜 강제인가. "에이전트가 알아서 뷰어를 열기"는 자기규율이고, 자기규율은 원리적으로
+	// 불충분하다(meta-fail 체인에서 실증 — LLM 은 명시된 절차도 우회한다). 강제는 자율 주체
+	// 밖, 즉 **도구가 레일을 까는 쪽**에 둬야 한다. 이슈 #45·#33 과 같은 계열이다.
+	//
+	// 띄우기만 하고 시스템 브라우저는 안 연다(v3.14.0 부터 기본) — 에이전트 호스트에서 맞는
+	// 화면은 밖의 창이 아니라 **인앱 브라우저 패널**이다. 그래서 주소를 주고, 그걸 인앱으로
+	// 열라고 규범으로 지시한다. 이미 떠 있으면 launchViewer 가 중복 기동하지 않는다.
+	launchViewer()
 	report := handoffReport()
 	println2(report)
+	println2(viewerDirective())
+}
+
+// viewerDirective — "그래프를 지금 띄워라"는 지시. 선택이 아니라 규범으로 쓴다(이슈 #55).
+func viewerDirective() string {
+	url := "http://127.0.0.1:" + viewerPortNum()
+	if !portOpen(viewerPortNum()) {
+		return "── 관전 뷰어 ──\n" +
+			"  뷰어가 아직 안 떴다. 지금 띄워라:  gil viewer serve\n" +
+			"  그리고 나온 주소를 **인앱 브라우저 패널로 열어라**(밖의 브라우저 창 말고)."
+	}
+	return "── 관전 뷰어 (지금 열어라) ──\n" +
+		"  " + url + "\n" +
+		"  **이 주소를 네 인앱 브라우저 패널로 지금 열어라.** 선택이 아니다 — 계보가 수십 개가\n" +
+		"  되면 텍스트 나열로는 분기·죽은 잎·현재위치(HEAD)가 눈에 안 들어온다. 그래프를 안 보고\n" +
+		"  시작하면 이미 있는 가지를 못 보고 새로 파게 된다.\n" +
+		"  인앱 패널이 없는 호스트라면 사람에게 이 주소를 안내하라(밖의 브라우저 창은 사람이\n" +
+		"  앱을 떠나야 하므로 마지막 수단이다)."
 }
 
 // currencyBanner — 도구 현행성 확인(AIL #12). 새 존재가 계승될 때 구버전 정신모델로

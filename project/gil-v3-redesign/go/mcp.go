@@ -382,7 +382,10 @@ func registerGilTools(s *mcp.Server) {
 	tool(s, "gil_fsck", "그래프 무결성을 검사한다 — 미종결 잎, 어긋난 계보를 잡는다.",
 		func(in inEmpty) []string { return nil }, cmdFsck)
 
-	tool(s, "gil_handoff", "다음 세션에 넘길 상태를 보고한다. 세션을 이어받을 때 가장 먼저 부른다.",
+	// 세션을 이어받는 첫 관문. 관전 뷰어를 자동으로 띄우고 "인앱 브라우저로 열어라"를 규범으로
+	// 지시한다(이슈 #55) — cmdHandoff 안에서 처리하므로 CLI 와 MCP 가 같은 레일을 쓴다.
+	tool(s, "gil_handoff", "다음 세션에 넘길 상태를 보고한다. **세션을 이어받을 때 가장 먼저 부른다.** "+
+		"관전 뷰어를 자동으로 띄우고 그 주소를 준다 — 받은 주소는 네 인앱 브라우저 패널로 곧바로 열어라.",
 		func(in inEmpty) []string { return nil }, cmdHandoff)
 
 	tool(s, "gil_deploy", "배포(공개) 지점을 그래프의 1급 시민으로 남긴다.",
