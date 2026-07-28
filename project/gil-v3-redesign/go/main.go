@@ -114,6 +114,18 @@ func main() {
 		cmdGoto(rest)
 	case "context":
 		cmdContext(rest)
+	case "drift":
+		cmdDrift(rest)
+	case "reconcile":
+		cmdReconcile(rest)
+	case "chain-retire":
+		cmdChainRetire(rest)
+	case "chain-unretire":
+		cmdChainUnretire(rest)
+	case "prune":
+		cmdPrune(rest)
+	case "prune-approve":
+		cmdPruneApprove(rest)
 	case "log":
 		cmdLog(rest)
 	case "fsck":
@@ -131,7 +143,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto context docs log fsck global memory handoff migrate viewer mcp version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck global memory handoff migrate viewer mcp version]")
 	}
 }
 

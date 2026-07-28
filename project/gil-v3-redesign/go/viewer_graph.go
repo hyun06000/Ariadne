@@ -359,6 +359,7 @@ type graphView struct {
 	anchor              workAnchorInfo   // 그 작업이 **어디서** 벌어지고 있나(#79 후속)
 	interviews          []interviewReq   // 아직 답 안 된 인터뷰 요구(사람 폼 대기, 이슈 #33)
 	references          []referenceCard  // 사람이 제출해 확정된 기준 문서들(상현님: 제출의 결과가 보여야 한다)
+	prunes              []pruneReq       // 사람의 승인을 기다리는 삭제 요청(상현님: 승인 없인 아무것도 안 지운다)
 }
 
 // interviewReq — 사람의 답을 기다리는 인터뷰 요구(gil interview 로 심긴 것). 뷰어가 이걸
@@ -438,6 +439,54 @@ func resolvedInterviews() []referenceCard {
 	}
 	sort.Slice(cards, func(i, j int) bool { return cards[i].chain < cards[j].chain })
 	return cards
+}
+
+// pruneReq — 사람의 승인을 기다리는 삭제 요청. 삭제는 비가역이라 **사람 손에서만** 눌린다.
+type pruneReq struct {
+	target string
+	sha    string
+	body   string
+}
+
+// pendingPrunes — prune-request 중 아직 승인·실행되지 않은 것들.
+func pendingPrunes() []pruneReq {
+	const rs = "\x1e"
+	const fs = "\x1f"
+	format := "%H" + fs + "%(trailers:key=Gil-Kind,valueonly)" + fs +
+		"%(trailers:key=Gil-Prune-Target,valueonly)" + fs + "%B" + rs
+	out, err := viewerLog("--format=" + format)
+	if err != nil {
+		return nil
+	}
+	settled := map[string]bool{} // 승인되었거나 이미 실행된 대상
+	var reqs []pruneReq
+	seen := map[string]bool{}
+	for _, rec := range strings.Split(string(out), rs) { // new→old
+		parts := strings.SplitN(strings.TrimLeft(rec, "\n"), fs, 4)
+		if len(parts) < 4 {
+			continue
+		}
+		kind, target := strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
+		if target == "" {
+			continue
+		}
+		switch kind {
+		case "prune-approve", "prune":
+			settled[target] = true
+		case "prune-request":
+			if !seen[target] {
+				seen[target] = true
+				reqs = append(reqs, pruneReq{target: target, sha: parts[0][:9], body: strings.TrimSpace(stripTrailers(parts[3]))})
+			}
+		}
+	}
+	var open []pruneReq
+	for _, r := range reqs {
+		if !settled[r.target] {
+			open = append(open, r)
+		}
+	}
+	return open
 }
 
 // viewerWaiterActive — 관전 중인 저장소에서 이 체인의 대기 표식이 살아있나(이슈 #82).
@@ -769,7 +818,7 @@ func buildGraph() graphView {
 			chainOrder = append(chainOrder, ch)
 		}
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), anchor: workAnchor(), interviews: pendingInterviews(), references: resolvedInterviews()}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), anchor: workAnchor(), interviews: pendingInterviews(), references: resolvedInterviews(), prunes: pendingPrunes()}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}

@@ -174,6 +174,26 @@ func serve(args []string) {
 	// [{q,type,answer}]. 서버가 이걸 마크다운 기준 문서로 조립해 reference-<chain>.md 로 저장하고,
 	// gil interview <chain> --resolve <파일> 을 호출해 레퍼런스를 커밋한다. 파일은 워킹트리에
 	// 남아 사람이 열어보고 편집할 수 있다. 127.0.0.1 로컬 전용.
+	// POST /prune-approve?target=  — 사람이 삭제를 승인한다(상현님). 승인만으로는 아무것도
+	// 지워지지 않는다 — 실행에는 CLI 확인 문구가 더 필요하다. 안전장치를 둘로 나눈 이유는
+	// 하나가 뚫려도 다른 하나가 남게 하기 위해서다.
+	http.HandleFunc("/prune-approve", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		target := r.URL.Query().Get("target")
+		if target == "" || strings.ContainsAny(target, " ;&|$`\n") {
+			http.Error(w, "bad target", http.StatusBadRequest)
+			return
+		}
+		out, err := gilExec("prune-approve", target)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+		w.Write(out)
+	})
 	http.HandleFunc("/interview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -416,6 +436,11 @@ func renderHTML(g graphView, static bool) string {
 	// 인터뷰 폼(이슈 #33): 사람 답을 기다리는 인터뷰 요구가 있으면 최상단에 폼을 띄운다.
 	// 정적 build(서버 없음)엔 제출할 곳이 없어 감춘다. JS(buildInterviews)가 질문 JSON 을 읽어
 	// textarea·라디오·체크박스를 그리고, 제출 시 POST /interview 로 답변을 넘긴다.
+	// 삭제 승인 카드 — 비가역 행위는 사람 손에서만 눌린다.
+	if !static && len(g.prunes) > 0 {
+		b.WriteString(`<section class="pane" id="pane-prune"><h2 class="panehead">🗑 삭제 승인 대기 — 사람만 누를 수 있습니다</h2><div id="prunes"></div></section>`)
+		b.WriteString(`<script id="prunedata" type="application/json">` + prunesJSON(g) + `</script>`)
+	}
 	// 제출의 **결과**가 화면에 남아야 한다(상현님: 제출해도 아무 일도 안 일어난다). 확정된
 	// 기준 문서와, 그 답이 에이전트에게 도달했는지를 지속적으로 보여준다.
 	if len(g.references) > 0 {
@@ -821,6 +846,23 @@ func referencesJSON(g graphView) string {
 	return sb.String()
 }
 
+// prunesJSON — 승인 대기 중인 삭제 요청들.
+func prunesJSON(g graphView) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, p := range g.prunes {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		tb, _ := json.Marshal(p.target)
+		bb, _ := json.Marshal(p.body)
+		shb, _ := json.Marshal(p.sha)
+		sb.WriteString(fmt.Sprintf(`{"target":%s,"sha":%s,"body":%s}`, tb, shb, bb))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
 func esc(s string) string { return html.EscapeString(s) }
 
 // validSHA — git 인자 주입 방지: 16진수 7~40자만 허용.
@@ -955,6 +997,11 @@ svg.cygraph{display:block}
 .ivcard{margin:4px 16px 16px;padding:16px 18px;background:var(--card,var(--bg));border:1px solid var(--node);border-radius:10px}
 .ivhead{font-size:13px;color:var(--fg);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
 .ivhead b{color:var(--node)}
+.prunecard{margin:4px 16px 16px;padding:14px 18px;background:var(--card,var(--bg));border:1px solid #e0574a;border-radius:10px}
+.prunehead{font-size:13px;color:#e0574a;font-weight:700;margin-bottom:8px}
+.prunebody{white-space:pre-wrap;font-size:12px;color:var(--dim);margin-bottom:12px;max-height:260px;overflow:auto}
+.prunebtn{font:inherit;font-size:13px;font-weight:700;padding:8px 18px;border-radius:7px;cursor:pointer;border:1px solid #e0574a;background:transparent;color:#e0574a}
+#pane-prune .panehead{color:#e0574a}
 .refcard{margin:4px 16px 16px;padding:14px 18px;background:var(--card,var(--bg));border:1px solid var(--line);border-radius:10px}
 .refhead{font-size:13px;color:var(--fg);margin-bottom:8px}
 .refhead b{color:var(--node)}
@@ -2058,6 +2105,34 @@ function restoreSel(){
   if(n)openReport(sel.chain,sel.cycle,n);
 }
 // ── 인터뷰 폼(이슈 #33) — LLM 이 심은 질문을 사람이 폼으로 답하고 제출하면 레퍼런스가 커밋된다 ──
+// 삭제 승인 카드(상현님) — 비가역이라 사람 손에서만 눌린다.
+const PRUNES=JSON.parse(document.getElementById('prunedata')?.textContent||'[]');
+function buildPrunes(){
+  const host=document.getElementById('prunes');
+  if(!host||!PRUNES.length)return;
+  host.replaceChildren();
+  PRUNES.forEach(p=>{
+    const card=document.createElement('div'); card.className='prunecard';
+    const head=document.createElement('div'); head.className='prunehead';
+    head.textContent='삭제 요청: '+p.target+'  ('+p.sha+')';
+    const body=document.createElement('div'); body.className='prunebody'; body.textContent=p.body;
+    const btn=document.createElement('button'); btn.className='prunebtn'; btn.textContent='이 삭제를 승인합니다';
+    const st=document.createElement('span'); st.style.marginLeft='10px'; st.style.fontSize='12px';
+    btn.addEventListener('click',async()=>{
+      if(!confirm('정말 '+p.target+' 삭제를 승인합니까?\n\n승인해도 바로 지워지지는 않습니다 — 실행에는 CLI 확인 문구가 더 필요합니다.'))return;
+      btn.disabled=true; st.textContent=' 승인 중…';
+      try{
+        const res=await fetch('/prune-approve?target='+encodeURIComponent(p.target),{method:'POST'});
+        const t=await res.text();
+        if(res.ok){ st.textContent=' ✓ 승인됨 — 실행에는 CLI 확인 문구가 필요합니다'; setTimeout(()=>location.reload(),900); }
+        else{ st.textContent=' ✕ '+t.split('\n')[0]; btn.disabled=false; }
+      }catch(e){ st.textContent=' ✕ '+e; btn.disabled=false; }
+    });
+    card.appendChild(head); card.appendChild(body); card.appendChild(btn); card.appendChild(st);
+    host.appendChild(card);
+  });
+}
+buildPrunes();
 // 확정된 기준 문서(상현님) — 제출은 결과가 남아야 제출이다.
 const REFERENCES=JSON.parse(document.getElementById('referencedata')?.textContent||'[]');
 function buildReferences(){

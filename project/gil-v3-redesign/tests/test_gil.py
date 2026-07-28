@@ -6086,3 +6086,108 @@ class TestInterviewSubmitIsVisible(GilFixture):
         self.assertIn('"seen":false', self._build())
         self.gil("interview", "tooling", "--status")   # 에이전트가 읽는 자리
         self.assertIn('"seen":true', self._build())
+
+
+class TestChainCleanup(GilFixture):
+    """체인 정리 — 괴리 진단(drift)·흡수(reconcile)·폐기(retire)·삭제(prune) (상현님, 2026-07-29).
+
+    append-only 는 그래프 *안*의 규율이지 저장소의 물리 법칙이 아니다. 스텝을 고치는 것은
+    영원히 막되, '폐기됐다'는 새 사실이라 append 로 표현한다. 삭제는 비가역이라 문이 셋 —
+    사람의 승인 커밋, CLI 확인 문구, 그리고 묘비."""
+
+    def _two_chains(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "첫 체인")
+        self.gil("chain", "b", "--purpose", "나란히", "--parallel-with", "a")
+
+    def test_declared_parallel_is_not_drift(self):
+        """선언된 병렬은 사고가 아니라 판단이다 — 괴리로 세지 않는다."""
+        self._two_chains()
+        self.assertIn("괴리 0", self.gil("drift").stdout)
+
+    def test_home_branch_is_not_a_stray(self):
+        """대문이 사는 브랜치를 '잔재'라 부르면 도구가 자기 뿌리를 지우라고 한다."""
+        self._two_chains()
+        out = self.gil("drift").stdout
+        self.assertNotIn("stray-branch] main", out)
+
+    def test_restore_ref_puts_git_back_on_gil(self):
+        """gil 이 기준이다 — 사라진 git 브랜치는 gil 그래프를 보고 복원한다.
+
+        (다른 ref 로 커밋이 아직 닿을 때의 이야기다. 어떤 ref 도 안 닿으면 그건 괴리가
+        아니라 유실이고, 그건 gil fsck 의 '유실 직전'이 짚는다.)"""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "첫 체인")
+        self.gil("chain-close", "a")
+        self.gil("chain", "b", "--purpose", "이어받음", "--from", "a", "--inherit", "a 의 결론")
+        self._git("checkout", "-q", "b")
+        self._git("update-ref", "-d", "refs/heads/a")
+        self.assertIn("ref-missing", self.gil("drift").stdout)
+        r = self.gil("reconcile", "a", "--restore-ref")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("a", self.branches())
+
+    def test_retire_moves_refs_without_deleting_objects(self):
+        self._two_chains()
+        sha = self._git("rev-parse", "b").stdout.strip()
+        r = self.gil("chain-retire", "b", "--reason", "실험 종료")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("b", self.branches())
+        # 객체는 살아 있다 — 폐기는 삭제가 아니다.
+        self.assertEqual(self._git("cat-file", "-t", sha).stdout.strip(), "commit")
+        self.assertIn("gil/retired/b", self._git(
+            "for-each-ref", "--format=%(refname:short)", "refs/gil/retired/").stdout)
+
+    def test_retire_requires_reason(self):
+        self._two_chains()
+        r = self.gil("chain-retire", "b")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--reason", r.stdout + r.stderr)
+
+    def test_unretire_brings_it_back(self):
+        self._two_chains()
+        self.gil("chain-retire", "b", "--reason", "실험 종료")
+        r = self.gil("chain-unretire", "b")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("b", self.branches())
+
+    def test_prune_refuses_without_human_approval(self):
+        """에이전트가 혼자 지울 수 없다 — 이게 이 명령의 유일한 안전장치다."""
+        self._two_chains()
+        r = self.gil("prune", "b", "--confirm", "b", "--reason", "지운다")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("승인", r.stdout + r.stderr)
+        self.assertIn("b", self.branches())   # 아무것도 안 지워졌다
+
+    def test_prune_refuses_wrong_confirm_phrase(self):
+        self._two_chains()
+        self.gil("prune", "b", "--request", "--reason", "왜")
+        self.gil("prune-approve", "b")
+        r = self.gil("prune", "b", "--confirm", "틀린이름", "--reason", "지운다")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("b", self.branches())
+
+    def test_prune_deletes_with_tombstone_and_bundle(self):
+        self._two_chains()
+        self.gil("prune", "b", "--request", "--reason", "실험 체인이라 이력이 필요 없다")
+        self.gil("prune-approve", "b")
+        r = self.gil("prune", "b", "--confirm", "b", "--reason", "실험 체인이라 이력이 필요 없다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("b", self.branches())
+        # 묘비 — 지워진 자리에 남는 유일한 기록
+        log = self.gil("log").stdout + self._git("log", "--all", "--format=%B", "-5").stdout
+        self.assertIn("묘비", self._git("log", "-3", "--format=%B").stdout)
+        self.assertTrue(os.path.exists(os.path.join(
+            self.repo, ".git", "gil", "archive", "b.bundle")))
+
+    def test_prune_refuses_non_leaf_node(self):
+        """중간 노드를 지우면 후손을 다시 써야 한다 — 그건 삭제가 아니라 역사 재작성이다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "H")
+        self.gil("prune", "c/c1/s1", "--request", "--reason", "x")
+        r = self.gil("prune", "c/c1/s1", "--dry-run")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("잎이 아니다", r.stdout + r.stderr)

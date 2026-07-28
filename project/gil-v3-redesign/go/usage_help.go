@@ -158,6 +158,43 @@ var helpTable = map[string]helpEntry{
 			"  gil interview <chain> --resolve <파일>  — 뷰어 제출이 호출(사람이 직접 쓸 일은 드묾).",
 		"docs/gil/concepts.md",
 	},
+	"drift": {
+		"gil drift [<chain>]\n" +
+			"  gil 그래프와 git 그래프가 **다른 이야기를 하는 자리**를 짚는다(읽기 전용). gil 이 기준이다.\n" +
+			"  종류: stacked(git 이 보는 부모 ≠ gil 이 인정한 계승) · orphan-root(대문 계보 밖 뿌리) ·\n" +
+			"        ref-missing(gil 은 아는데 git 브랜치가 없다) · stray-branch(gil 이 모르는 브랜치) · retired.\n" +
+			"  정리 단계: gil drift → gil reconcile(흡수·무손실) → gil chain-retire(폐기·가역) → gil prune(삭제·비가역).",
+		"docs/gil/concepts.md",
+	},
+	"reconcile": {
+		"gil reconcile <chain> --as orphan|parallel [--with <체인>] --reason <왜>\n" +
+			"gil reconcile <chain> --restore-ref\n" +
+			"  설명 가능한 괴리를 **선언으로 흡수**한다. 그래프는 바뀌지 않는다 — 바뀌는 건 읽는 법이다.\n" +
+			"  orphan  = 의도된 조상 0(SPEC 의 orphan 실작업 체인). parallel = 얹혔지만 계승이 아니다.\n" +
+			"  --restore-ref = gil 은 아는데 사라진 git 브랜치를 되살린다(gil 이 기준이니 git 을 맞춘다).\n" +
+			"  괴리는 사라지지 않는다. 사라지는 것은 위반이다 — 역사는 그대로 남는다.",
+		"docs/gil/concepts.md",
+	},
+	"chain-retire": {
+		"gil chain-retire <chain> --reason <왜>   |   gil chain-unretire <chain>\n" +
+			"  폐기를 커밋으로 선언하고 브랜치를 refs/gil/retired/ 로 옮긴다. **객체는 하나도 안 지운다** —\n" +
+			"  기본 뷰에서 접힐 뿐이고 unretire 로 되돌아온다. 대부분의 '정리'는 여기서 끝나야 한다.",
+		"docs/gil/concepts.md",
+	},
+	"prune": {
+		"gil prune <chain>|<chain>/<cycle>/<step> --dry-run\n" +
+			"gil prune <대상> --request --reason <왜>              (사람 승인 요청 — 뷰어에 카드가 뜬다)\n" +
+			"gil prune <대상> --confirm <대상> --reason <왜>       (승인이 있을 때만 실제 삭제)\n" +
+			"  **append-only 는 그래프 안의 규율이지 저장소의 물리 법칙이 아니다.** 스텝을 고치는 것은\n" +
+			"  영원히 막지만, '폐기됐다'는 새 사실이라 append 로 표현된다. 삭제는 비가역이라 문(門)이 셋:\n" +
+			"    (1) 사람의 승인 커밋(뷰어 카드) — 에이전트 혼자 못 누른다\n" +
+			"    (2) CLI 확인 문구 — 대상 이름을 그대로 타이핑\n" +
+			"    (3) 묘비와 번들 — **묘비 없는 삭제는 없다**. 계보가 '여기 무엇이 있었고 결론은 이랬다'를\n" +
+			"        계속 말해야 한다. 그게 없으면 gil 이 지운 자리는 git 이 지운 자리와 같다.\n" +
+			"  노드 삭제는 **잎만** 받는다 — 중간 노드를 지우면 후손을 다시 써야 하고, 그건 역사 재작성이다.\n" +
+			"  객체 회수(git gc)는 gil 이 하지 않는다 — 되돌릴 수 없는 마지막 한 줄은 사람이 실행한다.",
+		"docs/gil/concepts.md",
+	},
 	"context": {
 		"gil context <chain>[/<cycle>]\n" +
 			"  이 자리에 **도착한 누적 컨텍스트**를 준다 — 체인 목적·기준에서 시작해 조상 사이클들이\n" +
