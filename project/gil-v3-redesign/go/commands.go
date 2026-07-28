@@ -1749,7 +1749,29 @@ func cmdChainClose(args []string) {
 	if seedBody != "" {
 		tr = append(tr, [2]string{"Gil-Seed-Ref", "true"})
 	}
+	// 봉인은 **그 체인의 끝**에 얹혀야 한다(이슈 #66, #44 계열). 옛 코드는 그때 체크아웃돼
+	// 있던 브랜치에 커밋해, 체인 브랜치 ref 는 옛 팁(대개 체인 선언 커밋)에 멈춘 채였다.
+	// 그러면 "닫힌 체인의 끝에서 새 체인을 연다"가 커밋 그래프에서는 성립해도 **그 체인의
+	// 이름이 그 끝을 가리키지 않아** — 뷰어·계보 판정이 새 체인을 고아로 본다.
+	//
+	// 체인의 진짜 끝은 체인 브랜치가 아니라 그 체인의 마지막 작업(사이클 가지)일 수 있다.
+	// 그래서 (a) 그 체인 소속 커밋 중 가장 최근 것으로 HEAD 를 맞추고 (b) 봉인을 얹은 뒤
+	// (c) 체인 브랜치 ref 를 그 봉인으로 전진시킨다 — 이름이 끝을 가리키게.
+	if tipSHA := chainLatestCommit(chain); tipSHA != "" {
+		alignHeadToTip(first9(tipSHA), chain)
+	}
 	commit(subject, body, tr, true)
+	// 체인 브랜치를 봉인 커밋으로 전진시킨다(fast-forward 만 — 앞선 이력을 잃지 않게).
+	if head := strings.TrimSpace(git("rev-parse", "HEAD")); head != "" {
+		if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+chain) {
+			if gitOK("merge-base", "--is-ancestor", "refs/heads/"+chain, head) {
+				git("update-ref", "refs/heads/"+chain, head)
+			} else {
+				stderr("  ⚠ 체인 브랜치 " + chain + " 를 봉인으로 전진시키지 못했다(빨리감기 불가) —")
+				stderr("    그 ref 가 봉인과 갈라져 있다. 이름이 체인의 끝을 안 가리킨다: gil fsck 로 확인하라.")
+			}
+		}
+	}
 	println2("chain-close: " + chain + " — " + *verdict)
 	if retroBody != "" {
 		println2("  회고 심음(기준 대비 달성도) — 이 체인의 성적표가 그래프에 남았다.")

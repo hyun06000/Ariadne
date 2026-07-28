@@ -4391,3 +4391,58 @@ class TestParallelChains(GilFixture):
         self.gil("chain-close", "alpha", "--retro", "-", input="# 회고\n됐다")
         r = self.gil("chain", "beta", "--purpose", "B")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TestChainCloseAdvancesTheChainRef(GilFixture):
+    """봉인은 그 체인의 끝에 얹히고, 이름이 그 끝을 가리킨다 (이슈 #66, #44 계열).
+
+    옛 chain-close 는 **그때 체크아웃돼 있던 브랜치**에 봉인을 얹었다. 그래서 체인 브랜치
+    ref 는 옛 팁(대개 체인 선언·인터뷰 커밋)에 멈추고, 사이클도 봉인도 회고도 그 이름으로는
+    도달할 수 없었다.
+
+    "닫힌 체인의 끝에서 새 체인을 연다"는 커밋 그래프에서는 성립하는데, **그 체인의 이름이
+    그 끝을 가리키지 않아** 뷰어·계보 판정이 새 체인을 고아로 봤다 — #65 의 잔여 불일치가
+    여기서 나왔다. #44(reject/step 이 현재 브랜치에 커밋)와 같은 계열인데 chain-close 에만
+    그 가드가 없었다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "app", "--purpose", "P")
+        self.gil("open", "app/c1", "--author", "c", "--purpose", "Q", "--body", "B")
+        self.gil("step", "app/c1", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "app/c1", "--kind", "verify", "--title", "V",
+                 "--verdict", "supported", "--body", "B")
+        self.gil("step", "app/c1", "--kind", "analyze", "--title", "A", "--body", "B")
+        self.gil("step", "app/c1", "--kind", "success", "--title", "S", "--body", "B")
+        self.gil("close", "app/c1")
+        # 체인 브랜치가 **아닌** 곳으로 옮겨간 뒤 닫는다 — 실사용에서 난 모양 그대로.
+        base = self._git("rev-list", "--max-parents=0", "HEAD").stdout.split()[0]
+        self._git("checkout", "-q", "-b", "elsewhere", base)
+
+    def _close(self):
+        with open(os.path.join(self.repo, "R.md"), "w", encoding="utf-8") as f:
+            f.write("# 회고\n기준 대비 달성도\n")
+        return self.gil("chain-close", "app", "--retro", "R.md")
+
+    def test_chain_ref_points_at_the_seal(self):
+        r = self._close()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        tip = self._git("log", "app", "-1", "--format=%s").stdout
+        self.assertIn("chain-close", tip, "체인 이름이 봉인을 안 가리킨다")
+
+    def test_cycles_are_reachable_from_the_chain_name(self):
+        """사이클이 이름으로 도달 불가였던 자리 — 이름이 계보 전체를 담아야 한다."""
+        self._close()
+        reachable = self._git("log", "app", "--format=%s").stdout
+        self.assertIn("app/c1/s1", reachable)
+
+    def test_next_chain_really_succeeds_the_closed_one(self):
+        """'닫힌 체인의 끝에서 새 체인을 연다'가 이름 수준에서도 성립한다."""
+        self._close()
+        r = self.gil("chain", "next", "--purpose", "P2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        anc = self._git("merge-base", "--is-ancestor", "app", "next").returncode == 0
+        self.assertTrue(anc, "새 체인이 닫힌 체인의 자손이 아니다 — 고아로 보인다")

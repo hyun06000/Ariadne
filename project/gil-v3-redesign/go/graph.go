@@ -438,6 +438,45 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	return violations
 }
 
+// chainLatestCommit — 이 체인 소속(Gil-Chain) 커밋 중 가장 최근 것의 sha(이슈 #66).
+// 체인의 진짜 끝은 체인 브랜치 ref 가 아니라 그 체인이 마지막으로 자란 자리(사이클 가지)다 —
+// chain-close 는 거기에 얹혀야 봉인이 계보의 끝이 된다.
+func chainLatestCommit(chain string) string {
+	// 커밋 위상·시간 순서에 기대지 않는다 — 형제 가지가 있으면 그 순서가 뒤집히고(이슈 #59
+	// 에서 같은 함정을 밟았다), 테스트처럼 타임스탬프가 같으면 아예 무의미하다. 대신 이 체인
+	// 소속 ref(<chain>, <chain>-*) 중 **가장 깊은 팁**을 고른다 — 사이클이 부모 사이클 위에
+	// 자라므로(이슈 #61) 그 팁이 이 체인의 계보를 담는다.
+	out, err := gitTry("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+	if err != nil {
+		return ""
+	}
+	best, bestN := "", -1
+	for _, ref := range strings.Fields(out) {
+		if ref != chain && !strings.HasPrefix(ref, chain+"-") {
+			continue
+		}
+		cnt, err := gitTry("rev-list", "--count", ref)
+		if err != nil {
+			continue
+		}
+		n := 0
+		for _, c := range strings.TrimSpace(cnt) {
+			if c < '0' || c > '9' {
+				n = -1
+				break
+			}
+			n = n*10 + int(c-'0')
+		}
+		if n > bestN {
+			best, bestN = ref, n
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return strings.TrimSpace(git("rev-parse", best))
+}
+
 // openChains — 아직 chain-close 를 받지 않은 체인들(init 대문 제외). 이름순.
 // 새 체인을 열 때 "이어받음인가 병렬인가"를 사람에게 묻는 근거다(이슈 #54).
 func openChains() []string {
