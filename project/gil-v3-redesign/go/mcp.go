@@ -226,6 +226,9 @@ type inChain struct {
 	Purpose   string `json:"purpose" jsonschema:"이 체인이 무엇을 풀려는지 자연어로"`
 	Inherit   string `json:"inherit,omitempty" jsonschema:"앞 체인에서 물려받은 전제·교훈"`
 	Reference string `json:"reference,omitempty" jsonschema:"기준 문서 파일 경로. 보통 비워 두고 gil_interview 로 사람에게 물어 만든다"`
+	// 이슈 #54: 열린 체인이 있는데 동시에 굴리는 트랙이면 선언해야 통과한다. 툴 표면에
+	// 없으면 거부만 당하고 따를 수단이 없다 — 그건 레일이 아니라 벽이다(#57 과 같은 실패).
+	ParallelWith []string `json:"parallel_with,omitempty" jsonschema:"열린 체인과 동시에 굴리는 트랙이면 그 체인 이름들. 선언 없이는 새 체인이 거부된다"`
 }
 
 type inOpen struct {
@@ -235,6 +238,11 @@ type inOpen struct {
 	Inherit string   `json:"inherit,omitempty" jsonschema:"앞 사이클에서 물려받은 지식·전제·교훈"`
 	Parent  []string `json:"parent,omitempty" jsonschema:"계보 부모 사이클들"`
 	Refutes []string `json:"refutes,omitempty" jsonschema:"이 사이클이 뒤집는 앞 verify 스텝(chain/cycle/step)"`
+	Refines []string `json:"refines,omitempty" jsonschema:"앞 verify·analyze 의 해석만 정밀화한다(판정은 그대로). chain/cycle/step"`
+	Goal    string   `json:"goal,omitempty" jsonschema:"이 사이클이 무엇이 되면 끝인가(달성 판정 기준). 선언하면 닫을 때 goal_met 으로 답해야 한다"`
+	// 이슈 #45: 미해결 사이클이 있으면 새 사이클 open 이 거부된다. 알면서 나란히 여는
+	// 것이면 여기에 그 사이클 이름을 선언한다.
+	Parallel []string `json:"parallel,omitempty" jsonschema:"미해결(fail 잎만·미종결) 사이클을 알면서 나란히 열 때 그 사이클 이름들"`
 	Title   string   `json:"title,omitempty"`
 	Body    string   `json:"body,omitempty"`
 }
@@ -251,6 +259,8 @@ type inStep struct {
 	IfSupported string   `json:"if_supported,omitempty" jsonschema:"goal-met|goal-missed — 이 가설이 맞으면 사이클 목표는 달성인가"`
 	Verdict     string   `json:"verdict,omitempty" jsonschema:"verify 필수 — supported|refuted"`
 	Refutes     []string `json:"refutes,omitempty"`
+	Refines     []string `json:"refines,omitempty" jsonschema:"앞 verify·analyze 의 해석만 정밀화(판정 불변). chain/cycle/step"`
+	At          string   `json:"at,omitempty" jsonschema:"종결(success|fail|pending)을 두고 온 잎 자리에 박는다 — HEAD 가 떠난 가지를 닫을 때"`
 	Merge       []string `json:"merge,omitempty"`
 }
 
@@ -258,6 +268,7 @@ type inTarget struct {
 	Target  string `json:"target" jsonschema:"chain/cycle"`
 	Verdict string `json:"verdict,omitempty" jsonschema:"닫는 판정(기본 supported)"`
 	Abandon bool   `json:"abandon,omitempty" jsonschema:"이 사이클을 성과 없이 접는다"`
+	GoalMet bool   `json:"goal_met,omitempty" jsonschema:"열 때 선언한 목표에 닿았다 — goal 을 선언한 사이클은 이게 없으면 안 닫힌다"`
 }
 
 type inChainName struct {
@@ -293,6 +304,9 @@ type inDeploy struct {
 	Tag   string `json:"tag" jsonschema:"릴리스 태그(v0.2.0)"`
 	URL   string `json:"url,omitempty"`
 	Title string `json:"title,omitempty"`
+	State string `json:"state,omitempty" jsonschema:"staged|live(기본). staged = 배포 단위는 확정됐으나 아직 안 올라갔다"`
+	// 이슈 #56: staged 로 찍어둔 것이 실제로 올라갔음을 잇는다(앞 마커는 그대로 남는다).
+	Promote bool `json:"promote,omitempty" jsonschema:"staged 였던 배포가 실제로 올라갔다"`
 }
 
 func registerGilTools(s *mcp.Server) {
@@ -301,6 +315,7 @@ func registerGilTools(s *mcp.Server) {
 			a := []string{in.Name}
 			a = addFlag(a, "purpose", in.Purpose)
 			a = addFlag(a, "inherit", in.Inherit)
+			a = addList(a, "parallel-with", in.ParallelWith)
 			return addFlag(a, "reference", in.Reference)
 		}, cmdChain)
 
@@ -312,6 +327,9 @@ func registerGilTools(s *mcp.Server) {
 			a = addFlag(a, "inherit", in.Inherit)
 			a = addList(a, "parent", in.Parent)
 			a = addList(a, "refutes", in.Refutes)
+			a = addList(a, "refines", in.Refines)
+			a = addList(a, "parallel", in.Parallel)
+			a = addFlag(a, "goal", in.Goal)
 			a = addFlag(a, "title", in.Title)
 			return addFlag(a, "body", in.Body)
 		}, cmdOpen)
@@ -329,6 +347,8 @@ func registerGilTools(s *mcp.Server) {
 			a = addFlag(a, "if-supported", in.IfSupported)
 			a = addFlag(a, "verdict", in.Verdict)
 			a = addList(a, "refutes", in.Refutes)
+			a = addList(a, "refines", in.Refines)
+			a = addFlag(a, "at", in.At)
 			return addList(a, "merge", in.Merge)
 		}, cmdStep)
 
@@ -337,6 +357,9 @@ func registerGilTools(s *mcp.Server) {
 			a := addFlag([]string{in.Target}, "verdict", in.Verdict)
 			if in.Abandon {
 				a = append(a, "--abandon")
+			}
+			if in.GoalMet {
+				a = append(a, "--goal-met")
 			}
 			return a
 		}, cmdClose)
@@ -393,6 +416,10 @@ func registerGilTools(s *mcp.Server) {
 			a := addFlag(nil, "at", in.At)
 			a = addFlag(a, "tag", in.Tag)
 			a = addFlag(a, "url", in.URL)
+			a = addFlag(a, "state", in.State)
+			if in.Promote {
+				a = append(a, "--promote")
+			}
 			return addFlag(a, "title", in.Title)
 		}, cmdDeploy)
 

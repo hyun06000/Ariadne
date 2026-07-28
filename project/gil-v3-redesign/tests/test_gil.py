@@ -4446,3 +4446,67 @@ class TestChainCloseAdvancesTheChainRef(GilFixture):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         anc = self._git("merge-base", "--is-ancestor", "app", "next").returncode == 0
         self.assertTrue(anc, "새 체인이 닫힌 체인의 자손이 아니다 — 고아로 보인다")
+
+
+class TestMCPExposesNewGrammar(GilFixture):
+    """거부하는 문법은 MCP 표면에도 있어야 한다 (오늘 새로 선) .
+
+    #45·#54·#62 로 거부를 세웠는데, 그 거부를 따를 인자가 툴 스키마에 없으면 MCP 로 도는
+    에이전트는 갇힌다 — 거부만 하고 길이 없는 건 레일이 아니라 벽이고, 그건 #57 에서 고친
+    실패와 같은 모양이다(레일이 사람 의사를 잘못 전하면 뚫는 게 합리적으로 보인다).
+
+    우리 MVP 대상이 바로 그 경로(Claude Desktop 안 Claude Code + MCP)라 특히 중요하다.
+    """
+
+    def _tool_schema(self, name):
+        import json
+        self.gil("init")
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1"))
+        try:
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "t", "version": "1"}}}) + "\n")
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list",
+                                      "params": {}}) + "\n")
+            p.stdin.flush()
+            json.loads(p.stdout.readline())
+            tools = json.loads(p.stdout.readline())["result"]["tools"]
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+        for t in tools:
+            if t["name"] == name:
+                return json.dumps(t.get("inputSchema", {}), ensure_ascii=False)
+        raise AssertionError(f"{name} 툴이 없다")
+
+    def test_open_exposes_goal_and_parallel(self):
+        """#62 목표 선언과 #45 병렬 선언 — 둘 다 거부의 유일한 통로다."""
+        sch = self._tool_schema("gil_open")
+        self.assertIn("goal", sch)
+        self.assertIn("parallel", sch)
+        self.assertIn("refines", sch)   # #42
+
+    def test_close_exposes_goal_met(self):
+        """목표를 선언하고 열었으면 닫을 때 답해야 하는데, 답할 인자가 없으면 못 닫는다."""
+        self.assertIn("goal_met", self._tool_schema("gil_close"))
+
+    def test_chain_exposes_parallel_with(self):
+        """#54 — 열린 체인이 있으면 선언 없이는 새 체인이 거부된다."""
+        self.assertIn("parallel_with", self._tool_schema("gil_chain"))
+
+    def test_step_exposes_at_and_refines(self):
+        """#59 두고 온 가지를 닫는 --at, #42 정밀화 간선."""
+        sch = self._tool_schema("gil_step")
+        self.assertIn('"at"', sch)
+        self.assertIn("refines", sch)
+
+    def test_deploy_exposes_staged_and_promote(self):
+        sch = self._tool_schema("gil_deploy")
+        self.assertIn("state", sch)
+        self.assertIn("promote", sch)
