@@ -112,6 +112,8 @@ func main() {
 		cmdDocs(rest)
 	case "goto":
 		cmdGoto(rest)
+	case "context":
+		cmdContext(rest)
 	case "log":
 		cmdLog(rest)
 	case "fsck":
@@ -129,7 +131,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto docs log fsck global memory handoff migrate viewer mcp version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto context docs log fsck global memory handoff migrate viewer mcp version]")
 	}
 }
 

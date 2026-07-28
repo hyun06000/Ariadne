@@ -1,0 +1,187 @@
+// context.go — **조상의 지식이 자식에게 도착하게 한다** (상현님, 2026-07-28).
+//
+// gil 의 핵심은 "부모의 부모, 더 먼 조상까지 그들이 만든 지식 하나하나가 아래 세대로 전파되며
+// 쌓여 하나의 컨텍스트를 만든다"이다. 그런데 지금까지 gil 이 보증한 것은 **기록**뿐이었다:
+// --inherit·--plan·--toward 는 커밋에 남지만, 새 사이클을 여는 자식에게 자동으로 **도착**하지
+// 않았다. 자식이 스스로 gil log 를 뒤져 조상을 거슬러 읽어야 했고, 그건 자기규율이다 —
+// 자기규율은 원리적으로 불충분하다(이 레포가 몇 번이나 확인한 명제).
+//
+// 그래서 계보 브리핑을 만든다. 조상 사슬(사이클 계보 + 그 사이클 안의 가지 교훈)을 거슬러
+// 모아 한 화면으로 준다. 그리고 **자식이 태어나는 순간**(gil open)과 **회고하는 순간**
+// (종결 스텝)에 gil 이 먼저 읽어 준다 — 물어보지 않아도 도착하게.
+package main
+
+import (
+	"sort"
+	"strings"
+)
+
+// cycleAncestry — 이 사이클의 조상 사이클들을 오래된 것부터 나열한다(자기 자신 제외).
+// Gil-Cycle-Parent(사이클 계보 간선)를 거슬러 올라간다. 순환·중복은 접는다.
+func cycleAncestry(chain, cycle string) []string {
+	parents := map[string][]string{}
+	for _, n := range collectNodes("--branches") {
+		if n.chain != chain || n.cycle == "" || len(n.cycleParents) == 0 {
+			continue
+		}
+		for _, p := range n.cycleParents {
+			p = strings.TrimSpace(p)
+			// 계보 간선은 "cycle" 또는 "chain/cycle" 로 적힌다 — 뒤 칸만 쓴다.
+			if i := strings.LastIndex(p, "/"); i >= 0 {
+				p = p[i+1:]
+			}
+			if p != "" && p != n.cycle {
+				parents[n.cycle] = append(parents[n.cycle], p)
+			}
+		}
+	}
+	var chainUp []string
+	seen := map[string]bool{cycle: true}
+	cur := cycle
+	for range make([]struct{}, 64) { // 깊이 상한 — 손상된 그래프에서도 멈춘다
+		ps := parents[cur]
+		if len(ps) == 0 {
+			break
+		}
+		next := ""
+		for _, p := range ps {
+			if !seen[p] {
+				next = p
+				break
+			}
+		}
+		if next == "" {
+			break
+		}
+		seen[next] = true
+		chainUp = append(chainUp, next)
+		cur = next
+	}
+	// 거슬러 올라간 순서(가까운 조상부터)를 뒤집어 **오래된 조상부터** 준다 — 지식은 그
+	// 순서로 쌓였고, 읽는 사람도 그 순서로 읽어야 강이 흐르는 방향을 본다.
+	for i, j := 0, len(chainUp)-1; i < j; i, j = i+1, j-1 {
+		chainUp[i], chainUp[j] = chainUp[j], chainUp[i]
+	}
+	return chainUp
+}
+
+// cycleKnowledge — 한 사이클이 남긴 지식 줄들(전수·설계·회고). 없으면 빈 슬라이스.
+func cycleKnowledge(chain, cycle string, indent string) []string {
+	var steps []node
+	for _, n := range collectNodes("--branches") {
+		if n.chain == chain && n.cycle == cycle {
+			steps = append(steps, n)
+		}
+	}
+	sort.Slice(steps, func(i, j int) bool { return stepNum(steps[i].step) < stepNum(steps[j].step) })
+	var L []string
+	if p := cyclePurpose(chain, cycle, "--branches"); p != "" {
+		L = append(L, indent+"목적: "+p)
+	}
+	if g := cycleGoal(chain, cycle, "--branches"); g != "" {
+		L = append(L, indent+"목표: "+g)
+	}
+	for _, s := range steps {
+		switch {
+		case s.kind == "define" && s.inherit != "":
+			L = append(L, indent+"전수(←부모): "+s.inherit)
+		case s.kind == "hypothesis":
+			if s.advances != "" {
+				L = append(L, indent+s.step+" 가설이 목적에 다가서려던 몫: "+s.advances)
+			}
+			if s.plan != "" {
+				L = append(L, indent+s.step+" 고정한 설계: "+s.plan)
+			}
+			if s.inherit != "" {
+				L = append(L, indent+s.step+" 이 가지가 물려받은 교훈: "+s.inherit)
+			}
+		case s.kind == "verify" && s.planOutcome == "broke":
+			L = append(L, indent+s.step+" ⚠ 설계가 깨졌다: "+s.planDiff)
+		case s.kind == "success" || s.kind == "fail":
+			mark := "✔"
+			if s.kind == "fail" {
+				mark = "✖"
+			}
+			if s.toward != "" {
+				L = append(L, indent+mark+" "+s.step+" 목적에 다가선 정도: "+s.toward)
+			}
+			if s.nextDesign != "" {
+				L = append(L, indent+mark+" "+s.step+" 다음 설계: "+s.nextDesign)
+			}
+		}
+	}
+	return L
+}
+
+// lineageBrief — 이 자리에 도착한 **누적 컨텍스트** 전체. 체인의 목적·기준에서 시작해
+// 조상 사이클들이 남긴 지식을 오래된 것부터 쌓아 보여주고, 마지막에 이 사이클 자신을 둔다.
+func lineageBrief(chain, cycle string) []string {
+	L := []string{"── 계보 브리핑: 조상에게서 여기까지 쌓인 컨텍스트 ──"}
+	if cp := chainPurpose(chain, "--branches"); cp != "" {
+		L = append(L, "  체인 ["+chain+"] 목적: "+cp)
+	}
+	if chainHasReference(chain, "--branches") {
+		L = append(L, "  체인 기준 문서(사람이 승인한 레퍼런스 트루스)가 있다 — 전문: gil log "+chain+" (chain-root 본문)")
+	}
+	anc := cycleAncestry(chain, cycle)
+	if len(anc) == 0 {
+		L = append(L, "  조상 사이클 없음 — 이 사이클이 이 계보의 시작이다.")
+	}
+	for _, a := range anc {
+		L = append(L, "  ◆ "+a+" (조상)")
+		k := cycleKnowledge(chain, a, "      ")
+		if len(k) == 0 {
+			k = []string{"      (남긴 지식 없음 — 이 사이클은 다음 세대에 아무것도 전하지 못했다)"}
+		}
+		L = append(L, k...)
+	}
+	if cycle != "" {
+		if k := cycleKnowledge(chain, cycle, "      "); len(k) > 0 {
+			L = append(L, "  ◆ "+cycle+" (여기)")
+			L = append(L, k...)
+		}
+	}
+	L = append(L, "  ▸ 위는 조상들이 만든 지식이다. 이어받아 쌓아라 — 무시하고 새로 시작하면 계보가 거기서 끊긴다.")
+	return L
+}
+
+// lineageTowardLines — 종결 거부문에 붙이는 "지금까지 목적에 다가선 기록" 요약(최근 3개).
+// 회고를 요구하면서 앞선 회고를 안 보여주면, 매번 처음부터 다시 판단하게 된다.
+func lineageTowardLines(chain, cycle string) string {
+	var rows []string
+	for _, a := range append(cycleAncestry(chain, cycle), cycle) {
+		for _, n := range collectNodes("--branches") {
+			if n.chain == chain && n.cycle == a && n.toward != "" {
+				rows = append(rows, "    · "+a+"/"+n.step+": "+n.toward)
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	if len(rows) > 3 {
+		rows = rows[len(rows)-3:]
+	}
+	return "  지금까지의 회고(목적에 다가선 정도):\n" + strings.Join(rows, "\n") + "\n"
+}
+
+// cmdContext — `gil context <chain>[/<cycle>]`. 계보 브리핑을 사람·에이전트가 언제든 부른다.
+func cmdContext(args []string) {
+	fs := newFlags("gil context")
+	pos := fs.parse(args)
+	if len(pos) < 1 {
+		die("사용: gil context <chain>[/<cycle>]\n" +
+			"  이 자리에 도착한 누적 컨텍스트를 준다 — 체인 목적·기준에서 시작해 조상 사이클들이\n" +
+			"  남긴 전수·설계·회고를 오래된 것부터 쌓아 보여준다(부모의 부모까지).")
+	}
+	chain, cycle, _ := cut(pos[0], "/")
+	if chainPurpose(chain, "--branches") == "" {
+		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — gil chain 으로 먼저 열어라.")
+	}
+	if cycle != "" && len(cycleAnywhere(chain, cycle)) == 0 {
+		die("거부: " + chain + "/" + cycle + " 없음")
+	}
+	for _, ln := range lineageBrief(chain, cycle) {
+		println2(ln)
+	}
+}

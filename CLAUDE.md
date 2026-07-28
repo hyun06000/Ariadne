@@ -85,11 +85,11 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
   `gil-v3-unified`는 main으로 rename됨.
 - **gil**: Go 정적 단일 바이너리(`project/gil-v3-redesign/go/`, `git`만 있으면 됨, CGO 없음).
   Python 참조는 은퇴(Go 유일). 명령: `init/chain/open/step/close/chain-close/chain-merge/
-  approve/reject/goto/docs/log/fsck/global/memory/handoff/migrate`.
+  approve/reject/goto/context/docs/log/fsck/global/memory/handoff/migrate`.
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 404 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.29.0**.
+- **검증**: example 422 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.30.0**.
   **병렬 러너를 쓴다**: `python3 run_tests.py` (클래스 단위 프로세스 분할, 238s→72s).
   `-k <이름조각>` 으로 일부만, `-j <수>` 로 병렬도 조절.
 - **gil migrate**: v2(폴더·cycle.yaml) → v3 커밋 그래프 이주(도구 레벨·범용). 5단계 압축

@@ -71,6 +71,28 @@ class GilFixture(unittest.TestCase):
         if args and args[0] == "open" and not getattr(self, "_no_interview_autofill", False) \
            and "/" in (args[1] if len(args) > 1 else ""):
             self._autofill_interview(args[1].split("/")[0])
+        # 이슈 #76: hypothesis 는 --plan(가설 전에 고정한 설계) 필수이고, 그 설계가 있으면
+        # verify 는 --plan-held/--plan-broke 로 답해야 한다. 대부분 테스트는 설계 고정 자체가
+        # 아니라 그 뒤 위상을 검증하므로 기본값을 자동 주입한다(강제 자체를 검증하는 테스트는
+        # 명시 호출로 우회 — 플래그 흔적이 있으면 안 붙인다).
+        if args and args[0] == "step" and "--kind" in args and "hypothesis" in args and \
+           not any(a == "--plan" or a.startswith("--plan=") for a in args):
+            args += ["--plan", "(테스트 설계 고정: 신규 실행경로 1개)"]
+        if args and args[0] == "step" and "--kind" in args and "verify" in args and \
+           not any(a in ("--plan-held", "--plan-broke") or a.startswith("--plan-broke=") for a in args):
+            args += ["--plan-held"]
+        # 상현님(2026-07-28): 가설은 체인 목적에 다가서는 몫을(--advances), 종결은 회고를
+        # (--toward/--next-design) 문법으로 요구한다. 대부분 테스트는 그 위상이 아니라 뒤 흐름을
+        # 보므로 기본값을 자동 주입한다(강제 자체를 검증하는 테스트는 _raw_step 으로 우회).
+        if args and args[0] == "step" and "--kind" in args and "hypothesis" in args and \
+           not any(a == "--advances" or a.startswith("--advances=") for a in args):
+            args += ["--advances", "(테스트: 체인 목적에 한 칸)"]
+        if args and args[0] == "step" and "--kind" in args and \
+           ("success" in args or "fail" in args):
+            if not any(a == "--toward" or a.startswith("--toward=") for a in args):
+                args += ["--toward", "(테스트 회고: 목적에 한 칸 다가섰다)"]
+            if not any(a == "--next-design" or a.startswith("--next-design=") for a in args):
+                args += ["--next-design", "(테스트: 다음 설계)"]
         # AIL #13: backtrack(step --kind hypothesis --to <define>)은 --inherit 필수(누적 반성
         # 전수). 대부분 테스트는 backtrack 위상 자체를 검증하므로, --inherit 이 없으면 기본을
         # 자동 주입한다(테스트 의도 보존). 전수 강제 자체를 검증하는 테스트는 명시 호출로 우회.
@@ -160,9 +182,10 @@ class GilFixture(unittest.TestCase):
             add = [nxt]
             extra = []
             if nxt == "hypothesis":
-                extra = ["--falsify", "F", "--falsify-to", "s1"]
+                extra = ["--falsify", "F", "--falsify-to", "s1", "--plan", "(테스트 설계 고정)",
+                         "--advances", "(테스트: 체인 목적에 한 칸)"]
             elif nxt == "verify":
-                extra = ["--verdict", "supported"]
+                extra = ["--verdict", "supported", "--plan-held"]
             rr = subprocess.run([*GIL_CMD, "step", ref, "--kind", nxt, "--title",
                                  "(순서 자동:" + nxt + ")", *extra],
                                 cwd=self.repo, capture_output=True, text=True, env=env)
@@ -797,7 +820,8 @@ class TestPendingGuard(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "gh", "--purpose", "P")
         self.gil("open", f"gh/{cycle}", "--author", "clew", "--purpose", "Q")
-        self.gil("step", f"gh/{cycle}", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", f"gh/{cycle}", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.gil("step", f"gh/{cycle}", "--kind", "verify", "--title", "V", "--verdict", "supported")
         self.gil("step", f"gh/{cycle}", "--kind", "pending", "--title", "승인 요청")
 
@@ -844,7 +868,8 @@ class TestTerminalSteps(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "gh", "--purpose", "P")
         self.gil("open", "gh/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "gh/c001", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.gil("step", "gh/c001", "--kind", "verify", "--title", "V", "--verdict", "supported")
         self.gil("step", "gh/c001", "--kind", "analyze", "--title", "분석")
 
@@ -1004,7 +1029,8 @@ class TestGoto(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "a", "--purpose", "P")
         self.gil("open", "a/dead", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "a/dead", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/dead", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.gil("step", "a/dead", "--kind", "fail", "--to", "s1", "--title", "벽")
         r = self.gil("goto", "a/dead")
         self.assertNotEqual(r.returncode, 0)
@@ -1143,7 +1169,8 @@ class TestNoLeavingUnterminated(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "a", "--purpose", "P")
         self.gil("open", "a/gap", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "a/gap", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.gil("step", "a/gap", "--kind", "verify", "--verdict", "supported", "--title", "V")
         self.gil("step", "a/gap", "--kind", "analyze", "--title", "우선순위 결정")   # s4
         r = self.gil("step", "a/gap", "--kind", "fail", "--to", "s4", "--title", "지표가 안 움직였다")
@@ -3051,33 +3078,42 @@ class TestOrderingChain(GilFixture):
         self.gil("open", "c/c1", "--author", "x", "--purpose", "P", "--body", "정의")
 
     def test_define_next_must_be_hypothesis(self):
-        r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
+                       "--plan-held")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("hypothesis", r.stderr)
 
     def test_hypothesis_next_must_be_verify(self):
-        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         r = self._raw_step("c/c1", "--kind", "analyze", "--title", "a")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("verify", r.stderr)
 
     def test_verify_next_must_be_analyze(self):
-        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
-        self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v")
-        r = self._raw_step("c/c1", "--kind", "success", "--title", "ok")
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
+        self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
+                       "--plan-held")
+        r = self._raw_step("c/c1", "--kind", "success", "--title", "ok",
+                           "--toward", "(회고)", "--next-design", "(다음 설계)")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("analyze", r.stderr)
 
     def test_full_order_passes(self):
-        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
-        self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
+        self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
+                       "--plan-held")
         self._raw_step("c/c1", "--kind", "analyze", "--title", "a")
-        r = self._raw_step("c/c1", "--kind", "success", "--title", "ok")
+        r = self._raw_step("c/c1", "--kind", "success", "--title", "ok",
+                           "--toward", "(회고)", "--next-design", "(다음 설계)")
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_guide_next_always_printed(self):
         """각 스텝 후 '다음은 X' 가 무조건 출력된다."""
-        r = self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        r = self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.assertIn("⟹", r.stderr)
         self.assertIn("verify", r.stderr)
 
@@ -3216,7 +3252,8 @@ class TestFailClosure(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "c", "--purpose", "P")
         self.gil("open", "c/x", "--author", "clew", "--purpose", "Q", "--body", "정의")
-        self.gil("step", "c/x", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "c/x", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.gil("step", "c/x", "--kind", "verify", "--title", "V", "--verdict", "refuted")
         self.gil("step", "c/x", "--kind", "analyze", "--title", "A")
         r = self.gil("step", "c/x", "--kind", "fail", "--to", "s1", "--title", "벽")
@@ -3270,7 +3307,8 @@ class TestFailClosure(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "lr", "--purpose", "P")
         self.gil("open", "lr/measure", "--author", "clew", "--purpose", "측정", "--body", "정의")
-        self.gil("step", "lr/measure", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "lr/measure", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.gil("step", "lr/measure", "--kind", "verify", "--title", "V", "--verdict", "supported")
         self.gil("step", "lr/measure", "--kind", "pending", "--title", "물음")
         # 다른 브랜치를 파고 체크아웃해 HEAD 를 measure 팁에서 떨군다.
@@ -3290,7 +3328,8 @@ class TestFailClosure(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "lr", "--purpose", "P")
         self.gil("open", "lr/m", "--author", "clew", "--purpose", "측정", "--body", "정의")
-        self.gil("step", "lr/m", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "lr/m", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self.gil("step", "lr/m", "--kind", "verify", "--title", "V", "--verdict", "supported")
         self.gil("step", "lr/m", "--kind", "pending", "--title", "물음")
         self._git("checkout", "-q", "-b", "lr-other")
@@ -5793,3 +5832,213 @@ class TestBacktrackToAnalyze(GilFixture):
         self.gil("step", "c1/gap", "--kind", "pending", "--title", "사람 대기")
         r = self.gil("reject", "c1/gap", "--to", "s4", "--title", "기각")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TestPlanBeforeHypothesis(GilFixture):
+    """가설을 세우기 **전에** 설계를 고정한다 (이슈 #76 본체, 상현님 승인).
+
+    실사용 실측: 같은 사이클에서 규모 예측이 3.3배·3.2배·8.2배로 빗나가다 한 번 맞았고, 맞은
+    한 번의 차이는 '몇 개일지 추정하지 않고 몇 개로 만들지 정했다' 뿐이었다. 세는 법을 고치는
+    길은 세는 정확도가 아니라 세어야 할 것을 설계로 줄이는 것이다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+
+    def test_hypothesis_requires_plan(self):
+        r = self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H",
+                           "--falsify", "F", "--falsify-to", "s1", "--advances", "A")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("--plan", out)
+        self.assertIn("몇 개로 만들지", out)
+
+    def test_plan_is_recorded_as_trailer(self):
+        r = self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H",
+                           "--falsify", "F", "--falsify-to", "s1", "--advances", "A",
+                           "--plan", "신규 실행경로 1개(공용 함수로 묶는다)")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Plan"), "신규 실행경로 1개(공용 함수로 묶는다)")
+
+    def test_verify_must_answer_the_plan(self):
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F",
+                       "--falsify-to", "s1", "--plan", "신규 실행경로 1개", "--advances", "A")
+        r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("--plan-held", out)
+        self.assertIn("신규 실행경로 1개", out)   # 무엇에 답해야 하는지 그 자리에서 보인다
+
+    def test_plan_broke_is_recorded_and_guided(self):
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F",
+                       "--falsify-to", "s1", "--plan", "신규 실행경로 1개", "--advances", "A")
+        r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
+                           "--plan-broke", "신규 실행경로 3개 — fs 쪽이 안 묶였다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Plan-Outcome"), "broke")
+        self.assertIn("되돌아갈 자리", r.stdout + r.stderr)
+
+    def test_held_and_broke_are_exclusive(self):
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F",
+                       "--falsify-to", "s1", "--plan", "P1", "--advances", "A")
+        r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
+                           "--plan-held", "--plan-broke", "달랐다")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_plan_is_hypothesis_only(self):
+        self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F",
+                       "--falsify-to", "s1", "--plan", "P1", "--advances", "A")
+        r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported",
+                           "--title", "v", "--plan-held", "--plan", "X")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("hypothesis 전용", r.stdout + r.stderr)
+
+
+class TestCycleMustEndBeforeNext(GilFixture):
+    """밟다 만 사이클을 두고 다음을 열 수 없다 (상현님, 2026-07-28).
+
+    #45 는 'fail 잎만 남은' 경우만 막았다. 그래서 define·hypothesis·verify·analyze 어디서든
+    손을 놓고 새 사이클을 열 수 있었고, 그 사이클은 종결 잎 없이 허공에 매달린 채 남았다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+
+    def _open_next(self, *extra):
+        return self.gil("open", "c/c2", "--author", "x", "--purpose", "P", *extra)
+
+    def test_cannot_open_next_at_define(self):
+        r = self._open_next()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("밟는 중인 사이클", r.stdout + r.stderr)
+
+    def test_cannot_open_next_at_hypothesis(self):
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "H")
+        r = self._open_next()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("s2(hypothesis)", r.stdout + r.stderr)
+
+    def test_rejection_gives_three_exits(self):
+        r = self._open_next()
+        out = r.stdout + r.stderr
+        self.assertIn("이어가기", out)
+        self.assertIn("종결", out)
+        self.assertIn("--abandon", out)
+
+    def test_pending_points_at_the_human(self):
+        self.gil("step", "c/c1", "--kind", "pending", "--title", "사람 대기")
+        r = self._open_next()
+        out = r.stdout + r.stderr
+        self.assertIn("gil approve", out)
+        self.assertIn("gil reject", out)
+
+    def test_open_allowed_after_success_and_close(self):
+        self.gil("step", "c/c1", "--kind", "success", "--title", "s")
+        self.gil("close", "c/c1", "--goal-met")
+        r = self._open_next("--parent", "c1", "--inherit", "앞 사이클의 전수")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_open_allowed_after_abandon(self):
+        """포기에도 죽은 잎이 필요하다 — 벽을 남긴 뒤에야 봉인되고, 그제서야 다음이 열린다."""
+        self.gil("step", "c/c1", "--kind", "fail", "--to", "s1", "--title", "벽")
+        self.assertEqual(self.gil("close", "c/c1", "--abandon").returncode, 0)
+        r = self._open_next()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TestChainGoalImprintAndContext(GilFixture):
+    """체인 목적의 각인과 **조상 지식의 도착** (상현님, 2026-07-28).
+
+    gil 의 핵심은 부모의 부모, 더 먼 조상까지 만든 지식이 아래 세대로 전파되며 쌓여 하나의
+    컨텍스트를 이루는 것이다. 지금까지 gil 이 보증한 것은 기록뿐이었다 — --inherit·--plan 은
+    커밋에 남지만 자식에게 자동으로 도착하지는 않았다. 도착하지 않는 기록은 전파가 아니다."""
+
+    def _chain(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "추론 비용을 절반으로")
+
+    def _cycle1(self):
+        self._chain()
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "캐시 도입", "--goal", "토큰 0.7배")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--falsify", "F", "--falsify-to", "s1",
+                 "--plan", "신규 실행경로 1개", "--advances", "16지표 중 토큰·지연 2개를 덮는다",
+                 "--title", "H")
+        self.gil("step", "c/c1", "--kind", "verify", "--verdict", "supported",
+                 "--plan-broke", "경로 3개 — fs 가 안 묶였다", "--title", "v")
+        self.gil("step", "c/c1", "--kind", "analyze", "--title", "a")
+
+    def test_hypothesis_requires_advances(self):
+        self._chain()
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+        r = self._raw_step("c/c1", "--kind", "hypothesis", "--falsify", "F",
+                           "--falsify-to", "s1", "--plan", "P1", "--title", "H")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("--advances", out)
+        self.assertIn("추론 비용을 절반으로", out)  # 거부하면서 체인 목적을 그 자리에서 각인
+
+    def test_terminal_requires_retrospective(self):
+        self._cycle1()
+        r = self._raw_step("c/c1", "--kind", "success", "--title", "s")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--toward", r.stdout + r.stderr)
+        r2 = self._raw_step("c/c1", "--kind", "success", "--title", "s", "--toward", "T")
+        self.assertNotEqual(r2.returncode, 0)
+        self.assertIn("--next-design", r2.stdout + r2.stderr)
+
+    def test_retrospective_is_recorded(self):
+        self._cycle1()
+        r = self.gil("step", "c/c1", "--kind", "success", "--title", "s",
+                     "--toward", "토큰 0.71배 — 목표에 근접", "--next-design", "fs 경로를 공용 함수로 흡수")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Toward"), "토큰 0.71배 — 목표에 근접")
+        self.assertEqual(self.trailer("HEAD", "Gil-Next-Design"), "fs 경로를 공용 함수로 흡수")
+        # 종결 순간 체인 목적을 다시 각인한다 — 사이클 안의 성패만 남지 않게.
+        self.assertIn("추론 비용을 절반으로", r.stdout + r.stderr)
+
+    def _close_c1(self):
+        self.gil("step", "c/c1", "--kind", "success", "--title", "s",
+                 "--toward", "토큰 0.71배 — 지연은 미해결",
+                 "--next-design", "fs 경로를 공용 함수로 흡수(신규 경로 0)")
+        self.gil("close", "c/c1", "--goal-met")
+
+    def test_child_open_receives_ancestor_knowledge(self):
+        """자식은 묻지 않아도 조상의 지식을 받는다 — 그게 전파다."""
+        self._cycle1()
+        self._close_c1()
+        r = self.gil("open", "c/c2", "--author", "x", "--purpose", "지연 줄이기",
+                     "--parent", "c1", "--inherit", "c1 에서 캐시는 먹혔다")
+        out = r.stdout + r.stderr
+        self.assertIn("계보 브리핑", out)
+        self.assertIn("토큰 0.71배 — 지연은 미해결", out)          # 조상의 회고
+        self.assertIn("fs 경로를 공용 함수로 흡수", out)            # 조상이 남긴 다음 설계
+        self.assertIn("경로 3개 — fs 가 안 묶였다", out)            # 조상이 밟은 벽(설계 깨짐)
+
+    def test_context_command_walks_grandparents(self):
+        """부모의 부모까지 — 지식은 세대를 건너 쌓인다."""
+        self._cycle1()
+        self._close_c1()
+        self.gil("open", "c/c2", "--author", "x", "--purpose", "지연", "--parent", "c1",
+                 "--inherit", "캐시는 먹혔다")
+        self.gil("step", "c/c2", "--kind", "hypothesis", "--falsify", "F2", "--falsify-to", "s1",
+                 "--plan", "신규 경로 0", "--advances", "지연 지표를 덮는다", "--title", "H2")
+        self.gil("step", "c/c2", "--kind", "verify", "--verdict", "supported", "--plan-held", "--title", "v2")
+        self.gil("step", "c/c2", "--kind", "analyze", "--title", "a2")
+        self.gil("step", "c/c2", "--kind", "success", "--title", "s2",
+                 "--toward", "지연 0.8배", "--next-design", "배치 크기를 재본다")
+        self.gil("close", "c/c2", "--goal-met")
+        self.gil("open", "c/c3", "--author", "x", "--purpose", "배치", "--parent", "c2",
+                 "--inherit", "지연도 잡혔다")
+        out = self.gil("context", "c/c3").stdout
+        self.assertIn("토큰 0.71배", out)      # 할아버지(c1)
+        self.assertIn("지연 0.8배", out)       # 부모(c2)
+        self.assertLess(out.index("토큰 0.71배"), out.index("지연 0.8배"))  # 오래된 것부터
+
+    def test_context_refuses_unknown(self):
+        self._chain()
+        self.assertNotEqual(self.gil("context", "nope").returncode, 0)

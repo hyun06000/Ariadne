@@ -635,6 +635,20 @@ func cycleJSON(g graphView, static bool) string {
 				if ex := exits[ch.name+"/"+cy.name+"/"+n.step]; len(ex) > 0 {
 					sb.WriteString(fmt.Sprintf(`,"exit":%q`, strings.Join(ex, ", ")))
 				}
+				// 목적 각인과 회고(상현님) — 카드 툴팁에서 계보가 읽히게.
+				if n.advances != "" {
+					sb.WriteString(fmt.Sprintf(`,"advances":%q`, n.advances))
+				}
+				if n.toward != "" || n.nextDesign != "" {
+					sb.WriteString(fmt.Sprintf(`,"toward":%q,"nextDesign":%q`, n.toward, n.nextDesign))
+				}
+				// 설계 고정과 그 결과(이슈 #76) — 가설 카드에 ⚙, 깨진 verify 에 ⚠.
+				if n.plan != "" {
+					sb.WriteString(fmt.Sprintf(`,"plan":%q`, n.plan))
+				}
+				if n.planOutcome != "" {
+					sb.WriteString(fmt.Sprintf(`,"planOutcome":%q,"planDiff":%q`, n.planOutcome, n.planDiff))
+				}
 				if n.deployTag != "" { // 배포 마커(이슈 #34) — 뷰어가 🚀 + 태그 라벨로 렌더.
 					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q,"deployTarget":%q`,
 						n.deployTag, n.deployURL, n.deployState, n.deployTarget))
@@ -970,6 +984,8 @@ svg.dag{display:block}
 .dag .dnode.here circle{stroke:var(--here);stroke-width:2.5}
 .dag .dnode .headarrow{fill:var(--here)}
 .dag .dnode.deployed circle{stroke:#2dd4bf;stroke-width:2.5}
+.planbadge{font-size:10px;font-weight:700;fill:var(--dim);text-anchor:middle;pointer-events:none}
+.planbadge.broke{fill:#f59e0b}
 .dag .dnode .dagdeploy{font-size:10px;font-weight:800;fill:#2dd4bf;text-anchor:middle;pointer-events:none}
 /* 집계 노드(사이클/체인 뎁스, AIL #6) — 이름 라벨 + ⚡분기 표식 */
 .dag .dnode.agg .agglabel{font-size:10px;font-weight:600;fill:var(--fg);text-anchor:middle}
@@ -1236,7 +1252,13 @@ function openStepCard(chain,cyc){
   // 같은 스타일로 그리되, kind 로 색만 구분(피드백 1·2·3). 가상 종결 노드는 없앴다.
   steps.forEach(n=>{
     const g=svgEl('g',{class:'snode '+stepClass(n)+(n.here?' here':''),transform:'translate('+X(n.id)+','+Y(n.id)+')'});
-    const t=svgEl('title',{},n.id+' '+n.kind+(n.outcome?' ='+n.outcome:'')+'\n'+n.subj);
+    const t=svgEl('title',{},n.id+' '+n.kind+(n.outcome?' ='+n.outcome:'')+'\n'+n.subj+
+      (n.plan?'\n⚙ 고정한 설계: '+n.plan:'')+
+      (n.planOutcome==='broke'?'\n⚠ 설계가 깨졌다: '+(n.planDiff||''):'')+
+      (n.planOutcome==='held'?'\n⚙ 설계 유지':'')+
+      (n.advances?'\n◎ 목적에 다가서려는 몫: '+n.advances:'')+
+      (n.toward?'\n◎ 목적에 다가선 정도: '+n.toward:'')+
+      (n.nextDesign?'\n◎ 다음 설계: '+n.nextDesign:''));
     g.appendChild(svgEl('circle',{r:r}));
     g.appendChild(t);
     g.appendChild(svgEl('text',{class:'sid',dy:3},n.id));
@@ -1244,6 +1266,15 @@ function openStepCard(chain,cyc){
     if(n.here){ // 현재위치(HEAD) — 색만이 아니라 ▼HEAD 라벨+화살표로 직관화(피드백 5)
       g.appendChild(svgEl('text',{class:'headlbl',dy:-r-14},'HEAD'));
       g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
+    }
+    // 설계 고정(이슈 #76) — 가설에 ⚙, 설계가 깨진 verify 에 ⚠. 깨짐은 실패가 아니라
+    // 되돌아갈 자리를 가리키는 신호라, 그래프에서 눈에 띄어야 한다.
+    if(n.plan||n.planOutcome){
+      const broke=n.planOutcome==='broke';
+      const badge=svgEl('text',{class:'planbadge'+(broke?' broke':''),dy:n.here?-r-30:-r-14},
+        broke?'⚠ 설계깨짐':'⚙ 설계');
+      badge.appendChild(svgEl('title',{},broke?('설계가 깨졌다: '+(n.planDiff||'')):(n.plan||'설계 유지')));
+      g.appendChild(badge);
     }
     if(n.deploy){ // 배포 지점(이슈 #34) — 🚀 + 태그 라벨. 이 스텝에서 세상으로 나갔다.
       // staged 는 아직 안 올라간 것이다(이슈 #56) — 🚀 로 그리면 그래프가 거짓을 말한다.

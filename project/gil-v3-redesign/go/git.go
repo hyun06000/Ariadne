@@ -104,6 +104,12 @@ type node struct {
 	inherit      string   // 부모에게서 물려받은 지식·전제·교훈 (AIL #3)
 	supersedes   string   // 이 스텝이 정정(대체)하는 앞선 같은-kind 스텝 (AIL #12)
 	polarity     string   // hypothesis 극성: supported 면 목표 달성(goal-met)인가 실패(goal-missed)인가 (AIL #13)
+	plan         string   // hypothesis: 가설 전에 고정한 설계 — 이번에 무엇을 몇 개 만들 것인가 (이슈 #76)
+	planOutcome  string   // verify: 그 설계가 유지됐나 — held|broke (이슈 #76)
+	planDiff     string   // verify: 깨졌으면 무엇이 달랐나 (이슈 #76)
+	advances     string   // hypothesis: 이 가설이 **체인 목적**에 얼마나·어떻게 다가서게 하나 (상현님)
+	toward       string   // success/fail: 그래서 체인 목적에 얼마나 가까워졌나 (회고)
+	nextDesign   string   // success/fail: 목적을 이루기 위한 **다음 설계**는 무엇인가
 }
 
 // collectNodes — 커밋 그래프를 훑어 Gil-Step 트레일러를 가진 커밋을 스텝 노드로 수집.
@@ -128,6 +134,12 @@ func collectNodes(revRange string) []node {
 		trailer("Gil-Inherit"),
 		trailer("Gil-Supersedes"),
 		trailer("Gil-Goal-Polarity"),
+		trailer("Gil-Plan"),
+		trailer("Gil-Plan-Outcome"),
+		trailer("Gil-Plan-Diff"),
+		trailer("Gil-Advances"),
+		trailer("Gil-Toward"),
+		trailer("Gil-Next-Design"),
 	}, fsep) + sep
 	// revRange 뒤 "--" 로 revision 확정 — 체인/브랜치명이 디렉토리명과 겹치면(예: viewer)
 	// git 이 revision/path ambiguity 로 exit 128 로 죽는다(실사용 발견, viewer 실작업).
@@ -139,7 +151,7 @@ func collectNodes(revRange string) []node {
 			continue
 		}
 		f := strings.Split(rec, fsep)
-		if len(f) < 19 {
+		if len(f) < 25 {
 			continue
 		}
 		step := strings.TrimSpace(f[4])
@@ -166,6 +178,12 @@ func collectNodes(revRange string) []node {
 			inherit:      strings.TrimSpace(f[16]),
 			supersedes:   strings.TrimSpace(f[17]),
 			polarity:     strings.TrimSpace(f[18]),
+			plan:         strings.TrimSpace(f[19]),
+			planOutcome:  strings.TrimSpace(f[20]),
+			planDiff:     strings.TrimSpace(f[21]),
+			advances:     strings.TrimSpace(f[22]),
+			toward:       strings.TrimSpace(f[23]),
+			nextDesign:   strings.TrimSpace(f[24]),
 		})
 	}
 	return nodes

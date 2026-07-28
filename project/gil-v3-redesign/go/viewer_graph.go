@@ -52,6 +52,10 @@ type viewerNode struct {
 	sha, full, subject       string
 	chain, cycle, step, kind string
 	outcome, verdict         string
+	advances, toward         string // 체인 목적에 다가서려는 몫 / 다가선 정도(회고)
+	nextDesign               string // 목적을 위한 다음 설계 — 다음 세대가 물려받는다
+	plan, planOutcome        string // 가설 전에 고정한 설계와 그 결과(held|broke) — 이슈 #76
+	planDiff                 string // 깨졌으면 무엇이 달랐나
 	parent, backtrack        string   // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
 	refutes                  []string // Gil-Refutes: 이 스텝/사이클이 소급 반증하는 verify 스텝들(AIL #1 B)
 	refutedBy                []string // 역인덱스: 이 스텝을 반증한 스텝들(뷰어가 ⚠refuted-by 표시)
@@ -124,6 +128,8 @@ func viewerCollectNodes() []viewerNode {
 			sha: parts[0][:9], full: parts[0], subject: parts[1],
 			chain: tr["Gil-Chain"], cycle: tr["Gil-Cycle"], step: tr["Gil-Step"],
 			kind: tr["Gil-Kind"], outcome: tr["Gil-Outcome"], verdict: tr["Gil-Verdict"],
+			plan: tr["Gil-Plan"], planOutcome: tr["Gil-Plan-Outcome"], planDiff: tr["Gil-Plan-Diff"],
+			advances: tr["Gil-Advances"], toward: tr["Gil-Toward"], nextDesign: tr["Gil-Next-Design"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
 			refutes:      trailerAll(parts[3], "Gil-Refutes"), // multi-value(map은 마지막만 남아 직접 파싱)
 			refines:      trailerAll(parts[3], "Gil-Refines"), // 정밀화 간선(이슈 #42)
@@ -801,6 +807,14 @@ func renderText(g graphView) {
 				prevStep = n.step
 				if n.outcome != "" {
 					line += " =" + n.outcome
+				}
+				if n.plan != "" {
+					line += " ⚙plan:" + n.plan
+				}
+				if n.planOutcome == "broke" {
+					line += " ⚠설계깨짐(" + n.planDiff + ")"
+				} else if n.planOutcome == "held" {
+					line += " ⚙설계유지"
 				}
 				if n.verdict != "" {
 					line += " ⟹" + n.verdict

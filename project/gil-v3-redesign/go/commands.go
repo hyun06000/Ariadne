@@ -41,8 +41,8 @@ func bodyThin(body string) bool {
 func reportGuide(kind string, thin bool) {
 	report := map[string]string{
 		"define":     "이 스텝 본문 = 문제 정의 보고서. 담아라: 무엇을 푸는가·입력/출력·평가 지표·데이터 구조·제약.",
-		"hypothesis": "이 스텝 본문 = 가설 보고서. 담아라: 세운 가설·그 근거(관찰/데이터)·검증 방법·기대 결과. (필수 플래그: --falsify 반증조건, --falsify-to 반증 시 되돌아갈 define.)",
-		"verify":     "이 스텝 본문 = 검증 보고서. 담아라: 실행한 절차(코드/명령)·측정 수치(표·코드블록)·관찰. (필수 플래그: --verdict supported|refuted — refuted 면 success 불가, fail/backtrack 만.)",
+		"hypothesis": "이 스텝 본문 = 가설 보고서. 담아라: 세운 가설·그 근거(관찰/데이터)·검증 방법·기대 결과. (필수 플래그: --falsify 반증조건, --falsify-to 반증 시 되돌아갈 define, --plan 가설 전에 고정한 설계 — 몇 개일지 추정 말고 몇 개로 만들지 정하라.)",
+		"verify":     "이 스텝 본문 = 검증 보고서. 담아라: 실행한 절차(코드/명령)·측정 수치(표·코드블록)·관찰. (필수 플래그: --verdict supported|refuted — refuted 면 success 불가, fail/backtrack 만. 고정한 설계가 있으면 --plan-held|--plan-broke 로 그것에도 답한다.)",
 		"analyze":    "이 스텝 본문 = 분석 보고서. 담아라: 결과 해석·수치 비교·왜 이 판단인가. 다음은 success/fail/pending 종결 스텝.",
 		"success":    "이 스텝 본문 = ⭐누적 종합 보고서. 담아라: 문제정의(s1)부터 여기까지 밟아온 지식·검증·수치를 하나로 정리 — 이 사이클이 무엇을 어떻게 풀었는지 이 하나로 다 읽히게. 표·이미지(data URI) 권장.",
 		"fail":       "이 스텝 본문 = 벽 보고서(죽은 잎). 담아라: 무엇에 막혔나·왜 실패했나(수치)·되돌아가 무엇을 다르게 할지. 지도로 영원히 남는다.",
@@ -75,9 +75,9 @@ func reportGuide(kind string, thin bool) {
 func guideNext(kind string) {
 	switch kind {
 	case "define":
-		stderr("  ⟹ 다음은 반드시 hypothesis — 무엇을 세우고 무엇이 관측되면 틀리나(--falsify). 문제 정의만 하고 실험으로 새지 마라(AIL #41).")
+		stderr("  ⟹ 다음은 반드시 hypothesis — 무엇을 세우고 무엇이 관측되면 틀리나(--falsify), 그리고 이번에 무엇을 몇 개 만들 것인가(--plan, 이슈 #76). 문제 정의만 하고 실험으로 새지 마라(AIL #41).")
 	case "hypothesis":
-		stderr("  ⟹ 다음은 반드시 verify — 이 가설을 실측으로 검증하라(--verdict supported|refuted).")
+		stderr("  ⟹ 다음은 반드시 verify — 이 가설을 실측으로 검증하라(--verdict supported|refuted). 고정한 설계에도 답하라(--plan-held|--plan-broke).")
 	case "verify":
 		stderr("  ⟹ 다음은 반드시 analyze — 검증 결과가 무엇을 뜻하는지 해석하라(그다음이 종결).")
 	case "analyze":
@@ -676,6 +676,36 @@ func cmdOpen(args []string) {
 				"        (정말 나란히 여는 것이다 — 그 선언이 그래프에 남는다)")
 		}
 	}
+	// 밟다 만 사이클을 두고 다음을 열지 못한다(상현님, 2026-07-28). #45 는 "fail 잎만 남은"
+	// 경우만 막았고, 그래서 define·hypothesis·verify·analyze 어디서든 손을 놓고 새 사이클을
+	// 열 수 있었다 — 사이클이 종결 잎 없이 허공에 매달린다. 사이클은 success/fail 로 끝나야
+	// 끝난 것이다. 여기엔 --parallel 우회를 두지 않는다: 나란히 여는 것과 밟다 만 것은 다르다.
+	if inflight, tips := inFlightCycles(chain); len(inflight) > 0 {
+		first := inflight[0]
+		tip := tips[first]
+		nextKind := map[string]string{
+			"define":     "hypothesis --falsify <반증조건> --falsify-to <조상 define> --plan <고정할 설계>",
+			"hypothesis": "verify --verdict supported|refuted --plan-held|--plan-broke <무엇이 달랐나>",
+			"verify":     "analyze",
+			"analyze":    "success|fail --to <조상 define|analyze>",
+		}[tip.kind]
+		lines := []string{"거부: 이 체인에 아직 밟는 중인 사이클이 있다: " + strings.Join(inflight, " "),
+			"  " + chain + "/" + first + " 은 " + tip.step + "(" + tip.kind + ")에 서 있다 — 종결 잎(success/fail)이 없다.",
+			"  사이클은 success/fail 로 끝나고 close 된 뒤에만 다음이 열린다. 중간에서 손을 놓으면",
+			"  그 사이클은 '무슨 생각을 하다 말았는지'를 영영 말하지 못한다."}
+		if tip.kind == "pending" {
+			lines = append(lines,
+				"  이 자리는 사람의 답을 기다린다: gil approve "+chain+"/"+first+
+					"  또는  gil reject "+chain+"/"+first+" --to <조상 define|analyze>")
+		} else {
+			lines = append(lines, "  셋 중 하나를 골라라:",
+				"    (1) 이어가기 — gil step "+chain+"/"+first+" --kind "+nextKind,
+				"    (2) 종결     — analyze 까지 밟은 뒤 success(산 잎)로 닫고 gil close "+chain+"/"+first,
+				"    (3) 포기     — analyze → fail 로 **벽을 남긴 뒤** gil close "+chain+"/"+first+" --abandon",
+				"                  (봉인에도 죽은 잎이 필요하다 — 벽의 지도 없이 사라지는 사이클은 없다)")
+		}
+		die(strings.Join(lines, "\n"))
+	}
 	showPurposeContext(chain, cycle, *purpose)
 
 	subjTitle := *title
@@ -740,6 +770,11 @@ func cmdOpen(args []string) {
 	if len(*refines) > 0 {
 		guideRefines(*refines)
 	}
+	// 조상의 지식이 **묻지 않아도 도착하게** 한다(상현님). 기록만으로는 전파가 아니다 —
+	// 자식이 스스로 gil log 를 거슬러 읽어야 한다면 그건 자기규율이고, 자기규율은 불충분하다.
+	for _, ln := range lineageBrief(chain, cycle) {
+		stderr(ln)
+	}
 	reportGuide("define", bodyThin(body))
 	guideNext("define") // 다음은 반드시 hypothesis (AIL #41)
 }
@@ -767,6 +802,26 @@ func cmdStep(args []string) {
 	// 세우는 순간 못박듯, 극성은 "이 가설이 맞으면 목표는?"을 그 순간 못박는다. 기본 goal-met
 	// (비파괴 — 대부분 가설은 맞으면 목표 달성). goal-missed 면 verify=supported 라도 success 거부.
 	ifSupported := fs.str("if-supported", "") // goal-met|goal-missed (hypothesis 전용, 빈값=goal-met)
+	// 이슈 #76 본체 — **가설을 세우기 전에 설계를 고정한다**(상현님 승인, 2026-07-28).
+	//
+	// 실사용 실측이 이유다. 같은 사이클에서 네 번 가지를 냈는데 규모 예측이 3.3배·3.2배·8.2배로
+	// 빗나가다 한 번만 맞았고, 맞은 그 한 번의 차이는 이것뿐이었다: **몇 개일지 추정하지 않고
+	// 몇 개로 만들지 정했다**(읽기 경로 둘을 공용 함수 하나로 묶기로 먼저 결정). 세는 법을
+	// 고치는 방법은 세는 정확도를 올리는 게 아니라 **세어야 할 것을 설계로 줄이는 것**이었다.
+	//
+	// 그래서 falsify 와 같은 자리에 둔다: 가설을 세우는 순간 "이번에 무엇을 몇 개 만들 것인가"를
+	// 못박게 하고, verify 가 그 설계가 유지됐는지(held) 깨졌는지(broke)를 문법으로 답하게 한다.
+	// 틀려도 손해가 아니다 — 깨진 설계는 되돌아갈 자리를 가리키는 가장 좋은 신호다(상현님).
+	plan := fs.str("plan", "")            // hypothesis 전용: 이번에 만들 것을 수로 고정
+	// 체인 목적을 매 스텝 각인한다(상현님, 2026-07-28). 사이클은 체인의 목적을 위해 존재하는데,
+	// 스텝을 밟다 보면 사이클 안의 국소적 성패만 남고 "그래서 체인 목적에 다가섰나"가 사라진다.
+	// 가설에서 **얼마나 다가설 것인가**를 선언하고, 종결에서 **얼마나 다가섰나 + 다음 설계는
+	// 무엇인가**로 회고한다. 그 둘이 계보를 타고 다음 세대로 전파된다(gil context).
+	advances := fs.str("advances", "")       // hypothesis 필수: 체인 목적에 어떻게·얼마나 다가서나
+	toward := fs.str("toward", "")           // success/fail 필수: 그래서 얼마나 가까워졌나(회고)
+	nextDesign := fs.str("next-design", "")  // success/fail 필수: 목적을 위한 다음 설계
+	planHeld := fs.boolFlag("plan-held")  // verify 전용: 고정한 설계가 그대로 유지됐다
+	planBroke := fs.str("plan-broke", "") // verify 전용: 깨졌다 + 무엇이 달랐나
 	// 제안 1 (AIL #1): verify 는 판정을 문법으로 요구한다. supported=가설 지지, refuted=반증.
 	verdict := fs.str("verdict", "") // verify 전용
 	// 제안 B (AIL #1): 소급 반증 간선 — 이 스텝이 앞서 닫힌 supported verify 판정을 뒤늦게
@@ -860,6 +915,11 @@ func cmdStep(args []string) {
 		if !verdicts[*verdict] {
 			die("거부: --verdict 은 supported|refuted 중 하나")
 		}
+		if *planHeld && strings.TrimSpace(*planBroke) != "" {
+			die("거부: --plan-held 와 --plan-broke 는 함께 쓸 수 없다 — 설계는 유지됐거나 깨졌거나 하나다.")
+		}
+	} else if *planHeld || strings.TrimSpace(*planBroke) != "" {
+		die("거부: --plan-held/--plan-broke 는 verify 전용이다(고정한 설계가 실측에서 유지됐나, 이슈 #76).")
 	}
 	resolveRefutes(*refutes) // 소급 반증 대상 무결성(AIL #1 B)
 	resolveRefines(*refines) // 정밀화 대상 무결성(이슈 #42)
@@ -975,6 +1035,39 @@ func cmdStep(args []string) {
 				"gil step " + ref + " --kind hypothesis --to <조상 define> --falsify … --falsify-to …(AIL #1).")
 		}
 	}
+	// 고정한 설계가 있으면 verify 는 그것에도 답해야 한다(이슈 #76). 판정을 verdict 하나로
+	// 두면 "가설은 지지됐는데 설계는 세 배로 불었다"가 기록에서 사라진다 — 실사용에서
+	// 빗나간 세 번이 정확히 그 모양이었다(계수는 맞고 세는 법이 틀렸다).
+	if *kind == "verify" && !*planHeld && strings.TrimSpace(*planBroke) == "" && tip != nil {
+		for _, st := range currentAttempt(steps, tip.step) {
+			if st.kind == "hypothesis" && strings.TrimSpace(st.plan) != "" {
+				die("거부: verify 는 --plan-held 또는 --plan-broke <무엇이 달랐나> 필요 — " +
+					st.step + " 이 고정한 설계에 답하라(이슈 #76).\n" +
+					"  고정된 설계: " + st.plan + "\n" +
+					"  · 그대로 만들어졌으면 → --plan-held\n" +
+					"  · 달라졌으면 → --plan-broke '신규 실행경로 3개(예상 1) — fs 쪽이 공용 함수로 안 묶였다'\n" +
+					"  깨진 설계는 실패가 아니라 신호다: 되돌아갈 자리를 가장 잘 가리킨다.")
+			}
+		}
+	}
+	// 종결은 회고다(상현님). success/fail 은 이 가지의 끝이자 **다음 세대가 읽을 유일한 요약**이다.
+	// 여기서 "체인 목적에 얼마나 가까워졌나"와 "목적을 이루기 위한 다음 설계는 무엇인가"를
+	// 남기지 않으면, 다음 사이클은 조상의 결론이 아니라 조상의 제목만 물려받는다.
+	if *kind == "success" || *kind == "fail" {
+		cp := chainPurpose(chain, "--branches")
+		if strings.TrimSpace(*toward) == "" {
+			die("거부: " + *kind + " 은 --toward <체인 목적에 얼마나 가까워졌나> 필요 (종결=회고).\n" +
+				"  체인 [" + chain + "] 목적: " + orDefault(cp, "(선언 없음)") + "\n" +
+				lineageTowardLines(chain, cycle) +
+				"  이 가지가 그 목적을 향해 실제로 얼마나 옮겨놨는지 적어라 — 사이클의 성패가 아니라 목적 기준으로.")
+		}
+		if strings.TrimSpace(*nextDesign) == "" {
+			die("거부: " + *kind + " 은 --next-design <목적을 이루기 위한 다음 설계> 필요 (종결=회고).\n" +
+				"  이 가지가 끝났다고 목적이 끝난 게 아니다. **다음에 무엇을 어떻게 만들 것인가**를 여기 적어라 —\n" +
+				"  다음 세대(다음 가지·다음 사이클)가 물려받는 것이 바로 이 한 줄이다.\n" +
+				"  추정이 아니라 설계다: '몇 개일지'가 아니라 '무엇을 몇 개로 만들지'(이슈 #76 과 같은 축).")
+		}
+	}
 	// 제안 1 success 가드 (AIL #1) — 이 가지 계보에 refuted verify 가 있으면 success 거부.
 	// 순서 강제(AIL #41)로 verify 다음은 analyze 라, success 는 analyze tip 위에서 찍힌다 —
 	// 그래서 '직전 verify' 가 아니라 '계보에 refuted verify 가 있나'로 본다(analyze 를 거쳐도
@@ -1038,6 +1131,25 @@ func cmdStep(args []string) {
 			die("거부: hypothesis 는 --falsify-to <조상 define> 필요 — 반증되면 되돌아갈 곳. " +
 				"이걸 미리 심어야 verify 반증이 자동으로 backtrack 경로를 갖는다(AIL #1).")
 		}
+		// 체인 목적 각인(상현님). 가설은 사이클 안에서만 서지 않는다 — 체인이 이루려는 것에
+		// 어떻게 다가서는지를 세우는 순간 말해야, 종결에서 "얼마나 다가섰나"를 회고할 수 있다.
+		if strings.TrimSpace(*advances) == "" {
+			cp := chainPurpose(chain, "--branches")
+			die("거부: hypothesis 는 --advances <체인 목적에 어떻게·얼마나 다가서나> 필요.\n" +
+				"  체인 [" + chain + "] 목적: " + orDefault(cp, "(선언 없음)") + "\n" +
+				"  이 가설이 그 목적에 다가서는 몫을 적어라 — 사이클 안의 성패가 아니라 **체인의 목적** 기준으로.\n" +
+				"  예: --advances '전체 16지표 중 미달 4개 가운데 2개(토큰·지연)를 이 가설이 덮는다'\n" +
+				"  종결(success/fail)에서 --toward 로 이것을 회고한다 — 선언이 없으면 회고할 것도 없다.")
+		}
+		// 설계 고정 강제(이슈 #76). 추정이 아니라 결정이다 — "몇 개일지"가 아니라 "몇 개로 만들지".
+		if strings.TrimSpace(*plan) == "" {
+			die("거부: hypothesis 는 --plan <이번에 만들 것> 필요 — 가설을 세우기 **전에** 설계를 고정하라(이슈 #76).\n" +
+				"  추정이 아니라 결정이다: '몇 개일지 추정'이 아니라 **'몇 개로 만들지 결정'**.\n" +
+				"  예: --plan '신규 실행경로 1개(net·fs 읽기를 공용 함수 하나로 묶는다) · 신규 파일 0'\n" +
+				"  왜: 규모 예측이 빗나간 세 번은 전부 신규 실행경로를 적게 셌기 때문이었다. 세는 법을\n" +
+				"      고치는 길은 세는 정확도를 올리는 게 아니라 **세어야 할 것을 설계로 줄이는 것**이다.\n" +
+				"  틀려도 손해가 아니다 — 깨진 설계는 되돌아갈 자리를 가리키는 가장 좋은 신호다.")
+		}
 		// 관대한 입력(이슈 #47 G1): 사람도 LLM 도 "chain/cycle/s1" 이나 커밋 해시를 먼저
 		// 시도한다(실측 3회 시행착오). 뜻이 명백하면 받아 정규화한다 — 형식을 못 맞춰서
 		// 거부당하는 건 사고의 문제가 아니라 표기의 문제다.
@@ -1071,6 +1183,8 @@ func cmdStep(args []string) {
 			die("거부: --if-supported 는 goal-met|goal-missed 중 하나 — 이 가설이 supported 면 사이클 목표가 " +
 				"달성(goal-met)인가 실패(goal-missed)인가. 부정적 발견(가설 맞음=목표 막힘)이면 goal-missed(AIL #13).")
 		}
+	} else if strings.TrimSpace(*plan) != "" {
+		die("거부: --plan 은 hypothesis 전용이다(가설을 세우기 전에 고정하는 설계, 이슈 #76).")
 	} else if *ifSupported != "" {
 		die("거부: --if-supported 는 hypothesis 전용이다(가설의 극성).")
 	}
@@ -1241,8 +1355,22 @@ func cmdStep(args []string) {
 		}
 		tr = append(tr, [2]string{"Gil-Goal-Polarity", pol}) // 가설 극성(AIL #13)
 	}
+	if *kind == "hypothesis" {
+		tr = append(tr, [2]string{"Gil-Plan", strings.TrimSpace(*plan)})         // 가설 전에 고정한 설계(이슈 #76)
+		tr = append(tr, [2]string{"Gil-Advances", strings.TrimSpace(*advances)}) // 체인 목적에 다가서는 몫
+	}
+	if *kind == "success" || *kind == "fail" {
+		tr = append(tr, [2]string{"Gil-Toward", strings.TrimSpace(*toward)})           // 얼마나 가까워졌나(회고)
+		tr = append(tr, [2]string{"Gil-Next-Design", strings.TrimSpace(*nextDesign)}) // 다음 설계
+	}
 	if *kind == "verify" {
 		tr = append(tr, [2]string{"Gil-Verdict", *verdict}) // supported|refuted (제안 1)
+		if *planHeld {
+			tr = append(tr, [2]string{"Gil-Plan-Outcome", "held"})
+		} else if b := strings.TrimSpace(*planBroke); b != "" {
+			tr = append(tr, [2]string{"Gil-Plan-Outcome", "broke"})
+			tr = append(tr, [2]string{"Gil-Plan-Diff", b}) // 무엇이 설계와 달랐나
+		}
 	}
 	for _, rf := range *refutes {
 		tr = append(tr, [2]string{"Gil-Refutes", rf}) // 소급 반증 간선(AIL #1 B)
@@ -1293,6 +1421,26 @@ func cmdStep(args []string) {
 	}
 	if len(*refines) > 0 {
 		guideRefines(*refines)
+	}
+	if *kind == "hypothesis" || *kind == "success" || *kind == "fail" {
+		// 체인 목적을 이 자리에서 다시 각인한다 — 사이클 안의 성패만 보면 목적이 사라진다.
+		if cp := chainPurpose(chain, "--branches"); cp != "" {
+			stderr("  ◎ 체인 [" + chain + "] 목적: " + cp)
+		}
+		if *kind == "success" || *kind == "fail" {
+			stderr("  ◎ 이 종결이 남긴 회고 — 목적에 다가선 정도: " + strings.TrimSpace(*toward))
+			stderr("  ◎ 다음 설계(다음 세대가 물려받는다): " + strings.TrimSpace(*nextDesign))
+			stderr("    누적 컨텍스트 전체는: gil context " + ref)
+		} else {
+			stderr("  ◎ 이 가설이 목적에 다가서려는 몫: " + strings.TrimSpace(*advances))
+		}
+	}
+	if b := strings.TrimSpace(*planBroke); b != "" {
+		// 깨진 설계는 실패가 아니라 신호다 — 그 신호가 가리키는 자리를 그 자리에서 말한다(이슈 #76).
+		stderr("  ⚙ 고정한 설계가 깨졌다: " + b)
+		stderr("    이건 실패가 아니라 신호다 — 다음 analyze 에서 **왜 설계가 깨졌나**를 먼저 해석하라.")
+		stderr("    설계가 깨진 자리가 곧 되돌아갈 자리다: 그 결정이 선 analyze/define 으로 --to 를 잡아라.")
+		stderr("    다음 가설에서는 다시 **몇 개일지 추정하지 말고 몇 개로 만들지 정하라**(--plan).")
 	}
 	reportGuide(*kind, bodyThin(stBody))
 	guideNext(*kind) // 다음 강제 스텝을 무조건 각인 (AIL #41)
@@ -1576,6 +1724,45 @@ func strandedCycles(chain string) []string {
 		}
 	}
 	return out
+}
+
+// inFlightCycles — 이 체인에서 **아직 밟고 있는 중인** 사이클들(상현님, 2026-07-28).
+//
+// 왜. 지금까지 gil 은 "fail 잎만 남은 미해결 사이클"(#45)만 막았다. 그래서 define·hypothesis·
+// verify·analyze 어디서든 손을 놓고 다음 사이클을 열 수 있었다 — 사이클이 종결 잎 없이 허공에
+// 매달린 채 남고, 그래프는 "여기서 무슨 생각을 하다 말았는지"를 영영 못 말한다. 사이클은
+// **success/fail 로 끝나고 close 된 뒤**에만 다음이 열린다는 것이 gil 의 문법이다.
+//
+// pending(사람 대기)도 미종결이다 — 다만 나갈 길이 다르다(사람의 approve/reject).
+// 반환: 사이클 id → 지금 서 있는 자리(스텝 id·kind).
+func inFlightCycles(chain string) ([]string, map[string]node) {
+	closed := closedCycles("--branches")
+	cyc, order := cyclesOf(chain)
+	var out []string
+	tips := map[string]node{}
+	for _, id := range order {
+		if closed[chain+"\x01"+id] {
+			continue // 닫혔다(abandon 포함) — 이 사이클은 끝났다
+		}
+		c := cyc[id]
+		// 잎(=자식 없는 스텝) 중 **종결이 아닌 것**이 하나라도 있으면 아직 밟는 중이다.
+		// success/fail 은 끝난 잎이고(success 는 close 만 남았다 — 부모 닫힘 규칙이 지킨다),
+		// 그 밖의 잎(define·hypothesis·verify·analyze·pending)은 손을 놓은 자리다.
+		best := node{}
+		for _, s := range cycleLeaves(c.steps) {
+			if s.kind == "success" || isDeadLeaf(s) {
+				continue
+			}
+			if best.step == "" || stepNum(s.step) > stepNum(best.step) {
+				best = s
+			}
+		}
+		if best.step != "" {
+			out = append(out, id)
+			tips[id] = best
+		}
+	}
+	return out, tips
 }
 
 // ── gil deploy — 배포(공개) 지점을 그래프의 1급 시민으로 (이슈 #34, 상현님) ──
