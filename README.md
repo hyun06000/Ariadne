@@ -3,6 +3,7 @@
 > **A methodology and toolchain that lets LLM agents conquer complex problems the way git conquered history — as chains of small, reproducible cycles, written directly onto the commit graph.**
 
 **Docs**: [한국어 (README.ko.md)](README.ko.md) · [Deep dive for your AI agent (README.ai.md)](README.ai.md)
+· [Connect gil to your agent over MCP (MCP.ko.md)](MCP.ko.md)
 
 ---
 
@@ -83,6 +84,7 @@ There is no static "room" classification — *which chain is currently open* is 
 ## The gate (preserved across chains)
 
 - `README.md` (English) · `README.ko.md` (Korean) · `README.ai.md` (for AI agents)
+- `MCP.ko.md` (human) · `MCP.ai.md` (agent) — connecting gil to your agent over MCP
 - onboarding material · agent existence records · projects
 
 ## Status

@@ -16,6 +16,11 @@
 사람용 문서: [English](README.md) · [한국어](README.ko.md) · gil 사용법 전체:
 [QUICKSTART](project/gil-v3-redesign/QUICKSTART.md)
 
+> **네 호스트가 MCP 를 지원하면** — 이 온보딩을 마친 뒤 [MCP.ai.md](MCP.ai.md) 로 이어가라.
+> gil 을 명령줄이 아니라 **툴로 직접** 부르게 되고, 무엇보다 인터뷰(기준 세우기)가 호스트의
+> 네이티브 폼으로 그 자리에서 사람에게 물어진다 — 대화창과 뷰어로 쪼개져 있던 두 채널이
+> 하나가 된다.
+
 ---
 
 ## 이게 뭔가 (10초)

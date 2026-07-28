@@ -4,6 +4,7 @@
 > 커밋 그래프에 직접 새기며 — 정복하게 하는 방법론이자 도구.**
 
 **문서**: [English (README.md)](README.md) · [당신의 AI 에이전트에게 (README.ai.md)](README.ai.md)
+· [내 AI 에게 직접 연결하기 — MCP (MCP.ko.md)](MCP.ko.md)
 
 ---
 
