@@ -358,6 +358,7 @@ type graphView struct {
 	work                workStatus       // 현재 HEAD 워킹트리의 미커밋 작업 상태(진행 라이브 표시)
 	anchor              workAnchorInfo   // 그 작업이 **어디서** 벌어지고 있나(#79 후속)
 	interviews          []interviewReq   // 아직 답 안 된 인터뷰 요구(사람 폼 대기, 이슈 #33)
+	references          []referenceCard  // 사람이 제출해 확정된 기준 문서들(상현님: 제출의 결과가 보여야 한다)
 }
 
 // interviewReq — 사람의 답을 기다리는 인터뷰 요구(gil interview 로 심긴 것). 뷰어가 이걸
@@ -369,15 +370,85 @@ type interviewReq struct {
 	waiting   bool   // 지금 이 답을 기다리는 프로세스가 살아 있나(백그라운드 --wait, 이슈 #82)
 }
 
+// viewerGitDir — 관전 중인 저장소의 .git 디렉토리(절대경로). 뷰어는 다른 작업 디렉토리에서
+// 도는 별도 프로세스라, 로컬 상태 파일(.git/gil/*)을 읽으려면 이걸 먼저 풀어야 한다.
+func viewerGitDir() string {
+	out, err := viewerGit("rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// referenceCard — 사람이 제출해 **확정된** 기준 문서 하나(상현님: 제출해도 아무 일도 안
+// 일어나 보인다). 제출의 결과가 화면에 남아야 사람이 자기 답이 도착했음을 안다.
+type referenceCard struct {
+	chain string
+	sha   string
+	text  string
+	seen  bool // 에이전트가 이 답을 읽었나(.git/gil/interview-seen)
+	wait  bool // 지금 이 체인의 답을 기다리는 프로세스가 있나
+}
+
+// resolvedInterviews — 확정된 기준 문서들(최신 차수 하나씩). 뷰어가 "제출 → 무슨 일이
+// 일어났나"를 지속적으로 보여주는 근거다.
+func resolvedInterviews() []referenceCard {
+	const rs = "\x1e"
+	const fs = "\x1f"
+	format := "%H" + fs + "%(trailers:key=Gil-Chain,valueonly)" + fs +
+		"%(trailers:key=Gil-Reference,valueonly)" + fs + "%B" + rs
+	out, err := viewerLog("--format=" + format)
+	if err != nil {
+		return nil
+	}
+	seenMap := map[string]string{}
+	if dir := viewerGitDir(); dir != "" {
+		if b, err := os.ReadFile(filepath.Join(dir, "gil", "interview-seen")); err == nil {
+			for _, ln := range strings.Split(string(b), "\n") {
+				c, sha, ok := strings.Cut(strings.TrimSpace(ln), " ")
+				if ok {
+					seenMap[c] = sha
+				}
+			}
+		}
+	}
+	var cards []referenceCard
+	done := map[string]bool{}
+	for _, rec := range strings.Split(string(out), rs) { // new→old: 체인당 최신 하나
+		rec = strings.TrimLeft(rec, "\n")
+		parts := strings.SplitN(rec, fs, 4)
+		if len(parts) < 4 || strings.TrimSpace(parts[2]) != "true" {
+			continue
+		}
+		chain := strings.TrimSpace(parts[1])
+		if chain == "" || done[chain] {
+			continue
+		}
+		done[chain] = true
+		body := parts[3]
+		if i := strings.Index(body, "── 기준 문서(레퍼런스 트루스) ──"); i >= 0 {
+			body = body[i:]
+		}
+		sha := parts[0][:9]
+		cards = append(cards, referenceCard{
+			chain: chain, sha: sha, text: strings.TrimSpace(stripTrailers(body)),
+			seen: strings.HasPrefix(seenMap[chain], sha) || strings.HasPrefix(sha, seenMap[chain]) && seenMap[chain] != "",
+			wait: viewerWaiterActive(chain),
+		})
+	}
+	sort.Slice(cards, func(i, j int) bool { return cards[i].chain < cards[j].chain })
+	return cards
+}
+
 // viewerWaiterActive — 관전 중인 저장소에서 이 체인의 대기 표식이 살아있나(이슈 #82).
 // interviewWaiterActive 와 같은 판정이되 git-dir 을 관전 레포 기준으로 푼다 — 뷰어는 다른
 // 작업 디렉토리에서 도는 별도 프로세스다.
 func viewerWaiterActive(chain string) bool {
-	out, err := viewerGit("rev-parse", "--absolute-git-dir")
-	if err != nil {
+	dir := viewerGitDir()
+	if dir == "" {
 		return false
 	}
-	p := filepath.Join(strings.TrimSpace(string(out)), "gil", "interview-waiting-"+chain)
+	p := filepath.Join(dir, "gil", "interview-waiting-"+chain)
 	st, err := os.Stat(p)
 	if err != nil {
 		return false
@@ -698,7 +769,7 @@ func buildGraph() graphView {
 			chainOrder = append(chainOrder, ch)
 		}
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), anchor: workAnchor(), interviews: pendingInterviews()}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), anchor: workAnchor(), interviews: pendingInterviews(), references: resolvedInterviews()}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}

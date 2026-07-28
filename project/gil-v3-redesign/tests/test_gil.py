@@ -6042,3 +6042,47 @@ class TestChainGoalImprintAndContext(GilFixture):
     def test_context_refuses_unknown(self):
         self._chain()
         self.assertNotEqual(self.gil("context", "nope").returncode, 0)
+
+
+class TestInterviewSubmitIsVisible(GilFixture):
+    """제출은 결과가 남아야 제출이다 (상현님: 뷰어에서 제출하면 아무 일도 안 일어난다).
+
+    폼은 사라지는데 그 자리에 아무것도 남지 않아, 사람은 자기 답이 도착했는지 알 수 없었다.
+    확정된 기준 문서와 '내 답이 어디까지 갔나'(기다리는 중·읽음·아직 안 읽음)를 화면에 남긴다."""
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "tooling", "--purpose", "P")
+        self.gil("interview", "tooling", "--ask", "-",
+                 input='[{"q":"무엇을 풀려는가","type":"text"}]')
+
+    def _resolve(self):
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준\n추론 비용을 절반으로")
+        return self.gil("interview", "tooling", "--resolve", "ref.md")
+
+    def _build(self):
+        out = os.path.join(self.repo, "v.html")
+        r = self.gil("viewer", "build", "--out", out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(out, encoding="utf-8") as f:
+            return f.read()
+
+    def test_resolved_reference_is_rendered(self):
+        self._seed()
+        self._resolve()
+        html = self._build()
+        self.assertIn('id="pane-reference"', html)
+        self.assertIn("추론 비용을 절반으로", html)
+
+    def test_nothing_rendered_before_submit(self):
+        self._seed()
+        self.assertNotIn('id="pane-reference"', self._build())
+
+    def test_reference_state_tracks_agent_reading(self):
+        """에이전트가 읽으면 화면이 그걸 말한다 — 사람이 '전달됐나'를 묻지 않아도 되게."""
+        self._seed()
+        self._resolve()
+        self.assertIn('"seen":false', self._build())
+        self.gil("interview", "tooling", "--status")   # 에이전트가 읽는 자리
+        self.assertIn('"seen":true', self._build())

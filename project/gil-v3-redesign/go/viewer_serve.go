@@ -240,6 +240,26 @@ func tipSignature() string {
 		return "err"
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	// 로컬 상태도 서명에 넣는다(상현님: 제출해도 아무 일도 안 일어난다). 커밋이 안 바뀌어도
+	// **누가 기다리는지·에이전트가 읽었는지**는 바뀐다 — 그게 사람이 가장 보고 싶은 변화다.
+	if dir := viewerGitDir(); dir != "" {
+		if ents, err := os.ReadDir(filepath.Join(dir, "gil")); err == nil {
+			for _, e := range ents {
+				n := e.Name()
+				if strings.HasPrefix(n, "interview-waiting-") {
+					if viewerWaiterActive(strings.TrimPrefix(n, "interview-waiting-")) {
+						lines = append(lines, "wait"+fs+n)
+					}
+					continue
+				}
+				if n == "interview-seen" {
+					if b, err := os.ReadFile(filepath.Join(dir, "gil", n)); err == nil {
+						lines = append(lines, "seen"+fs+strings.TrimSpace(string(b)))
+					}
+				}
+			}
+		}
+	}
 	sort.Strings(lines)
 	return strings.Join(lines, "\n")
 }
@@ -396,6 +416,12 @@ func renderHTML(g graphView, static bool) string {
 	// 인터뷰 폼(이슈 #33): 사람 답을 기다리는 인터뷰 요구가 있으면 최상단에 폼을 띄운다.
 	// 정적 build(서버 없음)엔 제출할 곳이 없어 감춘다. JS(buildInterviews)가 질문 JSON 을 읽어
 	// textarea·라디오·체크박스를 그리고, 제출 시 POST /interview 로 답변을 넘긴다.
+	// 제출의 **결과**가 화면에 남아야 한다(상현님: 제출해도 아무 일도 안 일어난다). 확정된
+	// 기준 문서와, 그 답이 에이전트에게 도달했는지를 지속적으로 보여준다.
+	if len(g.references) > 0 {
+		b.WriteString(`<section class="pane" id="pane-reference"><h2 class="panehead">✅ 확정된 기준 문서 — 사람이 제출한 답</h2><div id="references"></div></section>`)
+		b.WriteString(`<script id="referencedata" type="application/json">` + referencesJSON(g) + `</script>`)
+	}
 	if !static && len(g.interviews) > 0 {
 		b.WriteString(`<section class="pane" id="pane-interview"><h2 class="panehead">📋 인터뷰 — 기준 문서 만들기</h2><div id="interviews"></div></section>`)
 		b.WriteString(`<script id="interviewdata" type="application/json">` + interviewsJSON(g) + `</script>`)
@@ -776,6 +802,25 @@ func interviewsJSON(g graphView) string {
 	return sb.String()
 }
 
+// referencesJSON — 확정된 기준 문서들을 JS 로. 상태(읽음·대기)까지 함께 넘긴다 — 사람이
+// "내 답이 어디까지 갔나"를 화면에서 알 수 있게.
+func referencesJSON(g graphView) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, r := range g.references {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		cb, _ := json.Marshal(r.chain)
+		tb, _ := json.Marshal(r.text)
+		shb, _ := json.Marshal(r.sha)
+		sb.WriteString(fmt.Sprintf(`{"chain":%s,"sha":%s,"seen":%t,"waiting":%t,"text":%s}`,
+			cb, shb, r.seen, r.wait, tb))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
 func esc(s string) string { return html.EscapeString(s) }
 
 // validSHA — git 인자 주입 방지: 16진수 7~40자만 허용.
@@ -910,6 +955,15 @@ svg.cygraph{display:block}
 .ivcard{margin:4px 16px 16px;padding:16px 18px;background:var(--card,var(--bg));border:1px solid var(--node);border-radius:10px}
 .ivhead{font-size:13px;color:var(--fg);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
 .ivhead b{color:var(--node)}
+.refcard{margin:4px 16px 16px;padding:14px 18px;background:var(--card,var(--bg));border:1px solid var(--line);border-radius:10px}
+.refhead{font-size:13px;color:var(--fg);margin-bottom:8px}
+.refhead b{color:var(--node)}
+.refstate{font-size:12px;margin:6px 0 10px}
+.refstate.ok{color:#2dd4bf;font-weight:600}
+.refstate.pendingread{color:#f59e0b;font-weight:600}
+.refbody{white-space:pre-wrap;font-size:12px;color:var(--dim);border-top:1px solid var(--line);padding-top:10px;max-height:320px;overflow:auto}
+.refjust{font-size:12px;color:#2dd4bf;font-weight:700;margin:0 0 8px}
+#pane-reference .panehead{color:#2dd4bf}
 .ivwait{font-size:12px;color:var(--dim,#888);margin:-6px 0 12px}
 .ivwait.on{color:var(--node);font-weight:600}
 .ivform{display:flex;flex-direction:column;gap:16px}
@@ -2004,6 +2058,36 @@ function restoreSel(){
   if(n)openReport(sel.chain,sel.cycle,n);
 }
 // ── 인터뷰 폼(이슈 #33) — LLM 이 심은 질문을 사람이 폼으로 답하고 제출하면 레퍼런스가 커밋된다 ──
+// 확정된 기준 문서(상현님) — 제출은 결과가 남아야 제출이다.
+const REFERENCES=JSON.parse(document.getElementById('referencedata')?.textContent||'[]');
+function buildReferences(){
+  const host=document.getElementById('references');
+  if(!host||!REFERENCES.length)return;
+  host.replaceChildren();
+  let just=null;
+  try{ just=sessionStorage.getItem('gil-just-submitted'); sessionStorage.removeItem('gil-just-submitted'); }catch(e){}
+  REFERENCES.forEach(r=>{
+    const card=document.createElement('div'); card.className='refcard';
+    if(just===r.chain){
+      const j=document.createElement('div'); j.className='refjust';
+      j.textContent='✓ 방금 제출한 답이 기준 문서로 확정됐습니다 — 이제 이 체인의 사이클을 열 수 있습니다.';
+      card.appendChild(j);
+    }
+    const head=document.createElement('div'); head.className='refhead';
+    head.innerHTML='체인 <b>'+esc(r.chain)+'</b> 의 기준 문서 — 확정됨 ('+esc(r.sha)+')';
+    card.appendChild(head);
+    // "내 답이 어디까지 갔나" 를 정직하게. 기다리는 프로세스 > 읽음 > 아직 안 읽음.
+    const st=document.createElement('div');
+    if(r.waiting){ st.className='refstate ok'; st.textContent='⏳ 에이전트가 이 답을 기다리는 중입니다 — 곧 이어서 일합니다.'; }
+    else if(r.seen){ st.className='refstate ok'; st.textContent='✓ 에이전트가 이 답을 읽었습니다.'; }
+    else { st.className='refstate pendingread'; st.textContent='· 아직 에이전트가 읽지 않았습니다. 다음 접촉 때 gil 이 맨 앞에서 알립니다 — 지금 이어가려면 에이전트에게 한 마디 걸어주세요.'; }
+    card.appendChild(st);
+    const body=document.createElement('div'); body.className='refbody'; body.textContent=r.text||'(본문 없음)';
+    card.appendChild(body);
+    host.appendChild(card);
+  });
+}
+buildReferences();
 const INTERVIEWS=JSON.parse(document.getElementById('interviewdata')?.textContent||'[]');
 function buildInterviews(){
   const host=document.getElementById('interviews');
@@ -2062,7 +2146,11 @@ function buildInterviews(){
         const res=await fetch('/interview?chain='+encodeURIComponent(iv.chain),
           {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(answers)});
         const txt=await res.text();
-        if(res.ok){ status.textContent=' ✓ 기준 문서 저장됨 — 갱신 중'; setTimeout(()=>location.reload(),500); }
+        if(res.ok){
+          status.textContent=' ✓ 기준 문서로 확정됐습니다 — 화면을 갱신합니다';
+          try{ sessionStorage.setItem('gil-just-submitted',iv.chain); }catch(e){}
+          setTimeout(()=>location.reload(),700);
+        }
         else{ status.textContent=' ✕ '+txt.split('\n')[0]; submit.disabled=false; }
       }catch(e){ status.textContent=' ✕ '+e; submit.disabled=false; }
     });
