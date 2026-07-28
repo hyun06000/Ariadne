@@ -1488,6 +1488,9 @@ function buildStepMap(){
   const CW=6, cylW=k=>{ const s=k.slice(k.indexOf('/')+1); return s.length*CW; };
   const cycKeys=Object.keys(cyc).sort((a,b)=>{ // x(dmin) 오름차순
     const da=Math.min(...cyc[a].map(n=>depth[n.sha])), db=Math.min(...cyc[b].map(n=>depth[n.sha])); return da-db; });
+
+  // 1) 박스를 먼저 다 그리고 기하만 모은다. 라벨은 두 번에 나눠 놓는다(아래 2·3).
+  const boxes=[];
   cycKeys.forEach(k=>{ const ns=cyc[k];
     let dmin=Infinity,dmax=-Infinity,rmin=Infinity,rmax=-Infinity;
     ns.forEach(n=>{ dmin=Math.min(dmin,depth[n.sha]); dmax=Math.max(dmax,depth[n.sha]);
@@ -1496,26 +1499,39 @@ function buildStepMap(){
     const box=svgEl('rect',{class:'cycbox',x:x1,y:y1,width:x2-x1,height:y2-y1,rx:6});
     box.appendChild(svgEl('title',{},k));
     svg.appendChild(box);
-    const boxW=x2-x1, lblW=cylW(k), name=k.slice(k.indexOf('/')+1);
-    // 사이클 라벨: 박스가 너무 좁으면(라벨이 박스를 넘침) 아예 생략 — 좁은 박스 위 긴 글씨가
-    // 이웃 박스·엣지를 덮던 근원. 표시할 땐 겹침 해소를 거친다.
-    if(lblW <= boxW+colW){
-      placeLabel(x1+2, y1-3, lblW, 11, y=>{
-        const t=svgEl('text',{class:'cyclabel',x:x1+2,y:y},name);
-        t.appendChild(svgEl('title',{},k)); return t;
-      });
-    }
-    // 체인 이름 라벨: 그 체인의 첫 사이클 박스 위에만.
-    if(dmin===chainMinD[ns[0].chain]){
-      const pc=PARENTS[ns[0].chain];
-      const chName=ns[0].chain+(pc?' ↰':'');
-      placeLabel(x1+2, y1-3-LSTEP, chName.length*(CW+1), 13, y=>{
-        const lab=svgEl('text',{class:'chlabel',x:x1+2,y:y});
-        lab.textContent=chName;
-        lab.appendChild(svgEl('title',{},pc?('체인 '+ns[0].chain+' — 부모 체인 '+pc+' 에서 이어받음'):('체인 '+ns[0].chain)));
-        return lab;
-      });
-    }
+    boxes.push({k,ns,x1,x2,y1,dmin});
+  });
+
+  // 2) **사이클 라벨을 먼저** 놓는다(이슈 #52). 자리 다툼에서 살아남아야 할 건 "어느
+  //    사이클인가"다 — 체인 이름은 몇 개뿐이고 반복되지만, 사이클 이름은 그 박스의 유일한
+  //    신원이다. 나중에 놓으면 앞서 놓인 체인 라벨들에 밀려 머리 공간을 넘고 통째로 생략된다
+  //    (실측: 64 사이클 저장소에서 사이클 라벨이 64개 중 1개만 그려졌다).
+  boxes.forEach(b=>{
+    const boxW=b.x2-b.x1, lblW=cylW(b.k), name=b.k.slice(b.k.indexOf('/')+1);
+    if(lblW > boxW+colW) return; // 박스보다 긴 라벨은 애초에 생략(박스 title 로 남는다)
+    placeLabel(b.x1+2, b.y1-3, lblW, 11, y=>{
+      const t=svgEl('text',{class:'cyclabel',x:b.x1+2,y:y},name);
+      t.appendChild(svgEl('title',{},b.k)); return t;
+    });
+  });
+
+  // 3) 체인 라벨은 **체인당 딱 한 번**(이슈 #52). 옛 판정은 "이 사이클의 dmin 이 체인 최소
+  //    dmin 과 같은가"였는데, migrate 산물처럼 사이클들이 체인 루트에서 나란히 갈라지면 그
+  //    조건이 사이클마다 참이 되어 같은 이름이 사이클 수만큼 방출됐다(실측: 36 사이클 체인에
+  //    라벨 36개). 깊이 비교가 아니라 **이미 그렸는지**로 판정한다. cycKeys 가 x 오름차순이라
+  //    첫 등장이 곧 가장 왼쪽이다.
+  const chainDone=new Set();
+  boxes.forEach(b=>{
+    const ch=b.ns[0].chain;
+    if(chainDone.has(ch)) return;
+    chainDone.add(ch);
+    const pc=PARENTS[ch], chName=ch+(pc?' ↰':'');
+    placeLabel(b.x1+2, b.y1-3-LSTEP, chName.length*(CW+1), 13, y=>{
+      const lab=svgEl('text',{class:'chlabel',x:b.x1+2,y:y});
+      lab.textContent=chName;
+      lab.appendChild(svgEl('title',{},pc?('체인 '+ch+' — 부모 체인 '+pc+' 에서 이어받음'):('체인 '+ch)));
+      return lab;
+    });
   });
   function X_(d){ return padX+r+d*colW; }
   function Y_(rw){ return padTop+r+rw*rowH; }

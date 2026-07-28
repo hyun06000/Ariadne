@@ -3105,6 +3105,50 @@ class TestRefusalsGiveNextMove(GilFixture):
         self.assertIn("--abandon", out)                  # 다른 정직한 길
 
 
+class TestStepMapLabelAssignment(GilFixture):
+    """전체맵 라벨 **배정** — 체인당 1회, 사이클마다 1회 (이슈 #52).
+
+    v3.17.1 의 겹침 해소는 옳았지만 배정이 틀렸다: 체인 라벨이 **사이클마다** 방출되고
+    (36 사이클 체인에 라벨 36개), 그것들이 머리 공간을 다 먹어 사이클 라벨은 64개 중 1개만
+    남았다. 화면이 안 읽히는 이유가 '겹침'에서 '내용이 틀림'으로 바뀐 것이다.
+
+    원인: "이 사이클이 체인의 첫 사이클인가"를 **깊이 일치**로 판정했다. migrate 산물처럼
+    사이클들이 체인 루트에서 나란히 갈라지면 그 조건이 사이클마다 참이 된다. 순차로 열린
+    사이클만 있는 fixture 로는 절대 안 잡히는 버그다 — 그래서 migrate 로 재현한다.
+    """
+
+    def _migrated_repo(self, chains):
+        """chains: {체인명: 사이클수} → 모든 사이클이 체인 루트에서 나란히 갈라진 그래프."""
+        for chain, n in chains.items():
+            for i in range(1, n + 1):
+                d = os.path.join(self.repo, "cycles", f"{chain[:1].upper()}{i:03d}-{chain}{i}")
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, "cycle.yaml"), "w", encoding="utf-8") as f:
+                    f.write(f"id: {chain[:1].upper()}{i:03d}-{chain}{i}\nchain: {chain}\n"
+                            f"title: t\nstatus: closed\nverdict: supported\n")
+        self._git("add", "-A")
+        self._git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "v2")
+        r = self.gil("migrate", "--from", "HEAD")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.gil("viewer", "build", "--out", "g.html")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.repo, "g.html"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_chain_label_is_emitted_once_per_chain(self):
+        """'이미 그렸는지'로 판정한다 — 깊이 비교로는 나란한 사이클을 못 가른다."""
+        html = self._migrated_repo({"serving": 6, "dash": 3})
+        self.assertIn("chainDone", html)           # 체인당 1회 보증 장치
+        self.assertNotIn("dmin===chainMinD", html)  # 옛 깊이 판정으로 되돌아가지 않았다
+
+    def test_cycle_labels_are_placed_before_chain_labels(self):
+        """자리 다툼에서 살아남아야 할 건 사이클 신원이다 — 체인 이름은 몇 개뿐이다."""
+        html = self._migrated_repo({"serving": 4})
+        i_cyc = html.index("class:'cyclabel'")
+        i_ch = html.index("class:'chlabel'")
+        self.assertLess(i_cyc, i_ch, "사이클 라벨 배치가 체인 라벨보다 먼저여야 한다")
+
+
 class TestStepMapLabels(GilFixture):
     """전체 스텝맵 라벨 겹침 회피 (이슈 #37).
 
