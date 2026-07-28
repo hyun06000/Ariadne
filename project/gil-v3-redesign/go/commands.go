@@ -285,6 +285,25 @@ func growingTip(steps []node) *node {
 // lineageOf — 사이클 안에서 tipID 스텝부터 Gil-Parent 를 따라 조상으로 거슬러 이 가지의
 // 스텝들을 모은다(AIL #41). 순서 강제로 verify→analyze→종결이 되면서, refuted/극성 success
 // 가드가 '직전 verify' 가 아니라 '이 가지 계보에 그 판정이 있나'를 봐야 해서 필요해졌다.
+// currentAttempt — 이 가지의 **지금 시도**만 잘라낸다(이슈 #78 곁다리).
+//
+// 왜. #32·#60 이후 새 가설은 조상 analyze 에 뿌리내릴 수 있다. 그런데 종결 가드는 계보를
+// 끝까지 거슬러 올라가 거기서 만난 refuted verify 로 후손 전체를 막았다 — 그 verify 는
+// **이 가지의 것이 아니다.** 실사용 보고: 자기 verify(s43)는 supported 인데 죽은 가지의
+// s3(refuted) 때문에 success 가 거부됐다. 뿌리내린 analyze 위쪽은 앞 시도의 몫이다.
+//
+// 경계는 **가장 가까운 hypothesis** 다: 한 시도는 가설에서 시작해 verify·analyze 를 거쳐
+// 종결로 끝난다. 그 가설보다 위는 이 주장의 근거가 아니라 이 주장이 딛고 선 땅이다.
+func currentAttempt(steps []node, tipID string) []node {
+	lin := lineageOf(steps, tipID) // tip → 조상 순
+	for i, n := range lin {
+		if n.kind == "hypothesis" {
+			return lin[:i+1]
+		}
+	}
+	return lin
+}
+
 func lineageOf(steps []node, tipID string) []node {
 	byID := map[string]node{}
 	for _, s := range steps {
@@ -683,6 +702,8 @@ func cmdStep(args []string) {
 	// 반증조건을 필수 필드로 심으면 verify 실패가 자동으로 backtrack 경로를 갖는다.
 	falsify := fs.str("falsify", "")       // 반증조건: 무엇이 관측되면 이 가설은 거짓인가
 	falsifyTo := fs.str("falsify-to", "")  // 반증 시 되돌아갈 조상 define
+	// 미종결 잎을 두고 새 가지로 떠나는 것을 막되, 벽이 되지 않게 탈출구(이슈 #78).
+	leaveOpen := fs.boolFlag("leave-open")
 	// 극성(AIL #13): "이 가설이 supported 면 사이클 목표(s1 purpose)가 달성인가 실패인가".
 	// 가설 supported ≠ 목표 달성 — 부정적 발견("이 방향은 막혔다")도 supported 일 수 있고,
 	// 그건 success 가 아니라 fail/backtrack 이다. falsify 가 "무엇이 이 가설을 깨나"를 가설
@@ -902,7 +923,7 @@ func cmdStep(args []string) {
 	// 그래서 '직전 verify' 가 아니라 '계보에 refuted verify 가 있나'로 본다(analyze 를 거쳐도
 	// 그 반증 판정은 유효하다). 마찰이 있는데 success 로 뭉개는 걸 구조로 막는다.
 	if *kind == "success" && tip != nil {
-		for _, s := range lineageOf(steps, tip.step) {
+		for _, s := range currentAttempt(steps, tip.step) {
 			if s.kind == "verify" && s.verdict == "refuted" {
 				die("거부: 이 가지의 verify(" + s.step + ")가 가설을 반증(refuted)했다 — success 로 닫을 수 없다. " +
 					"fail(gil step … --kind fail --to <define>) 로 죽은 잎을 남기거나 " +
@@ -916,7 +937,7 @@ func cmdStep(args []string) {
 	// fail(벽으로 못박음)/backtrack(다른 접근)을 요구한다. 부정적 발견은 그래프에서 가장 값진
 	// 벽의 지도여야지 가짜 success 가 아니다.
 	if *kind == "success" && tip != nil {
-		lin := lineageOf(steps, tip.step)
+		lin := currentAttempt(steps, tip.step) // 앞 시도의 판정이 이 가지를 막지 않게(#78 곁다리)
 		byID := map[string]node{}
 		for _, s := range steps {
 			byID[s.step] = s
@@ -1036,6 +1057,11 @@ func cmdStep(args []string) {
 		parent = (*merge)[0]
 		mergeRest = (*merge)[1:]
 	case *kind == "hypothesis" && *to != "":
+		// 형제 가지를 새로 내는 것도 **떠나는 것**이다(이슈 #78). 직전 자리가 미종결이면
+		// 그 잎은 해석도 종결도 없이 매달린다 — goto 와 같은 검사를 여기서도 건다.
+		if lv, blocked := leavingUnterminated(); blocked && !*leaveOpen && lv.step != *to {
+			die(unterminatedRefusal(lv, "gil step "+ref+" --kind hypothesis --to "+*to+" … --leave-open"))
+		}
 		// 되돌아가 새 형제 가지 — 조상 define(또는 analyze) 커밋에서 진짜 git 브랜치를 분기.
 		//
 		// analyze 앵커(이슈 #32). 반증에는 두 층위가 있다: (1) 가설 자체가 틀림 — define 완전
@@ -1069,11 +1095,22 @@ func cmdStep(args []string) {
 		}
 		parent = orNull(tipID) // 죽은 잎은 현재 가지 tip 에 그대로 박는다(벽의 지도)
 	case *kind == "fail":
-		// 종결 죽은 잎 — 현재 가지 tip(또는 --at 이 가리킨 잎)에 박고, 되돌아갈 조상 define 을
+		// 종결 죽은 잎 — 현재 가지 tip(또는 --at 이 가리킨 잎)에 박고, 되돌아갈 자리를
 		// --to 로 기록. --to 는 여기서 *부모를 바꾸지 않는다* — "되돌아갈 곳"의 기록일 뿐이다
 		// (hypothesis 의 --to 와 뜻이 다르다, 이슈 #59①). 자리를 고르는 건 --at 이다.
-		if !defineIDs[*to] {
-			die("거부: --to " + *to + "는 조상 define이어야 함")
+		//
+		// analyze 도 받는다(이슈 #76). #60 이 hypothesis 의 --to 를 analyze 까지 넓힌 논거가
+		// 여기에도 그대로 선다 — 실사용 보고: 일곱 가지를 먹은 잘못된 전제가 심긴 자리는
+		// s1(문제 정의)이 아니라 s4(analyze)였다. 문제 정의도 지표도 틀리지 않았는데 도구는
+		// define 만 받아, 되돌아갈 곳의 기록이 **실제로 돌아가야 할 곳**을 가리키지 못했다.
+		// 벽의 지도는 "어디로 돌아가야 하나"의 지도다 — 그 자리가 analyze 면 analyze 를 적어야 한다.
+		if !defineIDs[*to] && !analyzeIDs[*to] {
+			die("거부: --to " + *to + " 는 조상 define 또는 analyze 여야 함 (이 벽에서 되돌아갈 자리)\n" +
+				"  이 사이클의 define: " + strings.Join(sortedIDs(defineIDs), " ") + "\n" +
+				"  이 사이클의 analyze: " + strings.Join(sortedIDs(analyzeIDs), " ") +
+				elsewhereHint(chain, cycle, *to, steps) + "\n" +
+				"  · 문제 정의 자체로 돌아가야 하면 → define.\n" +
+				"  · 문제 정의는 옳고 **거기서 내려진 결정**이 틀렸으면 → 그 결정이 선 analyze (이슈 #76).")
 		}
 		parent = orNull(tipID)
 	default:

@@ -369,7 +369,7 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		}
 		// 죽은 잎(backtrack outcome 또는 fail 종결 스텝)은 되돌아갈 곳(Gil-Backtrack)이 있어야.
 		if (n.outcome == "backtrack" || n.kind == "fail") && n.backtrack == "" {
-			violations = append(violations, "스텝순환: "+cc+" — 죽은 잎(backtrack/fail)은 Gil-Backtrack (조상 define) 필요")
+			violations = append(violations, "스텝순환: "+cc+" — 죽은 잎(backtrack/fail)은 Gil-Backtrack (조상 define|analyze) 필요")
 		}
 		// 5b. 미종결 매달린 잎 — 닫힌 사이클에서 잎(자식 없는 스텝)은 반드시 종결이어야
 		//     (산 잎 success / 죽은 잎 fail·backtrack / pending). analyze·verify·hypothesis·

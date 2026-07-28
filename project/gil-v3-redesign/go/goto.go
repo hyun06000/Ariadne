@@ -123,9 +123,50 @@ func liveLeafOf(chain, cycle string) string {
 	return ""
 }
 
+// leavingUnterminated — 지금 서 있는 자리가 **종결 없이 떠나면 안 되는 잎**인가(이슈 #78).
+//
+// verify 직후가 가장 떠나기 쉬운 자리다: 측정이 끝나 결과를 아는 상태라 그 가지는 심리적으로
+// 이미 "끝난 것"이 된다. 그런데 그래프엔 해석도 종결도 없다. gil 이 매번 "다음은 반드시
+// analyze"라고 말해주는데도 떠났다는 보고 — **안내는 읽고 나서 잊고, 레일은 잊어도 막는다.**
+// 반환: (막아야 할 노드, true).
+func leavingUnterminated() (node, bool) {
+	nodes := collectNodes("HEAD")
+	if len(nodes) == 0 {
+		return node{}, false
+	}
+	tip := nodes[0]
+	head := first9(strings.TrimSpace(git("rev-parse", "HEAD")))
+	if tip.sha != head {
+		return node{}, false // HEAD 가 스텝 위가 아니다 — 떠날 잎이 없다
+	}
+	switch tip.kind {
+	case "verify", "hypothesis", "define":
+		return tip, true // 해석·종결이 아직 없다
+	}
+	return node{}, false
+}
+
+// unterminatedRefusal — 떠남을 막는 거부문. 길을 함께 준다(거부만 하고 길이 없으면 벽이다, #67).
+func unterminatedRefusal(n node, alt string) string {
+	ref := n.chain + "/" + n.cycle
+	next := "analyze"
+	if n.kind == "define" {
+		next = "hypothesis"
+	} else if n.kind == "hypothesis" {
+		next = "verify"
+	}
+	return "거부: " + n.step + " [" + n.kind + "] 를 종결 없이 떠날 수 없다 — 해석과 종결이 남았다.\n" +
+		"  · 이어가라:            gil step " + ref + " --kind " + next + " …\n" +
+		"  · 이 가지를 접겠다면:  gil step " + ref + " --kind fail --at " + n.step + " --to <조상 define|analyze>\n" +
+		"  · 그래도 떠나려면:     " + alt + "   (매달린 잎이 남는다 — fsck 가 위반으로 짚는다)\n" +
+		"  verify 직후는 가장 떠나기 쉬운 자리다(결과를 이미 아니까). 그 자리가 그래프엔 비어 있다(#78)."
+}
+
 // cmdGoto — gil goto <chain>/<cycle>[/<step>].
 func cmdGoto(args []string) {
 	fs := newFlags("gil goto")
+	// 미종결 잎을 두고 떠나는 것을 막되, 벽이 되지 않게 명시적 탈출구를 둔다(선언은 남는다).
+	leaveOpen := fs.boolFlag("leave-open")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil goto <chain>/<cycle>[/<step>]\n" +
@@ -140,6 +181,9 @@ func cmdGoto(args []string) {
 	want := ""
 	if len(parts) > 2 {
 		want = parts[2]
+	}
+	if n, blocked := leavingUnterminated(); blocked && !*leaveOpen {
+		die(unterminatedRefusal(n, "gil goto "+pos[0]+" --leave-open"))
 	}
 	nodes := cycleAnywhere(chain, cycle)
 	if len(nodes) == 0 {

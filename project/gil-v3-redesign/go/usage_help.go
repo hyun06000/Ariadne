@@ -78,7 +78,10 @@ var helpTable = map[string]helpEntry{
 	"step": {
 		"gil step <chain>/<cycle> --kind <K> [옵션]\n" +
 			"  스텝(커밋 노드) 하나. --kind: define|hypothesis|verify|analyze | success|fail|pending\n" +
-			"  --to <define|analyze>  (fail·backtrack 되돌아갈 곳 / hypothesis 형제 가지 뿌리)\n" +
+			"  --to  kind 에 따라 뜻이 다르다(이슈 #59①·#76). 둘 다 조상 define 또는 analyze 를 받는다:\n" +
+			"        hypothesis      → **형제 가지의 뿌리**. 부모를 바꾼다(거기서 새로 갈라진다).\n" +
+			"        fail·backtrack  → **되돌아갈 곳의 기록**. 부모는 안 바뀐다(자리는 --at 이 고른다).\n" +
+			"        문제 정의가 틀렸으면 define, 문제 정의는 옳고 거기서 내려진 결정이 틀렸으면 그 analyze.\n" +
 			"    hypothesis 의 뿌리는 조상 define 또는 조상 analyze 다(이슈 #32): 가설 자체가 틀렸으면\n" +
 			"    define 으로 완전 회귀, 가설은 맞고 방법만 틀렸으면 그걸 밝힌 analyze 로 — 분석을 버리지 마라.\n" +
 			"    형식은 **짧은 스텝 이름**이다 — 예: --to s1 (경로형 <chain>/<cycle>/s1 이나 커밋\n" +

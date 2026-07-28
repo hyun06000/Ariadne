@@ -1012,6 +1012,92 @@ class TestGoto(GilFixture):
         self.assertIn("gil goto a/dead/", out)
 
 
+class TestNoLeavingUnterminated(GilFixture):
+    """미종결 잎을 두고 떠나지 못한다 (이슈 #78).
+
+    #59 로 사후 발견(fsck)·사후 수리(--at)는 갖췄는데 **떠나는 순간**이 비어 있었다.
+    verify 직후가 가장 떠나기 쉬운 자리다 — 결과를 이미 아니까 그 가지는 심리적으로 끝난
+    것이 된다. gil 이 매번 "다음은 반드시 analyze"라고 말해주는데도 떠났다:
+    안내는 읽고 나서 잊고, 레일은 잊어도 막는다."""
+
+    def _at_verify(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/gap", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/gap", "--kind", "verify", "--verdict", "supported", "--title", "V")
+
+    def test_goto_refuses_to_leave_unterminated_verify(self):
+        self._at_verify()
+        r = self.gil("goto", "a/gap/s1")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("종결 없이 떠날 수 없다", out)
+        self.assertIn("--kind analyze", out)      # 이어가는 길
+        self.assertIn("--at s3", out)             # 접는 길(사후 수리 문법)
+        self.assertIn("--leave-open", out)        # 그래도 떠나는 길
+
+    def test_leave_open_is_an_explicit_escape(self):
+        """거부만 하고 길이 없으면 벽이다(#67) — 탈출구는 두되 명시적으로."""
+        self._at_verify()
+        r = self.gil("goto", "a/gap/s1", "--leave-open")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_new_sibling_branch_is_also_leaving(self):
+        """형제 가지를 새로 내는 것도 떠나는 것이다 — 같은 검사가 걸린다."""
+        self._at_verify()
+        r = self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s1",
+                     "--falsify", "F2", "--falsify-to", "s1", "--title", "H2", "--inherit", "L")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("종결 없이 떠날 수 없다", r.stdout + r.stderr)
+
+    def test_terminated_leaf_can_be_left(self):
+        """종결한 자리는 자유롭게 떠난다 — 늘 막으면 레일이 아니라 벽이다."""
+        self._at_verify()
+        self.gil("step", "a/gap", "--kind", "analyze", "--title", "A")
+        self.gil("step", "a/gap", "--kind", "success", "--title", "됨")
+        r = self.gil("goto", "a/gap/s1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_fail_to_accepts_ancestor_analyze(self):
+        """되돌아갈 곳이 define 만이던 비대칭을 없앤다 (이슈 #76 곁다리).
+
+        일곱 가지를 먹은 잘못된 전제가 심긴 자리는 s1(문제 정의)이 아니라 analyze 였다.
+        벽의 지도는 '어디로 돌아가야 하나'의 지도다 — 그 자리가 analyze 면 analyze 를 적어야 한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/gap", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/gap", "--kind", "verify", "--verdict", "supported", "--title", "V")
+        self.gil("step", "a/gap", "--kind", "analyze", "--title", "우선순위 결정")   # s4
+        r = self.gil("step", "a/gap", "--kind", "fail", "--to", "s4", "--title", "지표가 안 움직였다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body = self._git("log", "-1", "--format=%B", "HEAD").stdout
+        self.assertIn("Gil-Backtrack: s4", body)
+        self.assertEqual(self.gil("fsck").returncode, 0)
+
+    def test_success_guard_looks_at_this_attempt_only(self):
+        """앞 시도의 refuted verify 가 이 가지를 막지 않는다 (#78 곁다리).
+
+        #32·#60 이후 새 가설은 조상 analyze 에 뿌리내릴 수 있다. 그런데 종결 가드는 계보를
+        끝까지 거슬러 올라가 거기서 만난 refuted verify 로 후손 전체를 막았다 — 실사용:
+        자기 verify 는 supported 인데 죽은 가지의 refuted 때문에 success 가 거부됐다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/gap", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--title", "H1", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/gap", "--kind", "verify", "--verdict", "refuted", "--title", "V1")
+        self.gil("step", "a/gap", "--kind", "analyze", "--title", "A1")   # 여기 뿌리내린다
+        # 그 analyze 에서 새 가설 — 이 시도의 verify 는 supported 다.
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s4", "--title", "H2",
+                 "--falsify", "F2", "--falsify-to", "s4", "--inherit", "앞 가지의 교훈")
+        self.gil("step", "a/gap", "--kind", "verify", "--verdict", "supported", "--title", "V2")
+        self.gil("step", "a/gap", "--kind", "analyze", "--title", "A2")
+        r = self.gil("step", "a/gap", "--kind", "success", "--title", "됨")
+        self.assertEqual(r.returncode, 0, "앞 시도의 refuted 가 이 가지를 막았다:\n" + r.stdout + r.stderr)
+
+
 class TestGoalVocabulary(GilFixture):
     """결말의 어휘 — 달성과 포기 사이 (이슈 #80, #62 의 다음 칸).
 
