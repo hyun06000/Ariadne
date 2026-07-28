@@ -89,7 +89,7 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 283 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 v3.21.0.
+- **검증**: example 307 테스트(`project/gil-v3-redesign/tests/`). 릴리스 대기 v3.21.0(자산 빌드됨).
 - **gil migrate**: v2(폴더·cycle.yaml) → v3 커밋 그래프 이주(도구 레벨·범용). 5단계 압축
   매핑, verdict→종결 kind, `--prefix`로 브랜치 충돌 회피, 원자성 가드. 우리 v2(legacy)로
   174 사이클 무손실 이주 실검증.
