@@ -3098,5 +3098,47 @@ class TestRefusalsGiveNextMove(GilFixture):
         self.assertIn("--abandon", out)                  # 다른 정직한 길
 
 
+class TestStepMapLabels(GilFixture):
+    """전체 스텝맵 라벨 겹침 회피 (이슈 #37).
+
+    이건 픽셀 문제라 단위 테스트로 '안 겹친다'를 끝까지 증명할 수는 없다(실제 확인은 브라우저
+    에서 좌표를 재서 했다: 라벨 34개 · 겹침 0). 여기서는 **회귀로 다시 깨질 만한 것**을 지킨다:
+    겹침 해소 로직이 산출물에 실제로 들어 있는지, 그리고 옛 방식(직전 같은 종류 라벨하고만
+    비교하는 계단식)으로 되돌아가지 않았는지.
+
+    실제로 한 번 깨뜨려 봤기에 남긴다 — 새 로직을 넣으면서 옛 `const CW` 선언을 안 지워
+    **중복 선언으로 스크립트 전체가 죽었고, 그래프가 통째로 안 그려졌다.** 콘솔 에러도
+    안 보였다. 그래서 '그래프가 실제로 그려지는가'까지 함께 본다.
+    """
+
+    def _build(self):
+        self.gil("chain", "alpha", "--purpose", "P")
+        self.gil("open", "alpha/c001", "--author", "clew", "--purpose", "P", "--body", "B")
+        self.gil("step", "alpha/c001", "--kind", "success", "--title", "S", "--body", "B")
+        self.gil("close", "alpha/c001")
+        out = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", "g.html")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding="utf-8") as f:
+            return f.read()
+
+    def test_collision_resolver_is_present(self):
+        """종류를 섞어 실제 사각형으로 밀어내는 해소기가 들어 있다."""
+        html = self._build()
+        self.assertIn("function placeLabel", html)
+        self.assertIn("placed.some", html)   # 이미 놓인 것 전부와 비교
+
+    def test_no_duplicate_const_declaration(self):
+        """같은 스코프에 const 가 두 번 선언되면 스크립트 전체가 죽는다(실제로 깨뜨렸다)."""
+        html = self._build()
+        self.assertEqual(html.count("const CW=6"), 1)
+
+    def test_graph_actually_renders(self):
+        """스크립트가 죽으면 라벨만 사라지는 게 아니라 그래프가 통째로 안 그려진다."""
+        html = self._build()
+        self.assertIn("buildStepMap", html)
+        self.assertIn("alpha", html)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

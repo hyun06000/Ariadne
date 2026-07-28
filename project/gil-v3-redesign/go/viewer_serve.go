@@ -1438,10 +1438,14 @@ function buildStepMap(){
       row[n.sha]=L; busy[L]=d; if(L>maxRow)maxRow=L;
     });
   });
-  const rowH=24, padTop=38, padBot=14, r=5; // padTop: 체인 라벨+사이클 라벨 두 줄
+  const rowH=24, padBot=14, r=5;
   // colW: 스텝맵은 촘촘히(34px). 집계 모드(사이클/체인)는 노드 위에 이름 라벨이 붙으니, 가장 긴
   // 이름이 안 겹치게 x간격을 그 폭 기준으로 넓힌다(AIL #9 집계판 — 헤드리스로 못 본 픽셀 버그).
   const aggMode = MAP_DEPTH!=='step';
+  // padTop: 라벨이 들어갈 머리 공간. 스텝 뎁스는 사이클 라벨 + 체인 라벨 두 종류가 쌓이고
+  // 둘 다 겹치면 계단식으로 최대 2단씩 더 올라가므로 그만큼 확보한다(이슈 #37).
+  // 좁게 잡으면 위로 피한 라벨이 화면 밖으로 잘려 "겹침 대신 실종"이 된다.
+  const padTop = aggMode ? 38 : 62;
   let longestLabel=0;
   if(aggMode) DAG.forEach(n=>{ const s=(MAP_DEPTH==='cycle'?n.cycle:n.chain)||''; longestLabel=Math.max(longestLabel,s.length); });
   const colW = aggMode ? Math.max(48, longestLabel*7+18) : 34; // ~7px/글자 + 여백
@@ -1460,11 +1464,28 @@ function buildStepMap(){
   const cyc={}; if(!agg) DAG.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
   // 체인별 첫(가장 왼쪽) 사이클 — 그 위에 체인 이름을 얹는다.
   const chainMinD={}; DAG.forEach(n=>{ if(chainMinD[n.chain]===undefined||depth[n.sha]<chainMinD[n.chain])chainMinD[n.chain]=depth[n.sha]; });
-  // 라벨 겹침 회피(AIL #9): 박스를 x(왼쪽) 순으로 처리하며, 직전 라벨의 오른쪽 끝과 겹치면
-  // 한 줄 위로 stagger(계단식)한다. 박스가 라벨보다 좁으면 라벨을 생략(hover title 로만) —
-  // 좁은 박스 위 긴 글씨가 이웃 박스·엣지를 덮던 주 원인. 약 6px/글자로 폭 추정.
+  // 라벨 겹침 회피(이슈 #37). 옛 방식은 **직전 같은 종류 라벨** 하나하고만 비교하고 11px 씩
+  // 계단을 올렸는데, 두 가지가 다 틀렸다: (a) 체인 라벨(11px 굵게)은 높이가 11px 를 넘어서
+  // 한 단 올려도 여전히 포갰다 (b) 체인 라벨과 사이클 라벨은 서로 다른 종류라 비교조차 안 됐다.
+  // 실측: "gil-v3-dev ↰" 와 "gil-v3-redesign" 이 2px 차이로 겹쳐 둘 다 안 읽혔다.
+  //
+  // 이제 종류를 섞어 **실제 사각형끼리** 밀어낸다: x 순으로 놓되, 이미 놓인 것과 부딪히면
+  // 안 부딪힐 때까지 한 칸씩 위로. 머리 공간을 넘으면 그 라벨은 생략한다(박스 title 로 남는다)
+  // — 화면 밖으로 밀어 올리면 "겹침 대신 실종"이 될 뿐이다.
+  const placed=[]; // 이미 자리 잡은 라벨 사각형들
+  const LSTEP=13;  // 한 칸 = 가장 큰 라벨(11px 굵게)이 확실히 안 닿는 높이
+  function placeLabel(x,yBase,w,h,mk){
+    let y=yBase;
+    const hit=()=>placed.some(p=> x < p.x+p.w && p.x < x+w && (y-h) < p.y && p.y-p.h < y);
+    while(hit()){
+      y-=LSTEP;
+      if(y-h < 2) return false; // 머리 공간을 넘었다 — 생략(박스 title 로 여전히 읽을 수 있다)
+    }
+    placed.push({x,y,w,h});
+    const el=mk(y); svg.appendChild(el);
+    return true;
+  }
   const CW=6, cylW=k=>{ const s=k.slice(k.indexOf('/')+1); return s.length*CW; };
-  let lastCyR=-Infinity, cyStag=0; // 직전 사이클 라벨 오른쪽 끝, 현재 stagger 단
   const cycKeys=Object.keys(cyc).sort((a,b)=>{ // x(dmin) 오름차순
     const da=Math.min(...cyc[a].map(n=>depth[n.sha])), db=Math.min(...cyc[b].map(n=>depth[n.sha])); return da-db; });
   cycKeys.forEach(k=>{ const ns=cyc[k];
@@ -1476,26 +1497,24 @@ function buildStepMap(){
     box.appendChild(svgEl('title',{},k));
     svg.appendChild(box);
     const boxW=x2-x1, lblW=cylW(k), name=k.slice(k.indexOf('/')+1);
-    // 겹침 감지: 이 라벨 시작(x1)이 직전 라벨 오른쪽 끝보다 왼쪽이면 한 단 위로 계단.
-    if(x1 < lastCyR+4){ cyStag=(cyStag+1)%3; } else { cyStag=0; }
-    const cyY=y1-3-cyStag*11; // 단마다 11px 위로
-    // 사이클 라벨: 박스가 너무 좁으면(라벨이 박스를 넘침) 생략하고 title 로만 — 겹침 근원 차단.
-    if(lblW <= boxW+colW){ // 박스+한 칸 여유 안에 들어가면 표시
-      const cylab=svgEl('text',{class:'cyclabel',x:x1+2,y:cyY},name);
-      cylab.appendChild(svgEl('title',{},k));
-      svg.appendChild(cylab);
-      lastCyR=x1+2+lblW;
-    } else {
-      // 생략된 박스도 어느 사이클인지 알 수 있게 박스에 title 은 이미 있다. 라벨줄만 비운다.
-      lastCyR=x1; // 다음 라벨은 이 박스 왼쪽 기준으로만 겹침 판단
+    // 사이클 라벨: 박스가 너무 좁으면(라벨이 박스를 넘침) 아예 생략 — 좁은 박스 위 긴 글씨가
+    // 이웃 박스·엣지를 덮던 근원. 표시할 땐 겹침 해소를 거친다.
+    if(lblW <= boxW+colW){
+      placeLabel(x1+2, y1-3, lblW, 11, y=>{
+        const t=svgEl('text',{class:'cyclabel',x:x1+2,y:y},name);
+        t.appendChild(svgEl('title',{},k)); return t;
+      });
     }
-    // 체인 이름 라벨: 그 체인의 첫 사이클 박스 위에만(사이클 라벨보다 더 위줄, stagger 반영).
+    // 체인 이름 라벨: 그 체인의 첫 사이클 박스 위에만.
     if(dmin===chainMinD[ns[0].chain]){
       const pc=PARENTS[ns[0].chain];
-      const lab=svgEl('text',{class:'chlabel',x:x1+2,y:cyY-11});
-      lab.textContent=ns[0].chain+(pc?' ↰':'');
-      lab.appendChild(svgEl('title',{},pc?('체인 '+ns[0].chain+' — 부모 체인 '+pc+' 에서 이어받음'):('체인 '+ns[0].chain)));
-      svg.appendChild(lab);
+      const chName=ns[0].chain+(pc?' ↰':'');
+      placeLabel(x1+2, y1-3-LSTEP, chName.length*(CW+1), 13, y=>{
+        const lab=svgEl('text',{class:'chlabel',x:x1+2,y:y});
+        lab.textContent=chName;
+        lab.appendChild(svgEl('title',{},pc?('체인 '+ns[0].chain+' — 부모 체인 '+pc+' 에서 이어받음'):('체인 '+ns[0].chain)));
+        return lab;
+      });
     }
   });
   function X_(d){ return padX+r+d*colW; }
