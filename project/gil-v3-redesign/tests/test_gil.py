@@ -1012,6 +1012,87 @@ class TestGoto(GilFixture):
         self.assertIn("gil goto a/dead/", out)
 
 
+class TestInterviewArrival(GilFixture):
+    """사람의 답이 도착한 사실이 에이전트에게 **도달한다** (이슈 #77, #58 후속).
+
+    #58 이 --wait 를 줬지만 대화형 세션과는 맞물리지 않는다: 지금 필요한 행동은 "폼에
+    답해주세요"라고 말하는 것이고, 말하려면 턴을 끝내야 하고, 턴을 끝내면 기다릴 수 없다.
+    그래서 '심고 → 알리고 → 턴 종료'가 늘 합리적으로 보이는데 그 경로엔 재개 지점이 없었다."""
+
+    def _ask(self, chain):
+        import json
+        subprocess.run([*GIL_CMD, "interview", chain, "--ask", "-"], cwd=self.repo,
+                       env=dict(os.environ, GIL_NO_VIEWER="1"), text=True,
+                       input=json.dumps([{"q": "무엇을 기준으로 하나?", "type": "text"}]),
+                       capture_output=True)
+
+    def _answer(self, chain):
+        path = os.path.join(self.repo, "ref.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("기준: 사람이 답한 것\n")
+        self.gil("interview", chain, "--resolve", "ref.md")
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "eval-map", "--purpose", "P")
+
+    def test_pending_banner_includes_interview(self):
+        """최상단 '사람 답 대기' 종합 절에 인터뷰가 들어온다 — 대기는 한 자리에 모은다."""
+        self._seed()
+        self._ask("eval-map")
+        out = self.gil("handoff").stdout
+        head = out[out.index("⏳ 사람 답 대기"):]
+        self.assertIn("[인터뷰] eval-map", head.split("▶")[0])
+
+    def test_arrived_answer_is_announced_on_any_command(self):
+        """답이 도착하면 **무슨 명령을 부르든** 맨 앞에 고지한다 — 통지가 아니라 강제 고지."""
+        self._seed()
+        self._ask("eval-map")
+        self._answer("eval-map")
+        r = self.gil("log")
+        self.assertIn("인터뷰 답이 도착해 있다", r.stderr)
+        self.assertIn("eval-map", r.stderr)
+
+    def test_notice_stops_after_the_agent_reads_it(self):
+        """읽으면 고지는 사라진다 — 영원히 뜨는 경고는 안 읽힌다."""
+        self._seed()
+        self._ask("eval-map")
+        self._answer("eval-map")
+        self.gil("interview", "eval-map", "--status")
+        r = self.gil("log")
+        self.assertNotIn("인터뷰 답이 도착해 있다", r.stderr)
+
+    def test_handoff_also_counts_as_reading(self):
+        """handoff 는 그 사실을 싣는 자리다 — 거기서도 고지가 꺼진다."""
+        self._seed()
+        self._ask("eval-map")
+        self._answer("eval-map")
+        self.gil("handoff")
+        r = self.gil("log")
+        self.assertNotIn("인터뷰 답이 도착해 있다", r.stderr)
+
+    def test_seen_marker_is_local_not_committed(self):
+        """'봤다'는 이 클론의 상태다 — 커밋되면 다른 에이전트가 고지를 못 받는다."""
+        self._seed()
+        self._ask("eval-map")
+        self._answer("eval-map")
+        self.gil("handoff")
+        os.remove(os.path.join(self.repo, "ref.md"))   # 답변 파일은 이 테스트의 부산물
+        self.assertEqual(self._git("status", "--porcelain").stdout.strip(), "")
+        self.assertTrue(os.path.exists(os.path.join(self.repo, ".git", "gil", "interview-seen")))
+
+    def test_ask_output_names_wait_as_the_default(self):
+        """어느 것이 기본인지 못박는다 — 둘을 나란히 놓으면 싼 쪽을 고른다."""
+        self._seed()
+        import json
+        r = subprocess.run([*GIL_CMD, "interview", "eval-map", "--ask", "-"], cwd=self.repo,
+                           env=dict(os.environ, GIL_NO_VIEWER="1"), text=True,
+                           input=json.dumps([{"q": "기준?", "type": "text"}]), capture_output=True)
+        out = r.stdout + r.stderr
+        self.assertIn("기본은 기다리는 것이다", out)
+        self.assertIn("다음 턴의 첫 명령", out)
+
+
 class TestOnboardingInstall(GilFixture):
     """gil 이 온보딩을 저장소에 설치한다 (이슈 #73).
 

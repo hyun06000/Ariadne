@@ -1641,9 +1641,12 @@ func cmdInterview(args []string) {
 	println2("  ▸ 뷰어를 열어라(gil viewer serve / VS Code 패널). 사람이 제출하면 reference-" + chain +
 		".md 로 저장되고 레퍼런스가 커밋된다 — 폴링이 곧 반영한다.")
 	println2("  ▸ 사람 답 전엔 이 기준이 비어 있다 — 답을 기다려라(pending 처럼).")
-	// "기다려라"만 말하고 기다릴 수단을 안 주면 바쁜대기 아니면 우회로 민다(이슈 #58).
-	println2("  ▸ 제출됐는지 묻는 법: gil interview " + chain + " --status   (pending|done 한 줄)")
-	println2("  ▸ 제출될 때까지 기다리는 법: gil interview " + chain + " --wait [--timeout <초>]")
+	// "기다려라"만 말하고 기다릴 수단을 안 주면 바쁜대기 아니면 우회로 민다(이슈 #58). 그리고
+	// 수단을 둘 다 나란히 놓으면 싼 쪽(--status 한 번)을 고른다 — 어느 것이 기본인지 못박는다(#77).
+	println2("  ▸ **기본은 기다리는 것이다**: gil interview " + chain + " --wait [--timeout <초>]")
+	println2("  ▸ --status 는 확인용이다(pending|done 한 줄). 한 번 묻고 턴을 끝내는 것으로 갈음하지 마라.")
+	println2("     턴을 끝낼 거라면 **다음 턴의 첫 명령**으로 gil interview " + chain + " --status 를 다시 불러라.")
+	println2("     (답이 도착해 있으면 gil 이 어느 명령에서든 맨 앞에 ⚡ 한 줄로 고지한다 — 그래도 네가 먼저 물어라.)")
 }
 
 // interviewWatch — 인터뷰가 사람 답을 받았는지 묻는다(--status), 또는 받을 때까지 기다린다(--wait).
@@ -1669,6 +1672,7 @@ func interviewWatch(chain string, wait bool, timeoutS string) {
 	}
 	if done() {
 		report()
+		markInterviewSeen(chain) // 이 세션이 답을 봤다 — 도착 고지를 끈다(#77)
 		return
 	}
 	pending := chainInterviewPending(chain, "--branches")
@@ -1701,6 +1705,7 @@ func interviewWatch(chain string, wait bool, timeoutS string) {
 		time.Sleep(2 * time.Second)
 		if done() {
 			report()
+			markInterviewSeen(chain) // 기다려서 봤다 — 도착 고지를 끈다(#77)
 			return
 		}
 	}

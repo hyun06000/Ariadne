@@ -58,6 +58,11 @@ func cmdHandoff(args []string) {
 	// 열라고 규범으로 지시한다. 이미 떠 있으면 launchViewer 가 중복 기동하지 않는다.
 	launchViewer()
 	report := handoffReport()
+	// 여기까지 왔으면 도착한 답을 이 세션이 본 것이다(handoff 가 그 사실을 싣는다) — 기록해
+	// 고지를 끈다. 안 끄면 "⚡ 도착했다"가 영원히 뜨고, 영원히 뜨는 경고는 안 읽힌다(#77).
+	for _, c := range arrivedInterviews() {
+		markInterviewSeen(c)
+	}
 	println2(report)
 	println2(viewerDirective())
 }
@@ -214,11 +219,14 @@ func pendingBanner() []string {
 			waiting = append(waiting, n)
 		}
 	}
-	if len(waiting) == 0 {
+	// 인터뷰 대기도 같은 성격의 '사람 답 대기'다 — 종합 절에서 빠지면 여기 없다고 읽힌다(#77).
+	ivLines := interviewWaitingLines()
+	if len(waiting) == 0 && len(ivLines) == 0 {
 		return nil
 	}
 	var L []string
 	L = append(L, "⏳ 사람 답 대기(pending) — 종결 아님, 답 전엔 못 이어간다:")
+	L = append(L, ivLines...)
 	for _, n := range waiting {
 		ref := n.chain + "/" + n.cycle
 		L = append(L, "  · "+ref+"/"+n.step+"  — 승인: gil approve "+ref+"  |  기각: gil reject "+ref+" --to <조상 define>")

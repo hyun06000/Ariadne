@@ -67,6 +67,12 @@ func main() {
 	if cmd != "help" && cmd != "-h" && cmd != "--help" && cmd != "version" {
 		requireGit()
 	}
+	// 도착한 인터뷰 답을 **무슨 명령을 부르든** 맨 앞에서 고지한다(이슈 #77). 에이전트가
+	// --status 를 떠올리지 못해도 걸리는 자리는 여기뿐이다 — 통지는 호스트 기능이라 gil 이
+	// 보장할 수 없지만, 다음 접촉 때의 고지는 보장할 수 있다.
+	if cmd != "help" && cmd != "-h" && cmd != "--help" && cmd != "version" {
+		noticeArrivedInterviews()
+	}
 	switch cmd {
 	case "help", "-h", "--help":
 		cmdHelp(rest)
