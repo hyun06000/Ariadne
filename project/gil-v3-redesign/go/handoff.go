@@ -253,6 +253,48 @@ func cycleLoadBanner(openChains map[string]int) []string {
 	return L
 }
 
+// plainTipBanner — 팁이 gil 커밋이 아닌 gil 브랜치를 알린다(이슈 #74).
+//
+// 왜. 사이클·체인 브랜치 끝에 평범한 커밋(문서 갱신 등)이 하나 얹히면, 옛 handoff 는 그
+// 체인을 통째로 못 보고 "열린 체인 없음 — 새 체인을 열 수 있다"고 안내했다. 그 문구는
+// 중복 체인을 여는 방향으로 미는 최악의 오안내였다. 체인 인식은 고쳤지만(이제 팁 하나가
+// 아니라 브랜치를 훑는다), 그 사실 자체는 이어받는 세션이 알아야 한다 — 무엇이 얹혀 있고
+// 다음 스텝이 어디에 붙을지가 달라 보이기 때문이다.
+func plainTipBanner() []string {
+	idx := commitIndex()
+	var L []string
+	for _, br := range branches() {
+		shas := branchShas(br)
+		if len(shas) == 0 {
+			continue
+		}
+		if info, ok := idx[shas[0]]; ok && info.chain != "" {
+			continue // 팁이 gil 커밋 — 정상
+		}
+		// gil 이 소유한 브랜치(체인·사이클·형제 가지)만 알린다. gil 이력에서 갈라 판 평범한
+		// 작업 브랜치까지 짚으면 잡음이 되어 아무도 안 읽는다 — 이름으로 가른다.
+		owned := false
+		for ch := range declaredChains("--branches") {
+			if ch != "" && (br == ch || strings.HasPrefix(br, ch+"-")) {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			continue
+		}
+		subj := strings.TrimSpace(gitlog("-1", "--format=%s", shas[0]))
+		L = append(L, "  ℹ 브랜치 "+br+" 의 팁이 gil 커밋이 아니다 — "+shas[0]+" \""+subj+"\"")
+	}
+	if len(L) == 0 {
+		return nil
+	}
+	L = append([]string{"── 브랜치 팁 (gil 밖 커밋) ──"}, L...)
+	L = append(L, "    그 아래 gil 이력은 그대로 이어진다. 다음 스텝은 이 커밋 **위에** 붙는다(브랜치는 전진한다).")
+	L = append(L, "")
+	return L
+}
+
 // gateChecklist — 핸드오프 시 대문(md)을 손볼 체크리스트를 제시한다(상현님).
 //
 // 왜: 세션이 넘어갈 때 다음 존재는 대문(CLAUDE.md·README 류)과 최신 매듭으로 부활한다. 그런데
@@ -284,6 +326,7 @@ func handoffReport() string {
 	var L []string
 	L = append(L, "═══ gil handoff — 세션 부활 정보 ═══", "")
 	L = append(L, currencyBanner()...)
+	L = append(L, plainTipBanner()...)
 	L = append(L, deadBranchBanner()...)
 	L = append(L, pendingBanner()...)
 	chains, order := chainsFromGraph()

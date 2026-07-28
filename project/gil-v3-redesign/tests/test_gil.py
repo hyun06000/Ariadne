@@ -1010,6 +1010,66 @@ class TestGoto(GilFixture):
         self.assertIn("gil goto a/dead/", out)
 
 
+class TestPlainCommitOnGilBranch(GilFixture):
+    """gil 브랜치에 평범한 커밋이 끼어도 잃지 않는다 (이슈 #74, 실사용 사본 재현).
+
+    사이클·체인 브랜치 끝에 gil 이 만들지 않은 커밋이 하나만 있어도 (1) handoff 가 열린
+    체인을 통째로 못 보고 "새 체인을 열 수 있다"고 밀었고 (2) step 이 그 커밋을 건너뛰어
+    HEAD 를 detach 시켜 새 스텝을 브랜치 밖에 떨궜다. 셋 다 조용했다."""
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "mr", "--purpose", "P")
+        self.gil("open", "mr/c001", "--author", "clew", "--purpose", "Q")
+
+    def _plain_commit(self, msg="docs: 평범한 커밋"):
+        with open(os.path.join(self.repo, "README.md"), "w", encoding="utf-8") as f:
+            f.write(msg + "\n")
+        self._git("add", "-A")
+        self._git("commit", "-m", msg)
+
+    def test_chain_survives_plain_commit_on_chain_branch(self):
+        """체인 브랜치 팁이 평범한 커밋이어도 체인을 잃지 않는다 — 제일 위험한 오안내."""
+        self._seed()
+        self._git("checkout", "-q", "mr")
+        self._plain_commit()
+        out = self.gil("handoff").stdout
+        self.assertIn("열린 체인: mr", out)
+        self.assertNotIn("열린 체인 없음", out)   # 중복 체인을 열라고 미는 문구
+
+    def test_step_advances_branch_instead_of_detaching(self):
+        """스텝은 평범한 커밋 위에 붙고, 브랜치가 그대로 전진한다."""
+        self._seed()
+        self._plain_commit()
+        r = self.gil("step", "mr/c001", "--kind", "hypothesis", "--title", "시험",
+                     "--falsify", "F", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # HEAD 가 브랜치를 떠나지 않았다.
+        self.assertEqual(self._git("branch", "--show-current").stdout.strip(), "mr-c001")
+        # 새 스텝이 브랜치 팁이다 — 브랜치 밖으로 떨어지지 않았다.
+        tip = self._git("log", "-1", "--format=%s", "mr-c001").stdout
+        self.assertIn("s2 hypothesis", tip)
+        # 평범한 커밋도 그대로 남는다(문서를 잃지 않는다).
+        log = self._git("log", "--format=%s", "mr-c001").stdout
+        self.assertIn("docs: 평범한 커밋", log)
+
+    def test_handoff_reports_non_gil_tip(self):
+        """무엇이 얹혀 있는지 이어받는 세션에게 말한다."""
+        self._seed()
+        self._plain_commit("docs: 대문 갱신")
+        out = self.gil("handoff").stdout
+        self.assertIn("팁이 gil 커밋이 아니다", out)
+        self.assertIn("docs: 대문 갱신", out)
+
+    def test_plain_branch_is_not_reported(self):
+        """gil 이력이 없는 평범한 브랜치는 알릴 일이 아니다(잡음 금지)."""
+        self._seed()
+        self._git("checkout", "-q", "-b", "just-docs")
+        self._plain_commit()
+        out = self.gil("handoff").stdout
+        self.assertNotIn("just-docs 의 팁이", out)
+
+
 class TestLiveTip(GilFixture):
     """handoff 팁 선정: 다중 브랜치에서 죽은 잎을 팁으로 잡지 않는다 (2026-07-24)."""
 

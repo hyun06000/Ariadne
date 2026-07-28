@@ -704,10 +704,16 @@ func chainsFromGraph() (map[string]chainAgg, []string) {
 	var order []string
 	for _, br := range branches() {
 		shas := branchShas(br)
+		// 이 브랜치가 어느 체인인가. **팁 하나만** 보면 안 된다(이슈 #74): 사이클·체인
+		// 브랜치 끝에 gil 이 만들지 않은 평범한 커밋이 하나만 있어도 체인 이름을 못 읽어
+		// 그 체인이 통째로 사라졌다 — 그리고 handoff 는 "열린 체인 없음 … 새 체인을 열 수
+		// 있다"고 **적극적으로 잘못 안내했다**(중복 체인을 여는 방향). 평범한 커밋은 정당한
+		// 작업이다. 팁부터 내려가며 처음 만나는 gil 커밋의 체인을 쓴다.
 		var chainName string
-		if len(shas) > 0 {
-			if h, ok := idx[shas[0]]; ok {
+		for _, sha := range shas {
+			if h, ok := idx[sha]; ok && h.chain != "" {
 				chainName = h.chain
+				break
 			}
 		}
 		var root *chainAgg

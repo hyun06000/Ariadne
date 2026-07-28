@@ -192,18 +192,73 @@ func alignHeadToTip(tipSHA, ref string) {
 		return // 이미 팁 위 — 정합
 	}
 	// 팁 커밋을 정확히 가리키는 로컬 브랜치가 있으면 그 브랜치로 옮겨탄다(브랜치 포인터도 함께
-	// 전진하도록). 없으면 팁 커밋으로 분리 체크아웃(계보만 맞으면 충분).
-	target := tipSHA
+	// 전진하도록).
 	refs := strings.TrimSpace(git("for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"))
 	for _, ln := range strings.Split(refs, "\n") {
 		name, sha, ok := strings.Cut(strings.TrimSpace(ln), " ")
 		if ok && strings.HasPrefix(strings.TrimSpace(sha), tipSHA) {
-			target = strings.TrimSpace(name)
-			break
+			git("checkout", "-q", strings.TrimSpace(name))
+			stderr("  ▸ HEAD 를 " + ref + " 의 팁(" + tipSHA + ")으로 옮겼다 — 종결 커밋이 옳은 사이클 계보에 얹히도록(이슈 #44).")
+			return
 		}
 	}
-	git("checkout", "-q", target)
-	stderr("  ▸ HEAD 를 " + ref + " 의 팁(" + tipSHA + ")으로 옮겼다 — 종결 커밋이 옳은 사이클 계보에 얹히도록(이슈 #44).")
+	// 팁 위에 **gil 이 만들지 않은 평범한 커밋**이 얹혀 있는 브랜치가 있으면 그 브랜치로
+	// 간다(이슈 #74). 옛 코드는 여기서 팁 커밋으로 분리(detached) 체크아웃하고 성공한 척했다 —
+	// 새 스텝이 브랜치 밖으로 떨어져, 다음 checkout 한 번에 통째로 사라진다(실사용 사본에서
+	// 재현). 평범한 커밋은 정당한 작업이다: 그 위에 이어 붙이면 문서도 스텝도 안 잃는다.
+	if br, extra := branchAbove(tipSHA); br != "" {
+		git("checkout", "-q", br)
+		stderr("  ▸ 브랜치 " + br + " 의 팁이 gil 커밋이 아니다(평범한 커밋 " + itoa(extra) +
+			"개가 얹혀 있다) — 그 위에 이어 붙인다. 브랜치는 그대로 전진한다.")
+		return
+	}
+	// 붙일 브랜치가 없다 — 분리 체크아웃하되 **조용히 넘어가지 않는다**(#59·#60 과 같은 축).
+	git("checkout", "-q", tipSHA)
+	stderr("  ⚠ HEAD 가 브랜치를 떠났다(detached) — 이 커밋은 어느 브랜치에도 없다.")
+	stderr("    남기려면 여기서 브랜치를 만들어라: git branch <이름>  (안 하면 다음 checkout 에 사라진다)")
+}
+
+// branchAbove — tipSHA 를 조상으로 갖고, 그 사이가 **전부 gil 이 아닌 평범한 커밋**인 로컬
+// 브랜치(이슈 #74). 반환: 브랜치 이름과 얹힌 평범 커밋 수. 없으면 ("", 0).
+//
+// 사이에 gil 스텝이 끼어 있으면 고르지 않는다 — 그건 "평범한 커밋이 얹혔다"가 아니라 계산한
+// 팁이 틀렸다는 뜻이고, 그 위에 얹으면 계보를 더 헝클어뜨린다.
+func branchAbove(tipSHA string) (string, int) {
+	cur := strings.TrimSpace(git("rev-parse", "--abbrev-ref", "HEAD"))
+	var names []string
+	for _, ln := range strings.Split(strings.TrimSpace(git("for-each-ref", "--format=%(refname:short)", "refs/heads/")), "\n") {
+		if n := strings.TrimSpace(ln); n != "" {
+			names = append(names, n)
+		}
+	}
+	// 지금 서 있는 브랜치를 먼저 본다 — 사용자가 방금 커밋한 그 자리가 가장 자연스럽다.
+	sort.SliceStable(names, func(i, j int) bool { return names[i] == cur && names[j] != cur })
+	for _, name := range names {
+		if !gitOK("merge-base", "--is-ancestor", tipSHA, name) {
+			continue
+		}
+		out, err := gitTry("log", "--format=%H"+fsep+trailer("Gil-Step"), tipSHA+".."+name, "--")
+		if err != nil {
+			continue
+		}
+		extra, gil := 0, false
+		for _, rec := range strings.Split(strings.TrimSpace(out), "\n") {
+			if strings.TrimSpace(rec) == "" {
+				continue
+			}
+			_, step, _ := strings.Cut(rec, fsep)
+			if strings.TrimSpace(step) != "" {
+				gil = true
+				break
+			}
+			extra++
+		}
+		if gil || extra == 0 {
+			continue
+		}
+		return name, extra
+	}
+	return "", 0
 }
 
 // nextStepID — 참조: _next_step_id.
