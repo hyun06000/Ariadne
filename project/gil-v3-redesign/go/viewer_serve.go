@@ -1500,11 +1500,24 @@ function buildStepMap(){
   const DAG=aggregateDAG(MAP_DEPTH);
   if(!DAG.length){ host.textContent='아직 노드가 없다.'; return; }
   const byId={}; DAG.forEach(n=>byId[n.sha]=n);
-  const kids={}; DAG.forEach(n=>{ n.parents.forEach(p=>{ (kids[p]=kids[p]||[]).push(n.sha); }); });
-  // x = 위상 깊이(시간, 왼→오른). 부모→자식 체인이 이 x축으로 자연히 이어진다.
+  // 전체맵의 선은 **gil 룰**로 그린다(이슈 #70). 옛 전체맵은 커밋 조상관계를 날것으로 이어,
+  // 계보상 무관한 체인 — orphan 이거나 그냥 나중에 열린 체인 — 까지 한 줄로 길게 붙였다.
+  // 아래 하위 패널(체인·사이클 그래프)은 gil 판정(닫힌 끝에서 태어났을 때만 계승, #53)을
+  // 쓰는데 위아래가 다른 그림을 냈다. #65 에서 "주황이라 주장하는 자리"만 통일했고, 이제
+  // **선 자체**를 통일한다: 같은 체인 안이면 잇고, 체인을 넘으면 진짜 계승일 때만 잇는다.
+  // 커밋 조상관계는 사실이지만 여기서는 안 그린다 — 적층은 gil fsck 가 이미 짚는다(#65).
+  const gilParents=n=>n.parents.filter(p=>{
+    const pn=byId[p]; if(!pn) return false;
+    if(pn.chain===n.chain) return true;              // 체인 안의 흐름 — 언제나 계보다
+    return PARENTS[n.chain]===pn.chain;              // 체인 넘기는 진짜 계승일 때만
+  });
+  DAG.forEach(n=>{ n.gparents=gilParents(n); });
+  const kids={}; DAG.forEach(n=>{ n.gparents.forEach(p=>{ (kids[p]=kids[p]||[]).push(n.sha); }); });
+  // x = 위상 깊이(시간, 왼→오른). 계보 부모→자식이 이 x축으로 이어진다. 계보가 끊긴 체인은
+  // depth 0 에서 새로 시작한다 — 무관한 체인이 앞 체인 꼬리에 길게 붙지 않는다.
   const depth={};
   function dep(sha){ if(sha in depth)return depth[sha]; const n=byId[sha]; if(!n)return 0;
-    let d=0; n.parents.forEach(p=>{ if(byId[p])d=Math.max(d,dep(p)+1); }); depth[sha]=d; return d; }
+    let d=0; n.gparents.forEach(p=>{ if(byId[p])d=Math.max(d,dep(p)+1); }); depth[sha]=d; return d; }
   DAG.forEach(n=>dep(n.sha));
   // 전역 레인(row) 배정 — git 그래프식: 첫 부모의 레인을 물려받고(선형 연속), 자리 다툼일
   // 때만 아래 빈 레인으로. 체인 무관 → 메인 흐름이 한 줄(row 0)로 흐르고 분기만 내려간다.
@@ -1513,12 +1526,12 @@ function buildStepMap(){
   // 선이 덜 엇갈린다(barycenter 근사). 처음엔 단순 fixture 로 효과 0 이라 뺐으나, 실사용
   // 216노드에선 교차 162→48(약 70%↓) 로 결정적이었다. 단순 fixture 로 성급히 철회한 걸 실
   // 데이터로 되돌린다. Sugiyama 완전판(레이어 반복 교차정렬)은 아직 과하다 — 이 1패스로 충분.
-  const parentRow=n=>{ const gp=n.parents.filter(p=>byId[p]); return gp.length?Math.min(...gp.map(p=>row[p]??0)):-1; };
+  const parentRow=n=>{ const gp=n.gparents.filter(p=>byId[p]); return gp.length?Math.min(...gp.map(p=>row[p]??0)):-1; };
   const byDepth={}; DAG.forEach(n=>{ (byDepth[depth[n.sha]]=byDepth[depth[n.sha]]||[]).push(n); });
   const row={}, busy={}; let maxRow=0; // busy[row]=그 레인을 마지막 점유한 depth
   Object.keys(byDepth).map(Number).sort((a,b)=>a-b).forEach(d=>{
     byDepth[d].slice().sort((a,b)=>parentRow(a)-parentRow(b)).forEach(n=>{
-      const gp=n.parents.filter(p=>byId[p]);
+      const gp=n.gparents.filter(p=>byId[p]);
       let L=gp.length?(row[gp[0]]||0):0;
       const owns=gp.some(p=>row[p]===L);
       if(!owns || (busy[L]!==undefined && busy[L]>=d)){ L=0; while(busy[L]!==undefined && busy[L]>=d)L++; }
@@ -1623,7 +1636,7 @@ function buildStepMap(){
   function X_(d){ return padX+r+d*colW; }
   function Y_(rw){ return padTop+r+rw*rowH; }
   // 2) 엣지(부모→자식). backtrack 형제가지=빨강 파선. 경계 넘는(체인 전환) 엣지=주황.
-  DAG.forEach(n=>{ n.parents.forEach(p=>{ if(!byId[p])return;
+  DAG.forEach(n=>{ n.gparents.forEach(p=>{ if(!byId[p])return;
     const x1=X(p),y1=Y(p),x2=X(n.sha),y2=Y(n.sha);
     const branch=n.parent&&n.parent!=='null'&&byId[p].step!==n.parent;
     // 체인을 넘는 엣지를 "체인 전환(주황)"이라 부르려면, 그게 **진짜 계승**이어야 한다
@@ -1631,8 +1644,8 @@ function buildStepMap(){
     // 태어났을 때만 계승(#53). 두 패널이 같은 자리에서 끊고 같은 자리에서 잇게 한다.
     // 계승이 아닌 경계 넘기는 회색 실선으로 남는다: 커밋 조상관계는 사실이므로 그리되,
     // "이어받았다"고 주장하지 않는다.
-    const crossChain=byId[p].chain!==n.chain;
-    const realSuccession=crossChain&&PARENTS[n.chain]===byId[p].chain;
+    // 여기까지 온 체인 넘기는 엣지는 gilParents 를 통과한 것이므로 곧 진짜 계승이다.
+    const realSuccession=byId[p].chain!==n.chain;
     const cls='dedge'+(branch?' branch':'')+(realSuccession?' cross':'');
     const mx=(x1+x2)/2;
     svg.appendChild(svgEl('path',{class:cls,fill:'none',d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
@@ -1662,7 +1675,7 @@ function buildStepMap(){
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
   if(MAP_DEPTH==='step')
-    leg.innerHTML='진짜 커밋 그래프 — 왼→오른 흐름, 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
   else
     leg.innerHTML=(MAP_DEPTH==='cycle'?'사이클':'체인')+' 단위 접힌 맵(<b>gil log --depth</b> 뷰어판) — 노드 하나=한 '+(MAP_DEPTH==='cycle'?'사이클':'체인')+'. <b class="lg-alive">초록</b>=solved(산 잎 있음), <b class="lg-dead">붉음</b>=dead, <b>⚡</b>=분기 밟은 solved(죽은 잎도 품음, 일자 solved 와 구분). 엣지=계보. 노드 클릭 → 그 '+(MAP_DEPTH==='cycle'?'사이클 첫 스텝':'체인 첫 사이클')+'으로 이동.';
   host.appendChild(leg);

@@ -1381,6 +1381,24 @@ class TestViewer(GilFixture):
         self.gil("step", "demo/c001", "--kind", "success", "--title", "됨")
         self.assertEqual(self._exit_map(), {})
 
+    def test_overview_map_uses_gil_rules_not_raw_commit_ancestry(self):
+        """전체맵의 선은 gil 룰로 그린다 (이슈 #70).
+
+        옛 전체맵은 커밋 조상관계를 날것으로 이어, 계보상 무관한 체인까지 한 줄로 길게
+        붙였다 — 아래 체인·사이클 패널은 gil 판정(#53)을 쓰는데 위아래가 다른 그림을 냈다.
+        선 계산이 조용히 옛 방식으로 돌아가지 않게 못박는다(그림 자체는 브라우저 실측)."""
+        self._seed_graph()
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        # 계보 부모(gilParents)로 depth·row·엣지를 모두 계산한다.
+        self.assertIn("gilParents", html)
+        self.assertIn("n.gparents", html)
+        # 범례가 성격을 바꿔 말한다 — "진짜 커밋 그래프"가 아니라 "gil 계보 그래프".
+        self.assertIn("gil 계보 그래프", html)
+        self.assertNotIn("진짜 커밋 그래프", html)
+
     def test_viewer_build_requires_out(self):
         self._seed_graph()
         r = self.gil("viewer", "build")
