@@ -1145,10 +1145,18 @@ func cmdStep(args []string) {
 		createFrom = stepSHA[*to]
 	case *outcome == "backtrack":
 		if *to == "" {
-			die("거부: backtrack은 --to <조상 define> 필요 (되돌아갈 곳)")
+			die("거부: backtrack은 --to <조상 define|analyze> 필요 (되돌아갈 곳)")
 		}
-		if !defineIDs[*to] {
-			die("거부: --to " + *to + "는 조상 define이어야 함")
+		// analyze 도 받는다(이슈 #76 후속). hypothesis 의 --to(#60)와 fail 의 --to(#76)는 이미
+		// analyze 를 받는데 backtrack 만 define 을 고집했다 — 같은 뜻("되돌아갈 자리")을 세
+		// 문법이 서로 다르게 받으면, 사람은 세 번 배우고 한 번은 틀린 자리를 적는다.
+		if !defineIDs[*to] && !analyzeIDs[*to] {
+			die("거부: --to " + *to + " 는 조상 define 또는 analyze 여야 함 (이 벽에서 되돌아갈 자리)\n" +
+				"  이 사이클의 define: " + strings.Join(sortedIDs(defineIDs), " ") + "\n" +
+				"  이 사이클의 analyze: " + strings.Join(sortedIDs(analyzeIDs), " ") +
+				elsewhereHint(chain, cycle, *to, steps) + "\n" +
+				"  · 문제 정의 자체로 돌아가야 하면 → define.\n" +
+				"  · 문제 정의는 옳고 **거기서 내려진 결정**이 틀렸으면 → 그 결정이 선 analyze (이슈 #76).")
 		}
 		parent = orNull(tipID) // 죽은 잎은 현재 가지 tip 에 그대로 박는다(벽의 지도)
 	case *kind == "fail":
@@ -1360,14 +1368,21 @@ func cmdReject(args []string) {
 		die("거부: reject 는 --to <조상 define> 필요 (되돌아갈 곳)")
 	}
 	steps := currentCycle(chain, cycle)
-	defineIDs := map[string]bool{}
+	defineIDs, analyzeIDs := map[string]bool{}, map[string]bool{}
 	for _, s := range steps {
 		if s.kind == "define" {
 			defineIDs[s.step] = true
 		}
+		if s.kind == "analyze" {
+			analyzeIDs[s.step] = true
+		}
 	}
-	if !defineIDs[*to] {
-		die("거부: --to " + *to + "는 조상 define이어야 함")
+	if !defineIDs[*to] && !analyzeIDs[*to] {
+		die("거부: --to " + *to + " 는 조상 define 또는 analyze 여야 함 (기각 뒤 되돌아갈 자리)\n" +
+			"  이 사이클의 define: " + strings.Join(sortedIDs(defineIDs), " ") + "\n" +
+			"  이 사이클의 analyze: " + strings.Join(sortedIDs(analyzeIDs), " ") + "\n" +
+			"  · 문제 정의 자체로 돌아가야 하면 → define.\n" +
+			"  · 문제 정의는 옳고 **거기서 내려진 결정**이 틀렸으면 → 그 결정이 선 analyze (이슈 #76).")
 	}
 	sid := nextStepID(cycleAnywhere(chain, cycle))
 	stTitle := orDefault(*title, "기각 — "+tip.step+" 의 대기를 사람이 기각")

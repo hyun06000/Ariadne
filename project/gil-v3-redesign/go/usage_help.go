@@ -109,7 +109,7 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/human-in-the-loop.md",
 	},
 	"reject": {
-		"gil reject <chain>/<cycle> --to <조상 define> [--title T]\n" +
+		"gil reject <chain>/<cycle> --to <조상 define|analyze> [--title T]\n" +
 			"  pending 을 사람이 기각 → 죽은 잎(backtrack, Gil-Approval: rejected). 되돌아갈 곳을 --to 로.",
 		"docs/gil/human-in-the-loop.md",
 	},

@@ -5752,3 +5752,44 @@ class TestInterviewWaiterVisible(GilFixture):
         r = self.gil("interview", "tooling", "--then", "echo x")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--wait", r.stdout + r.stderr)
+
+
+class TestBacktrackToAnalyze(GilFixture):
+    """'되돌아갈 자리'의 문법을 하나로 (이슈 #76 후속).
+
+    hypothesis 의 --to(#60)와 fail 의 --to(#76)는 analyze 를 받는데 backtrack·reject 만
+    define 을 고집했다. 같은 뜻을 세 문법이 다르게 받으면 사람은 세 번 배우고 한 번은 틀린
+    자리를 적는다 — 실사용에서 실제로 그렇게 됐다(fail 은 s1 로 적히고 사고는 s52 에 뿌리내림)."""
+
+    def _upto_analyze(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c1", "--purpose", "P")
+        self.gil("open", "c1/gap", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "c1/gap", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "h")
+        self.gil("step", "c1/gap", "--kind", "verify", "--verdict", "refuted", "--title", "v")
+        self.gil("step", "c1/gap", "--kind", "analyze", "--title", "a")
+
+    def test_backtrack_accepts_analyze(self):
+        self._upto_analyze()
+        r = self.gil("step", "c1/gap", "--kind", "hypothesis", "--outcome", "backtrack",
+                     "--to", "s4", "--falsify", "F2", "--falsify-to", "s4",
+                     "--inherit", "앞 가지의 교훈", "--title", "재가설")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_backtrack_rejection_explains_both_choices(self):
+        self._upto_analyze()
+        r = self.gil("step", "c1/gap", "--kind", "hypothesis", "--outcome", "backtrack",
+                     "--to", "s3", "--falsify", "F2", "--falsify-to", "s1",
+                     "--inherit", "교훈", "--title", "재가설")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("define 또는 analyze", out)
+        self.assertIn("s1", out)   # 고를 수 있는 자리를 그 자리에서 준다
+        self.assertIn("s4", out)
+
+    def test_reject_accepts_analyze(self):
+        self._upto_analyze()
+        self.gil("step", "c1/gap", "--kind", "pending", "--title", "사람 대기")
+        r = self.gil("reject", "c1/gap", "--to", "s4", "--title", "기각")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
