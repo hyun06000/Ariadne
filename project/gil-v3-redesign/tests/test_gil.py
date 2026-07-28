@@ -3968,3 +3968,98 @@ class TestHandoffRespectsTheReference(GilFixture):
         self.assertEqual(rc.returncode, 0, rc.stdout + rc.stderr)
         out = self._handoff()
         self.assertIn("닫히지 않은 사이클 없음", out)
+
+
+class TestViewerDoesNotDisturbTheRepo(GilFixture):
+    """관전자는 저장소를 건드리지 않는다 (이슈 #64, 상현님 실사용).
+
+    뷰어를 띄운 채 migrate 를 돌리면 매번 다른 지점에서 exit 128 로 죽고, 중간까지 만든
+    브랜치를 남겼다. 원인은 뷰어 폴링이 1.5초마다 도는 `git status` 였다 — 인덱스를 갱신하며
+    .git/index.lock 을 잡는다. 뷰어는 온보딩·handoff 가 "띄우라"고 지시하는 것이라(#55),
+    지시대로 띄운 사람이 정확히 이 함정을 밟았다.
+
+    대조 실험으로 기전을 확인했다: git status 를 조밀하게 돌리며 이주하면 옛 방식은
+    `Unable to create '.git/index.lock': File exists` 로 죽고, --no-optional-locks 면 완주한다.
+    """
+
+    def test_viewer_read_does_not_touch_the_index(self):
+        """뷰어가 읽어도 인덱스 파일이 바뀌지 않는다 — 읽기만 하는 관전자여야 한다."""
+        self.gil("init")
+        self.gil("chain", "c", "--purpose", "P")
+        index = os.path.join(self.repo, ".git", "index")
+        before = os.stat(index).st_mtime_ns
+        r = self.gil("viewer", "text")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(os.stat(index).st_mtime_ns, before,
+                         "뷰어가 인덱스를 갱신했다 — 동시에 커밋하는 쪽과 락으로 경합한다")
+
+
+class TestGitFailuresAreLegible(GilFixture):
+    """하위 git 실패는 원인을 그대로 실어 올린다 (이슈 #64③).
+
+    "exit status 128" 한 줄만 나오면 원인을 좁힐 수 없다. 실사용에서 index.lock 경합을
+    찾는 데 그 한 줄이 없어 오래 걸렸다 — git 이 이미 정확히 말해주고 있었는데 삼켰다."""
+
+    def test_git_stderr_is_carried_into_the_message(self):
+        self.gil("init")
+        self.gil("chain", "c", "--purpose", "P")
+        # 이미 있는 브랜치 이름으로 사이클을 열어 git 실패를 유도한다.
+        self._git("branch", "c-dup")
+        r = self.gil("open", "c/dup", "--author", "clew", "--purpose", "P", "--body", "B")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertNotIn("exit status 128\n", out.replace("exit status 128 —", ""),
+                         "git 의 말이 삼켜진 채 종료코드만 남았다")
+
+
+class TestMigratePartialIsAnnounced(GilFixture):
+    """이주가 중간에 멈추면 남은 것을 말한다 (이슈 #64②).
+
+    help 는 "충돌 시 아무것도 만들지 않고 거부(원자성)"라 하고 이름 충돌은 실제로 깨끗이
+    거부한다. 그러나 **실행 중** 실패는 27개·14개·6개를 남긴 채 죽었다. 다음 실행은 그
+    잔여물 때문에 이름 충돌로 거부돼, 손으로 지우기 전엔 재시도가 막혔다."""
+
+    def _v2cycle(self, chain, cid, **fields):
+        d = os.path.join(self.repo, "rooms/experiment/chains", chain, cid)
+        os.makedirs(d, exist_ok=True)
+        lines = [f"id: {cid}", f"chain: {chain}"] + [f"{k}: {v}" for k, v in fields.items()]
+        with open(os.path.join(d, "cycle.yaml"), "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+
+    def _seed(self):
+        with open(os.path.join(self.repo, "CLAUDE.md"), "w", encoding="utf-8") as f:
+            f.write("# 대문\n")
+        # 이주 *산물끼리* 이름이 부딪는 배치 — 체인 a 의 사이클 브랜치(a-c001-x)가 다음 체인의
+        # 이름과 같다. 선제 검사는 '이미 있는 브랜치'만 보므로 이건 못 본다 → 실행 중 실패.
+        self._v2cycle("a", "C001-x", parent="null", status="closed",
+                      verdict="supported", title="첫째")
+        self._v2cycle("a-c001-x", "C001-y", parent="null", status="closed",
+                      verdict="supported", title="이름이 부딪는 체인")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "v2 seed")
+        return self._git("rev-parse", "HEAD").stdout.strip()
+
+    def test_partial_migration_reports_what_remains(self):
+        v2 = self._seed()
+        self._git("checkout", "-q", "-b", "v3-mig")
+        r = self.gil("migrate", "--from", v2)
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("이주가 중간에 멈췄다", out)
+        self.assertIn("git branch -D", out)   # 치우는 한 수를 준다
+        self.assertIn("a-c001-x", out)        # 무엇이 남았는지 이름으로 짚는다
+
+    def test_invalid_name_is_refused_before_anything_is_made(self):
+        """검사할 수 있는 건 실행 중까지 미루지 않는다 — v3 이름 유효성은 선제로 본다."""
+        with open(os.path.join(self.repo, "CLAUDE.md"), "w", encoding="utf-8") as f:
+            f.write("# 대문\n")
+        self._v2cycle("bad name", "C001-x", parent="null", status="closed",
+                      verdict="supported", title="공백 든 체인")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "v2 seed")
+        v2 = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("checkout", "-q", "-b", "v3-mig")
+        r = self.gil("migrate", "--from", v2)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("아무것도 만들지 않았다", r.stdout + r.stderr)
+        self.assertNotIn("이주가 중간에 멈췄다", r.stdout + r.stderr)

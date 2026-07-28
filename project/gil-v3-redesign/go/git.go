@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -38,9 +39,15 @@ func gitCommand(args ...string) *exec.Cmd {
 // gitTry 는 git을 실행하고 (stdout, err). 호출자가 실패를 흡수할 수 있게 한다.
 func gitTry(args ...string) (string, error) {
 	cmd := gitCommand(args...)
-	var out strings.Builder
+	var out, errOut strings.Builder
 	cmd.Stdout = &out
+	// git 의 stderr 를 삼키지 않는다(이슈 #64③). "exit status 128" 한 줄만 나오면 원인을
+	// 좁힐 수 없다 — 실사용에서 뷰어와의 index.lock 경합을 찾는 데 그 한 줄이 없어 오래 걸렸다.
+	cmd.Stderr = &errOut
 	err := cmd.Run()
+	if err != nil && strings.TrimSpace(errOut.String()) != "" {
+		err = errors.New(err.Error() + " — " + strings.TrimSpace(errOut.String()))
+	}
 	return out.String(), err
 }
 
@@ -48,9 +55,13 @@ func gitTry(args ...string) (string, error) {
 func gitInput(msg string, args ...string) string {
 	cmd := gitCommand(args...)
 	cmd.Stdin = strings.NewReader(msg)
-	var out strings.Builder
+	var out, errOut strings.Builder
 	cmd.Stdout = &out
+	cmd.Stderr = &errOut // 원인을 삼키지 않는다(이슈 #64③)
 	if err := cmd.Run(); err != nil {
+		if e := strings.TrimSpace(errOut.String()); e != "" {
+			err = errors.New(err.Error() + " — " + e)
+		}
 		die("git " + strings.Join(args, " ") + " 실패: " + err.Error())
 	}
 	return out.String()
@@ -238,13 +249,30 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 	return false
 }
 
+// dieHooks — die 직전에 불릴 정리·보고 훅(이슈 #64②). os.Exit 는 defer 를 돌리지 않으므로,
+// "중간까지 만들어 둔 것"을 알리려면 여기 걸어야 한다. 훅은 지우지 않고 **말한다** —
+// 무엇이 남았고 어떻게 치우는지. 사람 몰래 브랜치를 지우는 것보다, 남은 걸 정확히 알려주는
+// 편이 append-only 도구의 태도에 맞는다.
+var dieHooks []func()
+
+func onDie(f func()) { dieHooks = append(dieHooks, f) }
+
+func runDieHooks() {
+	for _, f := range dieHooks {
+		f()
+	}
+	dieHooks = nil
+}
+
 func die(msg string) {
 	// MCP 서버로 돌 때는 프로세스를 죽이면 안 된다 — 한 번의 거부가 세션 전체를 끊는다.
 	// 거부는 그 툴 호출의 에러로만 올라가야 한다(gilAbort 로 panic → 핸들러가 recover).
 	if mcpMode {
+		runDieHooks()
 		panic(gilAbort{msg: msg, code: 1})
 	}
 	os.Stderr.WriteString(msg + "\n")
+	runDieHooks() // 원인을 먼저, 뒷정리 안내는 그 다음(이슈 #64②)
 	os.Exit(1)
 }
 

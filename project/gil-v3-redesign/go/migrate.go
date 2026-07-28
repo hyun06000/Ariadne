@@ -22,6 +22,7 @@
 package main
 
 import (
+	"sync"
 	"sort"
 	"strings"
 )
@@ -364,6 +365,13 @@ func topoSortCycles(cycles []v2cycle) ([]v2cycle, bool) {
 }
 
 // ── gil migrate ──
+// migrateCreated — 이번 실행에서 만든 브랜치들(이슈 #64②). 실행 중 실패하면 여기까지
+// 만들어진 것이 남는데, 옛 코드는 말없이 죽었다. 다음 실행은 그 잔여물 때문에 이름 충돌로
+// 거부돼, 사람이 손으로 git branch -D 하기 전엔 재시도가 막혔다("원자성"이라 적어둔 것과
+// 실제가 어긋난 자리다 — 이름 충돌은 깨끗이 거부하지만 실행 중 실패는 그렇지 않았다).
+var migrateCreated []string
+var migrateOnce sync.Once
+
 func cmdMigrate(args []string) {
 	fs := newFlags("gil migrate")
 	from := fs.str("from", "")
@@ -433,6 +441,27 @@ func cmdMigrate(args []string) {
 
 	// ── 원자성 pre-flight: 만들 브랜치가 하나라도 이미 있으면 *아무것도 만들기 전에* 거부한다.
 	// (부분 실패로 브랜치 잔재가 남던 실사용 결함. --prefix 로 네임스페이스 주면 회피된다.)
+	// 이름이 v3 에서 유효한지도 *미리* 본다(이슈 #64② 계열). v2 폴더 이름은 공백 등 git ref
+	// 로 못 쓰는 글자를 담을 수 있는데, 그걸 실행 중에 만나면 이미 만든 브랜치를 남긴 채
+	// 죽는다 — 검사할 수 있는 걸 실행 중까지 미루지 않는다.
+	var badNames []string
+	for _, chain := range chainOrder {
+		v3chain := *prefix + v2ToV3ID(chain)
+		if !idRe.MatchString(v3chain) {
+			badNames = append(badNames, "체인 \""+chain+"\" → \""+v3chain+"\"")
+		}
+		for _, c := range byChain[chain] {
+			if cy := v2ToV3ID(c.id); !idRe.MatchString(cy) {
+				badNames = append(badNames, "사이클 \""+c.id+"\" → \""+cy+"\"")
+			}
+		}
+	}
+	if len(badNames) > 0 {
+		die("거부: v3 이름으로 못 쓰는 것이 있다(소문자·숫자·하이픈만) — 아무것도 만들지 않았다:\n" +
+			"    " + strings.Join(badNames, "\n    ") + "\n" +
+			"  v2 폴더 이름을 고치거나, 그 체인을 --exclude 로 빼고 이주하라.")
+	}
+
 	var collide []string
 	for _, chain := range chainOrder {
 		v3chain := *prefix + v2ToV3ID(chain)
@@ -469,7 +498,22 @@ func cmdMigrate(args []string) {
 		if p := v2ChainPurpose(*from, chain); p != "" {
 			chainPurposeText = "[migrate] " + p
 		}
+		migrateOnce.Do(func() {
+			onDie(func() {
+				if len(migrateCreated) == 0 {
+					return
+				}
+				stderr("")
+				stderr("⚠ 이주가 중간에 멈췄다 — 여기까지 만들어진 것이 남아 있다(" +
+					itoa(len(migrateCreated)) + "개 브랜치):")
+				stderr("    " + strings.Join(migrateCreated, " "))
+				stderr("  다시 돌리기 전에 지워라(안 지우면 이름 충돌로 거부된다):")
+				stderr("    git branch -D " + strings.Join(migrateCreated, " "))
+				stderr("  (지우는 건 사람의 판단으로 남긴다 — 이주 산물이라도 말없이 지우지 않는다.)")
+			})
+		})
 		migrateChainRoot(v3chain, chain, chainPurposeText)
+		migrateCreated = append(migrateCreated, v3chain)
 
 		// migratedInChain — 이 체인에서 이미 이주된 사이클(위상정렬이 부모 먼저를 보장한다).
 		// 옛 코드는 "닫힌 부모"만 계보로 인정해, v2 에서 pending 으로 남은 부모의 계보를 통째로
@@ -479,6 +523,7 @@ func cmdMigrate(args []string) {
 		openParents := map[string]string{} // 자식 → pending 으로 끝난 부모(보고용)
 		for _, c := range sorted {
 			migrateCycle(v3chain, c, migratedInChain, openParents)
+			migrateCreated = append(migrateCreated, cycleBranch(v3chain, v2ToV3ID(c.id)))
 			migratedInChain[v2ToV3ID(c.id)] = true
 			migrated++
 		}
