@@ -4206,3 +4206,72 @@ class TestCycleGoal(GilFixture):
         out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
         self.assertIn("🎯 목표", out)
         self.assertIn("갭 11개를 0으로", out)
+
+
+class TestChainRootsDoNotStack(GilFixture):
+    """이주된 체인들이 일렬로 적층되지 않는다 (이슈 #65).
+
+    옛 이주는 체인 루트를 그때그때의 HEAD 에서 팠는데, HEAD 는 직전 체인의 마지막 사이클
+    가지에 가 있다. 그래서 v2 에서 서로 독립이던 체인들이 처리 순서(알파벳순)대로 일렬로
+    쌓였다.
+
+    이 적층이 두 패널을 갈라놓은 뿌리였다: 전체맵은 그 조상관계를 날것으로 그려 "없던
+    이어받음"(#53 이 잡은 거짓)을 보이고, 체인 그래프는 엄격한 해석으로 안 그려 "적층이
+    있다는 사실"을 감췄다. 적층을 없애면 두 패널이 자연히 일치하고 그게 사실과도 맞는다.
+    """
+
+    def _seed(self):
+        with open(os.path.join(self.repo, "CLAUDE.md"), "w", encoding="utf-8") as f:
+            f.write("# 대문\n")
+        for ch in ("alpha", "beta", "gamma"):
+            d = os.path.join(self.repo, "rooms/experiment/chains", ch, "C001-x")
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "cycle.yaml"), "w", encoding="utf-8") as f:
+                f.write(f"id: C001-x\nchain: {ch}\nparent: null\n"
+                        f"status: closed\nverdict: supported\ntitle: T\n")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "v2 seed")
+        v2 = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("checkout", "-q", "-b", "v3-mig")
+        self.gil("migrate", "--from", v2)
+        return v2
+
+    def _is_ancestor(self, a, b):
+        return self._git("merge-base", "--is-ancestor", a, b).returncode == 0
+
+    def test_independent_v2_chains_stay_independent(self):
+        self._seed()
+        for a in ("alpha", "beta", "gamma"):
+            for b in ("alpha", "beta", "gamma"):
+                if a == b:
+                    continue
+                self.assertFalse(self._is_ancestor(a, b),
+                                 f"{a} 가 {b} 의 조상이다 — v2 에서 독립이던 체인이 적층됐다")
+
+    def test_fsck_is_quiet_on_clean_migration(self):
+        self._seed()
+        self.assertNotIn("적층", self.gil("fsck").stdout + self.gil("fsck").stderr)
+
+
+class TestFsckReportsChainStacking(GilFixture):
+    """적층은 감추지 말고 짚는다 (이슈 #65 제안 3).
+
+    두 패널을 일치시키면 이 이상을 발견하게 해준 차이가 사라진다 — 그 신호를 fsck 로 옮긴다.
+    그래프는 일관되게 그리되, 이상은 도구가 말한다."""
+
+    def test_stacked_chain_root_is_reported(self):
+        self.gil("init")
+        self.gil("chain", "first", "--purpose", "P")
+        # first 를 닫지 않은 채 그 위에서 새 체인을 연다 = 적층(계승이 아니다).
+        self.gil("chain", "second", "--purpose", "P2")
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertIn("적층", out)
+        self.assertIn("second", out)
+
+    def test_real_succession_is_not_reported(self):
+        """닫힌 끝에서 태어난 진짜 계승은 이상이 아니다 — 소음을 만들지 않는다."""
+        self.gil("init")
+        self.gil("chain", "first", "--purpose", "P")
+        self.gil("chain-close", "first", "--retro", "-", input="# 회고\n됐다")
+        self.gil("chain", "second", "--purpose", "P2")
+        self.assertNotIn("적층", self.gil("fsck").stdout + self.gil("fsck").stderr)

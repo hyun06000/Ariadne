@@ -372,6 +372,15 @@ func topoSortCycles(cycles []v2cycle) ([]v2cycle, bool) {
 var migrateCreated []string
 var migrateOnce sync.Once
 
+// migrateBase — 이주가 시작된 커밋(이슈 #65). 옛 코드는 체인 루트를 그때그때의 HEAD 에서
+// 팠는데, HEAD 는 직전 체인의 마지막 사이클 가지에 가 있다. 그래서 이주된 체인들이 처리
+// 순서(알파벳순)대로 **일렬로 적층**됐다 — v2 에서는 서로 독립이던 체인들이다.
+//
+// 이 적층이 #65 의 뿌리다: 전체맵은 그 조상관계를 날것으로 그려 "없던 이어받음"을 보이고,
+// 체인 그래프는 #53 의 엄격한 해석으로 안 그려 "적층이 있다는 사실"을 감춘다. 적층을 없애면
+// 두 패널이 자연히 일치하고, 그게 사실과도 맞는다.
+var migrateBase string
+
 func cmdMigrate(args []string) {
 	fs := newFlags("gil migrate")
 	from := fs.str("from", "")
@@ -498,6 +507,10 @@ func cmdMigrate(args []string) {
 		if p := v2ChainPurpose(*from, chain); p != "" {
 			chainPurposeText = "[migrate] " + p
 		}
+		if migrateBase == "" {
+			// 이주 시작 지점을 한 번만 붙잡는다(이슈 #65). 모든 체인 루트는 **여기서** 갈라진다.
+			migrateBase = strings.TrimSpace(git("rev-parse", "HEAD"))
+		}
 		migrateOnce.Do(func() {
 			onDie(func() {
 				if len(migrateCreated) == 0 {
@@ -588,7 +601,8 @@ func migrateChainRoot(v3chain, v2chain, purpose string) {
 		{"Gil-Chain-Purpose", purpose},
 		{"Gil-Migrate", "chain"}, {"Gil-Migrated-From", v2chain},
 	}
-	commitOn(v3chain, "HEAD", subject, body, tr, true)
+	// 체인 루트는 이주 시작점에서 갈라진다 — 앞 체인 위에 쌓지 않는다(이슈 #65).
+	commitOn(v3chain, orDefault(migrateBase, "HEAD"), subject, body, tr, true)
 }
 
 // migrateCycle — v2 사이클 하나를 v3 사이클(define→verify→종결→close)로 이주한다.

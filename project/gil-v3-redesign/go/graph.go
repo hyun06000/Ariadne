@@ -397,6 +397,8 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 				"    그 자리에 종결을 박아라: gil step "+n.chain+"/"+n.cycle+
 				" --kind fail --at "+n.step+" --to <조상 define> --title <왜 막혔나>")
 		}
+		// (체인 루트 적층 검사는 노드 루프 밖에서 한 번 — 아래 fsckChainStacking)
+
 		// 6. 계보 참조 무결성 — 스텝 머지(같은 사이클 산 잎)는 실재로 이미 확인, 나머지가 체인/사이클 머지.
 		var cycChainMerges []string
 		for _, ref := range n.merges {
@@ -432,7 +434,48 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 			violations = append(violations, "계보: "+cc+" — 정정 대상 \""+n.supersedes+"\" 실재 안 함 (dangling supersedes)")
 		}
 	}
+	violations = append(violations, fsckChainStacking()...)
 	return violations
+}
+
+// fsckChainStacking — 체인 루트가 다른 체인의 커밋 위에 얹혀 있는데 그 체인이 닫히지 않은
+// 경우를 보고한다(이슈 #65 제안 3).
+//
+// 왜 감추지 않고 보고하나. 전체맵은 커밋 조상관계를 날것으로 그리고, 체인 그래프는 "닫힌
+// 끝에서 태어났을 때만 계승"(#53)이라는 엄격한 판정을 쓴다. 두 패널을 일치시키면 그 차이가
+// 사라지는데 — 이 이상을 발견할 수 있었던 건 역설적으로 두 패널이 **달랐기 때문**이다.
+// 그래서 그 신호를 여기로 옮긴다: 그래프는 일관되게 그리되, 이상은 fsck 가 말한다.
+func fsckChainStacking() []string {
+	parents := chainParents() // 진짜 계승(닫힌 끝에서 태어남)만 담긴 맵
+	roots := map[string]string{}
+	fmtStr := "%H" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Kind") + sep
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		sha, rest, _ := cut(strings.TrimSpace(rec), fsep)
+		ch, kind, _ := cut(rest, fsep)
+		if strings.TrimSpace(kind) == "chain-root" && strings.TrimSpace(ch) != "" {
+			roots[strings.TrimSpace(ch)] = strings.TrimSpace(sha)
+		}
+	}
+	var names []string
+	for ch := range roots {
+		names = append(names, ch)
+	}
+	sort.Strings(names)
+	var out []string
+	for _, ch := range names {
+		for _, other := range names {
+			if ch == other || parents[ch] == other {
+				continue // 자기 자신이거나, 이미 진짜 계승으로 인정된 관계
+			}
+			if gitOK("merge-base", "--is-ancestor", roots[other], roots[ch]) {
+				out = append(out, "계보: 체인 "+ch+" — 루트가 체인 "+other+
+					" 위에 얹혀 있으나 계승이 아니다(그 체인은 닫힌 적 없다). 적층이다:\n"+
+					"    커밋 조상관계는 '이어받음'을 뜻하지 않는다 — 그래프는 이 둘을 잇지 않는다.\n"+
+					"    (이주 산물이면 최신 gil 로 다시 이주하라 — 체인 루트는 이주 시작점에서 갈라진다.)")
+			}
+		}
+	}
+	return out
 }
 
 // ── 체인·사이클 집계 (handoff가 쓰는 파싱 — gilweb.py에서 렌더 제외하고 가져옴) ──

@@ -1539,7 +1539,14 @@ function buildStepMap(){
   DAG.forEach(n=>{ n.parents.forEach(p=>{ if(!byId[p])return;
     const x1=X(p),y1=Y(p),x2=X(n.sha),y2=Y(n.sha);
     const branch=n.parent&&n.parent!=='null'&&byId[p].step!==n.parent;
-    const cls='dedge'+(branch?' branch':'')+(byId[p].chain!==n.chain?' cross':'');
+    // 체인을 넘는 엣지를 "체인 전환(주황)"이라 부르려면, 그게 **진짜 계승**이어야 한다
+    // (이슈 #65). PARENTS 는 체인 그래프가 쓰는 것과 같은 판정 결과다 — 닫힌 끝에서
+    // 태어났을 때만 계승(#53). 두 패널이 같은 자리에서 끊고 같은 자리에서 잇게 한다.
+    // 계승이 아닌 경계 넘기는 회색 실선으로 남는다: 커밋 조상관계는 사실이므로 그리되,
+    // "이어받았다"고 주장하지 않는다.
+    const crossChain=byId[p].chain!==n.chain;
+    const realSuccession=crossChain&&PARENTS[n.chain]===byId[p].chain;
+    const cls='dedge'+(branch?' branch':'')+(realSuccession?' cross':'');
     const mx=(x1+x2)/2;
     svg.appendChild(svgEl('path',{class:cls,fill:'none',d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
   }); });
