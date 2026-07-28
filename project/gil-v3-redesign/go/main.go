@@ -326,6 +326,12 @@ func logDepthCycle(ch string) {
 			line += "  ← " + strings.Join(c.parents, ",")
 		}
 		println2(line)
+		// 측정의 좌표(이슈 #79·#81) — "이 수치가 어느 셋 위에서 무엇을 잰 것인가"를
+		// 그래프에서 바로 읽게. 산문 속에만 있으면 기계도 사람도 대조하지 못한다.
+		ds, sj := cycleCoordOf(ch, cy)
+		for _, ln := range coordLines(ds, sj, "      ") {
+			println2(ln)
+		}
 	}
 }
 

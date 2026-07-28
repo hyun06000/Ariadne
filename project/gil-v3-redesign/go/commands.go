@@ -472,6 +472,11 @@ func cmdOpen(args []string) {
 	// 기록되는 판단이 되게.
 	parallel := fs.strList("parallel")
 	inherit := fs.str("inherit", "") // 물려받은 지식·전제·교훈(AIL #3): 계보 간선 생기면 필수
+	// 측정의 좌표(이슈 #79·#81): --dataset = 어디서 쟀나, --subject = 무엇을 쟀나.
+	// 산문이 아니라 필드라야 기계가 대조한다. 여러 축이면 여러 번.
+	datasets := fs.strList("dataset")
+	datasetNote := fs.str("dataset-note", "")
+	subjects := fs.strList("subject")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
@@ -491,6 +496,12 @@ func cmdOpen(args []string) {
 		if !idRe.MatchString(kv[1]) {
 			die("거부: " + kv[0] + " id \"" + kv[1] + "\"는 소문자·숫자·하이픈만")
 		}
+	}
+	// 측정 좌표(이슈 #79·#81) — 체인이 요구하면 선언 없이는 못 연다. 같은 체인 안에서 축이
+	// 바뀌면 막지는 않되 조용히 넘어가지 않는다.
+	requireCoords(chain, *datasets, *subjects)
+	for _, ln := range coordDriftLines(chain, *datasets, *subjects) {
+		stderr(ln)
 	}
 	// 중복 가드는 **그래프 전체**로 본다 — 다른 브랜치에 이미 있는 사이클 이름을 또 여는
 	// 구멍이 있었다(같은 이름 사이클이 둘이면 이후 조회가 어느 쪽인지 모른다).
@@ -618,6 +629,15 @@ func cmdOpen(args []string) {
 	}
 	if g := strings.TrimSpace(*goal); g != "" {
 		tr = append(tr, [2]string{"Gil-Cycle-Goal", g}) // 달성 판정 기준(이슈 #62)
+	}
+	for _, d := range *datasets {
+		tr = append(tr, [2]string{"Gil-Dataset", d}) // 어디서 쟀나 — 판정의 분모(이슈 #79)
+	}
+	if n := strings.TrimSpace(*datasetNote); n != "" {
+		tr = append(tr, [2]string{"Gil-Dataset-Note", n})
+	}
+	for _, sj := range *subjects {
+		tr = append(tr, [2]string{"Gil-Subject", sj}) // 무엇을 쟀나 — 판정의 대상(이슈 #81)
 	}
 	for _, p := range *parallel {
 		tr = append(tr, [2]string{"Gil-Parallel-With", p}) // 미해결을 알면서 나란히 연다(이슈 #45)
@@ -1927,6 +1947,10 @@ func cmdChain(args []string) {
 	// 진실(--inherit 없음)과 그려지는 진실(이어받음)이 반대였다. 병렬을 막는 게 답이 아니다
 	// (실사용에서 5개 트랙이 서로 다른 장비에서 동시에 돌았다). 표현할 수단을 주는 게 답이다.
 	parallelWith := fs.strList("parallel-with")
+	// 측정 체인의 합격선을 스스로 올린다(이슈 #79 제안 2, #81). 전면 강제는 과하다 —
+	// 측정을 하는 체인만 "선언 없이는 사이클을 못 연다"를 문법으로 건다.
+	requireDataset := fs.boolFlag("require-dataset")
+	requireSubject := fs.boolFlag("require-subject")
 	// --from <닫힌 체인> (이슈 #68): **어느 닫힌 체인을 이어받는지** 선언한다.
 	//
 	// --parallel-with 의 빈 짝이었다. 옛 동작은 새 체인을 HEAD 가 있던 곳에 붙였는데, HEAD 는
@@ -1999,6 +2023,12 @@ func cmdChain(args []string) {
 	tr := [][2]string{
 		{"Gil-Chain", name}, {"Gil-Kind", "chain-root"},
 		{"Gil-Chain-Purpose", *purpose},
+	}
+	if *requireDataset {
+		tr = append(tr, [2]string{"Gil-Require-Dataset", "true"}) // 사이클마다 평가셋 선언 필수(#79)
+	}
+	if *requireSubject {
+		tr = append(tr, [2]string{"Gil-Require-Subject", "true"}) // 사이클마다 측정 대상 선언 필수(#81)
 	}
 	if strings.TrimSpace(refBody) != "" {
 		tr = append(tr, [2]string{"Gil-Reference", "true"}) // 기준 문서 있음(본문에 전문)

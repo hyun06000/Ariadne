@@ -22,13 +22,16 @@ var helpTable = map[string]helpEntry{
 	},
 	"chain": {
 		"gil chain <name> --purpose <자연어> [--parallel-with <열린체인>...] [--reference <기준문서|->] [--inherit <전수>]\n" +
+			"          [--require-dataset] [--require-subject]\n" +
 			"  새 체인(작업 큰 줄기)을 연다 — git 브랜치 <name> 을 판다. --purpose 필수.\n" +
 			"  닫힌 체인 끝에서만(대문/이전 닫힌 체인 이어받음, orphan 아님) — 그래야 '이어받음'이\n" +
 			"  사실이 된다. 열린 체인이 있는데 **동시에** 굴리는 트랙이면 --parallel-with <그 체인>\n" +
 			"  으로 선언하라(이슈 #54): 선언 없이는 거부하고, 선언하면 계승으로 그리지 않는다.\n" +
 			"  --reference: 이 체인의 기준 문서(레퍼런스 트루스, 이슈 #33) — 사람과의 인터뷰로\n" +
 			"    문제를 명확히 한 산출물. chain-root 본문에 전문이 담기고, 이후 사이클의 define·\n" +
-			"    가설·성패판정이 무엇에 비추어 합당한지의 잣대가 된다. 아직 강제 아님(존재·참조만).",
+			"    가설·성패판정이 무엇에 비추어 합당한지의 잣대가 된다. 아직 강제 아님(존재·참조만).\n" +
+			"  --require-dataset / --require-subject: 이 체인의 사이클은 열 때 측정 좌표를 선언해야 한다\n" +
+			"    (이슈 #79·#81). 측정 체인이 스스로 합격선을 올리는 문법 — 선언 없으면 open 이 거부된다.",
 		"docs/gil/concepts.md · docs/gil/deployment.md",
 	},
 	"chain-close": {
@@ -45,6 +48,7 @@ var helpTable = map[string]helpEntry{
 	},
 	"open": {
 		"gil open <chain>/<cycle> --author <who> --purpose <자연어> (--body B | --body-file F|- | --title T)\n" +
+			"           [--dataset <이름>@sha256:<hex>]... [--dataset-note <메모>] [--subject <이름>@rev:<체크포인트>#<옵션>]...\n" +
 			"           [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...]\n" +
 			"           [--inherit <전수>]\n" +
 			"  새 사이클을 연다(s1 define 자동) — git 브랜치 <chain>-<cycle> 을 판다.\n" +
@@ -53,6 +57,11 @@ var helpTable = map[string]helpEntry{
 			"    사람 답 대기(pending)면 답이 올 때까지 못 연다.\n" +
 			"  본문 필수: --body/--body-file -(stdin)/--title 중 하나로 s1 define 의 문제 정의를 여는 순간 채운다.\n" +
 			"    (빈 채로 열 수 없다 — raw git amend 로 채우던 우회를 문법으로 막는다. AIL #12)\n" +
+			"  --dataset  이 측정이 **어디서** 서는가 — 평가셋 파일과 그 sha256(이슈 #79). 이름만으로는\n" +
+			"             결정되지 않는다: 행수·빈행·합계까지 같고 sha 만 다른 평가셋이 실제로 8개 있었고,\n" +
+			"             그걸 몰라 체인 하나가 통째로 무효가 됐다. 축이 둘이면 두 번 준다.\n" +
+			"  --subject  이 측정이 **무엇을** 재는가 — 모델·체크포인트·어댑터·양자화(이슈 #81). 서빙\n" +
+			"             별칭만 적으면 '무엇의 점수인지 모르는 점수'가 된다. 권장 <이름>@rev:<커밋>#<옵션>.\n" +
 			"  --parent   이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).\n" +
 			"  --goal     이 사이클이 **무엇이 되면 끝인가**(달성 판정 기준, 이슈 #62). purpose 가 '무엇을\n" +
 			"             하려는가'라면 goal 은 '무엇이 되면 됐다고 할 것인가'다. 선언하면 gil close 가\n" +

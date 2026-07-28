@@ -474,6 +474,9 @@ func handoffReport() string {
 			if g := cycleGoal(cname, cid, "--branches"); g != "" {
 				L = append(L, "        🎯 목표(열 때 선언): "+g) // 이슈 #62 — 무엇이 되면 끝인가
 			}
+			// 측정의 좌표(이슈 #79·#81): 이 수치가 어느 셋 위에서 무엇을 잰 것인가.
+			ds, sj := cycleCoordOf(cname, cid)
+			L = append(L, coordLines(ds, sj, "        ")...)
 			L = append(L, "        팁: "+tip.step+" ["+tip.kind+oc+"]")
 			L = append(L, "        다음 허용: "+nxt)
 			if tip.kind == "pending" {

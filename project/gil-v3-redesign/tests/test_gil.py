@@ -1012,6 +1012,88 @@ class TestGoto(GilFixture):
         self.assertIn("gil goto a/dead/", out)
 
 
+class TestMeasurementCoords(GilFixture):
+    """측정의 좌표 — 어디서 쟀나(dataset)·무엇을 쟀나(subject) (이슈 #79·#81).
+
+    실사용에서 체인 하나가 통째로 탔다: "평가셋"이라 불리는 파일이 둘이었고 어느 측정이 어느
+    것 위에 섰는지 아무 데도 없었다. 행수·빈행·gold 합계까지 같고 sha 만 다른 평가셋이 8개.
+    gil 은 '닫힌 사이클 불변'을 보장하는데, 그 판정이 **무엇에 대한 판정인지**는 보장 밖이었다."""
+
+    DS = "gold_eval_md.jsonl@sha256:013f5b73ffdbef75"
+    SJ = "gemma-26b@rev:abc1234#quant=AWQ"
+
+    def _chain(self, *flags):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "evalmap", "--purpose", "측정", *flags)
+
+    def test_coords_are_trailers_not_prose(self):
+        """선언은 트레일러로 남는다 — 산문이 아니라 필드라야 기계가 대조한다."""
+        self._chain()
+        self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1",
+                 "--dataset", self.DS, "--subject", self.SJ, "--dataset-note", "376행, gold 2895")
+        body = self._git("log", "-1", "--format=%B", "evalmap-c001").stdout
+        self.assertIn("Gil-Dataset: " + self.DS, body)
+        self.assertIn("Gil-Subject: " + self.SJ, body)
+        self.assertIn("Gil-Dataset-Note: 376행, gold 2895", body)
+
+    def test_require_dataset_refuses_open_without_declaration(self):
+        """측정 체인은 스스로 합격선을 올린다 — 선언 없으면 문법이 거부한다."""
+        self._chain("--require-dataset")
+        r = self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("평가셋 선언을 요구한다", r.stdout + r.stderr)
+        ok = self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1", "--dataset", self.DS)
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+
+    def test_require_subject_refuses_open_without_declaration(self):
+        self._chain("--require-subject")
+        r = self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("측정 대상 선언을 요구한다", r.stdout + r.stderr)
+
+    def test_dataset_without_sha_is_flagged(self):
+        """이름만으로는 파일이 결정되지 않는다 — 막지는 않되 짚는다."""
+        self._chain()
+        r = self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1",
+                     "--dataset", "gold_eval_md.jsonl")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("sha256 이 없다", r.stdout + r.stderr)
+
+    def test_axis_change_within_chain_is_announced(self):
+        """c001 은 A 로 재고 c002 는 B 로 쟀는데 둘을 비교하면 사고다 — 그 자리에서 알린다."""
+        self._chain()
+        self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1", "--dataset", self.DS)
+        self.gil("step", "evalmap/c001", "--kind", "success", "--title", "됨")
+        self.gil("close", "evalmap/c001", "--verdict", "supported")
+        r = self.gil("open", "evalmap/c002", "--author", "clew", "--purpose", "비교",
+                     "--dataset", "gold_eval_mdoc.jsonl@sha256:99ffee00",
+                     "--parent", "c001", "--inherit", "c001 교훈")
+        out = r.stdout + r.stderr
+        self.assertIn("평가셋(dataset)이 바뀐다", out)
+        self.assertIn("나란히 비교하지 마라", out)
+
+    def test_same_axis_is_not_announced(self):
+        """같은 축이면 조용하다 — 늘 뜨는 경고는 안 읽힌다."""
+        self._chain()
+        self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1", "--dataset", self.DS)
+        self.gil("step", "evalmap/c001", "--kind", "success", "--title", "됨")
+        self.gil("close", "evalmap/c001", "--verdict", "supported")
+        r = self.gil("open", "evalmap/c002", "--author", "clew", "--purpose", "이어서",
+                     "--dataset", self.DS, "--parent", "c001", "--inherit", "c001 교훈")
+        self.assertNotIn("바뀐다", r.stdout + r.stderr)
+
+    def test_coords_are_visible_in_log_and_handoff(self):
+        """그래프에서 바로 읽힌다 — 산문 속에 묻히지 않게."""
+        self._chain()
+        self.gil("open", "evalmap/c001", "--author", "clew", "--purpose", "F1",
+                 "--dataset", self.DS, "--subject", self.SJ)
+        log = self.gil("log", "evalmap", "--depth", "cycle").stdout
+        self.assertIn("📐 평가셋: " + self.DS, log)
+        self.assertIn("🎯 대상: " + self.SJ, log)
+        ho = self.gil("handoff").stdout
+        self.assertIn("📐 평가셋: " + self.DS, ho)
+
+
 class TestInterviewArrival(GilFixture):
     """사람의 답이 도착한 사실이 에이전트에게 **도달한다** (이슈 #77, #58 후속).
 

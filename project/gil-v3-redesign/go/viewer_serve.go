@@ -618,8 +618,10 @@ func cycleJSON(g graphView, static bool) string {
 			}
 			// 사이클 부모(경계 stub 엣지용, AIL #7): 위상 유도한 진입 부모 스텝 ref(다른 카드).
 			cycPar := cycleEntry[ch.name+"\x01"+cy.name]
-			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"nodes":[`,
-				cy.name, len(cy.steps), cy.status(), here, cycPar))
+			// 측정의 좌표(이슈 #79·#81) — 뷰어 사이클 카드가 "어디서/무엇을" 을 함께 보인다.
+			ds, sj := cycleCoordOf(ch.name, cy.name)
+			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"dataset":%s,"subject":%s,"nodes":[`,
+				cy.name, len(cy.steps), cy.status(), here, cycPar, jsonStrings(ds), jsonStrings(sj)))
 			for k, n := range cy.steps {
 				if k > 0 {
 					sb.WriteString(",")
@@ -1073,6 +1075,15 @@ function openCard(chain){
   close.addEventListener('click',ev=>{ev.stopPropagation();collapse();});
   head.appendChild(title); head.appendChild(close);
   card.appendChild(head);
+
+  // 이 카드가 선 측정 좌표(이슈 #79·#81) — 사이클마다 다를 수 있으니 카드에 붙인다.
+  const coordCy=cy.filter(c=>(c.dataset&&c.dataset.length)||(c.subject&&c.subject.length));
+  if(coordCy.length){
+    const box=document.createElement('div'); box.className='hint';
+    box.textContent=coordCy.map(c=>c.name+': '+
+      [...(c.dataset||[]).map(d=>'📐 '+d),...(c.subject||[]).map(x=>'🎯 '+x)].join(' · ')).join('  |  ');
+    card.appendChild(box);
+  }
 
   // 사이클 노드-엣지 그래프(내부 SVG). 가로 배치, 순차 엣지.
   // 간격을 이름 길이에서 뽑는다(이슈 #71) — cyname 은 12px, 한글·긴 이름이면 104px 로는
