@@ -312,6 +312,9 @@ func handoffReport() string {
 			if c.status != "in_progress" && c.status != "pending" {
 				// 잎은 다 종결됐지만 사이클은 안 닫혔다 — 두 상태를 갈라 적는다.
 				L = append(L, "    ◦ 사이클 "+cid+" (미종결 — 잎 상태: "+c.status+")")
+				if g := cycleGoal(cname, cid, "--branches"); g != "" {
+					L = append(L, "        🎯 목표(열 때 선언): "+g)
+				}
 				L = append(L, "        잎은 다 종결됐다. 그러나 이 사이클은 아직 닫히지 않았다 —")
 				L = append(L, "        '잎이 다 종결됐다'는 '사이클 목표가 달성됐다'와 다르다.")
 				L = append(L, "        · 목표에 닿았으면 닫아라: gil close "+cname+"/"+cid+
@@ -328,6 +331,9 @@ func handoffReport() string {
 				oc = "/" + tip.outcome
 			}
 			L = append(L, "    ◦ 사이클 "+cid+" ("+c.status+")")
+			if g := cycleGoal(cname, cid, "--branches"); g != "" {
+				L = append(L, "        🎯 목표(열 때 선언): "+g) // 이슈 #62 — 무엇이 되면 끝인가
+			}
 			L = append(L, "        팁: "+tip.step+" ["+tip.kind+oc+"]")
 			L = append(L, "        다음 허용: "+nxt)
 			if tip.kind == "pending" {

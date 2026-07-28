@@ -2352,11 +2352,15 @@ class TestDeploy(GilFixture):
 class TestFailClosure(GilFixture):
     """fail/종결 처리 — 이슈 #44·#45·#46 (fail=이 가설의 죽음, 사이클의 죽음이 아니다)."""
 
-    def _fail_only_cycle(self, chain="c", cycle="dead"):
-        """산 잎 없이 fail 잎만 있는 사이클을 만든다(refuted→fail)."""
+    def _fail_only_cycle(self, chain="c", cycle="dead", *open_extra):
+        """산 잎 없이 fail 잎만 있는 사이클을 만든다(refuted→fail).
+
+        두 번째 미해결 사이클을 만들려면 open 자체가 --parallel 선언을 요구한다 —
+        레일이 실제로 돌고 있다는 증거라, 테스트도 그 문법을 따른다(이슈 #45)."""
         self.gil("init", "--name", "clew")
         self.gil("chain", chain, "--purpose", "P")
-        self.gil("open", f"{chain}/{cycle}", "--author", "clew", "--purpose", "Q", "--body", "정의")
+        self.gil("open", f"{chain}/{cycle}", "--author", "clew", "--purpose", "Q",
+                 "--body", "정의", *open_extra)
         self.gil("step", f"{chain}/{cycle}", "--kind", "hypothesis", "--title", "H",
                  "--falsify", "F", "--falsify-to", "s1")
         self.gil("step", f"{chain}/{cycle}", "--kind", "verify", "--title", "V", "--verdict", "refuted")
@@ -2410,18 +2414,43 @@ class TestFailClosure(GilFixture):
         self.assertIn("--abandon", out)
         self.assertIn("hypothesis --to", out)
 
-    def test_open_warns_on_stranded_cycle(self):
-        """미해결(fail만·미종결) 사이클이 있으면 새 사이클 open 시 경고(이슈 #45)."""
+    def test_open_refuses_on_stranded_cycle(self):
+        """미해결(fail만·미종결) 사이클이 있으면 새 사이클 open 을 **거부**한다(이슈 #45).
+
+        옛 동작은 경고였다. 실측에서 4/4 로 도망갔다 — 경고는 읽히지 않거나 읽혀도 다음
+        줄에서 잊힌다. 규율은 안내가 아니라 문법의 거부여야 한다(HEAAL)."""
         self._fail_only_cycle(chain="c", cycle="dead")
         r = self.gil("open", "c/fresh", "--author", "clew", "--purpose", "새것", "--body", "정의2")
-        self.assertEqual(r.returncode, 0, "경고일 뿐 거부는 아님: " + r.stderr)
-        self.assertIn("dead", r.stdout + r.stderr)  # 방치된 사이클 이름 언급
+        self.assertNotEqual(r.returncode, 0, "미해결 사이클을 두고 새 사이클이 열렸다")
+        out = r.stdout + r.stderr
+        self.assertIn("dead", out)          # 어느 사이클이 방치됐는지 짚는다
+        self.assertIn("--abandon", out)     # 세 길을 다 준다
+        self.assertIn("hypothesis --to", out)
+        self.assertIn("--parallel", out)
+
+    def test_declared_parallel_passes_and_is_recorded(self):
+        """병렬은 막지 않되 조용히 지나가지도 않는다 — 선언하면 통과하고 그래프에 남는다."""
+        self._fail_only_cycle(chain="c", cycle="dead")
+        r = self.gil("open", "c/fresh", "--author", "clew", "--purpose", "새것",
+                     "--body", "정의2", "--parallel", "dead")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Parallel-With"), "dead")
+
+    def test_partial_declaration_still_refused(self):
+        """둘 중 하나만 선언하면 나머지는 여전히 막는다 — 선언은 사이클마다."""
+        self._fail_only_cycle(chain="c", cycle="dead")
+        self._fail_only_cycle("c", "dead2", "--parallel", "dead")
+        r = self.gil("open", "c/fresh", "--author", "clew", "--purpose", "새것",
+                     "--body", "정의2", "--parallel", "dead")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("dead2", r.stdout + r.stderr)
 
     def test_open_no_warn_when_cycle_abandoned(self):
         """abandon 으로 봉인된 사이클은 더 이상 '방치'가 아니다 — 경고 없음."""
         self._fail_only_cycle(chain="c", cycle="dead")
         self.gil("close", "c/dead", "--abandon")
         r = self.gil("open", "c/fresh", "--author", "clew", "--purpose", "새것", "--body", "정의2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("미해결 사이클", r.stdout + r.stderr)
 
     # ── #44: 어긋난 브랜치에서 reject 해도 대상 계보에 얹히고 pending 이 풀린다 ──
@@ -4106,3 +4135,74 @@ class TestChainDepthCountsAllCycles(GilFixture):
         self.assertEqual(cycle_view.count("◆"), 3)
         # handoff 의 누적 신호도 같은 집계원을 본다.
         self.assertIn("3", self.gil("handoff").stdout + self.gil("handoff").stderr)
+
+
+class TestCycleGoal(GilFixture):
+    """사이클이 '무엇이 되면 끝인가'를 스스로 들고 있다 (이슈 #62 제안 1).
+
+    purpose 가 "무엇을 하려는가"라면 goal 은 "무엇이 되면 됐다고 할 것인가"다. 옛 도구는
+    잎이 다 종결되면 사실상 끝난 것으로 읽었는데, **"잎이 다 종결됐다" ≠ "목표가 달성됐다"**.
+    close 가 verdict 를 받으니 열 때 목표를 받는 건 대칭이고, 그래야 닫는 판단이 자기확신이
+    아니라 열 때의 선언에 매인다.
+
+    gil 은 목표 달성 여부를 알 수 없다 — 알 수 있는 건 "답했는가"뿐이고 그것만 강제한다
+    (정직 강제 불가, 은폐 영속화만 차단).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "g", "--purpose", "P")
+
+    def _cycle(self, name, *extra):
+        self.gil("open", f"g/{name}", "--author", "clew", "--purpose", "Q",
+                 "--body", "정의", *extra)
+        self.gil("step", f"g/{name}", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", f"g/{name}", "--kind", "verify", "--title", "V",
+                 "--verdict", "supported", "--body", "B")
+        self.gil("step", f"g/{name}", "--kind", "analyze", "--title", "A", "--body", "B")
+        self.gil("step", f"g/{name}", "--kind", "success", "--title", "S", "--body", "B")
+
+    def test_goal_is_imprinted(self):
+        self.gil("open", "g/c1", "--author", "clew", "--purpose", "Q", "--body", "정의",
+                 "--goal", "예제 이식 불가 0건")
+        self.assertEqual(self.trailer("HEAD", "Gil-Cycle-Goal"), "예제 이식 불가 0건")
+
+    def test_close_must_answer_the_goal(self):
+        """목표를 선언하고 열었으면, 닫을 때 그 목표에 답해야 한다."""
+        self._cycle("c1", "--goal", "갭 11개를 0으로")
+        r = self.gil("close", "g/c1")
+        self.assertNotEqual(r.returncode, 0, "목표에 답하지 않고 닫혔다")
+        out = r.stdout + r.stderr
+        self.assertIn("갭 11개를 0으로", out)   # 무엇에 답해야 하는지 그 자리에서 보여준다
+        self.assertIn("--goal-met", out)
+        self.assertIn("--abandon", out)
+
+    def test_close_passes_with_declaration(self):
+        self._cycle("c1", "--goal", "갭 11개를 0으로")
+        r = self.gil("close", "g/c1", "--goal-met")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Goal-Met"), "true")
+
+    def test_no_goal_declared_keeps_old_behavior(self):
+        """목표를 안 세운 사이클은 예전처럼 닫힌다 — 새 문법이 옛 흐름을 깨지 않는다."""
+        self._cycle("c1")
+        r = self.gil("close", "g/c1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_goal_is_shown_while_working(self):
+        """매 스텝 그 자리에서 목표가 보인다 — 판단이 선언에 매이도록."""
+        self.gil("open", "g/c1", "--author", "clew", "--purpose", "Q", "--body", "정의",
+                 "--goal", "갭 11개를 0으로")
+        r = self.gil("step", "g/c1", "--kind", "hypothesis", "--title", "H",
+                     "--falsify", "F", "--falsify-to", "s1")
+        self.assertIn("갭 11개를 0으로", r.stdout + r.stderr)
+
+    def test_handoff_shows_the_goal(self):
+        """이어받은 세션이 '무엇이 되면 끝인가'를 첫 화면에서 본다."""
+        self.gil("open", "g/c1", "--author", "clew", "--purpose", "Q", "--body", "정의",
+                 "--goal", "갭 11개를 0으로")
+        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
+        self.assertIn("🎯 목표", out)
+        self.assertIn("갭 11개를 0으로", out)

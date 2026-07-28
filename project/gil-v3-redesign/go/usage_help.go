@@ -52,6 +52,10 @@ var helpTable = map[string]helpEntry{
 			"  본문 필수: --body/--body-file -(stdin)/--title 중 하나로 s1 define 의 문제 정의를 여는 순간 채운다.\n" +
 			"    (빈 채로 열 수 없다 — raw git amend 로 채우던 우회를 문법으로 막는다. AIL #12)\n" +
 			"  --parent   이 사이클이 잇는 이전 사이클/체인(닫힌 것이어야).\n" +
+			"  --goal     이 사이클이 **무엇이 되면 끝인가**(달성 판정 기준, 이슈 #62). purpose 가 '무엇을\n" +
+			"             하려는가'라면 goal 은 '무엇이 되면 됐다고 할 것인가'다. 선언하면 gil close 가\n" +
+			"             --goal-met 로 그 목표에 답할 것을 요구한다 — '잎이 다 종결됐다'가 '목표 달성'으로\n" +
+			"             조용히 미끄러지지 않게.\n" +
 			"  --refutes  이 사이클이 앞서 닫힌 supported verify 를 소급 반증한다(과거 불변, forward 간선). 재판정에 쓴다.\n" +
 			"  --refines  앞서 닫힌 verify·analyze 의 *해석*만 정밀화한다(이슈 #42) — 판정(verdict)은 그대로 선다.\n" +
 			"             refutes 가 극성 전환이면 refines 는 해석 심화다. \"원인을 더 좁혔다\"에 쓰고,\n" +

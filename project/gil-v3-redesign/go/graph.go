@@ -161,6 +161,22 @@ func chainInterviewPending(chain, revRange string) bool {
 	return false
 }
 
+// cycleGoal — 이 사이클의 달성 판정 기준(Gil-Cycle-Goal, 이슈 #62). 없으면 "".
+// purpose("무엇을 하려는가")와 다르다 — goal 은 "무엇이 되면 됐다고 할 것인가"다.
+func cycleGoal(chain, cycle, revRange string) string {
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +
+		trailer("Gil-Cycle-Goal") + sep
+	out := gitlog("--format="+fmtStr, revRange)
+	for _, rec := range strings.Split(out, sep) {
+		c, rest, _ := cut(rec, fsep)
+		cy, g, _ := cut(rest, fsep)
+		if strings.TrimSpace(c) == chain && strings.TrimSpace(cy) == cycle && strings.TrimSpace(g) != "" {
+			return strings.TrimSpace(g)
+		}
+	}
+	return ""
+}
+
 // cyclePurpose — 사이클 목적성. 참조: cycle_purpose.
 func cyclePurpose(chain, cycle, revRange string) string {
 	fmt := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +
@@ -196,6 +212,11 @@ func showPurposeContext(chain, cycle, cyclePurposeStr string) {
 		}
 		if pu != "" {
 			stderr("─ 사이클 [" + cycle + "] 목적: " + pu)
+		}
+		// 목표(이슈 #62): "무엇이 되면 됐다고 할 것인가". 매 스텝 이 자리에서 보여야
+		// 판단이 자기확신이 아니라 선언에 매인다.
+		if g := cycleGoal(chain, cycle, "--branches"); g != "" {
+			stderr("─ 사이클 [" + cycle + "] 목표: " + g + "  (닫으려면 이 목표에 답해야 한다)")
 		}
 	}
 	if cp != "" || cycle != "" {

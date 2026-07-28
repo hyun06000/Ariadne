@@ -399,10 +399,20 @@ func cmdOpen(args []string) {
 	parents := fs.strList("parent")
 	refutes := fs.strList("refutes") // 소급 반증 간선(AIL #1 제안 B): 이 사이클이 뒤집는 앞 verify 스텝
 	refines := fs.strList("refines") // 약한 정정 간선(이슈 #42): 판정은 두고 해석만 정밀화
+	// --goal (이슈 #62 제안 1): 이 사이클이 **무엇을 만족하면 끝인가**. purpose 가 "무엇을
+	// 하려는가"라면 goal 은 "무엇이 되면 됐다고 할 것인가"다 — 둘은 다르다. 옛 도구는 잎이
+	// 다 종결되면 사이클을 사실상 끝난 것으로 읽었는데, "잎이 다 종결됐다"는 "목표가
+	// 달성됐다"와 다르다(갭 11개 중 3개만 닫힌 사이클이 실제 사례). close 가 verdict 를
+	// 받으니 열 때 목표를 받는 건 대칭이고, 그래야 닫는 판단이 자기확신이 아니라 선언에 매인다.
+	goal := fs.str("goal", "")
+	// --parallel <사이클> (이슈 #45): 미해결 사이클을 **알면서** 나란히 연다는 선언. 거부의
+	// 유일한 통로이고, 통과하면 Gil-Parallel-With 로 그래프에 남는다 — 조용한 우회가 아니라
+	// 기록되는 판단이 되게.
+	parallel := fs.strList("parallel")
 	inherit := fs.str("inherit", "") // 물려받은 지식·전제·교훈(AIL #3): 계보 간선 생기면 필수
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
+		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
 	}
 	if *author == "" {
 		die("거부: --author 필요")
@@ -484,12 +494,38 @@ func cmdOpen(args []string) {
 	// 사이클이 있으면, 그 define 은 답을 못 얻은 채 방치된 것이다 — 재분기(hypothesis --to)나
 	// 포기(close --abandon) 없이 새 사이클로 도망치면 계보가 끊긴다. 거부는 않는다(병렬 사이클은
 	// 정당할 수 있다) — 사람이 보고 판단하도록 경고만 한다.
+	// 미해결 define 방치 차단(이슈 #45). 이 체인에 '산 잎 없이 fail 잎만 있고 아직 안 닫힌'
+	// 사이클이 있으면, 그 define 은 답을 못 얻은 채 방치된 것이다.
+	//
+	// 옛 동작은 **경고**였다. 그런데 실측에서 4/4 로 도망갔다 — 경고는 읽히지 않거나 읽혀도
+	// 다음 줄에서 잊힌다. HEAAL: 규율은 안내가 아니라 문법의 거부여야 한다. 그래서 거부한다.
+	//
+	// 다만 병렬 사이클은 정당할 수 있다. 그 길을 막지 않되 **조용히 지나가지도 않게** 한다 —
+	// --parallel <사이클> 로 "이 미해결 사이클을 알면서 나란히 연다"를 선언하면 통과하고,
+	// 그 선언이 그래프에 남는다(Gil-Parallel-With). 우회가 아니라 기록되는 판단이다.
 	if stranded := strandedCycles(chain); len(stranded) > 0 {
-		stderr("  ⚠ 이 체인에 미해결 사이클이 있다(fail 잎만, 미종결): " + strings.Join(stranded, " "))
-		stderr("    그 define 의 답을 아직 못 얻었다. 새 사이클로 넘어가기 전에 확인하라 —")
-		stderr("      재분기: gil step " + chain + "/<그 사이클> --kind hypothesis --to <조상 define> --inherit <교훈>")
-		stderr("      포기:   gil close " + chain + "/<그 사이클> --abandon   (막다른 길로 봉인)")
-		stderr("    (정말 병렬로 여는 것이면 그대로 진행해도 된다 — 다만 저 define 을 방치하지 마라. 이슈 #45.)")
+		declared := map[string]bool{}
+		for _, p := range *parallel {
+			declared[p] = true
+		}
+		var undeclared []string
+		for _, sc := range stranded {
+			if !declared[sc] {
+				undeclared = append(undeclared, sc)
+			}
+		}
+		if len(undeclared) > 0 {
+			die("거부: 이 체인에 미해결 사이클이 있다(fail 잎만, 미종결): " + strings.Join(undeclared, " ") + "\n" +
+				"  그 define 은 답을 못 얻은 채다 — 새 사이클로 넘어가면 계보가 거기서 끊긴다.\n" +
+				"  셋 중 하나를 골라라:\n" +
+				"    (1) 재분기 — gil step " + chain + "/" + undeclared[0] +
+				" --kind hypothesis --to <조상 define|analyze> --inherit <그 벽의 교훈>\n" +
+				"        (이 define 의 답을 아직 못 얻었다 — 새 가설로 다시 푼다)\n" +
+				"    (2) 포기   — gil close " + chain + "/" + undeclared[0] + " --abandon\n" +
+				"        (막다른 길로 확인됐다 — 죽은 사이클로 봉인, 벽의 지도로 남긴다)\n" +
+				"    (3) 병렬   — gil open " + ref + " … --parallel " + strings.Join(undeclared, " --parallel ") + "\n" +
+				"        (정말 나란히 여는 것이다 — 그 선언이 그래프에 남는다)")
+		}
 	}
 	showPurposeContext(chain, cycle, *purpose)
 
@@ -517,6 +553,12 @@ func cmdOpen(args []string) {
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
 		{"Gil-Step", "s1"}, {"Gil-Kind", "define"}, {"Gil-Parent", "null"},
 		{"Gil-Cycle-Author", *author}, {"Gil-Cycle-Purpose", *purpose},
+	}
+	if g := strings.TrimSpace(*goal); g != "" {
+		tr = append(tr, [2]string{"Gil-Cycle-Goal", g}) // 달성 판정 기준(이슈 #62)
+	}
+	for _, p := range *parallel {
+		tr = append(tr, [2]string{"Gil-Parallel-With", p}) // 미해결을 알면서 나란히 연다(이슈 #45)
 	}
 	for _, par := range *parents {
 		tr = append(tr, [2]string{"Gil-Cycle-Parent", par})
@@ -1152,9 +1194,13 @@ func cmdClose(args []string) {
 	// 명시적으로 받는다 — gil 이 자동으로 죽이지 않는다(정직: 없는 성공을 날조하지도, 정직한
 	// 실패를 영구 미종결로 벌하지도 않는다). success=산 종결, fail-only+abandon=죽은 종결.
 	abandon := fs.boolFlag("abandon")
+	// --goal-met (이슈 #62): 목표를 선언하고 연 사이클은, 닫을 때 그 목표에 **답해야** 한다.
+	// 선언이 없으면 닫는 판단이 다시 자기확신으로 돌아간다 — 잎이 다 종결됐다는 사실만으로
+	// "됐다"가 되던 자리를 이 한 마디가 막는다.
+	goalMet := fs.boolFlag("goal-met")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil close <chain>/<cycle> [--verdict V] [--abandon]")
+		die("사용: gil close <chain>/<cycle> [--verdict V] [--goal-met] [--abandon]")
 	}
 	ref := pos[0]
 	chain, cycle, _ := cut(ref, "/")
@@ -1219,12 +1265,29 @@ func cmdClose(args []string) {
 				"목표 실패를 확인한 걸 success 로 봉인할 수 없다. 그 잎을 fail 로 남기거나 backtrack 하라(AIL #13).")
 		}
 	}
+	// 목표 대면(이슈 #62): 열 때 --goal 을 선언했다면 닫을 때 그 목표에 답해야 한다.
+	// gil 은 목표 달성 여부를 알 수 없다 — 알 수 있는 건 "답했는가"뿐이고, 그것만 강제한다
+	// (정직 강제 불가, 은폐 영속화만 차단). 목표에 못 닿았다면 닫지 말고 더 파거나,
+	// 그 define 을 포기하는 것이면 --abandon 이 정직한 자리다.
+	if g := cycleGoal(chain, cycle, "--branches"); g != "" && !*goalMet {
+		die("거부: 이 사이클은 열 때 목표를 선언했다 — 닫으려면 그 목표에 답해라.\n" +
+			"    목표: " + g + "\n" +
+			"  · 목표에 닿았다면:   gil close " + ref + " --goal-met\n" +
+			"  · 아직 못 닿았다면 닫지 마라 — 갈래를 더 내라:\n" +
+			"      gil step " + ref + " --kind hypothesis --to <조상 define|analyze> --inherit <여기까지의 교훈>\n" +
+			"  · 이 목표가 막다른 길로 확인됐다면: gil close " + ref + " --abandon\n" +
+			"  ('잎이 다 종결됐다'는 '목표가 달성됐다'와 다르다 — 이슈 #62.)")
+	}
 	sort.Strings(live)
 	subject := "gil " + chain + "/" + cycle + " close: " + *verdict
 	body := "사이클 봉인. 산 잎 [" + strings.Join(live, " ") + "]. 판정: " + *verdict + "."
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
 		{"Gil-Kind", "close"}, {"Gil-Verdict", *verdict},
+	}
+	if g := cycleGoal(chain, cycle, "--branches"); g != "" {
+		tr = append(tr, [2]string{"Gil-Goal-Met", "true"}) // 목표에 답했다는 선언(이슈 #62)
+		body += "\n목표(열 때 선언): " + g + "\n→ 달성했다고 선언하고 닫는다(--goal-met)."
 	}
 	commit(subject, body, tr, true)
 	println2("close: " + ref + " — " + *verdict)
