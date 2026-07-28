@@ -15,7 +15,7 @@ type helpEntry struct {
 
 var helpTable = map[string]helpEntry{
 	"init": {
-		"gil init [--name <이름>]\n" +
+		"gil init [--name <이름>] [--no-open]\n" +
 			"  무에서 gil 세계를 세운다 — 대문(CLAUDE.md) + refs/gil/global + 존재의 방.\n" +
 			"  뷰어가 있으면 관전 서버도 함께 띄운다. 이미 세팅됐으면 거부(멱등).",
 		"docs/gil/existence.md · docs/gil/index.md",
@@ -160,11 +160,15 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/human-in-the-loop.md",
 	},
 	"viewer": {
-		"gil viewer serve [--repo <경로>] [--port <포트>]   브라우저 관전 서버(자동 새로고침)\n" +
+		"gil viewer serve [--repo <경로>] [--port <포트>] [--no-open]   브라우저 관전 서버(자동 새로고침)\n" +
 			"gil viewer build --out <파일> [--repo <경로>]     정적 자기완결 HTML 1회 출력(Pages 등)\n" +
 			"gil viewer [text] [--repo <경로>]                텍스트 트리 1회 출력\n" +
 			"  사고 그래프(체인>사이클>스텝)를 읽어 그린다. gil init 이 serve 를 자동 기동한다.\n" +
-			"  build 는 서버 없이 도는 정적 HTML(스텝 본문 인라인·폴링 없음) — 정적 호스팅용.",
+			"  build 는 서버 없이 도는 정적 HTML(스텝 본문 인라인·폴링 없음) — 정적 호스팅용.\n" +
+			"  --no-open: 서버는 띄우되 시스템 브라우저는 안 연다(주소는 stdout 에 나온다). 인앱\n" +
+			"    브라우저 패널이 있는 호스트에서 도는 에이전트라면 이걸 써라 — 밖의 창이 튀어나오면\n" +
+			"    사람이 앱을 떠나야 하고, 같은 주소를 인앱에 다시 열면 창이 둘로 갈라진다(이슈 #48).\n" +
+			"    gil init 에도 같은 플래그가 있다(init 이 serve 를 자동 기동하므로).",
 		"docs/gil/reports.md",
 	},
 }

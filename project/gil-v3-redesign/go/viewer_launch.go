@@ -96,6 +96,11 @@ func launchViewer() {
 // 돌린다(윈도우에서 cmd 창 번쩍임 방지). 실패해도 치명적이지 않다 — 호출자가 주소를 안내한다.
 // 윈도우: cmd /c start(빈 제목 인자 "" 필요). mac: open. 리눅스: xdg-open.
 func openBrowser(url string) bool {
+	// 억제는 여기 한 곳에서 — 브라우저를 여는 경로가 여럿(init 자동기동·이미 떠 있음·수동 serve)
+	// 이라, 호출부마다 검사하면 하나를 빠뜨린다. 문(門)을 하나로 둔다(이슈 #48).
+	if os.Getenv("GIL_NO_BROWSER") != "" {
+		return false
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":

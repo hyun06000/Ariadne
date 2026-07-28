@@ -619,6 +619,12 @@ func cmdViewer(args []string) {
 				out = rest[i+1]
 				i++
 			}
+		// --no-open: 관전 서버를 띄우되 시스템 브라우저는 열지 않는다(이슈 #48). 에이전트가
+		// 인앱 브라우저 패널을 가진 호스트(Claude Code 데스크톱 앱 등)에서 도는 경우, 밖의
+		// 브라우저 창이 튀어나오면 사람이 앱을 떠나야 하고, 에이전트가 같은 주소를 인앱에 다시
+		// 열면 창이 둘이 된다. 주소는 stdout 에 그대로 나오므로 여는 데 아무 문제가 없다.
+		case "--no-open":
+			os.Setenv("GIL_NO_BROWSER", "1")
 		}
 	}
 	switch sub {

@@ -18,7 +18,13 @@ import "os"
 func cmdInit(args []string) {
 	fs := newFlags("gil init")
 	name := fs.str("name", "clew")
+	// --no-open: 관전 서버는 띄우되 시스템 브라우저는 열지 않는다(이슈 #48). init 이 serve 를
+	// 자동 기동하므로 첫 창이 여기서 이미 떠버린다 — 인앱 패널로 볼 호스트에선 그게 방해다.
+	noOpen := fs.boolFlag("no-open")
 	fs.parse(args)
+	if *noOpen {
+		os.Setenv("GIL_NO_BROWSER", "1")
+	}
 	if *name == "" || !idRe.MatchString(*name) {
 		die("거부: 존재 이름 \"" + *name + "\"은 소문자·숫자·하이픈만")
 	}

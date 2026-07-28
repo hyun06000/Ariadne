@@ -2831,5 +2831,48 @@ class TestChainRetro(GilFixture):
         self.assertNotEqual(r.returncode, 0, "시드는 인터뷰를 대신하지 못한다")
 
 
+class TestNoOpenFlag(GilFixture):
+    """--no-open — 서버는 띄우되 시스템 브라우저는 안 연다 (이슈 #48).
+
+    에이전트가 인앱 브라우저 패널을 가진 호스트에서 돌 때, 밖의 브라우저 창이 튀어나오면
+    사람이 앱을 떠나야 하고 같은 주소를 인앱에 다시 열면 창이 둘로 갈라진다. 주소는 stdout
+    에 그대로 나오므로 자동 실행을 꺼도 여는 데 아무 지장이 없다.
+    """
+
+    def test_init_accepts_no_open(self):
+        r = self.gil("init", "--no-open")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_viewer_help_documents_no_open(self):
+        """표면에 안 보이면 없는 기능이다 — 환경변수만 있던 걸 플래그로 올린 이유."""
+        r = self.gil("help", "viewer")
+        self.assertIn("--no-open", r.stdout + r.stderr)
+
+    def test_no_open_suppresses_browser_launch(self):
+        """--no-open 이면 '브라우저로 열었다' 가 나오지 않는다(억제는 openBrowser 한 곳에서)."""
+        self.gil("init", "--no-open")
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        env.pop("GIL_NO_BROWSER", None)
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--port", "8796", "--no-open"],
+                             cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, env=env)
+        try:
+            deadline = 0
+            out = ""
+            # 서버가 떴다는 첫 줄(주소)만 읽고 끊는다 — 브라우저를 열었다면 그 다음 줄에 나온다.
+            while deadline < 40:
+                import time as _t
+                _t.sleep(0.1)
+                deadline += 1
+                if p.poll() is not None:
+                    break
+        finally:
+            p.terminate()
+            out, err = p.communicate(timeout=10)
+        self.assertIn("뷰어 서버가 떴다", out, out + err)   # 주소는 나온다
+        self.assertNotIn("브라우저로 열었다", out)           # 창은 안 뜬다
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
