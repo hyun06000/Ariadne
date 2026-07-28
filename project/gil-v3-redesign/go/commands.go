@@ -1523,6 +1523,12 @@ func cmdDeploy(args []string) {
 	at := fs.str("at", "")
 	tag := fs.str("tag", "")
 	url := fs.str("url", "")
+	// --target: **어디에** 올라갔나(서비스 엔드포인트·호스트·환경). 이슈 #56 의 v2 레지스터가
+	// 갖고 있던 칸이 v3 마커엔 없었다 — 태그는 "무엇을"이고 target 은 "어디로"다. 둘이 있어야
+	// "v2.1.0 이 어디로 갔나"가 그래프에서 읽힌다(#79·#81 이 측정에 한 것과 같은 모양).
+	// 도달 확인(헬스체크)은 하지 않는다: gil 은 기록 도구지 외부를 찌르는 도구가 아니다.
+	// 확인은 사람·CI 가 하고, 그 결과를 --promote 로 선언한다(근거는 --body-file 로 본문에).
+	deployTarget := fs.str("target", "")
 	title := fs.str("title", "")
 	body := fs.str("body", "")
 	bodyFile := fs.str("body-file", "")
@@ -1536,7 +1542,8 @@ func cmdDeploy(args []string) {
 	promote := fs.boolFlag("promote")
 	fs.parse(args)
 	if *at == "" || *tag == "" {
-		die("사용: gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--state staged|live] [--promote] [--url <릴리스URL>] [--title T]")
+		die("사용: gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--state staged|live] [--promote]\n" +
+			"           [--target <배포 대상: host:port·환경>] [--url <릴리스URL>] [--title T]")
 	}
 	if *promote {
 		*state = "live"
@@ -1592,6 +1599,9 @@ func cmdDeploy(args []string) {
 		{"Gil-Deploy", *tag},
 		{"Gil-Deploy-At", *at},
 		{"Gil-Deploy-State", *state}, // staged|live (이슈 #56) — 기계가 읽는 상태
+	}
+	if t := strings.TrimSpace(*deployTarget); t != "" {
+		tr = append(tr, [2]string{"Gil-Deploy-Target", t}) // 어디로 나갔나(#56)
 	}
 	if *url != "" {
 		tr = append(tr, [2]string{"Gil-Deploy-Url", *url})

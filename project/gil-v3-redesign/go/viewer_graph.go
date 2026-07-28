@@ -62,6 +62,7 @@ type viewerNode struct {
 	deployTag                string   // Gil-Deploy: 이 스텝에서 배포된 태그(예 v0.2.0). 이슈 #34.
 	deployState              string   // Gil-Deploy-State: staged|live (이슈 #56). staged 는 아직 안 올라갔다.
 	deployURL                string   // Gil-Deploy-Url: 릴리스 URL(있으면).
+	deployTarget             string   // Gil-Deploy-Target: 어디로 나갔나(host:port·환경). 이슈 #56.
 }
 
 func viewerCollectNodes() []viewerNode {
@@ -79,7 +80,7 @@ func viewerCollectNodes() []viewerNode {
 	var nodes []viewerNode
 	// 배포 마커(이슈 #34): Gil-Deploy 를 실은 얇은 커밋은 Gil-Step 이 없어 노드 루프가 건너뛴다.
 	// 대상 스텝(Gil-Deploy-At = chain/cycle/step)에 태그·URL 을 매핑해 두고, 노드 수집 뒤 얹는다.
-	type deployMark struct{ tag, url, state string }
+	type deployMark struct{ tag, url, state, target string }
 	deploys := map[string]deployMark{}
 	// 커밋 하나 = 노드 하나. git log --branches 는 보통 공유 커밋을 접어 주지만 그건
 	// git 이 보증하는 불변식이 아니다(여러 워킹트리·특정 ref 배치에서 같은 SHA 재출력).
@@ -101,7 +102,8 @@ func viewerCollectNodes() []viewerNode {
 		if tr["Gil-Step"] == "" {
 			// 배포 마커: Gil-Step 없이 Gil-Deploy 만 실은 얇은 커밋. 대상 스텝에 얹으려 모은다.
 			if at := tr["Gil-Deploy-At"]; at != "" && !seenSHA[parts[0]] {
-				deploys[at] = deployMark{tag: tr["Gil-Deploy"], url: tr["Gil-Deploy-Url"]}
+				deploys[at] = deployMark{tag: tr["Gil-Deploy"], url: tr["Gil-Deploy-Url"],
+					state: tr["Gil-Deploy-State"], target: tr["Gil-Deploy-Target"]}
 			}
 			continue
 		}
@@ -160,6 +162,7 @@ func viewerCollectNodes() []viewerNode {
 			nodes[j].deployTag = dm.tag
 			nodes[j].deployURL = dm.url
 			nodes[j].deployState = dm.state
+			nodes[j].deployTarget = dm.target
 		}
 	}
 	return nodes

@@ -5118,6 +5118,29 @@ class TestDeployStaged(GilFixture):
         self.gil("step", "d/c1", "--kind", "analyze", "--title", "A", "--body", "B")
         self.gil("step", "d/c1", "--kind", "success", "--title", "S", "--body", "B")
 
+    def test_target_records_where_it_went(self):
+        """태그가 '무엇을'이면 target 은 '어디로'다 (이슈 #56, v2 레지스터의 '대상' 칸).
+
+        main-dev 체제로 여러 대상에 나가면 "v2.1.0 이 어디로 갔나"가 그래프에 없다.
+        gil 은 그 주소에 닿는지 확인하지 않는다 — 기록 도구지 외부를 찌르는 도구가 아니다."""
+        r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0",
+                     "--state", "staged", "--target", "l40s:8080")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Target"), "l40s:8080")
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "staged")
+        # 승격도 대상을 함께 남긴다 — 언제 어디로 올라갔나가 둘 다 남는다.
+        self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--promote", "--target", "l40s:8080")
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "live")
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Target"), "l40s:8080")
+
+    def test_target_is_shown_in_viewer(self):
+        self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--target", "l40s:8080")
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn('"deployTarget":"l40s:8080"', html)
+
     def test_default_stays_live(self):
         """옛 사용법은 그대로다 — 새 상태가 기존 흐름을 깨지 않는다."""
         r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v0.2.0")

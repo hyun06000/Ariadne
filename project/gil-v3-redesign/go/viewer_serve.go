@@ -636,8 +636,8 @@ func cycleJSON(g graphView, static bool) string {
 					sb.WriteString(fmt.Sprintf(`,"exit":%q`, strings.Join(ex, ", ")))
 				}
 				if n.deployTag != "" { // 배포 마커(이슈 #34) — 뷰어가 🚀 + 태그 라벨로 렌더.
-					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q`,
-						n.deployTag, n.deployURL, n.deployState))
+					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q,"deployTarget":%q`,
+						n.deployTag, n.deployURL, n.deployState, n.deployTarget))
 				}
 				if static {
 					sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body)) // 정적: 본문 인라인
@@ -709,8 +709,8 @@ func dagJSON(g graphView, static bool) string {
 		}
 		sb.WriteString(fmt.Sprintf(`],"subj":%q`, n.subject))
 		if n.deployTag != "" { // 배포 마커(이슈 #34) — 전체맵 DAG 에도 🚀 표시.
-			sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q`,
-				n.deployTag, n.deployURL, n.deployState))
+			sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q,"deployTarget":%q`,
+				n.deployTag, n.deployURL, n.deployState, n.deployTarget))
 		}
 		if static {
 			sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body))
@@ -1248,7 +1248,8 @@ function openStepCard(chain,cyc){
       const staged=n.deployState==='staged';
       const rk=svgEl('text',{class:'deploybadge'+(staged?' staged':''),dy:n.here?-r-30:-r-14},
         (staged?'📦 ':'🚀 ')+n.deploy+(staged?' (staged)':''));
-      const tt=svgEl('title',{},'배포 '+n.deploy+(n.deployUrl?'\n'+n.deployUrl:''));
+      const tt=svgEl('title',{},'배포 '+n.deploy+
+        (n.deployTarget?'\n대상: '+n.deployTarget:'')+(n.deployUrl?'\n'+n.deployUrl:''));
       rk.appendChild(tt); g.appendChild(rk);
       g.classList.add('deployed');
       if(n.deployUrl){ rk.style.cursor='pointer'; rk.addEventListener('click',ev=>{ev.stopPropagation();window.open(n.deployUrl,'_blank');}); }
@@ -1786,7 +1787,8 @@ function buildStepMap(){
       const stagedD=n.deployState==='staged';
       const rk=svgEl('text',{class:'dagdeploy'+(stagedD?' staged':''),x:0,y:n.here?-r-14:-(r+5)},
         (stagedD?'📦':'🚀')+(agg?'':' '+n.deploy));
-      rk.appendChild(svgEl('title',{},'배포 '+n.deploy+(n.deployUrl?'\n'+n.deployUrl:'')));
+      rk.appendChild(svgEl('title',{},'배포 '+n.deploy+
+        (n.deployTarget?'\n대상: '+n.deployTarget:'')+(n.deployUrl?'\n'+n.deployUrl:'')));
       g.appendChild(rk);
     }
     g.addEventListener('click',()=>agg?jumpToAgg(n):jumpToNode(n));
