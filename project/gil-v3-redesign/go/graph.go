@@ -30,6 +30,10 @@ var verdicts = map[string]bool{"supported": true, "refuted": true}
 func isLiveLeaf(n node) bool {
 	return n.kind == "success" || (n.kind == "analyze" && n.outcome == "success")
 }
+// isLiveLeafKind — kind 만으로 판정하는 산 잎(이슈 #59·#60의 부착 가드용). analyze 는
+// outcome 에 따라 갈리므로 여기 넣지 않는다 — analyze 는 이어갈 수 있는 자리다.
+func isLiveLeafKind(kind string) bool { return kind == "success" }
+
 func isDeadLeaf(n node) bool {
 	return n.kind == "fail" ||
 		(n.kind == "analyze" && (n.outcome == "backtrack" || n.outcome == "fail"))
@@ -259,6 +263,27 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	}
 	cycles := map[string]string{} // cycle id -> chain
 	stepKeys := map[string]bool{}
+	// workingTips — 각 열린 사이클의 살아있는 팁(지금 작업 중인 자리). 매달린 잎 검사에서
+	// 이것만 뺀다 — 진행 중인 팁이 미종결인 건 정상이고, 나머지 미종결 잎은 버려진 것이다.
+	// 판정은 **스텝 번호**로 한다 — 커밋 위상 순서가 아니라. 형제 가지가 나면 git 위상 순서가
+	// 뒤집혀(s5 가 s4 보다 먼저 나온다) 위상 기반 팁 판정이 엉뚱한 잎을 "작업 중"이라 부른다.
+	// gil 은 스텝 id 를 단조 증가로 매기므로, 가장 큰 번호가 지금 서 있는 자리다.
+	workingTips := map[string]bool{}
+	{
+		best := map[string]node{}
+		for _, n := range universe {
+			if n.cycle == "" || closed[n.chain+"\x01"+n.cycle] || isDeadLeaf(n) {
+				continue
+			}
+			k := n.chain + "\x01" + n.cycle
+			if b, ok := best[k]; !ok || stepNum(n.step) > stepNum(b.step) {
+				best[k] = n
+			}
+		}
+		for _, t := range best {
+			workingTips[stepKey(t.chain, t.cycle, t.step)] = true
+		}
+	}
 	hasChild := map[string]bool{}       // 부모로 참조된 스텝키 — 잎 판정용(전체 그래프 기준)
 	defineCount := map[string]int{}     // (chain,cycle) -> define 스텝 수. 사이클당 1개여야.
 	defineSteps := map[string][]string{} // (chain,cycle) -> define 스텝 id 들(위반 메시지용)
@@ -334,6 +359,22 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 			!isLiveLeaf(n) && !isDeadLeaf(n) && n.kind != "pending" {
 			violations = append(violations, "스텝순환: "+cc+" — 미종결 잎 (kind="+n.kind+
 				"). 닫힌 사이클의 잎은 success/fail/pending 으로 마감돼야 (analyze 로 끝내지 말 것)")
+		}
+		// 5c. 매달린 미종결 잎 — 열린 사이클에서도(이슈 #59, 상현님 실사용).
+		//     옛 검사는 닫힌 사이클만 봤다. 그런데 실제 사고는 열린 사이클에서 났다: refuted 로
+		//     죽은 가지에 fail 을 못 붙인 채 HEAD 가 재분기로 떠나버렸고, 그 뒤 열 몇 스텝을 더
+		//     진행하는 동안 fsck 는 한 줄도 보고하지 않았다(help 는 "미종결 잎"을 검사한다고
+		//     적어놓고서). append-only 라 나중에 알아채도 그 자리에 못 박는다 — 그러니 **지금**
+		//     보여야 한다. 기준: 자식 없는 비종결 잎인데 이 사이클의 살아있는 팁도 아니다
+		//     = HEAD 가 떠나 매달린 것. (현재 작업 중인 팁 하나는 당연히 미종결이라 제외한다.)
+		if n.cycle != "" && !closed[n.chain+"\x01"+n.cycle] &&
+			!hasChild[stepKey(n.chain, n.cycle, n.step)] &&
+			!isLiveLeaf(n) && !isDeadLeaf(n) && n.kind != "pending" &&
+			!workingTips[stepKey(n.chain, n.cycle, n.step)] {
+			violations = append(violations, "스텝순환: "+cc+" — 매달린 미종결 잎 (kind="+n.kind+
+				"). 이 가지는 종결 없이 버려졌다 — HEAD 는 딴 데로 갔다.\n"+
+				"    그 자리에 종결을 박아라: gil step "+n.chain+"/"+n.cycle+
+				" --kind fail --at "+n.step+" --to <조상 define> --title <왜 막혔나>")
 		}
 		// 6. 계보 참조 무결성 — 스텝 머지(같은 사이클 산 잎)는 실재로 이미 확인, 나머지가 체인/사이클 머지.
 		var cycChainMerges []string

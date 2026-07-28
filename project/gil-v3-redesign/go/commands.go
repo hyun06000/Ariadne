@@ -572,6 +572,11 @@ func cmdStep(args []string) {
 	refutes := fs.strList("refutes")
 	// 약한 정정 간선(이슈 #42): 앞 verify/analyze 의 *해석*만 정밀화한다. verdict 는 불변.
 	refines := fs.strList("refines")
+	// --at <스텝>(이슈 #59): 종결(success/fail)을 **그 잎 자리에** 박는다. 기본은 현재 가지
+	// tip 인데, HEAD 가 재분기로 떠나버리면 두고 온 가지를 영영 못 닫는다(append-only 라
+	// 사후 수정 경로도 없다). 실사용에서 그 상태로 열 몇 스텝을 더 갔고, 뒤늦게 --to 로 닫으려
+	// 하자 fail 이 **살아있는 success 잎 위에** 붙을 뻔했다(사본 레포에서 먼저 밟아 발견).
+	at := fs.str("at", "")
 	inherit := fs.str("inherit", "") // 물려받은 전수(AIL #3): 머지/refutes/refines 간선 생기면 필수
 	// 스텝 정정(AIL #12): 같은 kind 의 앞선 스텝을 이 스텝이 대체한다. raw amend 로 옛 커밋을
 	// 지우는 대신(trailer 소실·이력 은폐), 새 커밋으로 덮고 옛 것은 이력에 남긴다 — append-only
@@ -677,6 +682,42 @@ func cmdStep(args []string) {
 	tipID := ""
 	if tip != nil {
 		tipID = tip.step
+	}
+	// --at <스텝>(이슈 #59): 두고 온 잎 자리에 종결을 박는 것이므로, 순서 강제·가드의 기준도
+	// HEAD 팁이 아니라 **그 자리**여야 한다. 이걸 안 옮기면 "직전이 verify 인데 다음이 fail"
+	// 같은 엉뚱한 거부가 나 두고 온 가지를 여전히 못 닫는다.
+	// 대상은 HEAD 계보 밖에 있다 — 두고 온 형제 가지이기 때문이다. 그러니 사이클 전체
+	// (모든 브랜치)에서 찾는다. cycleSteps 는 아래 가드들도 함께 쓴다.
+	cycleSteps := steps
+	if strings.TrimSpace(*at) != "" {
+		cycleSteps = cycleAnywhere(chain, cycle)
+		found := false
+		for i := range cycleSteps {
+			if cycleSteps[i].step == *at {
+				tip = &cycleSteps[i]
+				tipID = cycleSteps[i].step
+				found = true
+				break
+			}
+		}
+		if !found {
+			die("거부: --at " + *at + " 는 사이클 " + ref + " 에 없다 — gil fsck 가 매달린 잎을 짚어준다.")
+		}
+		// 자리가 유효한가를 순서 강제보다 **먼저** 묻는다 — 엉뚱한 자리를 골랐는데 "순서를
+		// 건너뛴다"고 답하면 진짜 문제가 가려진다.
+		if *kind != "fail" && *kind != "success" && *kind != "pending" {
+			die("거부: --at 은 종결 스텝(fail|success|pending)에만 쓴다 — 받은 kind=" + *kind + "\n" +
+				"  진행 스텝은 현재 가지 끝에 이어지고, 갈래를 새로 내려면 --to <조상 define|analyze> 다.")
+		}
+		if isLiveLeafKind(tip.kind) || tip.kind == "fail" {
+			die("거부: --at " + *at + " 는 이미 종결 스텝이다(kind=" + tip.kind + ") — 종결에 종결을 겹치지 마라.")
+		}
+		for _, n := range cycleSteps {
+			if n.parent == *at {
+				die("거부: --at " + *at + " 는 잎이 아니다(자식 " + n.step + " 이 있다) — 종결은 매달린 잎 자리에만 박는다.\n" +
+					"  gil fsck 가 매달린 미종결 잎을 짚어준다.")
+			}
+		}
 	}
 	// pending 가드(상현님): pending 스텝 뒤에는 사람의 명시적 승인/기각만 허용한다.
 	// 서브에이전트가 pending 직후 스스로 analyze 로 넘어가던 것을 구조로 막는다.
@@ -826,8 +867,18 @@ func cmdStep(args []string) {
 
 	// stepSHA — 이 사이클에서 특정 스텝 id 의 커밋 sha(형제 가지 분기 지점).
 	stepSHA := map[string]string{}
-	for _, s := range steps {
+	// stepByID·hasChildIn·allStepIDs — 종결 부착 판정(이슈 #59·#60)에 쓴다: 부모가 될 자리가
+	// 이미 종결인가, --at 대상이 진짜 매달린 잎인가.
+	stepByID := map[string]node{}
+	hasChildIn := map[string]bool{}
+	allStepIDs := map[string]bool{}
+	for _, s := range cycleSteps {
 		stepSHA[s.step] = s.sha
+		stepByID[s.step] = s
+		allStepIDs[s.step] = true
+		if s.parent != "" && s.parent != "null" {
+			hasChildIn[s.parent] = true
+		}
 	}
 
 	var parent string
@@ -876,7 +927,9 @@ func cmdStep(args []string) {
 		}
 		parent = orNull(tipID) // 죽은 잎은 현재 가지 tip 에 그대로 박는다(벽의 지도)
 	case *kind == "fail":
-		// 종결 죽은 잎 — 현재 가지 tip 에 박고, 되돌아갈 조상 define 을 --to 로 기록.
+		// 종결 죽은 잎 — 현재 가지 tip(또는 --at 이 가리킨 잎)에 박고, 되돌아갈 조상 define 을
+		// --to 로 기록. --to 는 여기서 *부모를 바꾸지 않는다* — "되돌아갈 곳"의 기록일 뿐이다
+		// (hypothesis 의 --to 와 뜻이 다르다, 이슈 #59①). 자리를 고르는 건 --at 이다.
 		if !defineIDs[*to] {
 			die("거부: --to " + *to + "는 조상 define이어야 함")
 		}
@@ -884,6 +937,32 @@ func cmdStep(args []string) {
 	default:
 		// success·analyze·verify 등 선형 진행: 현재 가지 tip 에 이어서.
 		parent = orNull(tipID)
+	}
+
+	// --at 의 자리 잡기는 위에서 이미 검증했다(이슈 #59) — 여기선 분기 지점만 정한다.
+	if strings.TrimSpace(*at) != "" {
+		parent = *at
+		n := 1
+		for gitOK("rev-parse", "--verify", "-q", "refs/heads/"+stepBranch(chain, cycle, *at, n)) {
+			n++
+		}
+		branch = stepBranch(chain, cycle, *at, n)
+		createFrom = stepSHA[*at]
+	}
+
+	// 종결 스텝 뒤 부착 금지(이슈 #60①). success/fail 잎에 다음 스텝이 조용히 이어 붙으면
+	// "이 가지는 여기서 끝났다"는 뜻이 사라지고, 뷰어에서도 잎으로 안 보인다. 이어갈 길은
+	// 이미 있다 — 조상 define/analyze 에서 형제 가지를 내는 것(--to). 문제는 안 써도 조용히
+	// 통과된다는 점이었다: 같은 상황에서 한 번은 --to 를 썼고 두 번은 빠뜨렸는데 도구가 두
+	// 경우를 구분해 주지 않았다(상현님 실사용).
+	if parent != "" && parent != "null" {
+		if p, ok := stepByID[parent]; ok && (isLiveLeafKind(p.kind) || p.kind == "fail") {
+			die("거부: " + parent + " 는 종결 스텝이다(kind=" + p.kind + ") — 그 뒤에 이어 붙일 수 없다.\n" +
+				"  종결은 잎이다: 거기 이어 붙이면 '이 가지는 끝났다'는 뜻이 사라진다.\n" +
+				"  이어가려면 갈래를 새로 내라(그러면 " + parent + " 는 진짜 잎으로 남는다):\n" +
+				"    gil step " + ref + " --kind " + *kind + " --to <조상 define|analyze> --inherit <이 갈래의 교훈>\n" +
+				"  이 사이클이 끝났으면 닫아라: gil close " + ref + " --verdict solved|dead")
+		}
 	}
 
 	sid := nextStepID(steps)

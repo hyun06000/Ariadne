@@ -3464,7 +3464,12 @@ class TestReachCycleFromAnyBranch(GilFixture):
         self.base = self._git("branch", "--show-current").stdout.strip()
         self.gil("chain", "b", "--purpose", "P")
         self.gil("open", "b/c001", "--author", "clew", "--purpose", "P", "--body", "B")
-        self.gil("step", "b/c001", "--kind", "success", "--title", "S", "--body", "B")
+        # 사이클을 **열린 채**로 둔다 — 종결 잎 뒤에는 이어 붙지 못하므로(이슈 #60), 이 시험이
+        # 재려는 것("다른 브랜치에 서 있어도 대상 사이클에 닿는가")과 섞이지 않게 한다.
+        self.gil("step", "b/c001", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "b/c001", "--kind", "verify", "--title", "V",
+                 "--verdict", "supported", "--body", "B")
 
     def test_step_reaches_cycle_from_another_branch(self):
         self._cycle()
@@ -3657,3 +3662,130 @@ class TestChainSuccessionIsDeclaredNotInferred(GilFixture):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestTerminalAttachAndAt(GilFixture):
+    """종결 잎을 지키고, 두고 온 가지를 닫게 한다 (이슈 #59 · #60).
+
+    append-only 그래프에서는 사후 수정 경로가 없다 — 그러니 강제는 **그 순간**에 있어야 한다.
+    실사용에서 둘이 겹쳐 났다: (1) refuted 로 죽은 가지에 fail 을 못 붙인 채 HEAD 가 재분기로
+    떠나 그 가지가 영구 미종결로 남았고(fsck 도 안 잡았다), (2) 종결 success 잎 뒤에 다음
+    스텝이 경고 한 줄 없이 이어 붙어 "이 가지는 여기서 끝났다"는 뜻이 사라졌다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "adopt", "--purpose", "채택")
+        self.gil("open", "adopt/gap", "--author", "clew", "--purpose", "간극",
+                 "--body", "무엇이 빠졌나")
+        self.gil("step", "adopt/gap", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")               # s2
+        self.gil("step", "adopt/gap", "--kind", "verify", "--title", "V",
+                 "--verdict", "refuted", "--body", "반증")             # s3
+        self.gil("step", "adopt/gap", "--kind", "analyze", "--title", "A",
+                 "--body", "원인")                                     # s4
+
+    def _rebranch(self):
+        """HEAD 를 재분기로 옮긴다 — s4 가지는 종결 없이 남는다(사고 재현)."""
+        return self.gil("step", "adopt/gap", "--kind", "hypothesis", "--to", "s1",
+                        "--title", "H2", "--falsify", "F", "--falsify-to", "s1",
+                        "--inherit", "s4 의 교훈")                      # s5
+
+    # ── #60① 종결 스텝 뒤 부착 금지 ──
+
+    def _supported_success(self):
+        """산 잎을 만든다 — refuted 가지에선 success 가 문법으로 안 나오므로 갈래를 새로 낸다."""
+        self.gil("step", "adopt/gap", "--kind", "hypothesis", "--to", "s1", "--title", "H-ok",
+                 "--falsify", "F", "--falsify-to", "s1", "--inherit", "앞 갈래의 교훈")
+        self.gil("step", "adopt/gap", "--kind", "verify", "--title", "V-ok",
+                 "--verdict", "supported", "--body", "지지")
+        self.gil("step", "adopt/gap", "--kind", "analyze", "--title", "A-ok", "--body", "해석")
+        return self.gil("step", "adopt/gap", "--kind", "success", "--title", "됐다", "--body", "성과")
+
+    def test_attach_after_success_is_refused(self):
+        """success 잎 뒤에 이어 붙지 못한다 — 잎의 뜻이 사라지지 않게."""
+        self.assertEqual(self._supported_success().returncode, 0)
+        r = self.gil("step", "adopt/gap", "--kind", "hypothesis", "--title", "또",
+                     "--falsify", "F", "--falsify-to", "s1")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("종결 스텝", out)
+        self.assertIn("--to", out)      # 다음 올바른 한 수(형제 가지)를 준다
+        self.assertIn("gil close", out) # 또는 사이클을 닫아라
+
+    def test_attach_after_fail_is_refused(self):
+        """죽은 잎 뒤 부착은 옛 가드가 이미 막는다 — 이 회귀 테스트로 그 짝을 고정한다."""
+        self.gil("step", "adopt/gap", "--kind", "fail", "--to", "s1",
+                 "--title", "막힘", "--body", "벽")   # analyze 뒤 fail — 정상 종결
+        r = self.gil("step", "adopt/gap", "--kind", "verify", "--title", "또",
+                     "--verdict", "supported", "--body", "B")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("죽은 잎", r.stdout + r.stderr)
+
+    def test_sibling_branch_after_success_still_works(self):
+        """이어갈 길은 막지 않는다 — --to 로 갈래를 내면 success 는 진짜 잎으로 남는다."""
+        self._supported_success()
+        r = self.gil("step", "adopt/gap", "--kind", "hypothesis", "--to", "s1",
+                     "--title", "다른 축", "--falsify", "F", "--falsify-to", "s1",
+                     "--inherit", "앞 갈래의 성과를 지고 간다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Parent"), "s1")
+
+    # ── #59 두고 온 가지를 닫는 --at ──
+
+    def test_at_closes_the_abandoned_branch(self):
+        """HEAD 가 떠난 뒤에도 그 잎 자리에 종결을 박을 수 있다."""
+        self._rebranch()
+        r = self.gil("step", "adopt/gap", "--kind", "fail", "--at", "s4", "--to", "s1",
+                     "--title", "이 접근은 막혔다", "--body", "벽의 지도")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Parent"), "s4")
+
+    def test_fail_without_at_does_not_land_on_live_leaf(self):
+        """--to 는 부모를 바꾸지 않는다 — 살아있는 잎 위에 fail 이 얹히면 그 잎이 죽는다.
+
+        실사용에서 사본 레포로 먼저 밟아 발견한 손상 경로다. 이제는 종결 가드가 먼저 막는다."""
+        self._supported_success()
+        r = self.gil("step", "adopt/gap", "--kind", "fail", "--to", "s1",
+                     "--title", "뒤늦게 s4 를 닫으려 했다", "--body", "X")
+        self.assertNotEqual(r.returncode, 0, "살아있는 success 잎 위에 fail 이 얹혔다")
+        self.assertIn("종결", r.stdout + r.stderr)
+
+    def test_at_must_be_a_dangling_leaf(self):
+        """--at 은 매달린 잎 자리에만 — 자식이 있는 스텝엔 못 박는다."""
+        self._rebranch()
+        r = self.gil("step", "adopt/gap", "--kind", "fail", "--at", "s1", "--to", "s1",
+                     "--title", "X", "--body", "X")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("잎이 아니다", r.stdout + r.stderr)
+
+    def test_at_is_terminal_only(self):
+        """--at 은 종결 스텝 전용 — 진행 스텝의 갈래는 --to 가 낸다."""
+        self._rebranch()
+        r = self.gil("step", "adopt/gap", "--kind", "verify", "--at", "s4",
+                     "--verdict", "supported", "--title", "X", "--body", "X")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--to", r.stdout + r.stderr)
+
+    # ── #59③ fsck 가 매달린 잎을 잡는다 ──
+
+    def test_fsck_reports_dangling_leaf_in_open_cycle(self):
+        """열린 사이클이어도 버려진 미종결 잎은 보고한다 — 지금 안 보이면 영영 못 고친다."""
+        self._rebranch()
+        out = (lambda r: r.stdout + r.stderr)(self.gil("fsck"))
+        self.assertIn("매달린 미종결 잎", out)
+        self.assertIn("s4", out)
+        self.assertIn("--at s4", out)   # 고치는 한 수까지 준다
+
+    def test_fsck_does_not_flag_the_working_tip(self):
+        """진행 중인 팁이 미종결인 건 정상이다 — 그걸 위반이라 부르면 소음이 된다."""
+        out = (lambda r: r.stdout + r.stderr)(self.gil("fsck"))
+        self.assertNotIn("매달린 미종결 잎", out)
+
+    def test_fsck_clean_after_closing_the_branch(self):
+        """--at 으로 닫으면 fsck 가 조용해진다 — 보고가 실제로 해소 가능해야 한다."""
+        self._rebranch()
+        self.gil("step", "adopt/gap", "--kind", "fail", "--at", "s4", "--to", "s1",
+                 "--title", "막힘", "--body", "벽")
+        out = (lambda r: r.stdout + r.stderr)(self.gil("fsck"))
+        self.assertNotIn("매달린 미종결 잎", out)

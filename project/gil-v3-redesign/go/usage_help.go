@@ -76,6 +76,11 @@ var helpTable = map[string]helpEntry{
 			"  --if-supported goal-met|goal-missed  (hypothesis) 이 가설이 supported 면 사이클 목표가 달성인가 실패인가.\n" +
 			"    기본 goal-met. 부정적 발견(가설 맞음=목표 막힘)이면 goal-missed — 그땐 verify supported 라도 success 거부(fail/backtrack). AIL #13\n" +
 			"  --refines <c>/<cy>/<step>  앞 verify·analyze 의 해석만 정밀화(판정 불변, 이슈 #42). --inherit 필수.\n" +
+			"  --at <스텝>    종결(fail|success|pending)을 **그 잎 자리에** 박는다(이슈 #59). HEAD 가 재분기로\n" +
+			"                 떠나 두고 온 가지를 닫을 때 — 안 그러면 그 가지는 영구 미종결이고 append-only 라\n" +
+			"                 사후 경로가 없다. 대상은 자식 없는 비종결 잎이어야(gil fsck 가 짚어준다).\n" +
+			"  ※ 종결(success/fail) 잎 뒤에는 이어 붙지 못한다(이슈 #60) — 잎의 뜻이 사라진다.\n" +
+			"     이어가려면 갈래를 내라: --to <조상 define|analyze>. 사이클이 끝났으면 gil close.\n" +
 			"  ※ backtrack(hypothesis --to <define>)은 --inherit <전수> 필수 — 죽은 가지의 교훈을 새 가지에 지고 가라. AIL #13\n" +
 			"  ※ 본문은 한 줄이 아니라 보고서다 — 아래 wiki 참조.",
 		"docs/gil/lifecycle.md · docs/gil/reports.md",
