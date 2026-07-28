@@ -368,7 +368,11 @@ func pendingInterviews() []interviewReq {
 	if err != nil {
 		return nil
 	}
-	done := map[string]bool{}         // 제출로 해소된 체인
+	// **최신 마커가 상태를 정한다**(이슈 #75). 옛 코드는 done 이 하나라도 있으면 그 체인의
+	// pending 을 전부 걸러, 확정 뒤의 재인터뷰가 뷰어에서 통째로 사라졌다 — 커밋은 있는데
+	// 폼이 안 뜨고, 아무도 그 사실을 모른다. 체인별로 **처음 만난**(=가장 최신) 마커만 본다.
+	settled := map[string]bool{}      // 이 체인의 최신 마커를 이미 봤다
+	done := map[string]bool{}         // 최신 마커가 done 인 체인
 	var reqs []interviewReq           // pending 요구(최신 우선 — viewerLog 는 new→old)
 	seenChain := map[string]bool{}    // 체인당 최신 pending 하나만
 	for _, rec := range strings.Split(string(out), rs) {
@@ -382,10 +386,14 @@ func pendingInterviews() []interviewReq {
 		}
 		sha, chain, iv, body := parts[0], strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), parts[3]
 		if iv == "done" {
-			done[chain] = true
+			if !settled[chain] {
+				settled[chain] = true
+				done[chain] = true
+			}
 			continue
 		}
 		if iv == "pending" && !seenChain[chain] {
+			settled[chain] = true
 			seenChain[chain] = true
 			reqs = append(reqs, interviewReq{chain: chain, sha: sha[:9], questions: extractInterviewJSON(body)})
 		}

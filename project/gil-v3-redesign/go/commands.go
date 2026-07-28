@@ -1753,7 +1753,8 @@ func interviewWatch(chain string, wait bool, timeoutS string) {
 	if chainPurpose(chain, "--branches") == "" {
 		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — 먼저 gil chain 으로 열어라.")
 	}
-	done := func() bool { return chainReferenceApproved(chain, "--branches") }
+	// 재인터뷰가 열려 있으면 그게 지금 상태다 — 옛 done 을 보고하면 거짓말이 된다(이슈 #75).
+	done := func() bool { return interviewState(chain) == "done" }
 	report := func() {
 		println2("interview: " + chain + " — done (사람이 제출해 기준 문서가 확정됐다)")
 		if ref := chainReferenceText(chain, "--branches"); strings.TrimSpace(ref) != "" {
@@ -1768,7 +1769,7 @@ func interviewWatch(chain string, wait bool, timeoutS string) {
 		markInterviewSeen(chain) // 이 세션이 답을 봤다 — 도착 고지를 끈다(#77)
 		return
 	}
-	pending := chainInterviewPending(chain, "--branches")
+	pending := interviewState(chain) == "pending"
 	if !wait {
 		if pending {
 			println2("interview: " + chain + " — pending (사람 답 대기 중)")

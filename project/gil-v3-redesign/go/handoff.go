@@ -428,8 +428,13 @@ func handoffReport() string {
 		L = append(L, referenceDigest(cname)...)
 		// 세션이 끊겼다 이어질 때의 복구 지점(이슈 #58): 이 체인이 사람 답을 기다리는 중이면
 		// 그것이 지금 유일하게 할 일이다. 안 적으면 이어받은 세션이 "왜 open 이 거부되지"로 헤맨다.
-		if chainInterviewPending(cname, "--branches") && !chainReferenceApproved(cname, "--branches") {
+		if interviewState(cname) == "pending" {
+			// 확정 뒤의 **재**인터뷰도 여기 뜬다(이슈 #75) — 기준이 낡으면 갱신되어야 하고,
+			// 갱신 중이라는 사실이 부활 정보에 없으면 낡은 기준을 따라 일하게 된다.
 			L = append(L, "    ⏳ 인터뷰 답 대기 중 — 사람이 뷰어 폼(📋 인터뷰)에 제출해야 사이클을 열 수 있다.")
+			if chainReferenceApproved(cname, "--branches") {
+				L = append(L, "        (이 체인엔 이미 확정된 기준이 있다 — 지금은 그 기준을 **개정하는 중**이다.)")
+			}
 			L = append(L, "        · 사람에게 제출을 청하라. 기준을 대신 쓰지 마라.")
 			L = append(L, "        · 제출 여부 확인: gil interview "+cname+" --status  (기다리려면 --wait)")
 		}

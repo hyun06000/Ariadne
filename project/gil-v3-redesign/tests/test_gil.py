@@ -1012,6 +1012,80 @@ class TestGoto(GilFixture):
         self.assertIn("gil goto a/dead/", out)
 
 
+class TestReInterview(GilFixture):
+    """확정된 기준을 다시 물을 수 있다 (이슈 #75).
+
+    전제가 반증되면 기준은 낡는다. 그런데 재인터뷰는 커밋만 남기고 **조용히 삼켜졌다** —
+    --status 는 옛 문서를 done 이라 답하고, 뷰어엔 폼이 안 뜨고, handoff 도 몰랐다.
+    남는 선택지가 셋 다 나빴다: 무효한 기준 따르기 / 기준 무시하기 / 그래프 밖으로 나가 묻기."""
+
+    def _ask(self, chain, q):
+        import json
+        return subprocess.run([*GIL_CMD, "interview", chain, "--ask", "-"], cwd=self.repo,
+                              env=dict(os.environ, GIL_NO_VIEWER="1"), text=True,
+                              input=json.dumps([{"q": q, "type": "text"}]), capture_output=True)
+
+    def _settled_chain(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "mr", "--purpose", "P")
+        self._ask("mr", "1차 기준?")
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("기준 v1: 리더보드 전체 재실행\n")
+        self.gil("interview", "mr", "--resolve", "ref.md")
+
+    def test_status_reports_pending_after_reask(self):
+        """--status 가 거짓말하지 않는다 — 새 질문이 있는데 done 이라 답하던 자리."""
+        self._settled_chain()
+        self.assertIn("done", self.gil("interview", "mr", "--status").stdout)
+        self._ask("mr", "전제가 반증됐다 — 범위를 다시 정해달라")
+        self.assertIn("pending", self.gil("interview", "mr", "--status").stdout)
+
+    def test_handoff_shows_revision_in_progress(self):
+        self._settled_chain()
+        self._ask("mr", "다시 묻는다")
+        out = self.gil("handoff").stdout
+        self.assertIn("[인터뷰] mr", out)
+        self.assertIn("개정하는 중", out)   # 확정된 기준이 있는 채로 다시 묻는 중이다
+
+    def test_viewer_shows_the_new_form(self):
+        """뷰어에 폼이 뜬다 — 커밋은 있는데 아무에게도 도달하지 않던 자리."""
+        self._settled_chain()
+        self._ask("mr", "전제가 반증됐다 — 범위는?")
+        import socket, time, urllib.request
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo, "--port", str(port)],
+                             env=dict(os.environ, GIL_NO_VIEWER="1"),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            body = ""
+            for _ in range(40):
+                try:
+                    body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read().decode()
+                    break
+                except Exception:
+                    time.sleep(0.05)
+            self.assertIn("📋 인터뷰", body)
+            self.assertIn("전제가 반증됐다", body)
+        finally:
+            p.terminate()
+            try:
+                p.wait(timeout=3)
+            except Exception:
+                p.kill()
+
+    def test_revision_stacks_instead_of_overwriting(self):
+        """기준은 사람의 답이라 지워지면 안 된다 — 차수로 쌓인다(append-only 의 정신)."""
+        self._settled_chain()
+        self._ask("mr", "다시 묻는다")
+        with open(os.path.join(self.repo, "ref2.md"), "w", encoding="utf-8") as f:
+            f.write("기준 v2: 두 축을 갈라 잰다\n")
+        self.gil("interview", "mr", "--resolve", "ref2.md")
+        r = self.gil("interview", "mr", "--status")
+        self.assertIn("done", r.stdout)
+        self.assertIn("기준 v1", r.stdout)   # 1차 답이 남아 있다
+        self.assertIn("기준 v2", r.stdout)
+
+
 class TestNoLeavingUnterminated(GilFixture):
     """미종결 잎을 두고 떠나지 못한다 (이슈 #78).
 

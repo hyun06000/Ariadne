@@ -131,7 +131,7 @@ func noticeArrivedInterviews() {
 func interviewWaitingLines() []string {
 	var chains []string
 	for chain := range declaredChains("--branches") {
-		if chain != "" && chainInterviewPending(chain, "--branches") && !chainReferenceApproved(chain, "--branches") {
+		if chain != "" && interviewState(chain) == "pending" { // 재인터뷰도 대기다(#75)
 			chains = append(chains, chain)
 		}
 	}

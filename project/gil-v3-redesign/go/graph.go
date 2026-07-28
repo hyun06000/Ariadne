@@ -80,6 +80,22 @@ func chainHasReference(chain, revRange string) bool {
 	return false
 }
 
+// interviewState — 이 체인 인터뷰의 **지금** 상태: pending|done|none (이슈 #75).
+//
+// 왜 필요한가. 확정(done) 뒤에 다시 물을 수 있어야 한다 — 전제가 반증되면 기준은 낡는다.
+// 그런데 옛 판정들은 "done 마커가 하나라도 있으면 done" 이었고, 그래서 **재인터뷰가 조용히
+// 삼켜졌다**: 커밋은 그래프에 있는데 --status 는 옛 문서를 done 이라 답하고, 뷰어엔 폼이
+// 안 뜨고, handoff 도 모른다. 상태는 **최신 마커**가 정한다.
+func interviewState(chain string) string {
+	if chainInterviewPending(chain, "--branches") { // latest-wins 판정(아래 함수가 그렇게 돈다)
+		return "pending"
+	}
+	if chainReferenceApproved(chain, "--branches") {
+		return "done"
+	}
+	return "none"
+}
+
 // chainReferenceApproved — 이 체인의 기준이 '사람이 승인한' 것인가(이슈 #33). 인터뷰 제출로
 // 확정된 레퍼런스만(Gil-Interview:done) 인정한다 — LLM 이 gil chain --reference 로 자기가 쓴
 // 기준은 인정하지 않는다(상현님: '됐다'는 판단이 LLM 자기확신이 아니라 사람 기준에 비추어야).
