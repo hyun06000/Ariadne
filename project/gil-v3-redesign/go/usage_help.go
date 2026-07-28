@@ -139,7 +139,7 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/existence.md",
 	},
 	"migrate": {
-		"gil migrate --from <v2-ref> [--room <room>] [--prefix <접두>] [--dry-run]\n" +
+		"gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--prefix <접두>] [--dry-run]\n" +
 			"  v2(폴더·cycle.yaml) 이력을 현재 브랜치 위에 v3 커밋 그래프로 이주한다.\n" +
 			"  먼저 v2 루트에서 이주 브랜치를 파고(git checkout -b) 실행하라. --dry-run 으로 먼저 확인.\n" +
 			"  --prefix: 이주 브랜치에 접두(예 v3-)를 붙여 기존 브랜치와 충돌 회피. 충돌 시 아무것도\n" +
@@ -148,7 +148,11 @@ var helpTable = map[string]helpEntry{
 			"  verdict→종결 kind: supported/success→success, rejected→fail, **그 밖의 전부**\n" +
 			"  (partial·inconclusive·verdict 없음)→pending. 없는 성공을 날조하지 않는다(이슈 #50) —\n" +
 			"  결론이 아닌 것을 산 잎으로 접으면 이주된 이력이 원본보다 낙관적인 거짓말이 된다.\n" +
-			"  --dry-run 이 '사람 판단 대기' 개수와 대상을 먼저 보여준다. [migrate] 표식.",
+			"  원 verdict 는 Gil-V2-Verdict 트레일러에 무손실 보존된다(정책이 바뀌어도 복구 가능).\n" +
+			"  --exclude <경로조각>: 그 조각이 경로에 든 사이클을 뺀다(여러 번 가능) — 동결해 둔\n" +
+			"    옛 체인(legacy/archived-chains/…)처럼 v2 fsck 는 안 세는데 migrate 는 끌어오던 것.\n" +
+			"  --dry-run 이 '어디서 몇 개를 가져왔는지'·'무엇을 제외했는지'·'사람 판단 대기'를\n" +
+			"    모두 먼저 보여준다. [migrate] 표식.",
 		"docs/gil/lifecycle.md · docs/gil/concepts.md",
 	},
 	"mcp": {

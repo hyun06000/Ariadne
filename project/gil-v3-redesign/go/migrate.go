@@ -221,6 +221,12 @@ func isRealV2CyclePath(path string) bool {
 	return true
 }
 
+// migrateExcludes — --exclude 로 받은 경로 조각들. 경로에 이 문자열이 들어가면 이주에서
+// 뺀다(이슈 #50 ②). 왜 필요한가: v2 fsck 는 동결해 둔 옛 체인(legacy/archived-chains/…)을
+// 세지 않는데 migrate 는 끌어와 라이브 v3 체인으로 만든다. 동작이 틀린 게 아니라 **제어가
+// 없던 것**이 문제다 — 보존하고 싶은 사람도, 빼고 싶은 사람도 있다.
+var migrateExcludes []string
+
 // collectV2Cycles — v2 ref 트리에서 실사이클 cycle.yaml 들을 읽어 파싱한다.
 func collectV2Cycles(ref, roomFilter string) []v2cycle {
 	out, err := gitTry("ls-tree", "-r", "--name-only", ref)
@@ -248,9 +254,66 @@ func collectV2Cycles(ref, roomFilter string) []v2cycle {
 			!strings.HasPrefix(path, "rooms/"+roomFilter+"/") {
 			continue
 		}
+		if excluded := matchExclude(path); excluded != "" {
+			migrateExcluded = append(migrateExcluded, path+"  (--exclude "+excluded+")")
+			continue
+		}
 		cycles = append(cycles, c)
 	}
 	return cycles
+}
+
+// migrateExcluded — --exclude 로 빠진 경로들. dry-run 이 "무엇을 안 가져왔는지"를 밝힌다.
+// 조용히 빼면 사람은 빠진 걸 모른다 — 조용한 누락도 조용한 실패다.
+var migrateExcluded []string
+
+func matchExclude(path string) string {
+	for _, ex := range migrateExcludes {
+		if ex != "" && strings.Contains(path, ex) {
+			return ex
+		}
+	}
+	return ""
+}
+
+// migrateScanReport — 어디서 몇 개를 가져왔는지 밝힌다(이슈 #50 ②). v2 fsck 가 세는 수와
+// migrate 가 가져오는 수가 다를 수 있어서(동결 체인 등), 사람이 그 차이를 눈으로 확인할
+// 수 있어야 한다.
+func migrateScanReport(cycles []v2cycle) {
+	// 사이클 폴더의 **부모**로 묶는다: <어딘가>/<C0xx-slug>/cycle.yaml → <어딘가>.
+	// v2 트리면 rooms/<room>/chains/<chain>, 평평한 배치면 cycles, 동결분이면
+	// legacy/archived-chains 로 잡힌다 — 사람이 "어디서 몇 개"를 한눈에 본다.
+	roots := map[string]int{}
+	for _, c := range cycles {
+		parts := strings.Split(c.path, "/")
+		root := "(최상위)"
+		if len(parts) > 2 {
+			root = strings.Join(parts[:len(parts)-2], "/")
+		}
+		roots[root]++
+	}
+	stderr("")
+	stderr("스캔한 곳(가져온 사이클 수):")
+	for _, r := range sortedKeys(roots) {
+		stderr("  " + r + "  → " + itoa(roots[r]) + "개")
+	}
+	if len(migrateExcluded) > 0 {
+		stderr("제외됨(--exclude) " + itoa(len(migrateExcluded)) + "개:")
+		for _, p := range migrateExcluded {
+			stderr("  " + p)
+		}
+	} else {
+		stderr("  (제외 없음 — 동결해 둔 옛 체인 등을 빼려면 --exclude <경로조각> 을 쓴다. 여러 번 가능)")
+	}
+}
+
+func sortedKeys(m map[string]int) []string {
+	var ks []string
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
 }
 
 // ── 체인별 사이클 위상정렬 (parent 는 반드시 자식보다 먼저 이주) ──
@@ -305,12 +368,13 @@ func cmdMigrate(args []string) {
 	fs := newFlags("gil migrate")
 	from := fs.str("from", "")
 	room := fs.str("room", "")
+	excludes := fs.strList("exclude") // 경로 조각(여러 번 가능) — 동결 체인 등을 뺀다
 	prefix := fs.str("prefix", "")
 	dryRun := fs.boolFlag("dry-run")
 	pos := fs.parse(args)
 	_ = pos
 	if *from == "" {
-		die("사용: gil migrate --from <v2-ref> [--room <room>] [--prefix <접두>] [--dry-run]\n" +
+		die("사용: gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--prefix <접두>] [--dry-run]\n" +
 			"  v2(폴더·cycle.yaml) 이력을 현재 브랜치 위에 v3 커밋 그래프로 이주한다.\n" +
 			"  먼저 v2 루트에서 이주 브랜치를 파고(git checkout -b) 실행하라 — 대문·존재는 이어받되\n" +
 			"  v2 계보 조상 위에 v3 그래프를 새로 자란다.\n" +
@@ -324,6 +388,7 @@ func cmdMigrate(args []string) {
 		die("거부: v2 ref \"" + *from + "\" 없음")
 	}
 
+	migrateExcludes = *excludes
 	cycles := collectV2Cycles(*from, *room)
 	if len(cycles) == 0 {
 		die("거부: \"" + *from + "\" 에서 이주할 v2 사이클(cycle.yaml)을 찾지 못했다. " +
@@ -360,6 +425,7 @@ func cmdMigrate(args []string) {
 		if *prefix != "" {
 			stderr("  (접두 " + *prefix + " → 브랜치 " + *prefix + "<chain>)")
 		}
+		migrateScanReport(cycles)
 		migrateVerdictSummary(byChain)
 		stderr("dry-run: 커밋하지 않음. 실제 이주는 --dry-run 없이.")
 		return
@@ -524,6 +590,9 @@ func migrateCycle(v3chain string, c v2cycle, closedInChain map[string]bool) {
 		{"Gil-Step", "s3"}, {"Gil-Kind", kind}, {"Gil-Parent", "s2"},
 		{"Gil-Migrate", "step"}, {"Gil-Migrated-From", c.id},
 	}
+	// 원 verdict 를 **무손실로** 보존한다(이슈 #50). 매핑 정책이 뒤에 바뀌어도 여기서 복구할
+	// 수 있고, inconclusive 와 partial 이 그래프 위에서 구분된다 — 본문 산문은 기계가 못 읽는다.
+	ctr = append(ctr, [2]string{"Gil-V2-Verdict", orDefault(strings.TrimSpace(c.verdict), "(없음)")})
 	if kind == "fail" {
 		// 죽은 잎은 되돌아갈 조상 define 을 기록(벽의 지도). 이주에선 자기 s1 로.
 		ctr = append(ctr, [2]string{"Gil-Backtrack", "s1"})

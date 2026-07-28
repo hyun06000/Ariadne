@@ -2922,6 +2922,15 @@ class TestMigrateVerdictHonesty(GilFixture):
         self.assertIn("verdict=partial → pending", out)
         self.assertIn("verdict=- → pending", out)
 
+    def test_original_verdict_is_preserved_losslessly(self):
+        """원 verdict 를 트레일러로 보존한다 — 매핑 정책이 바뀌어도 복구 가능하다(이슈 #50)."""
+        self._make_v2_repo([("C001-inc", "inconclusive", "closed")])
+        r = self.gil("migrate", "--from", "HEAD")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        body = subprocess.run(["git", "log", "--all", "--format=%B"], cwd=self.repo,
+                              capture_output=True, text=True).stdout
+        self.assertIn("Gil-V2-Verdict: inconclusive", body)
+
     def test_dry_run_counts_what_needs_human_judgement(self):
         """이주 **전에** 몇 개가 사람 판단으로 남는지 알려준다 — 뒤에 알면 이미 늦다."""
         self._make_v2_repo([
@@ -2934,6 +2943,40 @@ class TestMigrateVerdictHonesty(GilFixture):
         self.assertIn("사람 판단 대기 2", out)
         self.assertIn("gil approve", out)   # 다음 한 수를 준다(이슈 #47)
         self.assertIn("gil reject", out)
+
+
+class TestMigrateScope(GilFixture):
+    """이주 범위를 사람이 제어하고 눈으로 본다 (이슈 #50 ②).
+
+    v2 fsck 는 동결해 둔 옛 체인을 세지 않는데 migrate 는 끌어와 라이브 v3 체인으로 만들었다.
+    동작이 틀린 게 아니라 **제어가 없던 것**이 문제다 — 보존하려는 사람도, 빼려는 사람도 있다.
+    """
+
+    def _seed(self):
+        for path, cid in [("cycles/C001-live", "C001-live"),
+                          ("legacy/archived-chains/C900-frozen", "C900-frozen")]:
+            d = os.path.join(self.repo, path)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "cycle.yaml"), "w", encoding="utf-8") as f:
+                f.write(f"id: {cid}\nchain: demo\ntitle: t\nstatus: closed\nverdict: supported\n")
+        self._git("add", "-A")
+        self._git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "v2")
+
+    def test_dry_run_shows_where_cycles_came_from(self):
+        """어디서 몇 개를 가져왔는지 밝힌다 — fsck 수와 다를 때 사람이 차이를 본다."""
+        self._seed()
+        out = (lambda r: r.stdout + r.stderr)(self.gil("migrate", "--from", "HEAD", "--dry-run"))
+        self.assertIn("스캔한 곳", out)
+        self.assertIn("legacy/archived-chains", out)
+
+    def test_exclude_drops_them_and_says_so(self):
+        """제외는 조용히 하지 않는다 — 조용한 누락도 조용한 실패다."""
+        self._seed()
+        out = (lambda r: r.stdout + r.stderr)(
+            self.gil("migrate", "--from", "HEAD", "--dry-run", "--exclude", "legacy/"))
+        self.assertIn("실사이클 1개", out)
+        self.assertIn("제외됨(--exclude) 1개", out)
+        self.assertIn("C900-frozen", out)
 
 
 class TestMCPRepoMismatch(GilFixture):

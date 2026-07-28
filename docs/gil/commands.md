@@ -206,7 +206,7 @@ gil version [--check|--update]
 ## v2 이주
 
 ```
-gil migrate --from <v2-ref> [--room <room>] [--prefix <접두>] [--dry-run]
+gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--prefix <접두>] [--dry-run]
 ```
 옛 **v2**(폴더·`cycle.yaml` 기반) 이력을 **v3 커밋 그래프**로 이주한다. 도구 레벨·범용 — 임의의 v2 필드 저장소가 쓴다. 먼저 v2 루트에서 이주 브랜치를 파고(`git checkout -b`) 실행하라. 매핑: v2 5단계를 압축(hypothesis+design→define, verification→verify, analysis+report+verdict→종결 스텝)하고, `verdict`→종결 kind(supported→success, rejected→fail, null&open→pending)로 옮긴다. `--prefix`(예 `v3-`)로 기존 브랜치와의 충돌을 피하며(충돌 시 아무것도 만들지 않고 거부 — 원자성), `--dry-run` 으로 먼저 확인한다. 이주 커밋엔 `[migrate]` 표식(Gil-Migrate·Gil-Migrated-From)이 붙는다.
 
