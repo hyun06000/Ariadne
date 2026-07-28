@@ -893,10 +893,15 @@ func cmdStep(args []string) {
 		// define 으로 완전 회귀, 가설은 맞고 방법만 틀렸으면 그걸 밝힌 analyze 로 —
 		// **반증 시 되돌아갈 자리**에도 그대로 적용된다. 두 플래그가 비대칭일 이유가 없다.
 		if !defineIDs[*falsifyTo] && !analyzeIDs[*falsifyTo] {
-			die("거부: --falsify-to \"" + *falsifyTo + "\" 는 이 사이클의 조상 define 이 아니다.\n" +
+			// 문구가 검사보다 옛것이면 사람은 없는 규칙을 상대로 싸운다(#67 곁다리). 검사는
+			// analyze 도 받으니 문구도 그렇게 말하고, 형제 가지에 있어서 안 보이는 경우엔
+			// 그 사실과 탈출로(goto)까지 준다.
+			die("거부: --falsify-to \"" + *falsifyTo + "\" 는 이 사이클의 조상 define 또는 analyze 가 아니다.\n" +
 				"  형식은 **짧은 스텝 이름**이다(예: s1). 경로형(" + chain + "/" + cycle +
 				"/s1)이나 커밋 해시도 받아 정규화한다.\n" +
 				"  이 사이클의 define: " + strings.Join(sortedIDs(defineIDs), " ") + "\n" +
+				"  이 사이클의 analyze: " + strings.Join(sortedIDs(analyzeIDs), " ") +
+				elsewhereHint(chain, cycle, *falsifyTo, steps) + "\n" +
 				"  그중 하나를 골라라 — 이 가설이 반증되면 되돌아갈 자리다.")
 		}
 		// 제안 A (AIL #1) — 복합가설 열거 거부. 한 hypothesis 는 한 주장이어야 한다: verdict 는
@@ -967,7 +972,8 @@ func cmdStep(args []string) {
 		if !defineIDs[*to] && !analyzeIDs[*to] {
 			die("거부: --to " + *to + "는 조상 define 또는 analyze 여야 함 (재분기의 뿌리)\n" +
 				"  이 사이클의 define: " + strings.Join(sortedIDs(defineIDs), " ") + "\n" +
-				"  이 사이클의 analyze: " + strings.Join(sortedIDs(analyzeIDs), " ") + "\n" +
+				"  이 사이클의 analyze: " + strings.Join(sortedIDs(analyzeIDs), " ") +
+				elsewhereHint(chain, cycle, *to, steps) + "\n" +
 				"  · 가설 자체가 틀렸다면 → define 으로 완전 회귀.\n" +
 				"  · 가설은 맞고 방법만 틀렸다면 → 그걸 밝힌 analyze 로 (분석을 버리지 마라, 이슈 #32).")
 		}

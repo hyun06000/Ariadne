@@ -243,8 +243,8 @@ type inOpen struct {
 	// 이슈 #45: 미해결 사이클이 있으면 새 사이클 open 이 거부된다. 알면서 나란히 여는
 	// 것이면 여기에 그 사이클 이름을 선언한다.
 	Parallel []string `json:"parallel,omitempty" jsonschema:"미해결(fail 잎만·미종결) 사이클을 알면서 나란히 열 때 그 사이클 이름들"`
-	Title   string   `json:"title,omitempty"`
-	Body    string   `json:"body,omitempty"`
+	Title    string   `json:"title,omitempty"`
+	Body     string   `json:"body,omitempty"`
 }
 
 type inStep struct {
@@ -295,6 +295,10 @@ type inLog struct {
 	Chain string `json:"chain,omitempty" jsonschema:"범위를 좁힐 체인(생략=전체)"`
 	Depth string `json:"depth,omitempty" jsonschema:"chain|cycle|step (기본 step)"`
 	All   bool   `json:"all,omitempty" jsonschema:"죽은 잎·형제 가지까지 — 벽의 지도"`
+}
+
+type inGoto struct {
+	Ref string `json:"ref" jsonschema:"<chain>/<cycle> (그 사이클의 산 잎으로) 또는 <chain>/<cycle>/<step> (그 자리로)"`
 }
 
 type inEmpty struct{}
@@ -401,6 +405,17 @@ func registerGilTools(s *mcp.Server) {
 			}
 			return a
 		}, cmdLog)
+
+	// 갇힘의 탈출로(이슈 #67). 죽은 가지 끝에 서면 --to/--falsify-to 가 산 가지의 스텝을
+	// "조상이 아니다"로 거부한다 — 그때 가지를 옮기는 유일한 gil 문법이다. 그래프는 안 바뀐다.
+	tool(s, "gil_goto", "사고 나무 안에서 자리를 옮긴다 — 그 사이클의 산 잎으로, 또는 지정한 스텝 자리로. "+
+		"그래프는 바뀌지 않는다(커밋·브랜치 없음). 죽은 가지에 갇혔을 때의 탈출로다.",
+		func(in inGoto) []string {
+			if in.Ref == "" {
+				return nil
+			}
+			return []string{in.Ref}
+		}, cmdGoto)
 
 	tool(s, "gil_fsck", "그래프 무결성을 검사한다 — 미종결 잎, 어긋난 계보를 잡는다.",
 		func(in inEmpty) []string { return nil }, cmdFsck)

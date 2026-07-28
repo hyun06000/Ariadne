@@ -900,6 +900,116 @@ class TestLogAll(GilFixture):
         self.assertIn("[fail]", allout)
 
 
+class TestGoto(GilFixture):
+    """gil goto — 사고 나무 안에서 자리를 옮긴다 (이슈 #67 제안 2).
+
+    형제 가지가 여럿인 사이클에서 가지 사이를 오갈 길이 gil 에 없었다. 죽은 가지 끝에 서면
+    --to/--falsify-to 가 산 가지의 스텝을 '조상이 아니다'로 거부하고, 나갈 길이 없어 갇힌다.
+    실사용에서 그대로 멈췄다(adopt-v1/gap: s4b1 에 서서 s23 으로 못 감)."""
+
+    def _forked(self):
+        """s1 에서 갈라진 죽은 가지(s2~s3 fail)와 산 가지(s4~s5 analyze)를 만든다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/gap", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--title", "HA", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/gap", "--kind", "fail", "--to", "s1", "--title", "벽")          # s5 죽은 잎
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s1", "--title", "HB",
+                 "--falsify", "F", "--falsify-to", "s1")                                    # s6 산 가지
+        self.gil("step", "a/gap", "--kind", "analyze", "--title", "AB")                     # s8 analyze
+
+    def _head(self):
+        return self._git("rev-parse", "HEAD").stdout.strip()
+
+    def test_goto_step_moves_head(self):
+        self._forked()
+        live = self._head()
+        r = self.gil("goto", "a/gap/s5")   # 죽은 가지의 fail 잎
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("위치 이동", r.stdout)
+        self.assertNotEqual(live, self._head())
+        self.assertIn("죽은 잎", r.stdout)
+
+    def test_goto_cycle_returns_to_live_leaf(self):
+        self._forked()
+        live = self._head()
+        self.gil("goto", "a/gap/s5")            # 죽은 가지(s5 fail)로 들어갔다가
+        r = self.gil("goto", "a/gap")           # 산 잎으로 돌아온다
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(live, self._head())
+
+    def test_goto_does_not_change_graph(self):
+        """자리 이동은 그래프를 바꾸지 않는다 — 커밋도 브랜치도 늘지 않는다."""
+        self._forked()
+        before = self._git("rev-list", "--all", "--count").stdout.strip()
+        branches = self._git("for-each-ref", "--format=%(refname)", "refs/heads/").stdout
+        self.gil("goto", "a/gap/s5")
+        self.assertEqual(before, self._git("rev-list", "--all", "--count").stdout.strip())
+        self.assertEqual(branches, self._git("for-each-ref", "--format=%(refname)", "refs/heads/").stdout)
+
+    def test_escape_from_dead_branch(self):
+        """갇힘의 탈출: 죽은 가지에서 거부당한 뒤 goto 로 산 가지에 가면 재분기가 된다."""
+        self._forked()
+        self.gil("goto", "a/gap/s5")   # 죽은 가지 끝에 선다 — 산 가지의 s8 이 안 보인다
+        r = self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s8",
+                     "--falsify", "F2", "--falsify-to", "s8", "--title", "HC", "--inherit", "L")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("형제", out)                       # 실재한다는 사실을 말해준다
+        self.assertIn("gil goto a/gap/s8", out)          # 나갈 길까지 준다
+        self.gil("goto", "a/gap/s8")
+        r2 = self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s8",
+                      "--falsify", "F2", "--falsify-to", "s8", "--title", "HC", "--inherit", "L")
+        self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+
+    def test_falsify_to_message_names_analyze(self):
+        """곁다리(#67): --falsify-to 거부 문구가 검사와 같은 말을 한다 — analyze 도 받는다."""
+        self._forked()
+        r = self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s1",
+                     "--falsify", "F", "--falsify-to", "s99", "--title", "H")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("define 또는 analyze", r.stdout + r.stderr)
+
+    def test_falsify_to_accepts_ancestor_analyze(self):
+        """문구만이 아니라 검사도 analyze 를 받는다."""
+        self._forked()
+        r = self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s8",
+                     "--falsify", "F2", "--falsify-to", "s8", "--title", "HC", "--inherit", "L")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_goto_unknown_step_lists_steps(self):
+        self._forked()
+        r = self.gil("goto", "a/gap/s99")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("s1", r.stdout + r.stderr)
+
+    def test_goto_unknown_cycle_rejected(self):
+        self._forked()
+        r = self.gil("goto", "a/nope")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_handoff_says_you_are_on_a_dead_branch(self):
+        """갇혔다는 사실을 다음 거부를 기다리지 않고 handoff 가 먼저 말한다."""
+        self._forked()
+        self.gil("goto", "a/gap/s5")
+        out = self.gil("handoff").stdout
+        self.assertIn("죽은 가지", out)
+        self.assertIn("gil goto a/gap", out)
+
+    def test_goto_all_dead_gives_rebranch_anchor(self):
+        """산 잎이 하나도 없으면 그 사실을 말하고 재분기의 뿌리를 준다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/dead", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "a/dead", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/dead", "--kind", "fail", "--to", "s1", "--title", "벽")
+        r = self.gil("goto", "a/dead")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("산 잎이 없다", out)
+        self.assertIn("gil goto a/dead/", out)
+
+
 class TestLiveTip(GilFixture):
     """handoff 팁 선정: 다중 브랜치에서 죽은 잎을 팁으로 잡지 않는다 (2026-07-24)."""
 
@@ -2878,7 +2988,7 @@ class TestMCPServe(GilFixture):
             p.stdout.close()
             p.stderr.close()
         for want in ("gil_chain", "gil_open", "gil_step", "gil_close", "gil_interview",
-                     "gil_interview_status", "gil_log"):
+                     "gil_interview_status", "gil_log", "gil_goto"):
             self.assertIn(want, names)
 
     def test_reject_does_not_kill_server(self):

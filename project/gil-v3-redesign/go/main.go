@@ -94,6 +94,8 @@ func main() {
 		cmdApprove(rest)
 	case "reject":
 		cmdReject(rest)
+	case "goto":
+		cmdGoto(rest)
 	case "log":
 		cmdLog(rest)
 	case "fsck":
@@ -111,7 +113,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject log fsck global memory handoff migrate viewer mcp version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto log fsck global memory handoff migrate viewer mcp version]")
 	}
 }
 
@@ -140,6 +142,7 @@ func printUsage() {
   gil chain-close <chain> --verdict <v>                 체인 닫기 (모든 사이클 닫힌 뒤 — 국면 완결)
   gil deploy --at <chain>/<cycle>/<step> --tag <v> [--url <u>]  배포(공개) 지점 마커 — 뷰어에 🚀
   gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)
+  gil goto <chain>/<cycle>[/<step>]                     자리 이동 — 산 잎으로/그 스텝으로 (그래프 불변)
   gil log [<chain>] [--all]       노드(스텝) 나열. --all: 죽은 가지까지 모두(벽의 지도)
   gil fsck [<range>]              그래프 건강 검사
 

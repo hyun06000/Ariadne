@@ -284,6 +284,7 @@ func handoffReport() string {
 	var L []string
 	L = append(L, "═══ gil handoff — 세션 부활 정보 ═══", "")
 	L = append(L, currencyBanner()...)
+	L = append(L, deadBranchBanner()...)
 	L = append(L, pendingBanner()...)
 	chains, order := chainsFromGraph()
 

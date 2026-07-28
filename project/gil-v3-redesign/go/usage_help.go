@@ -141,6 +141,14 @@ var helpTable = map[string]helpEntry{
 			"  흩어진 체인을 하나로 묶는다 — 실제 git merge(파일까지). 충돌 시 멈춤(사람이 해결).",
 		"docs/gil/deployment.md",
 	},
+	"goto": {
+		"gil goto <chain>/<cycle>[/<step>]\n" +
+			"  사고 나무 안에서 자리를 옮긴다 — 인자가 <chain>/<cycle> 이면 그 사이클의 산 잎으로,\n" +
+			"  <step> 까지 주면 그 스텝 자리로 HEAD 를 옮긴다. 그래프는 바뀌지 않는다(커밋·브랜치 없음).\n" +
+			"  형제 가지가 여럿인 사이클에서 가지 사이를 오가는 유일한 길이다 — 죽은 가지 끝에 서면\n" +
+			"  --to·--falsify-to 가 산 가지의 스텝을 '조상이 아니다'로 거부한다(이슈 #67).",
+		"docs/gil/lifecycle.md",
+	},
 	"log": {
 		"gil log [<chain>] [--all]\n" +
 			"  스텝 노드를 오래된→새 순으로(부모 ←). --all: 죽은 가지까지 모두(벽의 지도).",
