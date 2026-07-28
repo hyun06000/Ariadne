@@ -5583,3 +5583,81 @@ class TestDeepInterviewRounds(GilFixture):
         """한 번 더 물어도 된다는 걸 그 자리에서 알려준다 — 모르면 아무도 안 한다."""
         r = self._round("# 1차\n대충")
         self.assertIn("한 번 더 물어도 된다", r.stdout + r.stderr)
+
+
+class TestDetachedHeadAnchors(GilFixture):
+    """분리된 HEAD 위에 스텝을 잃지 않는다 (이슈 #83, 실사용 재현).
+
+    HEAD 가 한 번 브랜치를 떠나면 그 뒤 모든 선형 스텝이 분리된 HEAD 위에 쌓였다 — 팁이 곧
+    HEAD 라 정합 로직도 "이미 팁"이라며 통과시킨다. 두 겹의 피해: close 는 성공하는데
+    open --parent 는 "안 닫혔다"고 하고(같은 저장소, 다른 답), 종결 스텝이 GC 대상이 된다."""
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c1", "--purpose", "P")
+        self.gil("open", "c1/gap", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "c1/gap", "--kind", "hypothesis",
+                 "--falsify", "F", "--falsify-to", "s1", "--title", "h")
+
+    def _head_branch(self):
+        return self._git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+    def test_step_on_detached_head_lands_on_cycle_branch(self):
+        self._seed()
+        self._git("checkout", "-q", "--detach")
+        r = self.gil("step", "c1/gap", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self._head_branch(), "c1-gap")
+        head = self._git("rev-parse", "HEAD").stdout.strip()
+        self.assertIn("c1-gap", self._git("branch", "--contains", head).stdout)
+
+    def test_step_numbering_stays_monotonic_after_detach(self):
+        """번호가 브랜치에서 계산되므로, 닻이 없으면 s3 가 세 번 나온다(실사용 증상)."""
+        self._seed()
+        self._git("checkout", "-q", "--detach")
+        self.gil("step", "c1/gap", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        self.gil("step", "c1/gap", "--kind", "analyze", "--title", "a")
+        r = self.gil("step", "c1/gap", "--kind", "success", "--title", "s")
+        self.assertIn("s5 success", r.stdout + r.stderr)
+
+    def test_close_then_open_parent_agree(self):
+        """이 이슈의 핵심 — close 가 성공했으면 open --parent 가 그것을 봐야 한다."""
+        self._seed()
+        self._git("checkout", "-q", "--detach")
+        for a in (["--kind", "verify", "--verdict", "supported", "--title", "v"],
+                  ["--kind", "analyze", "--title", "a"],
+                  ["--kind", "success", "--title", "s"]):
+            self.gil("step", "c1/gap", *a)
+        self.assertEqual(self.gil("close", "c1/gap", "--goal-met").returncode, 0)
+        r = self.gil("open", "c1/next", "--parent", "gap", "--author", "clew",
+                     "--purpose", "Q", "--inherit", "앞 사이클의 교훈")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_diverged_cycle_branch_is_not_overwritten(self):
+        """사이클 브랜치가 다른 가지에 있으면 덮지 않고 옆에 판다 — 덮으면 그쪽을 잃는다."""
+        self._seed()
+        keep = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("checkout", "-q", "--detach", "HEAD~1")
+        self.gil("step", "c1/gap", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        self.assertEqual(self._git("rev-parse", "c1-gap").stdout.strip(), keep,
+                         "다른 가지에 있던 사이클 브랜치를 덮었다")
+        self.assertNotEqual(self._head_branch(), "HEAD")  # 어딘가 브랜치 위에 있다
+        head = self._git("rev-parse", "HEAD").stdout.strip()
+        self.assertTrue(self._git("branch", "--contains", head).stdout.strip())
+
+    def test_fsck_reports_steps_reachable_only_from_detached_head(self):
+        """옛 버전·손 checkout 이 남긴 상태는 fsck 가 먼저 말한다."""
+        self._seed()
+        self.gil("step", "c1/gap", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        old = self._git("rev-parse", "HEAD~2").stdout.strip()
+        self._git("checkout", "-q", "--detach")
+        self._git("branch", "-f", "c1-gap", old)
+        r = self.gil("fsck")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("닻 없음", r.stdout)
+
+    def test_fsck_is_quiet_when_everything_is_anchored(self):
+        self._seed()
+        self.gil("step", "c1/gap", "--kind", "verify", "--verdict", "supported", "--title", "v")
+        r = self.gil("fsck")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

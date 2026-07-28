@@ -116,6 +116,7 @@ func commitOn(branch, createFrom, subject, body string, trailers [][2]string, al
 			git("checkout", "-q", branch)
 		}
 	}
+	defer anchorHead() // 새긴 커밋을 브랜치 없는 자리에 두지 않는다(이슈 #83)
 	msg := subject + "\n\n" + strings.TrimRight(body, "\n \t") + "\n\n"
 	var trs []string
 	for _, t := range trailers {
@@ -214,8 +215,64 @@ func alignHeadToTip(tipSHA, ref string) {
 	}
 	// 붙일 브랜치가 없다 — 분리 체크아웃하되 **조용히 넘어가지 않는다**(#59·#60 과 같은 축).
 	git("checkout", "-q", tipSHA)
-	stderr("  ⚠ HEAD 가 브랜치를 떠났다(detached) — 이 커밋은 어느 브랜치에도 없다.")
-	stderr("    남기려면 여기서 브랜치를 만들어라: git branch <이름>  (안 하면 다음 checkout 에 사라진다)")
+	stderr("  ⚠ 붙일 브랜치가 없어 HEAD 를 팁(" + tipSHA + ")으로 분리 체크아웃했다.")
+	stderr("    커밋 뒤에는 gil 이 다시 브랜치에 닻을 내린다 — 스텝이 ref 밖에 남지 않는다(이슈 #83).")
+}
+
+// anchorHead — 방금 새긴 커밋이 **어떤 브랜치에서도 안 닿는 자리**에 남지 않게 한다(이슈 #83).
+//
+// 왜 필요한가. gil step/approve/reject 는 현재 HEAD 위에 커밋한다. HEAD 가 한 번 분리되면
+// (alignHeadToTip 의 마지막 수단·gil goto·사람의 git checkout <sha>) 그 뒤 모든 선형 스텝은
+// 분리된 HEAD 위에 쌓인다 — 팁이 곧 HEAD 라 정합 로직도 "이미 팁"이라며 통과시킨다. 결과는
+// 두 겹의 피해였다: (1) 어떤 ref 도 전진하지 않으니 `gil close` 는 성공하고 `gil open --parent`
+// 는 "안 닫혔다"고 한다 — 같은 저장소를 보고 두 명령이 다른 답을 한다. (2) 종결 스텝이
+// GC 대상이 된다 — 사고를 지우지 않는 것이 존재 이유인 도구에서 가장 나쁜 손실.
+//
+// 그래서 커밋 직후 여기서 닻을 내린다. 사이클 브랜치가 없으면 만들고, 있고 **조상이면**
+// 앞으로 감는다(빨리감기라 잃는 커밋이 없다). 조상이 아니면 — 다른 가지 위에 서 있다는
+// 뜻이니 강제로 덮지 않고 옆에 새 가지를 판다. 어느 쪽이든 HEAD 는 브랜치 위에서 끝난다.
+func anchorHead() {
+	if _, err := gitTry("symbolic-ref", "-q", "HEAD"); err == nil {
+		return // 브랜치 위 — 이미 닿는다
+	}
+	head := strings.TrimSpace(git("rev-parse", "HEAD"))
+	if head == "" {
+		return
+	}
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle")
+	ch, cy, _ := cut(strings.TrimSpace(gitlog("-1", "--format="+fmtStr, head, "--")), fsep)
+	chain, cycle := strings.TrimSpace(ch), strings.TrimSpace(cy)
+	if chain == "" {
+		// gil 의 체인/사이클 커밋이 아니다(예: 대문). 함부로 브랜치를 만들지 않고 사실만 말한다.
+		stderr("  ⚠ HEAD 가 브랜치를 떠나 있다(detached) — 이 커밋은 어느 브랜치에도 없다.")
+		stderr("    남기려면: git branch <이름>")
+		return
+	}
+	base := chain
+	if cycle != "" {
+		base = cycleBranch(chain, cycle)
+	}
+	name, how := base, "새로 판다"
+	switch {
+	case !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+base):
+		git("branch", base, head)
+	case gitOK("merge-base", "--is-ancestor", "refs/heads/"+base, head):
+		git("branch", "-f", base, head)
+		how = "빨리감기"
+	default:
+		// 사이클 브랜치가 다른 가지에 있다 — 덮으면 그쪽을 잃는다. 옆에 판다.
+		for i := 2; ; i++ {
+			name = base + "-d" + itoa(i)
+			if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+name) {
+				break
+			}
+		}
+		git("branch", name, head)
+		how = "새 가지(사이클 브랜치는 다른 가지에 있어 덮지 않았다)"
+	}
+	git("checkout", "-q", name)
+	stderr("  ▸ HEAD 가 브랜치 밖(detached)이라 " + name + " 에 닻을 내렸다 — " + how + " (이슈 #83).")
+	stderr("    이 커밋들은 이제 ref 에서 닿는다(GC 대상 아님). HEAD 는 " + name + " 위에 있다.")
 }
 
 // branchAbove — tipSHA 를 조상으로 갖고, 그 사이가 **전부 gil 이 아닌 평범한 커밋**인 로컬

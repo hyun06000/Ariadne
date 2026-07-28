@@ -468,7 +468,66 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	}
 	violations = append(violations, fsckChainStacking()...)
 	violations = append(violations, fsckMemoryLayer(nodes)...)
+	violations = append(violations, fsckUnanchoredSteps()...)
 	return violations
+}
+
+// fsckUnanchoredSteps — 브랜치에서 안 닿는 스텝 커밋을 짚는다(이슈 #83 부수 제안).
+//
+// 두 종류를 본다. (1) HEAD 계보에는 있는데 어떤 브랜치에도 없는 스텝 — 분리된 HEAD 위에
+// 쌓인 것으로, 다음 checkout 한 번에 통째로 손이 닿지 않는 곳으로 간다. (2) 이미 어디에서도
+// 안 닿는 스텝 — GC 가 지우기 전의 마지막 신호다. 지금의 gil 은 커밋마다 닻을 내리지만
+// (anchorHead), 옛 버전이 만든 저장소와 사람이 손으로 reset 한 자리는 여기서만 드러난다.
+// 사람이 뷰어가 이상해 보일 때에야 알아차리던 것을 도구가 먼저 말한다.
+func fsckUnanchoredSteps() []string {
+	inBranch := map[string]bool{}
+	for _, n := range collectNodes("--branches") {
+		inBranch[n.sha] = true
+	}
+	var out []string
+	var loose []node
+	for _, n := range collectNodes("HEAD") {
+		if !inBranch[n.sha] {
+			loose = append(loose, n)
+		}
+	}
+	if len(loose) > 0 {
+		var lines []string
+		for _, n := range loose {
+			lines = append(lines, "    "+n.sha+" "+n.chain+"/"+n.cycle+"/"+n.step+" "+n.kind)
+		}
+		sort.Strings(lines)
+		out = append(out, "닻 없음: 스텝 커밋 "+itoa(len(loose))+"개가 분리된 HEAD 에만 있다 — 어떤 브랜치도 이들을 가리키지 않는다:\n"+
+			strings.Join(lines, "\n")+"\n"+
+			"    지금 고정하라: git branch "+cycleBranch(loose[0].chain, loose[0].cycle)+"-rescue HEAD\n"+
+			"    (gil 은 커밋마다 닻을 내린다 — 이 상태는 옛 버전이나 손으로 한 checkout 이 남긴 것이다)")
+	}
+	// 이미 어디에서도 안 닿는 스텝(dangling). fsck 가 실패하면 조용히 넘어간다 — 이 검사
+	// 하나 때문에 나머지 진단을 잃지 않는다.
+	if raw, err := gitTry("fsck", "--unreachable", "--no-reflogs", "--no-progress"); err == nil {
+		var lost []string
+		for _, ln := range strings.Split(raw, "\n") {
+			f := strings.Fields(strings.TrimSpace(ln))
+			if len(f) != 3 || f[0] != "unreachable" || f[1] != "commit" {
+				continue
+			}
+			rec := strings.TrimSpace(gitlog("-1", "--format="+trailer("Gil-Chain")+fsep+trailer("Gil-Cycle")+fsep+trailer("Gil-Step")+fsep+trailer("Gil-Kind"), f[2], "--"))
+			ch, rest, _ := cut(rec, fsep)
+			cy, rest2, _ := cut(rest, fsep)
+			st, kd, _ := cut(rest2, fsep)
+			if strings.TrimSpace(st) == "" {
+				continue // gil 스텝이 아니다 — 평범한 커밋의 잔해는 gil 이 말할 일이 아니다
+			}
+			lost = append(lost, "    "+first9(f[2])+" "+strings.TrimSpace(ch)+"/"+strings.TrimSpace(cy)+"/"+strings.TrimSpace(st)+" "+strings.TrimSpace(kd))
+		}
+		if len(lost) > 0 {
+			sort.Strings(lost)
+			out = append(out, "유실 직전: 스텝 커밋 "+itoa(len(lost))+"개가 어디에서도 안 닿는다(GC 대상):\n"+
+				strings.Join(lost, "\n")+"\n"+
+				"    건지려면 각각: git branch rescue-<이름> <sha>  (지운 뒤에는 되돌릴 수 없다)")
+		}
+	}
+	return out
 }
 
 // fsckMemoryLayer — 기억 계층(refs/gil/global)이 통째로 빈 저장소를 짚는다(이슈 #69).
