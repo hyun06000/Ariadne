@@ -1327,6 +1327,60 @@ class TestViewer(GilFixture):
         self.assertIn("demo", html)          # 데모 체인이 그래프에 들어감
         self.assertIn("정적 스냅샷", html)   # live 대신 스냅샷 표시
 
+    def _exit_map(self):
+        """정적 빌드 HTML 에서 (사이클, 스텝) → exit 라벨을 뽑는다."""
+        import json, re
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        data = json.loads(re.search(r'id="cycledata"[^>]*>(.*?)</script>', html, re.S).group(1))
+        out = {}
+        for chain, v in data.items():
+            for cy in v["cycles"]:
+                for n in cy["nodes"]:
+                    if n.get("exit"):
+                        out[(cy["name"], n["id"])] = n["exit"]
+        return out
+
+    def test_exit_ghost_only_where_something_took_over(self):
+        """진출 경계는 추측이 아니라 사실이다 (이슈 #72).
+
+        옛 구현은 카드 안에서 자식 없는 잎을 전부 '나갔다'고 그렸다 — 아무도 이어받지 않은
+        잎에도, 잎 판정이 무너지면 모든 노드에도 붙었다. 이제 그 스텝을 진입 부모로 삼은
+        카드가 실재할 때만 나간 것이다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "demo", "--purpose", "P")
+        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "demo/c001", "--kind", "success", "--title", "됨")
+        self.gil("close", "demo/c001", "--verdict", "supported")
+        # 아무도 이어받지 않은 사이클 — 진출 고스트가 붙으면 거짓이다.
+        self.assertEqual(self._exit_map(), {})
+        # c001 의 끝에서 실제로 새 사이클이 태어나면, 그 스텝에만 진출이 생긴다.
+        self.gil("open", "demo/c002", "--author", "clew", "--purpose", "이어받음",
+                 "--parent", "c001", "--inherit", "c001 교훈")
+        exits = self._exit_map()
+        self.assertEqual(len(exits), 1, exits)
+        (cycle, step), label = next(iter(exits.items()))
+        self.assertEqual(cycle, "c001")
+        self.assertIn("demo/c002", label)
+
+    def test_terminal_leaf_alone_does_not_exit(self):
+        """종결 잎은 원래 나가지 않는다 — 종결 뒤 부착이 문법으로 막혀 있으니(#60).
+
+        죽은 잎(fail)과 산 잎(success)이 함께 있는 사이클에서, 아무도 이어받지 않았다면
+        어느 쪽에도 진출이 붙지 않는다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "demo", "--purpose", "P")
+        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "demo/c001", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "demo/c001", "--kind", "fail", "--to", "s1", "--title", "벽")
+        self.gil("step", "demo/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "demo/c001", "--kind", "success", "--title", "됨")
+        self.assertEqual(self._exit_map(), {})
+
     def test_viewer_build_requires_out(self):
         self._seed_graph()
         r = self.gil("viewer", "build")

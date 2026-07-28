@@ -489,6 +489,63 @@ func cycleEntryParents(g graphView) map[string]string {
 				break
 			}
 		}
+		// 위상으로 못 찾으면 **선언**(Gil-Cycle-Parent)에 기댄다(이슈 #72). 실사용에서 새 사이클은
+		// 체인 브랜치에서 갈라져 나오는 일이 흔해, --parent 로 이어받음을 명시해도 커밋 조상관계
+		// 에는 그 사실이 없다. 선언은 사람이 한 말이라 위상보다 약하지만, 없는 것보다 참이다 —
+		// 위상을 먼저 보고, 없을 때만 선언을 쓴다.
+		if out[k] == "" {
+			for _, pc := range def.cycleParents {
+				if anchor := cycleAnchorStep(g, def.chain, pc); anchor != "" {
+					out[k] = anchor
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+// cycleAnchorStep — 선언된 부모 사이클에서 "여기서 이어받았다"고 볼 자리. 산 잎(종결이 아닌
+// 가장 큰 번호의 잎이 없으면 가장 큰 번호의 스텝)을 고른다. 반환: "chain/cycle/step".
+func cycleAnchorStep(g graphView, chain, cycle string) string {
+	// 선언은 "c001" 처럼 사이클 이름만 오기도 하고 "chain/cycle" 로 오기도 한다.
+	if c, cy, ok := strings.Cut(cycle, "/"); ok {
+		chain, cycle = c, cy
+	}
+	best := ""
+	bestN := -1
+	for _, n := range g.allNodes {
+		if n.chain != chain || n.cycle != cycle {
+			continue
+		}
+		if k := stepNum(n.step); k > bestN {
+			best, bestN = n.step, k
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return chain + "/" + cycle + "/" + best
+}
+
+// cycleExits — 진출 경계의 **사실 근거**(이슈 #72). 어떤 스텝이 다른 사이클/체인의 진입
+// 부모로 실제 지목됐을 때만 그 스텝은 "나갔다". 반환: "chain/cycle/step" → 나간 곳들.
+//
+// 왜 뒤집어 쓰나. 진출 고스트는 카드 안에서 자식 없는 잎을 전부 "나갔다"고 그렸다 — 아무도
+// 이어받지 않은 잎에도, 심지어 잎 판정이 무너지면 모든 노드에도 붙었다. 진입 고스트는
+// 처음부터 사실(위상 유도한 진입 부모)에 기댔는데 진출만 추측이었다. 같은 자료를 뒤집으면
+// 추측이 사라진다: 나간 곳이 실재할 때만 선이 그려진다.
+//
+// 종결(success/fail) 잎에 진출이 붙지 않는 것도 여기서 따라온다 — 종결 뒤 부착은 문법으로
+// 막혀 있으니(#60) 그 스텝을 진입 부모로 삼은 카드가 있을 수 없다.
+func cycleExits(g graphView) map[string][]string {
+	out := map[string][]string{}
+	for k, parentRef := range cycleEntryParents(g) {
+		chain, cycle, _ := strings.Cut(k, "\x01")
+		out[parentRef] = append(out[parentRef], chain+"/"+cycle)
+	}
+	for _, v := range out {
+		sort.Strings(v) // 결정성 — 같은 그래프면 같은 라벨
 	}
 	return out
 }
@@ -499,6 +556,7 @@ func cycleJSON(g graphView, static bool) string {
 	// 태어났나. Gil-Cycle-Parent 선언이 없어도(실사용은 위상 분기라 대개 없다) 커밋 부모 사슬로
 	// 유도한다 — dagJSON 의 nearestStep 과 같은 원리. key=(chain\x01cycle) → "chain/cycle/step".
 	cycleEntry := cycleEntryParents(g)
+	exits := cycleExits(g) // 진출은 추측이 아니라 사실로만 그린다(이슈 #72)
 	var sb strings.Builder
 	sb.WriteString("{")
 	for i, ch := range g.chains {
@@ -532,6 +590,11 @@ func cycleJSON(g graphView, static bool) string {
 				sb.WriteString(fmt.Sprintf(
 					`{"id":%q,"kind":%q,"outcome":%q,"parent":%q,"backtrack":%q,"here":%t,"sha":%q,"inherit":%q,"subj":%q`,
 					n.step, n.kind, n.outcome, n.parent, n.backtrack, nhere, n.full, n.inherit, n.subject))
+				// 이 스텝을 진입 부모로 삼은 카드가 실재하면 그 목록을 싣는다 — 뷰어는 이게
+				// 있는 노드에만 진출 고스트를 그린다.
+				if ex := exits[ch.name+"/"+cy.name+"/"+n.step]; len(ex) > 0 {
+					sb.WriteString(fmt.Sprintf(`,"exit":%q`, strings.Join(ex, ", ")))
+				}
 				if n.deployTag != "" { // 배포 마커(이슈 #34) — 뷰어가 🚀 + 태그 라벨로 렌더.
 					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q`,
 						n.deployTag, n.deployURL, n.deployState))
@@ -1042,12 +1105,15 @@ function openStepCard(chain,cyc){
   // 잎(자식 없는 산/죽은 노드)에서 다음 카드로 나가면 오른쪽에 진출 고스트를 둔다 —
   // orphan 착시(뿌리 없는 가지)를 깬다. 진입 고스트엔 물려받은 전수(Gil-Inherit)를 라벨로.
   const hasEntry=!!cyc.parent;                 // 사이클 부모(Gil-Cycle-Parent)가 있으면 진입 경계.
-  const leaves=steps.filter(n=>!(kids[n.id]&&kids[n.id].length)); // 카드 안에서 자식 없는 잎.
+  // 진출 경계(이슈 #72): 카드 안에서 자식이 없다는 것만으로 "나갔다"고 그리지 않는다.
+  // 서버가 실은 exit(이 스텝을 진입 부모로 삼은 카드들)이 있을 때만 나간 것이다 — 아무도
+  // 이어받지 않은 잎에도, 잎 판정이 무너져 모든 노드에도 붙던 거짓 표시를 사실로 대체한다.
+  const exited=steps.filter(n=>n.exit);
   const gx=hasEntry?1:0;                        // 진입 고스트가 있으면 실노드를 한 칸 오른쪽으로.
   const X=id=>padX+r+(gx+(col[id]||0))*colGap;
   const Y=id=>padYtop+r+(row[id]||0)*rowGap; // 위쪽 여유(backtrack 곡선이 위로 지나감)
   const GEX=padX+r+(gx+maxCol+1)*colGap;        // 진출 고스트 X(맨 오른쪽 한 칸 밖).
-  const w=Math.max(160, padX*2+(gx+maxCol+(leaves.length?1:0))*colGap+r*2);
+  const w=Math.max(160, padX*2+(gx+maxCol+(exited.length?1:0))*colGap+r*2);
   const h=padYtop+padY+maxRow*rowGap+r*2;
   const svg=svgEl('svg',{class:'cygraph',viewBox:'0 0 '+w+' '+h,width:w,height:h});
   // 고스트 노드·stub 엣지를 실노드보다 먼저(밑에) 그린다.
@@ -1067,16 +1133,16 @@ function openStepCard(chain,cyc){
     if(inh){ gg.appendChild(svgEl('text',{class:'inhlbl',dy:-r-14},'⇐'+(inh.length>22?inh.slice(0,22)+'…':inh))); }
     svg.appendChild(gg);
   }
-  if(leaves.length){
-    // 진출 고스트: 이 사이클의 산 잎에서 다음 카드로 나감을 표시(흐린 노드 하나로 수렴).
-    const anchorRow=Math.round(leaves.reduce((s,n)=>s+(row[n.id]||0),0)/leaves.length);
+  if(exited.length){
+    // 진출 고스트: **실제로 다음 카드가 이어받은** 스텝에서만 나감을 표시(흐린 노드로 수렴).
+    const anchorRow=Math.round(exited.reduce((s,n)=>s+(row[n.id]||0),0)/exited.length);
     const GEY=padYtop+r+anchorRow*rowGap;
-    leaves.forEach(lf=>{
+    exited.forEach(lf=>{
       svg.appendChild(svgEl('path',{class:'stepedge ghost',fill:'none',
         d:'M '+(X(lf.id)+r)+' '+Y(lf.id)+' C '+((X(lf.id)+r+GEX-r)/2)+' '+Y(lf.id)+' '+((X(lf.id)+r+GEX-r)/2)+' '+GEY+' '+(GEX-r)+' '+GEY}));
     });
     const ge=svgEl('g',{class:'snode ghost',transform:'translate('+GEX+','+GEY+')'});
-    ge.appendChild(svgEl('title',{},'다음 사이클/체인으로 이어짐'));
+    ge.appendChild(svgEl('title',{},'이어받은 곳: '+exited.map(n=>n.id+' → '+n.exit).join('\n')));
     ge.appendChild(svgEl('circle',{r:r}));
     ge.appendChild(svgEl('text',{class:'sid',dy:3},'→'));
     svg.appendChild(ge);
