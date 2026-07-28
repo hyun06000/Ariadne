@@ -1773,9 +1773,16 @@ func cmdChain(args []string) {
 	// — 형해화(빈 문서 양산) 위험을 관전한 뒤 강제 강도를 올린다(#33 논쟁점 1, falsify가 준 교훈).
 	// purpose=한 줄 요약, reference=근거 전문(파일 또는 - stdin).
 	reference := fs.str("reference", "")
+	// --parallel-with <열린 체인> (이슈 #54): 병렬 트랙을 **선언**한다.
+	//
+	// gil help 는 "닫힌 체인 끝에서만"이라 적어놓고 실제로는 열린 체인 옆에서 새 체인을 여는
+	// 걸 통과시켰다. 그래서 동시에 굴린 트랙이 git 조상관계로 "이어받음"이 됐다 — 선언된
+	// 진실(--inherit 없음)과 그려지는 진실(이어받음)이 반대였다. 병렬을 막는 게 답이 아니다
+	// (실사용에서 5개 트랙이 서로 다른 장비에서 동시에 돌았다). 표현할 수단을 주는 게 답이다.
+	parallelWith := fs.strList("parallel-with")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil chain <name> --purpose <자연어> [--reference <기준문서|->] [--inherit <전수>]")
+		die("사용: gil chain <name> --purpose <자연어> [--parallel-with <열린체인>...] [--reference <기준문서|->] [--inherit <전수>]")
 	}
 	name := pos[0]
 	if *purpose == "" {
@@ -1789,6 +1796,30 @@ func cmdChain(args []string) {
 	}
 	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+name) {
 		die("거부: 브랜치 " + name + " 이미 있음 (체인은 새 브랜치만)")
+	}
+	// 열린 체인이 있으면 — 이어받는 것이 아니라 나란히 여는 것이므로 — 선언을 요구한다.
+	// gil 자신의 규칙("닫힌 체인 끝에서만")과 실동작의 어긋남을 여기서 없앤다.
+	if open := openChains(); len(open) > 0 {
+		declared := map[string]bool{}
+		for _, p := range *parallelWith {
+			declared[p] = true
+		}
+		var undeclared []string
+		for _, oc := range open {
+			if !declared[oc] {
+				undeclared = append(undeclared, oc)
+			}
+		}
+		if len(undeclared) > 0 {
+			die("거부: 아직 열린 체인이 있다: " + strings.Join(undeclared, " ") + "\n" +
+				"  체인은 닫힌 체인 끝에서 연다 — 그래야 '이어받음'이 사실이 된다.\n" +
+				"  둘 중 하나를 골라라:\n" +
+				"    (1) 이어받기 — 먼저 닫아라: gil chain-close " + undeclared[0] + " --retro <회고파일|->\n" +
+				"        (그 끝에서 새 체인을 열면 계승이 진짜가 된다)\n" +
+				"    (2) 병렬   — gil chain " + name + " --purpose <P> --parallel-with " +
+				strings.Join(undeclared, " --parallel-with ") + "\n" +
+				"        (동시에 굴리는 트랙이다 — 선언이 그래프에 남고, 계승으로 그리지 않는다)")
+		}
 	}
 	subject := "gil " + name + " chain: " + *purpose
 	body := "체인 [" + name + "] 개설. 목적: " + *purpose + "\n\n" +
@@ -1809,8 +1840,21 @@ func cmdChain(args []string) {
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
 	}
+	for _, p := range *parallelWith {
+		tr = append(tr, [2]string{"Gil-Parallel-With", p}) // 병렬 트랙 선언(이슈 #54)
+	}
 	// 체인 = git 브랜치. 현재 위치(대문/닫힌 체인 끝)에서 분기해 대문을 이어받는다(orphan 아님).
-	commitOn(name, "HEAD", subject, body, tr, true)
+	//
+	// 병렬이면 **그 체인이 시작한 자리와 같은 자리**에서 갈라진다(이슈 #54·#65). 선언만 하고
+	// 위상은 적층으로 두면, 커밋 그래프는 여전히 "뒤에 왔으니 이어받았다"고 말한다 — 적층
+	// 자체를 없애야 두 진실이 하나가 된다.
+	from := "HEAD"
+	if len(*parallelWith) > 0 {
+		if base := chainRootParent((*parallelWith)[0]); base != "" {
+			from = base
+		}
+	}
+	commitOn(name, from, subject, body, tr, true)
 	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
 	if strings.TrimSpace(refBody) != "" {
 		println2("  ✓ 기준 문서(레퍼런스 트루스) 심음 — 이후 사이클의 define·가설·성패판정이 이걸 잣대로 선다.")

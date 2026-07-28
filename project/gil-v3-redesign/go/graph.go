@@ -438,6 +438,59 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	return violations
 }
 
+// openChains — 아직 chain-close 를 받지 않은 체인들(init 대문 제외). 이름순.
+// 새 체인을 열 때 "이어받음인가 병렬인가"를 사람에게 묻는 근거다(이슈 #54).
+func openChains() []string {
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Kind") + sep
+	roots := map[string]bool{}
+	closed := map[string]bool{}
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		ch, kind, _ := cut(rec, fsep)
+		c, k := strings.TrimSpace(ch), strings.TrimSpace(kind)
+		if c == "" {
+			continue
+		}
+		switch k {
+		case "chain-root":
+			roots[c] = true
+		case "chain-close":
+			closed[c] = true
+		}
+	}
+	var out []string
+	for c := range roots {
+		if !closed[c] {
+			out = append(out, c)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// chainRootParent — 그 체인의 chain-root 커밋의 첫 부모(= 그 체인이 갈라져 나온 자리).
+// 병렬 체인을 **같은 자리**에서 내기 위해 쓴다(이슈 #54) — 뒤에 열렸다는 이유로 앞 체인의
+// 자손이 되면, 커밋 그래프가 선언과 반대되는 말을 한다.
+func chainRootParent(chain string) string {
+	fmtStr := "%H" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Kind") + sep
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		sha, rest, _ := cut(strings.TrimSpace(rec), fsep)
+		ch, kind, _ := cut(rest, fsep)
+		if strings.TrimSpace(ch) == chain && strings.TrimSpace(kind) == "chain-root" {
+			root := strings.TrimSpace(sha)
+			// 부모가 없을 수 있다 — 그 체인의 루트가 저장소의 첫 커밋인 경우(git 은 여기서
+			// 죽으므로 gitTry 로 받는다). 그때는 그 루트 자체를 시작점으로 준다: 진짜 형제는
+			// 못 되지만, 적어도 그 체인이 **그 뒤에 쌓은 작업 위에는** 얹히지 않는다.
+			if p, err := gitTry("rev-parse", "--verify", "-q", root+"^"); err == nil {
+				if v := strings.TrimSpace(p); v != "" {
+					return v
+				}
+			}
+			return root
+		}
+	}
+	return ""
+}
+
 // fsckChainStacking — 체인 루트가 다른 체인의 커밋 위에 얹혀 있는데 그 체인이 닫히지 않은
 // 경우를 보고한다(이슈 #65 제안 3).
 //
@@ -462,10 +515,26 @@ func fsckChainStacking() []string {
 	}
 	sort.Strings(names)
 	var out []string
+	declaredParallel := map[string]map[string]bool{} // 체인 → 선언된 병렬 상대들(이슈 #54)
+	pf := trailer("Gil-Chain") + fsep + trailer("Gil-Parallel-With") + sep
+	for _, rec := range strings.Split(gitlog("--format="+pf, "--branches"), sep) {
+		ch, pw, _ := cut(rec, fsep)
+		c, p := strings.TrimSpace(ch), strings.TrimSpace(pw)
+		if c == "" || p == "" {
+			continue
+		}
+		if declaredParallel[c] == nil {
+			declaredParallel[c] = map[string]bool{}
+		}
+		declaredParallel[c][p] = true
+	}
 	for _, ch := range names {
 		for _, other := range names {
 			if ch == other || parents[ch] == other {
 				continue // 자기 자신이거나, 이미 진짜 계승으로 인정된 관계
+			}
+			if declaredParallel[ch][other] || declaredParallel[other][ch] {
+				continue // 사람이 병렬이라 선언했다 — 사고가 아니라 판단이다(이슈 #54)
 			}
 			if gitOK("merge-base", "--is-ancestor", roots[other], roots[ch]) {
 				out = append(out, "계보: 체인 "+ch+" — 루트가 체인 "+other+

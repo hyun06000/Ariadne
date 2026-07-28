@@ -1914,7 +1914,7 @@ class TestLateRefutation(GilFixture):
 
     def test_refutes_target_must_be_supported(self):
         """refuted verify 를 refutes 하는 건 무의미 — 거부. (별 사이클에 refuted 를 만든다)"""
-        self.gil("chain", "x", "--purpose", "P")
+        self.gil("chain", "x", "--purpose", "P", "--parallel-with", "net")
         self.gil("open", "x/c1", "--author", "c", "--purpose", "P")
         self.gil("step", "x/c1", "--kind", "hypothesis", "--title", "h",
                  "--falsify", "F", "--falsify-to", "s1")
@@ -1930,7 +1930,7 @@ class TestLateRefutation(GilFixture):
 
     def test_refutes_on_open(self):
         """gil open --refutes 도 받는다(사이클을 여는 순간 반증 선언)."""
-        self.gil("chain", "net2", "--purpose", "P")
+        self.gil("chain", "net2", "--purpose", "P", "--parallel-with", "net")
         # 새 사이클을 열며 design/s3 을 refutes.
         r = self.gil("open", "net2/c1", "--author", "clew", "--purpose", "재검",
                      "--refutes", "net/design/s3", "--inherit", "판정 뒤집고 구현 계승")
@@ -2087,12 +2087,14 @@ class TestInherit(GilFixture):
 
     def test_chain_inherit_optional_with_guide(self):
         """체인은 --inherit 없어도 통과하되 안내를 띄운다."""
-        r = self.gil("chain", "n", "--purpose", "P")
+        r = self.gil("chain", "n", "--purpose", "P", "--parallel-with", "m")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("inherit", r.stderr)
 
     def test_chain_inherit_imprints(self):
-        r = self.gil("chain", "n", "--purpose", "P", "--inherit", "m 체인의 교훈")
+        # m 이 아직 열려 있으므로 병렬 선언이 필요하다(이슈 #54) — 이 시험이 재는 건 --inherit 각인이다.
+        r = self.gil("chain", "n", "--purpose", "P", "--inherit", "m 체인의 교훈",
+                     "--parallel-with", "m")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Inherit"), "m 체인의 교훈")
 
@@ -4260,10 +4262,16 @@ class TestFsckReportsChainStacking(GilFixture):
     그래프는 일관되게 그리되, 이상은 도구가 말한다."""
 
     def test_stacked_chain_root_is_reported(self):
+        """옛 저장소·이주 산물에 남은 적층을 짚는다.
+
+        (이제 gil chain 자체가 열린 체인 위에 새 체인을 얹는 걸 거부하므로 — 이슈 #54 —
+        적층은 손으로 만든다. fsck 는 '있어선 안 되는 것'을 잡는 자리라 이게 맞는 재현이다.)"""
         self.gil("init")
         self.gil("chain", "first", "--purpose", "P")
-        # first 를 닫지 않은 채 그 위에서 새 체인을 연다 = 적층(계승이 아니다).
-        self.gil("chain", "second", "--purpose", "P2")
+        self._git("checkout", "-q", "-b", "second", "first")
+        self._git("commit", "-q", "--allow-empty", "-m",
+                  "gil second chain: 손으로 얹은 체인\n\n본문\n\n"
+                  "Gil-Chain: second\nGil-Kind: chain-root\nGil-Chain-Purpose: P2")
         out = self.gil("fsck").stdout + self.gil("fsck").stderr
         self.assertIn("적층", out)
         self.assertIn("second", out)
@@ -4334,3 +4342,52 @@ class TestDeployStaged(GilFixture):
         out = r.stdout + r.stderr
         self.assertIn("staged", out)
         self.assertIn("live", out)
+
+
+class TestParallelChains(GilFixture):
+    """병렬 체인을 표현할 수단을 준다 (이슈 #54).
+
+    v3 는 병렬 작업을 **막지 않으면서 병렬이라고 기록할 수단만** 없었다. gil help 는
+    "닫힌 체인 끝에서만"이라 적어놓고 열린 체인 옆에서 새 체인을 여는 걸 통과시켰고,
+    그래서 동시에 굴린 트랙이 git 조상관계로 "이어받음"이 됐다 — **선언된 진실
+    (--inherit 없음)과 그려지는 진실(이어받음)이 반대**였다.
+
+    막는 게 답이 아니다(실사용에서 5개 트랙이 서로 다른 장비에서 동시에 돌았다).
+    #45 와 같은 문법으로 푼다: 거부하되, 선언하면 통과하고 그 선언이 그래프에 남는다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "tester")
+        self.gil("chain", "alpha", "--purpose", "장기 트랙 A")
+
+    def test_new_chain_refused_while_another_is_open(self):
+        """문서와 실동작의 어긋남을 없앤다 — 열린 체인이 있으면 그냥 통과시키지 않는다."""
+        r = self.gil("chain", "beta", "--purpose", "동시에 굴릴 트랙 B")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("alpha", out)
+        self.assertIn("chain-close", out)      # 이어받기
+        self.assertIn("--parallel-with", out)  # 병렬
+
+    def test_declared_parallel_is_recorded(self):
+        r = self.gil("chain", "beta", "--purpose", "B", "--parallel-with", "alpha")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("beta", "Gil-Parallel-With"), "alpha")
+
+    def test_declared_parallel_is_not_a_descendant(self):
+        """선언만으로는 부족하다 — 위상도 진짜 형제여야 그래프가 같은 말을 한다."""
+        self.gil("chain", "beta", "--purpose", "B", "--parallel-with", "alpha")
+        anc = self._git("merge-base", "--is-ancestor", "alpha", "beta").returncode == 0
+        self.assertFalse(anc, "병렬이라 선언했는데 앞 체인의 자손으로 각인됐다")
+
+    def test_declared_parallel_is_not_flagged_as_stacking(self):
+        """선언된 병렬은 사고가 아니라 판단이다 — fsck 가 소음을 만들지 않는다(이슈 #65 짝)."""
+        self.gil("chain", "beta", "--purpose", "B", "--parallel-with", "alpha")
+        self.assertNotIn("적층", self.gil("fsck").stdout + self.gil("fsck").stderr)
+
+    def test_succession_after_close_still_works(self):
+        """닫고 여는 길은 그대로다 — 그때는 계승이 사실이 된다."""
+        self.gil("chain-close", "alpha", "--retro", "-", input="# 회고\n됐다")
+        r = self.gil("chain", "beta", "--purpose", "B")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
