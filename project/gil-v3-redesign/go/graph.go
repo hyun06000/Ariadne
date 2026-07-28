@@ -434,6 +434,22 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 			violations = append(violations, "계보: "+cc+" — 정정 대상 \""+n.supersedes+"\" 실재 안 함 (dangling supersedes)")
 		}
 	}
+	// 스텝 번호 중복(이슈 #67 수정 중 발견): 같은 사이클에 같은 id 가 둘이면 --to·Gil-Parent
+	// 참조가 어느 쪽을 가리키는지 알 수 없다. 형제 가지가 있을 때 HEAD 계보만 보고 번호를
+	// 매기면 실제로 발생한다 — 문법으로 막았지만, 이미 그렇게 그려진 그래프는 여기서 짚는다.
+	seenStep := map[string]string{}
+	for _, n := range universe {
+		if n.cycle == "" || n.step == "" {
+			continue
+		}
+		k := stepKey(n.chain, n.cycle, n.step)
+		if prev, ok := seenStep[k]; ok && prev != n.sha {
+			violations = append(violations, "위계: "+n.chain+"/"+n.cycle+"/"+n.step+
+				" — 같은 스텝 번호가 둘이다("+prev+", "+n.sha+"). 계보 참조가 어느 쪽인지 알 수 없다.")
+			continue
+		}
+		seenStep[k] = n.sha
+	}
 	violations = append(violations, fsckChainStacking()...)
 	return violations
 }

@@ -6,6 +6,10 @@
 package main
 
 import (
+	"path/filepath"
+	"net/http"
+	"io"
+	"encoding/json"
 	"net"
 	"os"
 	"os/exec"
@@ -37,6 +41,18 @@ func launchViewer() {
 	// 이미 그 포트가 열려 있으면(뷰어가 이미 떠 있으면) 중복 기동하지 않는다 — 대신 브라우저를
 	// 연다(실사용 피드백: 이미 떠 있을 때 아무 일도 안 하면 사람이 뷰어를 못 찾는다).
 	if portOpen(viewerPortNum()) {
+		mine, other := viewerServesThisRepo(viewerPortNum())
+		if !mine {
+			// 남의 저장소(또는 뷰어가 아닌 것)가 이 포트를 쥐고 있다 — 그 주소를 "관전 중"
+			// 이라 부르면 사람이 남의 그래프를 자기 것으로 읽는다(온보딩 실측).
+			who := other
+			if who == "" {
+				who = "(뷰어가 아닌 무언가)"
+			}
+			println2("  ⚠ 뷰어: 포트 " + viewerPortNum() + " 는 다른 저장소가 쓰고 있다 → " + who)
+			println2("     이 저장소를 보려면 다른 포트로 띄워라: gil viewer serve --port <다른포트>")
+			return
+		}
 		if openBrowser(url) {
 			println2("  뷰어: 이미 관전 중 — 브라우저로 열었다. (" + url + ")")
 		} else {
@@ -128,6 +144,39 @@ func portOpen(port string) bool {
 	}
 	_ = c.Close()
 	return true
+}
+
+// viewerServesThisRepo — 그 포트의 뷰어가 **이 저장소**를 보고 있나(온보딩 실측).
+// 포트가 열려 있다는 사실만으로는 부족하다: 다른 프로젝트의 뷰어가 같은 기본 포트를 쥐고
+// 있으면, "이 주소를 열어라"는 지시가 사람을 남의 그래프로 보낸다. /whoami 로 되묻는다.
+// (뷰어가 아닌 무언가가 포트를 쥐고 있어도 여기서 걸러진다.)
+func viewerServesThisRepo(port string) (bool, string) {
+	c := &http.Client{Timeout: 400 * time.Millisecond}
+	resp, err := c.Get("http://127.0.0.1:" + port + "/whoami")
+	if err != nil {
+		return false, ""
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return false, ""
+	}
+	var got struct {
+		Repo string `json:"repo"`
+	}
+	if json.Unmarshal(b, &got) != nil || got.Repo == "" {
+		return false, ""
+	}
+	mine, err := filepath.Abs(".")
+	if err != nil {
+		return false, got.Repo
+	}
+	a, err1 := filepath.EvalSymlinks(got.Repo)
+	b2, err2 := filepath.EvalSymlinks(mine)
+	if err1 == nil && err2 == nil {
+		return a == b2, got.Repo
+	}
+	return got.Repo == mine, got.Repo
 }
 
 // waitPort — deadline 안에 포트가 열리면 true.

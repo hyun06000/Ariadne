@@ -3865,12 +3865,16 @@ class TestTerminalAttachAndAt(GilFixture):
     # ── #59 두고 온 가지를 닫는 --at ──
 
     def test_at_closes_the_abandoned_branch(self):
-        """HEAD 가 떠난 뒤에도 그 잎 자리에 종결을 박을 수 있다."""
+        """HEAD 가 떠난 뒤에도 그 잎 자리에 종결을 박을 수 있다.
+
+        (이슈 #67 이후 --at 은 박고 **원래 자리로 돌아오므로**, 종결은 HEAD 가 아니라
+        그 가지에서 확인한다 — 다녀왔다는 사실 자체가 새 동작이다.)"""
         self._rebranch()
         r = self.gil("step", "adopt/gap", "--kind", "fail", "--at", "s4", "--to", "s1",
                      "--title", "이 접근은 막혔다", "--body", "벽의 지도")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.trailer("HEAD", "Gil-Parent"), "s4")
+        self.assertEqual(self.trailer("adopt-gap-s4b1", "Gil-Parent"), "s4")
+        self.assertEqual(self.trailer("adopt-gap-s4b1", "Gil-Kind"), "fail")
 
     def test_fail_without_at_does_not_land_on_live_leaf(self):
         """--to 는 부모를 바꾸지 않는다 — 살아있는 잎 위에 fail 이 얹히면 그 잎이 죽는다.
@@ -4510,3 +4514,244 @@ class TestMCPExposesNewGrammar(GilFixture):
         sch = self._tool_schema("gil_deploy")
         self.assertIn("state", sch)
         self.assertIn("promote", sch)
+
+
+class TestViewerIdentityBeforeClaim(GilFixture):
+    """그 포트의 뷰어가 이 저장소를 보는지 확인하고 말한다 (온보딩 실측에서 발견).
+
+    포트가 열려 있다는 사실만으로 "관전 중"이라 부르면, 다른 프로젝트의 뷰어가 같은 기본
+    포트를 쥐고 있을 때 사람을 **남의 그래프**로 보낸다. 실제로 새 폴더에서 gil_init 을
+    했더니 다른 저장소의 뷰어 주소를 안내했고, handoff 는 그 주소를 "지금 열어라 — 선택이
+    아니다"라는 규범(#55)으로 지시했다. 레일이 틀린 곳을 가리키면 레일이 아니다.
+    """
+
+    def _fake_server_on(self, port, body):
+        """그 포트를 쥔 다른 무언가를 흉내낸다(다른 저장소의 뷰어 또는 뷰어가 아닌 것)."""
+        import http.server, threading
+        payload = body.encode()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", port), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        return srv
+
+    def _handoff_with_port(self, port):
+        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_VIEWER_PORT=str(port))
+        r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo, env=env,
+                           capture_output=True, text=True)
+        return r.stdout + r.stderr
+
+    def test_foreign_repo_viewer_is_not_claimed(self):
+        """다른 저장소를 보는 뷰어를 '이 저장소의 뷰어'라 부르지 않는다."""
+        self.gil("init")
+        port = 8873
+        self._fake_server_on(port, '{"repo":"/somewhere/else"}')
+        out = self._handoff_with_port(port)
+        self.assertIn("다른 저장소", out)
+        self.assertIn("/somewhere/else", out)   # 어디를 보고 있는지 짚어준다
+        self.assertNotIn("뷰어: 살아있음", out)
+
+    def test_non_viewer_on_port_is_not_claimed(self):
+        """뷰어가 아닌 무언가가 포트를 쥐고 있어도 마찬가지다."""
+        self.gil("init")
+        port = 8874
+        self._fake_server_on(port, 'not json at all')
+        out = self._handoff_with_port(port)
+        self.assertIn("다른 저장소", out)
+        self.assertNotIn("뷰어: 살아있음", out)
+
+    def test_directive_does_not_send_people_to_the_wrong_graph(self):
+        """규범('지금 열어라')이 틀린 주소를 가리키지 않는다 — 여기가 제일 아픈 자리다."""
+        self.gil("init")
+        port = 8875
+        self._fake_server_on(port, '{"repo":"/somewhere/else"}')
+        out = self._handoff_with_port(port)
+        self.assertIn("남의 그래프를 보게 된다", out)
+        self.assertIn("--port", out)   # 다른 포트로 띄우라는 다음 한 수
+
+
+class TestAtReturnsAndIdsStayUnique(GilFixture):
+    """--at 은 잠시 다녀올 뿐이고, 스텝 번호는 사이클 안에서 유일하다 (온보딩 실측).
+
+    `--at` 은 두고 온 잎에 종결을 박으려고 그 가지로 분기하는데, 옛 동작은 **거기 선 채로
+    끝났다.** 사용자는 "두고 온 잎을 닫는다"고 했지 "그 가지로 옮겨간다"고 하지 않았다.
+    게다가 돌아올 gil 경로가 없어 raw git 으로 내려가야 했다 — gil 레일을 우회하지 않으려는
+    사람에게는 작업이 멈추는 벽이었다.
+
+    그리고 복귀를 넣자 **번호가 겹쳤다**: HEAD 계보만 보고 다음 번호를 매기면 다른 가지의
+    스텝이 안 보인다. 같은 사이클에 s8 이 둘 생겼고 fsck 도 못 잡았다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/gap", "--author", "c", "--purpose", "P", "--body", "B")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--title", "H1",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "a/gap", "--kind", "verify", "--title", "V1",
+                 "--verdict", "refuted", "--body", "B")
+        self.gil("step", "a/gap", "--kind", "analyze", "--title", "A1", "--body", "B")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s1", "--title", "H2",
+                 "--falsify", "F", "--falsify-to", "s1", "--inherit", "교훈")
+        self.gil("step", "a/gap", "--kind", "verify", "--title", "V2",
+                 "--verdict", "supported", "--body", "B")
+        self.gil("step", "a/gap", "--kind", "analyze", "--title", "A2", "--body", "B")
+
+    def _branch(self):
+        return self._git("branch", "--show-current").stdout.strip()
+
+    def test_at_returns_to_where_it_started(self):
+        before = self._branch()
+        r = self.gil("step", "a/gap", "--kind", "fail", "--at", "s4", "--to", "s1",
+                     "--title", "막힘", "--body", "벽")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self._branch(), before, "--at 이 죽은 가지에 세워둔 채 끝났다")
+
+    def test_rebranch_from_live_analyze_after_at(self):
+        """돌아왔으니 산 가지의 analyze 에서 갈라질 수 있다 — 여기가 막혀 작업이 멈췄었다."""
+        self.gil("step", "a/gap", "--kind", "fail", "--at", "s4", "--to", "s1",
+                 "--title", "막힘", "--body", "벽")
+        r = self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s7", "--title", "H3",
+                     "--falsify", "F", "--falsify-to", "s7", "--inherit", "s7 분석 위에서")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_step_ids_stay_unique_across_branches(self):
+        """번호는 사이클 전체에서 매긴다 — 형제 가지 때문에 같은 번호가 두 번 나오면 안 된다."""
+        self.gil("step", "a/gap", "--kind", "fail", "--at", "s4", "--to", "s1",
+                 "--title", "막힘", "--body", "벽")
+        self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s7", "--title", "H3",
+                 "--falsify", "F", "--falsify-to", "s7", "--inherit", "E")
+        ids = [ln.split("/")[-1].split()[0]
+               for ln in self.gil("log", "a", "--all").stdout.splitlines() if "a/gap/" in ln]
+        self.assertEqual(len(ids), len(set(ids)), f"스텝 번호가 겹쳤다: {sorted(ids)}")
+
+    def test_fsck_flags_duplicate_step_ids(self):
+        """이미 그렇게 그려진 그래프는 fsck 가 짚는다."""
+        self.gil("step", "a/gap", "--kind", "fail", "--at", "s4", "--to", "s1",
+                 "--title", "막힘", "--body", "벽")
+        self._git("commit", "-q", "--allow-empty", "-m",
+                  "gil a/gap/s8 analyze: 손으로 박은 중복\n\n본문\n\n"
+                  "Gil-Chain: a\nGil-Cycle: gap\nGil-Step: s8\nGil-Kind: analyze\nGil-Parent: s7")
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertIn("같은 스텝 번호가 둘이다", out)
+
+    def test_falsify_to_accepts_analyze(self):
+        """--to 와 --falsify-to 의 비대칭을 없앤다 — 되돌아갈 자리에도 같은 논거가 선다."""
+        r = self.gil("step", "a/gap", "--kind", "hypothesis", "--to", "s7", "--title", "H3",
+                     "--falsify", "F", "--falsify-to", "s7", "--inherit", "E")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TestChainFromDeclaresSuccession(GilFixture):
+    """어느 닫힌 체인을 이어받는지 선언한다 (이슈 #68) — --parallel-with 의 빈 짝.
+
+    옛 동작은 새 체인을 HEAD 가 있던 곳에 붙였고, HEAD 는 "마지막으로 닫은 체인"에 가 있다.
+    그래서 같은 명령의 출력이 A 를 앞 체인이라 안내하면서 그래프는 B 에 붙었다 — 도구가
+    스스로 모순되는 상태.
+    """
+
+    def _closed_chain(self, name):
+        self.gil("chain", name, "--purpose", "P")
+        self.gil("open", f"{name}/c1", "--author", "c", "--purpose", "P", "--body", "B")
+        self.gil("step", f"{name}/c1", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", f"{name}/c1", "--kind", "verify", "--title", "V",
+                 "--verdict", "supported", "--body", "B")
+        self.gil("step", f"{name}/c1", "--kind", "analyze", "--title", "A", "--body", "B")
+        self.gil("step", f"{name}/c1", "--kind", "success", "--title", "S", "--body", "B")
+        self.gil("close", f"{name}/c1")
+        self.gil("chain-close", name)
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self._closed_chain("eval-trust")
+        self._closed_chain("tooling")      # 마지막으로 닫힌 체인 — HEAD 가 여기 남는다
+
+    def test_from_attaches_to_the_declared_chain(self):
+        r = self.gil("chain", "measurement", "--purpose", "P", "--from", "eval-trust",
+                     "--inherit", "eval-trust 계승")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self._git("merge-base", "--is-ancestor",
+                                  "eval-trust", "measurement").returncode == 0,
+                        "선언한 체인의 자손이 아니다")
+        self.assertFalse(self._git("merge-base", "--is-ancestor",
+                                   "tooling", "measurement").returncode == 0,
+                         "마지막으로 닫은 엉뚱한 체인에 붙었다")
+
+    def test_from_is_recorded(self):
+        self.gil("chain", "measurement", "--purpose", "P", "--from", "eval-trust")
+        self.assertEqual(self.trailer("measurement", "Gil-Chain-From"), "eval-trust")
+
+    def test_from_must_be_closed(self):
+        """이어받으려면 닫혀 있어야 한다 — 그래야 '닫힌 끝에서 연다'가 사실이 된다."""
+        self.gil("chain", "live-one", "--purpose", "P", "--from", "eval-trust")
+        r = self.gil("chain", "another", "--purpose", "P", "--from", "live-one",
+                     "--parallel-with", "live-one")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("닫히지 않았다", r.stdout + r.stderr)
+
+    def test_from_must_exist(self):
+        r = self.gil("chain", "measurement", "--purpose", "P", "--from", "nope")
+        self.assertNotEqual(r.returncode, 0)
+
+
+class TestDeepInterviewRounds(GilFixture):
+    """인터뷰는 한 번으로 끝내지 않아도 된다 (상현님).
+
+    문제가 명확해질 때까지 여러 차례 물을 수 있어야 한다. 구조는 이미 됐지만 — 2차를 심으면
+    사이클이 다시 잠기고 답하면 열린다 — **새 기준이 앞 기준을 덮어써서 1차에 사람이 답한
+    것이 사라졌다.** 기준은 사람의 답이므로 지워지면 안 된다: 차수를 쌓는다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._no_interview_autofill = True
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "deep", "--purpose", "P")
+
+    def _round(self, text):
+        self.gil("interview", "deep", "--ask", "-", input='[{"q":"무엇","type":"text"}]')
+        with open(os.path.join(self.repo, "reference-deep.md"), "w", encoding="utf-8") as f:
+            f.write(text)
+        return self.gil("interview", "deep", "--resolve", "reference-deep.md")
+
+    def test_second_round_is_allowed_after_first_is_done(self):
+        self._round("# 1차\n속도를 올리고 싶다")
+        r = self.gil("interview", "deep", "--ask", "-", input='[{"q":"더","type":"text"}]')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_open_locks_again_while_second_round_pending(self):
+        """2차가 대기 중이면 사이클은 다시 잠긴다 — 흐린 기준 위에 열지 않게."""
+        self._round("# 1차\n속도")
+        self.gil("interview", "deep", "--ask", "-", input='[{"q":"더","type":"text"}]')
+        r = self.gil("open", "deep/c1", "--author", "c", "--purpose", "P", "--body", "B")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("대기", r.stdout + r.stderr)
+
+    def test_earlier_answers_survive(self):
+        """앞 차수의 답이 지워지지 않는다 — 이게 없으면 심층 인터뷰가 손실이 된다."""
+        self._round("# 1차\n속도를 올리고 싶다")
+        r = self._round("# 2차\n재보니 I/O 였다. 목표는 200ms")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        ref = self.gil("interview", "deep", "--status").stdout
+        self.assertIn("속도를 올리고 싶다", ref)   # 1차
+        self.assertIn("목표는 200ms", ref)         # 2차
+        self.assertIn("인터뷰 2차", ref)
+
+    def test_guidance_invites_another_round(self):
+        """한 번 더 물어도 된다는 걸 그 자리에서 알려준다 — 모르면 아무도 안 한다."""
+        r = self._round("# 1차\n대충")
+        self.assertIn("한 번 더 물어도 된다", r.stdout + r.stderr)

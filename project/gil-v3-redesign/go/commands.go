@@ -53,8 +53,15 @@ func reportGuide(kind string, thin bool) {
 		return
 	}
 	if thin {
-		stderr("  ⚠ 본문이 얇다 — " + kind + " 스텝은 보고서여야 한다. 임시 .md 파일 만들지 말고 stdin 으로 바로 넘겨라:")
-		stderr("      gil step … --body-file - <<'EOF'  …보고서…  EOF   (또는 파이프)")
+		// 안내는 지금 서 있는 표면에 맞아야 한다(온보딩 실측). MCP 로 도는 에이전트에게
+		// "stdin 으로 넘겨라"는 존재하지 않는 길이다 — 거기선 body 인자에 그대로 넣는다.
+		if mcpMode {
+			stderr("  ⚠ 본문이 얇다 — " + kind + " 스텝은 보고서여야 한다. body 인자에 보고서를 통째로 넣어라")
+			stderr("      (툴 인자라 길이 제한이 없다 — 임시 .md 파일을 만들 필요도 없다).")
+		} else {
+			stderr("  ⚠ 본문이 얇다 — " + kind + " 스텝은 보고서여야 한다. 임시 .md 파일 만들지 말고 stdin 으로 바로 넘겨라:")
+			stderr("      gil step … --body-file - <<'EOF'  …보고서…  EOF   (또는 파이프)")
+		}
 		stderr("    스텝 본문은 커밋이라 나중에 못 고친다(append-only) — 지금 이 스텝을 만들 때 채워라. 얇게 두면 얇은 채로 영원히 남는다.")
 	}
 	stderr("  ▸ " + g)
@@ -882,7 +889,10 @@ func cmdStep(args []string) {
 		// 시도한다(실측 3회 시행착오). 뜻이 명백하면 받아 정규화한다 — 형식을 못 맞춰서
 		// 거부당하는 건 사고의 문제가 아니라 표기의 문제다.
 		*falsifyTo = normalizeStepRef(*falsifyTo, chain, cycle, steps)
-		if !defineIDs[*falsifyTo] {
+		// analyze 도 받는다(이슈 #67 곁다리). --to 와 같은 논거다: 가설 자체가 틀렸으면
+		// define 으로 완전 회귀, 가설은 맞고 방법만 틀렸으면 그걸 밝힌 analyze 로 —
+		// **반증 시 되돌아갈 자리**에도 그대로 적용된다. 두 플래그가 비대칭일 이유가 없다.
+		if !defineIDs[*falsifyTo] && !analyzeIDs[*falsifyTo] {
 			die("거부: --falsify-to \"" + *falsifyTo + "\" 는 이 사이클의 조상 define 이 아니다.\n" +
 				"  형식은 **짧은 스텝 이름**이다(예: s1). 경로형(" + chain + "/" + cycle +
 				"/s1)이나 커밋 해시도 받아 정규화한다.\n" +
@@ -926,6 +936,15 @@ func cmdStep(args []string) {
 	var parent string
 	var mergeRest []string
 	var branch, createFrom string // 분기할 때만 채움(진짜 git 브랜치)
+	atReturnTo := ""              // --at 이 잠시 옮겨가기 전의 자리(이슈 #67)
+	if strings.TrimSpace(*at) != "" {
+		if cur, err := gitTry("symbolic-ref", "--quiet", "--short", "HEAD"); err == nil &&
+			strings.TrimSpace(cur) != "" {
+			atReturnTo = strings.TrimSpace(cur)
+		} else {
+			atReturnTo = strings.TrimSpace(git("rev-parse", "HEAD"))
+		}
+	}
 	switch {
 	case len(*merge) > 0:
 		// 스텝 머지: 한 사이클 안 산 잎들을 합류(역순 머지 맨 아래). 완성만 대상.
@@ -982,6 +1001,11 @@ func cmdStep(args []string) {
 	}
 
 	// --at 의 자리 잡기는 위에서 이미 검증했다(이슈 #59) — 여기선 분기 지점만 정한다.
+	//
+	// 끝나면 **원래 서 있던 자리로 돌아온다**(이슈 #67). 종결을 박는 건 한 커밋짜리 일이고,
+	// 사용자는 "두고 온 잎을 닫는다"고 했지 "그 가지로 옮겨간다"고 하지 않았다. 옛 동작은
+	// 죽은 가지에 세워둔 채 끝나, 다음 재분기가 "조상이 아니다"로 거부당하고서야 위치가
+	// 바뀐 걸 알게 했다 — 게다가 돌아올 gil 경로가 없어 raw git 으로 내려가야 했다.
 	if strings.TrimSpace(*at) != "" {
 		parent = *at
 		n := 1
@@ -1007,7 +1031,11 @@ func cmdStep(args []string) {
 		}
 	}
 
-	sid := nextStepID(steps)
+	// 스텝 번호는 **사이클 전체**에서 매긴다(HEAD 계보가 아니라). 형제 가지가 있으면 HEAD
+	// 계보에는 다른 가지의 스텝이 안 보여, 같은 번호가 두 번 발급된다 — 실제로 --at 으로
+	// 두고 온 가지를 닫은 뒤 산 가지로 돌아와 재분기하니 s8 이 둘 생겼다(이슈 #67 수정 중 발견).
+	// 번호는 사이클 안에서 유일해야 계보 참조(--to, Gil-Parent)가 뜻을 잃지 않는다.
+	sid := nextStepID(cycleAnywhere(chain, cycle))
 	stTitle := *title
 	if stTitle == "" {
 		stTitle = *kind
@@ -1072,6 +1100,10 @@ func cmdStep(args []string) {
 	case len(*merge) > 0:
 		tail = " ⋈merge " + strings.Join(*merge, "+")
 	}
+	if strings.TrimSpace(*at) != "" && atReturnTo != "" {
+		// 원래 자리로 복귀(이슈 #67). 분리 HEAD 였으면 그 커밋으로, 브랜치였으면 그 브랜치로.
+		git("checkout", "-q", atReturnTo)
+	}
 	println2("step: " + ref + "/" + sid + " " + *kind + " ←" + parent + tail)
 	if len(*refutes) > 0 {
 		guideRefutes(*refutes)
@@ -1110,8 +1142,7 @@ func cmdApprove(args []string) {
 	if tip == nil {
 		die("거부: " + ref + " 팁이 pending 이 아니다 — 승인할 대기가 없다")
 	}
-	steps := currentCycle(chain, cycle)
-	sid := nextStepID(steps)
+	sid := nextStepID(cycleAnywhere(chain, cycle))
 	stTitle := orDefault(*title, "승인 — "+tip.step+" 의 대기를 사람이 승인")
 	subject := "gil " + chain + "/" + cycle + "/" + sid + " success: " + stTitle
 	stBody := resolveBody(*body, *bodyFile)
@@ -1163,7 +1194,7 @@ func cmdReject(args []string) {
 	if !defineIDs[*to] {
 		die("거부: --to " + *to + "는 조상 define이어야 함")
 	}
-	sid := nextStepID(steps)
+	sid := nextStepID(cycleAnywhere(chain, cycle))
 	stTitle := orDefault(*title, "기각 — "+tip.step+" 의 대기를 사람이 기각")
 	subject := "gil " + chain + "/" + cycle + "/" + sid + " fail: " + stTitle
 	stBody := resolveBody(*body, *bodyFile)
@@ -1629,10 +1660,32 @@ func interviewResolve(chain, refFile string) {
 	if strings.TrimSpace(refBody) == "" {
 		die("거부: --resolve 레퍼런스 파일이 비었다")
 	}
+	// 심층 인터뷰(상현님): 인터뷰는 한 번으로 끝내지 않아도 된다 — 문제가 명확해질 때까지
+	// 여러 차례 물을 수 있다. 그런데 옛 동작은 새 기준이 앞 기준을 **덮어써서**, 2차를 물으면
+	// 1차에 사람이 답한 것이 기준에서 사라졌다. 기준은 사람의 답이므로 지워지면 안 된다 —
+	// 차수를 쌓는다. 최신 기준 문서 하나를 읽으면 지금까지의 모든 답이 거기 있다.
+	prev := chainReferenceText(chain, "--branches")
+	round := 1
+	if strings.TrimSpace(prev) != "" {
+		round = strings.Count(prev, "## 인터뷰 ") + 2
+	}
+	combined := refBody
+	if strings.TrimSpace(prev) != "" {
+		pb := prev
+		if i := strings.Index(pb, "── 기준 문서(레퍼런스 트루스) ──"); i >= 0 {
+			pb = strings.TrimSpace(pb[i+len("── 기준 문서(레퍼런스 트루스) ──"):])
+		}
+		combined = pb + "\n\n---\n\n## 인터뷰 " + itoa(round) + "차 (심층)\n\n" + refBody
+	}
 	subject := "gil " + chain + " reference: 인터뷰로 기준 문서 확정"
+	if round > 1 {
+		subject = "gil " + chain + " reference: 심층 인터뷰 " + itoa(round) + "차로 기준 보강"
+	}
 	body := "체인 [" + chain + "]의 레퍼런스 트루스(기준 문서)를 사람과의 인터뷰로 확정했다(이슈 #33).\n" +
-		"이후 사이클의 define·가설·성패판정이 이 기준에 비추어 선다.\n\n" +
-		"── 기준 문서(레퍼런스 트루스) ──\n\n" + refBody
+		"이후 사이클의 define·가설·성패판정이 이 기준에 비추어 선다.\n" +
+		"인터뷰는 한 번으로 끝내지 않아도 된다 — 문제가 명확해질 때까지 차수를 더할 수 있고,\n" +
+		"앞 차수의 답은 지워지지 않고 아래에 함께 쌓인다.\n\n" +
+		"── 기준 문서(레퍼런스 트루스) ──\n\n" + combined
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Kind", "reference"},
 		{"Gil-Reference", "true"}, {"Gil-Interview", "done"},
@@ -1643,7 +1696,13 @@ func interviewResolve(chain, refFile string) {
 		alignHeadToTip(first9(tip), chain)
 	}
 	commit(subject, body, tr, true)
-	println2("interview: " + chain + " 기준 문서 확정 — 레퍼런스 심음(인터뷰 done).")
+	if round > 1 {
+		println2("interview: " + chain + " 기준 보강 — 심층 인터뷰 " + itoa(round) + "차(앞 차수 답도 그대로 남았다).")
+	} else {
+		println2("interview: " + chain + " 기준 문서 확정 — 레퍼런스 심음(인터뷰 done).")
+	}
+	println2("  ▸ 아직 문제가 흐릿하면 한 번 더 물어도 된다 — gil interview " + chain +
+		" --ask <질문JSON|-> (차수가 쌓인다).")
 }
 
 // ── gil chain-close ──
@@ -1802,9 +1861,16 @@ func cmdChain(args []string) {
 	// 진실(--inherit 없음)과 그려지는 진실(이어받음)이 반대였다. 병렬을 막는 게 답이 아니다
 	// (실사용에서 5개 트랙이 서로 다른 장비에서 동시에 돌았다). 표현할 수단을 주는 게 답이다.
 	parallelWith := fs.strList("parallel-with")
+	// --from <닫힌 체인> (이슈 #68): **어느 닫힌 체인을 이어받는지** 선언한다.
+	//
+	// --parallel-with 의 빈 짝이었다. 옛 동작은 새 체인을 HEAD 가 있던 곳에 붙였는데, HEAD 는
+	// "마지막으로 닫은 체인"에 가 있다. 여러 체인을 닫고 새 체인을 열면 계보가 엉뚱한 체인으로
+	// 그려졌다 — 같은 명령의 출력이 A 를 앞 체인이라 안내하면서 그래프는 B 에 붙는, 도구가
+	// 스스로 모순되는 상태였다.
+	from := fs.str("from", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil chain <name> --purpose <자연어> [--parallel-with <열린체인>...] [--reference <기준문서|->] [--inherit <전수>]")
+		die("사용: gil chain <name> --purpose <자연어> [--from <닫힌체인>] [--parallel-with <열린체인>...] [--reference <기준문서|->] [--inherit <전수>]")
 	}
 	name := pos[0]
 	if *purpose == "" {
@@ -1818,6 +1884,18 @@ func cmdChain(args []string) {
 	}
 	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+name) {
 		die("거부: 브랜치 " + name + " 이미 있음 (체인은 새 브랜치만)")
+	}
+	// --from 검증(이슈 #68): 이어받는다고 선언한 체인은 실재하고 **닫혀 있어야** 한다.
+	// 그래야 "닫힌 체인 끝에서 연다"가 사실이 된다.
+	if f := strings.TrimSpace(*from); f != "" {
+		if chainPurpose(f, "--branches") == "" {
+			die("거부: --from \"" + f + "\" 체인이 없다.")
+		}
+		if !chainClosed(f, "--branches") {
+			die("거부: --from \"" + f + "\" 은 아직 닫히지 않았다 — 이어받으려면 먼저 닫아라:\n" +
+				"    gil chain-close " + f + " --retro <회고파일|->\n" +
+				"  (동시에 굴리는 트랙이면 --parallel-with " + f + " 다.)")
+		}
 	}
 	// 열린 체인이 있으면 — 이어받는 것이 아니라 나란히 여는 것이므로 — 선언을 요구한다.
 	// gil 자신의 규칙("닫힌 체인 끝에서만")과 실동작의 어긋남을 여기서 없앤다.
@@ -1865,18 +1943,25 @@ func cmdChain(args []string) {
 	for _, p := range *parallelWith {
 		tr = append(tr, [2]string{"Gil-Parallel-With", p}) // 병렬 트랙 선언(이슈 #54)
 	}
+	if f := strings.TrimSpace(*from); f != "" {
+		tr = append(tr, [2]string{"Gil-Chain-From", f}) // 이어받는 체인 선언(이슈 #68)
+	}
 	// 체인 = git 브랜치. 현재 위치(대문/닫힌 체인 끝)에서 분기해 대문을 이어받는다(orphan 아님).
 	//
 	// 병렬이면 **그 체인이 시작한 자리와 같은 자리**에서 갈라진다(이슈 #54·#65). 선언만 하고
 	// 위상은 적층으로 두면, 커밋 그래프는 여전히 "뒤에 왔으니 이어받았다"고 말한다 — 적층
 	// 자체를 없애야 두 진실이 하나가 된다.
-	from := "HEAD"
-	if len(*parallelWith) > 0 {
-		if base := chainRootParent((*parallelWith)[0]); base != "" {
-			from = base
+	base := "HEAD"
+	if f := strings.TrimSpace(*from); f != "" {
+		// 선언한 그 체인의 **끝**에서 갈라진다(이슈 #68). 이름이 봉인을 가리키므로(이슈 #66)
+		// 그 ref 가 곧 끝이다. 선언과 그래프가 같은 말을 하게 된다.
+		base = f
+	} else if len(*parallelWith) > 0 {
+		if b := chainRootParent((*parallelWith)[0]); b != "" {
+			base = b
 		}
 	}
-	commitOn(name, from, subject, body, tr, true)
+	commitOn(name, base, subject, body, tr, true)
 	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
 	if strings.TrimSpace(refBody) != "" {
 		println2("  ✓ 기준 문서(레퍼런스 트루스) 심음 — 이후 사이클의 define·가설·성패판정이 이걸 잣대로 선다.")

@@ -52,6 +52,27 @@ func cmdHandoff(args []string) {
 // viewerDirective — "그래프를 지금 띄워라"는 지시. 선택이 아니라 규범으로 쓴다(이슈 #55).
 func viewerDirective() string {
 	url := "http://127.0.0.1:" + viewerPortNum()
+	// 규범을 내기 전에 그 주소가 **이 저장소**를 보는지 확인한다(온보딩 실측). 남의 저장소를
+	// 가리키면서 "지금 열어라, 선택이 아니다"라고 하면, 레일이 사람을 틀린 그래프로 보낸다.
+	if portOpen(viewerPortNum()) {
+		if mine, other := viewerServesThisRepo(viewerPortNum()); !mine {
+			who := other
+			if who == "" {
+				who = "(뷰어가 아닌 무언가)"
+			}
+			alt := viewerPortNum() + "1"
+			return "── 관전 뷰어 (지금 띄우고 열어라) ──\n" +
+				"  ⚠ 포트 " + viewerPortNum() + " 는 **다른 저장소**가 쓰고 있다 → " + who + "\n" +
+				"  그 주소를 열면 남의 그래프를 보게 된다. 이 저장소의 뷰어를 다른 포트로 띄워라:\n" +
+				"    gil viewer serve --port " + alt + "\n" +
+				"  http://127.0.0.1:" + alt + "\n" +
+				"  **이 주소를 네 인앱 브라우저 패널로 지금 열어라.** 선택이 아니다 — 계보가 수십 개가\n" +
+				"  되면 텍스트 나열로는 분기·죽은 잎·현재위치(HEAD)가 눈에 안 들어온다. 그래프를 안 보고\n" +
+				"  시작하면 이미 있는 가지를 못 보고 새로 파게 된다.\n" +
+				"  인앱 패널이 없는 호스트라면 사람에게 이 주소를 안내하라(밖의 브라우저 창은 사람이\n" +
+				"  앱을 떠나야 하므로 마지막 수단이다)."
+		}
+	}
 	head := "── 관전 뷰어 (지금 열어라) ──\n"
 	if !portOpen(viewerPortNum()) {
 		// 뷰어가 아직 안 떴다고 레일이 약해지면 안 된다 — 규범은 그대로 두고 띄우는 한 수만
@@ -368,7 +389,17 @@ func handoffReport() string {
 	L = append(L, "")
 	// 뷰어 생존 보고(이슈 #30) — 죽어 있으면 다음 세션이 바로 되살리게 명령을 준다.
 	if portOpen(viewerPortNum()) {
-		L = append(L, "▶ 뷰어: 살아있음 — http://127.0.0.1:"+viewerPortNum())
+		if mine, other := viewerServesThisRepo(viewerPortNum()); mine {
+			L = append(L, "▶ 뷰어: 살아있음 — http://127.0.0.1:"+viewerPortNum())
+		} else {
+			// 그 주소를 "이 저장소의 뷰어"라 부르면 사람이 남의 그래프를 자기 것으로 읽는다(#67).
+			who := other
+			if who == "" {
+				who = "(뷰어가 아닌 무언가)"
+			}
+			L = append(L, "▶ 뷰어: 포트 "+viewerPortNum()+" 는 **다른 저장소**가 쓰고 있다 → "+who)
+			L = append(L, "    이 저장소를 보려면 다른 포트로: gil viewer serve --port <다른포트>")
+		}
 	} else {
 		L = append(L, "▶ 뷰어: 죽어있음 — 되살리기: gil viewer serve --repo . --port "+viewerPortNum()+" &")
 	}

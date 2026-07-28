@@ -104,6 +104,18 @@ func serve(args []string) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(renderHTML(buildGraph(), false)))
 	})
+	// /whoami — 이 뷰어가 **어느 저장소**를 보고 있는지 밝힌다(온보딩 실측).
+	// 포트가 열려 있다는 것만으로 "그 뷰어가 내 저장소를 본다"고 말할 수 없다. 실제로
+	// 다른 프로젝트의 뷰어가 같은 기본 포트를 쥐고 있었고, handoff 는 그 주소를 "지금
+	// 열어라(선택이 아니다)"로 지시했다 — 사람은 남의 그래프를 자기 것으로 읽는다.
+	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
+		abs, err := filepath.Abs(viewerRepoDir)
+		if err != nil {
+			abs = viewerRepoDir
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "{\"repo\":%q}\n", abs)
+	})
 	http.HandleFunc("/poll", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte(tipSignature()))
