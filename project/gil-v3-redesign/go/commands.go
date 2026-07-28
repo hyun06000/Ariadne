@@ -1233,6 +1233,15 @@ func cmdStep(args []string) {
 		if lv, blocked := leavingUnterminated(); blocked && !*leaveOpen && lv.step != *to {
 			die(unterminatedRefusal(lv, "gil step "+ref+" --kind hypothesis --to "+*to+" … --leave-open"))
 		}
+		// analyze 를 두고 떠나는 백트랙은 막지 않는다(재분기의 뿌리일 수 있다) — 대신 그 잎이
+		// 종결 없이 남는다는 사실을 그 자리에서 말한다(이슈 #86). 옛 안내는 backtrack 을 fail 과
+		// **동급의 대안**으로 읽히게 했고, 실사용에서 두 번 다 그렇게 읽혔다.
+		if tip != nil && tip.kind == "analyze" && tip.step != *to && tip.outcome == "" {
+			stderr("  ⚠ " + tip.step + " [analyze] 를 두고 떠난다 — 이 잎은 종결 없이 남는다(이슈 #86).")
+			stderr("    backtrack 은 fail 의 대안이 아니다. 이 가지를 접는 것이면 그 자리에 벽을 남겨라:")
+			stderr("      gil step " + ref + " --kind fail --at " + tip.step + " --to <조상 define|analyze> --toward … --next-design …")
+			stderr("    안 남기면 gil close 가 거부한다(닫힌 사이클의 모든 잎은 success/fail/pending).")
+		}
 		// 되돌아가 새 형제 가지 — 조상 define(또는 analyze) 커밋에서 진짜 git 브랜치를 분기.
 		//
 		// analyze 앵커(이슈 #32). 반증에는 두 층위가 있다: (1) 가설 자체가 틀림 — define 완전
@@ -1616,6 +1625,56 @@ func cmdClose(args []string) {
 			"        (이 define 의 답을 아직 못 얻었다 — 새 가설로 다시 푼다)\n" +
 			"    (2) 포기 — gil close " + ref + " --abandon\n" +
 			"        (이 define 이 막다른 길로 확인됐다 — 죽은 사이클로 봉인, 벽의 지도로 남긴다)")
+	}
+	// 미종결 잎 검사(이슈 #86) — fsck 가 잡던 것을 close 도 잡는다.
+	//
+	// 왜. 백트랙으로 떠난 가지의 analyze 잎이 종결 없이 남아도 close 가 조용히 통과했다.
+	// 그러면 에이전트는 사이클이 끝났다고 인지하고, 결함은 누군가 fsck 를 돌릴 때까지 잠복한다.
+	// **집행이 두 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다** — close 가 최종 방어선이다.
+	{
+		// **그래프 전체**를 본다(fsck 와 같은 범위). HEAD 계보만 보면 백트랙으로 떠난 형제
+		// 가지의 매달린 잎이 통째로 안 보인다 — 이 이슈가 정확히 그 경우였다.
+		all := cycleAnywhere(chain, cycle)
+		hasChild := map[string]bool{}
+		for _, n := range all {
+			if n.parent != "" && n.parent != "null" {
+				hasChild[n.parent] = true
+			}
+		}
+		var hanging []node
+		seenLeaf := map[string]bool{}
+		for _, n := range all {
+			if seenLeaf[n.step] {
+				continue // 번호 중복(옛 그래프) — 같은 번호를 두 번 짚지 않는다
+			}
+			if hasChild[n.step] {
+				continue
+			}
+			switch n.kind {
+			case "success", "fail", "pending":
+				continue
+			}
+			if isLiveLeaf(n) || isDeadLeaf(n) {
+				continue // 옛 문법(analyze --outcome success/fail/backtrack)도 종결로 인정
+			}
+			seenLeaf[n.step] = true
+			hanging = append(hanging, n)
+		}
+		if len(hanging) > 0 {
+			var lines []string
+			for _, n := range hanging {
+				lines = append(lines, "    "+n.step+" ["+n.kind+"] "+n.subject)
+			}
+			sort.Strings(lines)
+			first := hanging[0]
+			die("거부: 미종결 잎이 남았다 — 닫힌 사이클의 모든 잎은 success/fail/pending 이어야 한다.\n" +
+				strings.Join(lines, "\n") + "\n" +
+				"  백트랙으로 떠난 가지가 대개 이렇다: 해석까지 하고 떠나면 그 자리엔 종결이 없다(이슈 #86).\n" +
+				"  그 자리에 종결을 박아라(지금 서 있는 가지를 떠나지 않는다):\n" +
+				"    gil step " + ref + " --kind fail --at " + first.step + " --to <조상 define|analyze> \\\n" +
+				"      --toward <목적에 얼마나 다가섰나> --next-design <다음 설계>\n" +
+				"  (이 검사는 gil fsck 와 같은 것이다 — 집행이 두 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다.)")
+		}
 	}
 	// 극성 close 대면 (AIL #13, 옵션 B — success 가드의 이중 방어). 산 잎(success)이 딛은
 	// verify 가 supported 인데 그 가설의 극성이 goal-missed 면, 이 사이클은 "목표 실패를 확인"한

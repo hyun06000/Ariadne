@@ -262,6 +262,18 @@ type inStep struct {
 	Refines     []string `json:"refines,omitempty" jsonschema:"앞 verify·analyze 의 해석만 정밀화(판정 불변). chain/cycle/step"`
 	At          string   `json:"at,omitempty" jsonschema:"종결(success|fail|pending)을 두고 온 잎 자리에 박는다 — HEAD 가 떠난 가지를 닫을 때"`
 	Merge       []string `json:"merge,omitempty"`
+	// CLI 가 요구하는 필수 플래그는 MCP 스키마에도 있어야 한다(이슈 #86 제안 c). 없으면
+	// 에이전트가 흐름 중간에 CLI 로 갈아타야 하고, 그 갈아탐 자체가 실수 표면적을 늘린다.
+	Inherit    string   `json:"inherit,omitempty" jsonschema:"backtrack·머지·계보 간선 필수 — 앞 가지에서 물려받은 지식·전제·교훈"`
+	Plan       string   `json:"plan,omitempty" jsonschema:"hypothesis 필수 — 가설을 세우기 전에 고정하는 설계('몇 개일지 추정'이 아니라 '몇 개로 만들지 결정')"`
+	PlanHeld   bool     `json:"plan_held,omitempty" jsonschema:"verify — 고정한 설계가 그대로 유지됐다"`
+	PlanBroke  string   `json:"plan_broke,omitempty" jsonschema:"verify — 설계가 깨졌다 + 무엇이 달랐나(되돌아갈 자리의 신호)"`
+	Advances   string   `json:"advances,omitempty" jsonschema:"hypothesis 필수 — 이 가설이 체인 전체 목적에 어떻게·얼마나 다가서나"`
+	Toward     string   `json:"toward,omitempty" jsonschema:"success·fail 필수 — 그래서 체인 목적에 얼마나 가까워졌나(회고)"`
+	NextDesign string   `json:"next_design,omitempty" jsonschema:"success·fail 필수 — 목적을 이루기 위한 다음 설계(다음 세대가 물려받는다)"`
+	LeaveOpen  bool     `json:"leave_open,omitempty" jsonschema:"미종결 잎을 두고 떠난다는 명시적 선언(매달린 잎이 남고 fsck 가 짚는다)"`
+	Dataset    []string `json:"dataset,omitempty" jsonschema:"이 측정이 어디서 섰나 — 평가셋과 sha256"`
+	Subject    []string `json:"subject,omitempty" jsonschema:"이 측정이 무엇을 쟀나 — 모델·체크포인트·옵션"`
 }
 
 type inTarget struct {
@@ -338,7 +350,7 @@ func registerGilTools(s *mcp.Server) {
 			return addFlag(a, "body", in.Body)
 		}, cmdOpen)
 
-	tool(s, "gil_step", "사이클에 스텝을 남긴다(define/hypothesis/experiment/verify/analyze/backtrack). hypothesis 는 falsify·falsify_to 가, verify 는 verdict 가 필수다.",
+	tool(s, "gil_step", "사이클에 스텝을 남긴다(define/hypothesis/verify/analyze/success/fail/pending). 필수: hypothesis=falsify·falsify_to·plan·advances, verify=verdict(+고정한 설계가 있으면 plan_held|plan_broke), success·fail=toward·next_design, backtrack=inherit.",
 		func(in inStep) []string {
 			a := []string{in.Target}
 			a = addFlag(a, "kind", in.Kind)
@@ -353,6 +365,20 @@ func registerGilTools(s *mcp.Server) {
 			a = addList(a, "refutes", in.Refutes)
 			a = addList(a, "refines", in.Refines)
 			a = addFlag(a, "at", in.At)
+			a = addFlag(a, "inherit", in.Inherit)
+			a = addFlag(a, "plan", in.Plan)
+			a = addFlag(a, "plan-broke", in.PlanBroke)
+			a = addFlag(a, "advances", in.Advances)
+			a = addFlag(a, "toward", in.Toward)
+			a = addFlag(a, "next-design", in.NextDesign)
+			if in.PlanHeld {
+				a = append(a, "--plan-held")
+			}
+			if in.LeaveOpen {
+				a = append(a, "--leave-open")
+			}
+			a = addList(a, "dataset", in.Dataset)
+			a = addList(a, "subject", in.Subject)
 			return addList(a, "merge", in.Merge)
 		}, cmdStep)
 

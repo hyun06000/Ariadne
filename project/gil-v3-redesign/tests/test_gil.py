@@ -6235,3 +6235,70 @@ class TestPollutedGraphIsRendered(GilFixture):
         self.assertIn("seen.has(sha)", html)        # 순환 가드
         self.assertIn("const pSha=", html)          # 부모 해석이 sha 로
         self.assertIn("cardwarn", html)             # 실패·오염을 카드에 찍는다
+
+
+class TestCloseEnforcesLeafInvariant(GilFixture):
+    """close 가 fsck 와 같은 불변식을 집행한다 (이슈 #86, 실사용 재현).
+
+    백트랙으로 떠난 가지의 analyze 잎이 종결 없이 남아도 close 가 조용히 통과했다. 그러면
+    에이전트는 사이클이 끝났다고 인지하고 결함은 fsck 를 돌릴 때까지 잠복한다 —
+    **집행이 두 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다.**"""
+
+    def _backtracked_cycle(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "H1")
+        self.gil("step", "c/c1", "--kind", "verify", "--verdict", "refuted", "--title", "v1")
+        self.gil("step", "c/c1", "--kind", "analyze", "--title", "a1")
+        # s4(analyze)를 종결하지 않고 백트랙 — 실사용에서 두 번 재현된 그 경로.
+        return self.gil("step", "c/c1", "--kind", "hypothesis", "--to", "s1",
+                        "--falsify", "F2", "--falsify-to", "s1",
+                        "--inherit", "H1 은 X 때문에 죽었다", "--title", "H2")
+
+    def test_backtrack_warns_about_the_leaf_it_leaves(self):
+        """backtrack 은 fail 의 대안이 아니다 — 떠나는 자리에서 그 사실을 말한다.
+
+        막지는 않는다(analyze 는 재분기의 뿌리일 수 있다). 막는 자리는 close 다."""
+        r = self._backtracked_cycle()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("종결 없이 남는다", out)
+        self.assertIn("--kind fail --at s4", out)
+        self.assertIn("close 가 거부한다", out)
+
+    def _leave_open_then_finish(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "H1")
+        self.gil("step", "c/c1", "--kind", "verify", "--verdict", "refuted", "--title", "v1")
+        self.gil("step", "c/c1", "--kind", "analyze", "--title", "a1")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--to", "s1",
+                 "--falsify", "F2", "--falsify-to", "s1",
+                 "--inherit", "H1 은 X 때문에 죽었다", "--title", "H2")
+        self.gil("step", "c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v2")
+        self.gil("step", "c/c1", "--kind", "analyze", "--title", "a2")
+        self.gil("step", "c/c1", "--kind", "success", "--title", "s")
+
+    def test_close_refuses_hanging_leaf(self):
+        """close 가 최종 방어선이다 — 여기서 막지 않으면 결함이 잠복한다."""
+        self._leave_open_then_finish()
+        r = self.gil("close", "c/c1", "--goal-met")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("미종결 잎", out)
+        self.assertIn("--kind fail --at", out)   # 수리 명령을 그 자리에서 준다
+
+    def test_close_passes_after_sealing_the_leaf(self):
+        """안내한 수리 명령이 실제로 통해야 한다 — 길 없는 거부는 벽이다."""
+        self._leave_open_then_finish()
+        r = self.gil("step", "c/c1", "--kind", "fail", "--at", "s4", "--to", "s1",
+                     "--title", "이 가지는 벽", "--toward", "목적엔 못 닿았다",
+                     "--next-design", "다른 접근을 설계한다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r2 = self.gil("close", "c/c1", "--goal-met")
+        self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+        self.assertEqual(self.gil("fsck").returncode, 0)

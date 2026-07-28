@@ -143,6 +143,10 @@ func leavingUnterminated() (node, bool) {
 	case "verify", "hypothesis", "define":
 		return tip, true // 해석·종결이 아직 없다
 	}
+	// analyze 는 **막지 않는다**(이슈 #86 을 고치며 한 번 막아 봤다가 되돌렸다). analyze 는
+	// 재분기의 뿌리이자 이어갈 수 있는 자리라(#32), 막으면 정당한 흐름 여럿이 벽에 부딪힌다.
+	// 대신 두 자리에서 잡는다: 떠날 때는 **경고**로(step 의 backtrack 안내), 닫을 때는
+	// **거부**로(close 의 미종결 잎 검사). 마지막 방어선이 확실하면 중간은 안내로 족하다.
 	return node{}, false
 }
 
