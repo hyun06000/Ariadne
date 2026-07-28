@@ -1012,6 +1012,62 @@ class TestGoto(GilFixture):
         self.assertIn("gil goto a/dead/", out)
 
 
+class TestGoalVocabulary(GilFixture):
+    """결말의 어휘 — 달성과 포기 사이 (이슈 #80, #62 의 다음 칸).
+
+    goal-met / abandon 이분법이면 '일부 달성 + 나머지는 원리적 불가'를 적을 자리가 없다.
+    그 자리에서 목표를 유리하게 재해석할 압력이 생긴다 — 보고자는 정당한 독해로 빠져나왔지만
+    문구가 조금만 달랐으면 거짓 기록이 됐을 것이라고 적었다. 어휘가 부족하면 기록이 거짓말한다."""
+
+    def _cycle(self, goal="발표 축 16개 전부 지목"):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "em", "--purpose", "P")
+        self.gil("open", "em/c001", "--author", "clew", "--purpose", "Q", "--goal", goal)
+        self.gil("step", "em/c001", "--kind", "success", "--title", "됨")
+
+    def test_goal_met_with_partial_verdict_is_refused(self):
+        """자기모순 조합이 통과하던 자리 — 보고자가 실제로 그렇게 닫았다."""
+        self._cycle()
+        r = self.gil("close", "em/c001", "--goal-met", "--verdict", "partial")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("같이 설 수 없다", r.stdout + r.stderr)
+
+    def test_goal_partial_records_the_gap(self):
+        """못 한 조각이 그래프에 남는다 — 산문 속에 묻히지 않게."""
+        self._cycle()
+        r = self.gil("close", "em/c001", "--goal-partial", "발표 축 지목: 2/16. 나머지는 복원 불가",
+                     "--verdict", "partial")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body = self._git("log", "-1", "--format=%B", "em-c001").stdout
+        self.assertIn("Gil-Goal-Met: partial", body)
+        self.assertIn("Gil-Goal-Gap: 발표 축 지목: 2/16. 나머지는 복원 불가", body)
+
+    def test_goal_impossible_is_a_finding_not_an_abandon(self):
+        """'원리적으로 불가함을 확인했다'는 실패가 아니라 발견이다 — abandon 으로 묻지 않는다."""
+        self._cycle()
+        r = self.gil("close", "em/c001", "--goal-impossible", "과거 실행 인자가 휘발돼 복원 불가",
+                     "--verdict", "rejected")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body = self._git("log", "-1", "--format=%B", "em-c001").stdout
+        self.assertIn("Gil-Goal-Met: impossible", body)
+        self.assertIn("발견이다", body)
+
+    def test_only_one_goal_answer_allowed(self):
+        self._cycle()
+        r = self.gil("close", "em/c001", "--goal-met", "--goal-partial", "일부")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("하나여야 한다", r.stdout + r.stderr)
+
+    def test_refusal_offers_the_middle_vocabulary(self):
+        """거부가 셋을 다 보여준다 — 어휘를 모르면 있어도 못 쓴다."""
+        self._cycle()
+        r = self.gil("close", "em/c001")
+        out = r.stdout + r.stderr
+        self.assertIn("--goal-partial", out)
+        self.assertIn("--goal-impossible", out)
+        self.assertIn("유리하게 재해석할 압력", out)
+
+
 class TestMeasurementCoords(GilFixture):
     """측정의 좌표 — 어디서 쟀나(dataset)·무엇을 쟀나(subject) (이슈 #79·#81).
 

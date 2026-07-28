@@ -30,3 +30,14 @@ func runEnvOut(env []string, args ...string) string {
 
 func sortStrings(xs []string) { sort.Strings(xs) }
 func itoa(n int) string       { return strconv.Itoa(n) }
+
+// boolCount — 참인 것의 개수. 상호배타 플래그 검사에 쓴다(이슈 #80).
+func boolCount(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
+}

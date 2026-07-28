@@ -1310,9 +1310,15 @@ func cmdClose(args []string) {
 	// 선언이 없으면 닫는 판단이 다시 자기확신으로 돌아간다 — 잎이 다 종결됐다는 사실만으로
 	// "됐다"가 되던 자리를 이 한 마디가 막는다.
 	goalMet := fs.boolFlag("goal-met")
+	// 결말의 어휘를 넓힌다(이슈 #80). goal-met 과 abandon 사이가 비어 있어, "일부 달성 + 나머지는
+	// 원리적 불가"를 적을 자리가 없었다 — 그 자리에서 **목표를 유리하게 재해석할 압력**이 생긴다.
+	// 보고자는 정당한 독해로 빠져나왔지만 문구가 조금만 달랐으면 거짓 기록이 됐을 것이라고 적었다.
+	// 어휘가 부족하면 기록이 거짓말한다.
+	goalPartial := fs.str("goal-partial", "")       // 무엇을 못 했는지(필수 인자) — 그 조각이 그래프에 남는다
+	goalImpossible := fs.str("goal-impossible", "") // 원리적 달성 불가를 **확인**했다 — 실패가 아니라 발견
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil close <chain>/<cycle> [--verdict V] [--goal-met] [--abandon]")
+		die("사용: gil close <chain>/<cycle> [--verdict V] [--goal-met|--goal-partial <못 한 것>|--goal-impossible <이유>] [--abandon]")
 	}
 	ref := pos[0]
 	chain, cycle, _ := cut(ref, "/")
@@ -1381,13 +1387,31 @@ func cmdClose(args []string) {
 	// gil 은 목표 달성 여부를 알 수 없다 — 알 수 있는 건 "답했는가"뿐이고, 그것만 강제한다
 	// (정직 강제 불가, 은폐 영속화만 차단). 목표에 못 닿았다면 닫지 말고 더 파거나,
 	// 그 define 을 포기하는 것이면 --abandon 이 정직한 자리다.
-	if g := cycleGoal(chain, cycle, "--branches"); g != "" && !*goalMet {
+	goalPartialTxt := strings.TrimSpace(*goalPartial)
+	goalImpossibleTxt := strings.TrimSpace(*goalImpossible)
+	answered := *goalMet || goalPartialTxt != "" || goalImpossibleTxt != ""
+	// 자기모순 조합을 막는다(이슈 #80 제안 3): 하나의 결말만 고를 수 있다.
+	if n := boolCount(*goalMet, goalPartialTxt != "", goalImpossibleTxt != ""); n > 1 {
+		die("거부: 목표에 대한 답은 하나여야 한다 — --goal-met | --goal-partial | --goal-impossible 중 하나만.")
+	}
+	// verdict 와 목표 답을 맞춘다. 옛 게이트는 이분법이라 --goal-met --verdict partial 같은
+	// **자기모순 조합이 통과했다**(보고자가 실제로 그렇게 닫았다). partial 은 partial 로 적어야 한다.
+	if *goalMet && strings.TrimSpace(*verdict) == "partial" {
+		die("거부: --goal-met 과 --verdict partial 은 같이 설 수 없다 — '다 달성했다'와 '일부만'이다.\n" +
+			"  일부만 달성했다면 그렇게 적어라: gil close " + ref + " --goal-partial \"<무엇을 못 했는지>\" --verdict partial\n" +
+			"  (결말의 어휘가 둘뿐이면 정직하지 않은 쪽으로 반올림된다 — 이슈 #80.)")
+	}
+	if g := cycleGoal(chain, cycle, "--branches"); g != "" && !answered {
 		die("거부: 이 사이클은 열 때 목표를 선언했다 — 닫으려면 그 목표에 답해라.\n" +
 			"    목표: " + g + "\n" +
-			"  · 목표에 닿았다면:   gil close " + ref + " --goal-met\n" +
-			"  · 아직 못 닿았다면 닫지 마라 — 갈래를 더 내라:\n" +
+			"  · 목표에 닿았다면:      gil close " + ref + " --goal-met\n" +
+			"  · **일부만 닿았다면**:  gil close " + ref + " --goal-partial \"<무엇을 못 했는지>\" --verdict partial\n" +
+			"      (달성과 포기 사이가 비어 있으면 목표를 유리하게 재해석할 압력이 생긴다 — 이슈 #80)\n" +
+			"  · **원리적으로 불가함을 확인했다면**: gil close " + ref + " --goal-impossible \"<왜 불가한가>\"\n" +
+			"      (이건 실패가 아니라 **발견**이다 — 다음 사이클의 근거가 된다. --abandon 으로 묻지 마라)\n" +
+			"  · 아직 못 닿았고 더 팔 수 있다면 닫지 마라 — 갈래를 더 내라:\n" +
 			"      gil step " + ref + " --kind hypothesis --to <조상 define|analyze> --inherit <여기까지의 교훈>\n" +
-			"  · 이 목표가 막다른 길로 확인됐다면: gil close " + ref + " --abandon\n" +
+			"  · 이 define 자체가 막다른 길이었다면: gil close " + ref + " --abandon\n" +
 			"  ('잎이 다 종결됐다'는 '목표가 달성됐다'와 다르다 — 이슈 #62.)")
 	}
 	sort.Strings(live)
@@ -1398,8 +1422,20 @@ func cmdClose(args []string) {
 		{"Gil-Kind", "close"}, {"Gil-Verdict", *verdict},
 	}
 	if g := cycleGoal(chain, cycle, "--branches"); g != "" {
-		tr = append(tr, [2]string{"Gil-Goal-Met", "true"}) // 목표에 답했다는 선언(이슈 #62)
-		body += "\n목표(열 때 선언): " + g + "\n→ 달성했다고 선언하고 닫는다(--goal-met)."
+		// 목표에 **어떻게** 답했는지를 그래프에 남긴다(이슈 #80). 못 한 조각·불가 사유가
+		// 산문에 묻히면 다음 사이클이 그 값을 못 쓴다.
+		switch {
+		case goalPartialTxt != "":
+			tr = append(tr, [2]string{"Gil-Goal-Met", "partial"}, [2]string{"Gil-Goal-Gap", goalPartialTxt})
+			body += "\n목표(열 때 선언): " + g + "\n→ **일부 달성**으로 닫는다(--goal-partial).\n못 한 것: " + goalPartialTxt
+		case goalImpossibleTxt != "":
+			tr = append(tr, [2]string{"Gil-Goal-Met", "impossible"}, [2]string{"Gil-Goal-Gap", goalImpossibleTxt})
+			body += "\n목표(열 때 선언): " + g + "\n→ **원리적 달성 불가를 확인**하고 닫는다(--goal-impossible).\n" +
+				"이건 실패가 아니라 발견이다: " + goalImpossibleTxt
+		default:
+			tr = append(tr, [2]string{"Gil-Goal-Met", "true"}) // 목표에 답했다는 선언(이슈 #62)
+			body += "\n목표(열 때 선언): " + g + "\n→ 달성했다고 선언하고 닫는다(--goal-met)."
+		}
 	}
 	commit(subject, body, tr, true)
 	println2("close: " + ref + " — " + *verdict)

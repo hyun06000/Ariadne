@@ -111,8 +111,16 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/human-in-the-loop.md",
 	},
 	"close": {
-		"gil close <chain>/<cycle> [--verdict supported] [--abandon]\n" +
+		"gil close <chain>/<cycle> [--verdict supported|partial|rejected] [--abandon]\n" +
+			"          [--goal-met | --goal-partial <못 한 것> | --goal-impossible <왜 불가한가>]\n" +
 			"  산 잎(success)이 있는 사이클을 봉인한다. 산 잎 없으면 거부 —\n" +
+			"  열 때 --goal 을 선언했으면 셋 중 하나로 그 목표에 답해야 한다(이슈 #62·#80):\n" +
+			"    --goal-met         다 달성했다.\n" +
+			"    --goal-partial     일부만 — 못 한 조각을 인자로 적는다(Gil-Goal-Gap 으로 남는다).\n" +
+			"    --goal-impossible  원리적 달성 불가를 **확인**했다. 실패가 아니라 발견이라\n" +
+			"                       --abandon 으로 묻지 않는다 — 다음 사이클의 근거가 된다.\n" +
+			"  달성과 포기 사이가 비어 있으면 목표를 유리하게 재해석할 압력이 생긴다 —\n" +
+			"  어휘가 부족하면 기록이 거짓말한다(#80). --goal-met 과 --verdict partial 은 함께 못 선다.\n" +
 			"  단 --abandon 을 주면 fail 잎만 있는 '죽은 사이클'도 봉인한다(이슈 #46):\n" +
 			"  fail=이 가설의 죽음이지 사이클의 죽음이 아니다. 그 define 을 사람이 막다른\n" +
 			"  길로 판단해 포기할 때만 --abandon(정직: 없는 성공을 날조하지 않는다).",
