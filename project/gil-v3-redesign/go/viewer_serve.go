@@ -521,7 +521,8 @@ func cycleJSON(g graphView, static bool) string {
 					`{"id":%q,"kind":%q,"outcome":%q,"parent":%q,"backtrack":%q,"here":%t,"sha":%q,"inherit":%q,"subj":%q`,
 					n.step, n.kind, n.outcome, n.parent, n.backtrack, nhere, n.full, n.inherit, n.subject))
 				if n.deployTag != "" { // 배포 마커(이슈 #34) — 뷰어가 🚀 + 태그 라벨로 렌더.
-					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q`, n.deployTag, n.deployURL))
+					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q`,
+						n.deployTag, n.deployURL, n.deployState))
 				}
 				if static {
 					sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body)) // 정적: 본문 인라인
@@ -593,7 +594,8 @@ func dagJSON(g graphView, static bool) string {
 		}
 		sb.WriteString(fmt.Sprintf(`],"subj":%q`, n.subject))
 		if n.deployTag != "" { // 배포 마커(이슈 #34) — 전체맵 DAG 에도 🚀 표시.
-			sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q`, n.deployTag, n.deployURL))
+			sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q`,
+				n.deployTag, n.deployURL, n.deployState))
 		}
 		if static {
 			sb.WriteString(fmt.Sprintf(`,"body":%q`, n.body))
@@ -731,6 +733,10 @@ svg.cygraph{display:block}
 /* 배포 지점(이슈 #34) — 세상으로 나간 스텝. 🚀 + 태그, 링걸린 청록 테. */
 .snode.deployed circle{stroke:#2dd4bf;stroke-width:3}
 .snode .deploybadge{text-anchor:middle;font-size:11px;font-weight:800;fill:#2dd4bf}
+/* staged(이슈 #56) — 배포 단위는 확정됐으나 아직 안 올라갔다. live 와 눈으로 갈린다. */
+.snode .deploybadge.staged{fill:var(--dim);font-weight:600}
+.dagdeploy.staged{fill:var(--dim)}
+.snode.deployed.staged circle{stroke:var(--dim)}
 .snode{cursor:pointer}
 .snode.sel circle{fill:var(--node);fill-opacity:.18}
 /* 경계 고스트 노드·stub 엣지(AIL #7) — 계보가 카드 밖으로 이어짐을 흐리게 표시(orphan 착시 제거) */
@@ -1090,7 +1096,10 @@ function openStepCard(chain,cyc){
       g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
     }
     if(n.deploy){ // 배포 지점(이슈 #34) — 🚀 + 태그 라벨. 이 스텝에서 세상으로 나갔다.
-      const rk=svgEl('text',{class:'deploybadge',dy:n.here?-r-30:-r-14},'🚀 '+n.deploy);
+      // staged 는 아직 안 올라간 것이다(이슈 #56) — 🚀 로 그리면 그래프가 거짓을 말한다.
+      const staged=n.deployState==='staged';
+      const rk=svgEl('text',{class:'deploybadge'+(staged?' staged':''),dy:n.here?-r-30:-r-14},
+        (staged?'📦 ':'🚀 ')+n.deploy+(staged?' (staged)':''));
       const tt=svgEl('title',{},'배포 '+n.deploy+(n.deployUrl?'\n'+n.deployUrl:''));
       rk.appendChild(tt); g.appendChild(rk);
       g.classList.add('deployed');
@@ -1561,7 +1570,9 @@ function buildStepMap(){
     if(n.here) g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-3)+' l -5 -7 l 10 0 z'}));
     if(n.deploy){ // 배포 지점(이슈 #34) — 전체맵에도 🚀 + 태그. 세상으로 나간 스텝.
       g.classList.add('deployed');
-      const rk=svgEl('text',{class:'dagdeploy',x:0,y:n.here?-r-14:-(r+5)},'🚀'+(agg?'':' '+n.deploy));
+      const stagedD=n.deployState==='staged';
+      const rk=svgEl('text',{class:'dagdeploy'+(stagedD?' staged':''),x:0,y:n.here?-r-14:-(r+5)},
+        (stagedD?'📦':'🚀')+(agg?'':' '+n.deploy));
       rk.appendChild(svgEl('title',{},'배포 '+n.deploy+(n.deployUrl?'\n'+n.deployUrl:'')));
       g.appendChild(rk);
     }

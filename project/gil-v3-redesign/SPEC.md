@@ -154,6 +154,7 @@ pending은 "진행 중, 사람 대기"를 그래프에 남긴다 — 답이 오�
 | `Gil-Falsify-To` | 조상 define id | **hypothesis 필수** — 반증 시 되돌아갈 define(AIL #1) |
 | `Gil-Verdict` | supported\|refuted | **verify 필수** — 지지/반증. refuted면 success 문법 거부(AIL #1) |
 | `Gil-Refutes` | `<chain>/<cycle>/<step>` | 소급 반증 간선 — 이 스텝/사이클이 앞서 닫힌 supported verify 판정을 뒤늦게 반증(AIL #1 B). 여러 줄 허용 |
+| `Gil-Deploy-State` | staged \| live | 배포 마커의 상태(이슈 #56). staged = 단위는 확정, 아직 안 올라감. 없으면 live(옛 마커) |
 | `Gil-Cycle-Goal` | 자유텍스트 | 사이클 s1 에만. **무엇이 되면 끝인가**(달성 판정 기준, 이슈 #62). 선언하면 close 가 `--goal-met` 을 요구 |
 | `Gil-Goal-Met` | true | close 커밋. 선언한 목표에 답하고 닫았다 |
 | `Gil-Parallel-With` | 사이클 id (다중) | 사이클 s1 에만. 미해결 사이클을 **알면서** 나란히 연다는 선언(이슈 #45) |

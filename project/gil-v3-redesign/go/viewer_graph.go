@@ -60,6 +60,7 @@ type viewerNode struct {
 	gitParents               []string // 실제 커밋 부모 SHA(9자) — 진짜 DAG 그래프용(%P).
 	body                     string   // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
 	deployTag                string   // Gil-Deploy: 이 스텝에서 배포된 태그(예 v0.2.0). 이슈 #34.
+	deployState              string   // Gil-Deploy-State: staged|live (이슈 #56). staged 는 아직 안 올라갔다.
 	deployURL                string   // Gil-Deploy-Url: 릴리스 URL(있으면).
 }
 
@@ -78,7 +79,7 @@ func viewerCollectNodes() []viewerNode {
 	var nodes []viewerNode
 	// 배포 마커(이슈 #34): Gil-Deploy 를 실은 얇은 커밋은 Gil-Step 이 없어 노드 루프가 건너뛴다.
 	// 대상 스텝(Gil-Deploy-At = chain/cycle/step)에 태그·URL 을 매핑해 두고, 노드 수집 뒤 얹는다.
-	type deployMark struct{ tag, url string }
+	type deployMark struct{ tag, url, state string }
 	deploys := map[string]deployMark{}
 	// 커밋 하나 = 노드 하나. git log --branches 는 보통 공유 커밋을 접어 주지만 그건
 	// git 이 보증하는 불변식이 아니다(여러 워킹트리·특정 ref 배치에서 같은 SHA 재출력).
@@ -158,6 +159,7 @@ func viewerCollectNodes() []viewerNode {
 		if j, ok := idx[at]; ok {
 			nodes[j].deployTag = dm.tag
 			nodes[j].deployURL = dm.url
+			nodes[j].deployState = dm.state
 		}
 	}
 	return nodes

@@ -1341,9 +1341,25 @@ func cmdDeploy(args []string) {
 	title := fs.str("title", "")
 	body := fs.str("body", "")
 	bodyFile := fs.str("body-file", "")
+	// --state staged|live (이슈 #56, 다른 레포 실사용). 배포 단위를 확정했는데 실제 롤아웃은
+	// 조율 때문에 몇 주 뒤인 구간이 구조적으로 길다. 그 사이 "여기서 세상으로 나갔다"고 적으면
+	// 기록이 거짓이 된다 — 보고자는 그래서 notes 에 rollout_state=staged 라는 필드를 손으로
+	// 발명해 정정하고 있었다. 상태 필드가 거짓이라 자유서술로 덮는 건, 기계가 못 읽는다.
+	state := fs.str("state", "live")
+	// --promote: staged 로 찍어둔 배포가 실제로 올라갔음을 잇는다(append-only — 앞 마커를
+	// 고치지 않고 새 마커로 승격을 남긴다. 언제 준비됐고 언제 올라갔나가 둘 다 남는다).
+	promote := fs.boolFlag("promote")
 	fs.parse(args)
 	if *at == "" || *tag == "" {
-		die("사용: gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--url <릴리스URL>] [--title T]")
+		die("사용: gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--state staged|live] [--promote] [--url <릴리스URL>] [--title T]")
+	}
+	if *promote {
+		*state = "live"
+	}
+	if *state != "staged" && *state != "live" {
+		die("거부: --state 는 staged|live — 받음: \"" + *state + "\"\n" +
+			"  staged = 배포 단위는 확정됐으나 아직 안 올라갔다(조율 대기).\n" +
+			"  live   = 실제로 올라갔다. 나중에 올라가면: gil deploy --at … --tag " + *tag + " --promote")
 	}
 	// --at 파싱·검증: chain/cycle/step 세 조각이 다 있어야 하고 그 스텝이 실재해야 한다.
 	chain, rest, ok := cut(*at, "/")
@@ -1365,11 +1381,24 @@ func cmdDeploy(args []string) {
 	if target == nil {
 		die("거부: --at " + *at + " 스텝이 없다 — 배포 마커는 실재하는 스텝에만 얹는다")
 	}
-	stTitle := orDefault(*title, "배포 "+*tag+" — "+*at+" 에서 세상으로")
+	defTitle := "배포 " + *tag + " — " + *at + " 에서 세상으로"
+	if *state == "staged" {
+		defTitle = "배포 준비 " + *tag + " — " + *at + " (staged, 아직 안 올라감)"
+	} else if *promote {
+		defTitle = "배포 승격 " + *tag + " — staged 였던 것이 실제로 올라갔다"
+	}
+	stTitle := orDefault(*title, defTitle)
 	subject := "gil deploy " + *tag + ": " + stTitle
 	dBody := resolveBody(*body, *bodyFile)
 	if dBody == "" {
-		dBody = "배포 지점: " + *at + " 에서 " + *tag + " 를 공개했다."
+		if *state == "staged" {
+			dBody = "배포 단위 확정(staged): " + *at + " 에서 " + *tag + " 를 자를 준비가 됐다. " +
+				"아직 올라가지 않았다 — 실제 롤아웃 시 --promote 로 승격한다."
+		} else if *promote {
+			dBody = "배포 승격(live): " + *tag + " 가 실제로 올라갔다(앞서 staged 로 확정된 단위)."
+		} else {
+			dBody = "배포 지점: " + *at + " 에서 " + *tag + " 를 공개했다."
+		}
 		if *url != "" {
 			dBody += " (" + *url + ")"
 		}
@@ -1377,12 +1406,19 @@ func cmdDeploy(args []string) {
 	tr := [][2]string{
 		{"Gil-Deploy", *tag},
 		{"Gil-Deploy-At", *at},
+		{"Gil-Deploy-State", *state}, // staged|live (이슈 #56) — 기계가 읽는 상태
 	}
 	if *url != "" {
 		tr = append(tr, [2]string{"Gil-Deploy-Url", *url})
 	}
 	commit(subject, dBody, tr, true)
-	println2("deploy: " + *tag + " @ " + *at + " 🚀 (뷰어에 배포 마커로 표시됨)")
+	if *state == "staged" {
+		println2("deploy: " + *tag + " @ " + *at + " 📦 staged — 배포 단위는 확정, 아직 안 올라갔다.")
+		println2("  ▸ 실제로 올라가면 승격하라: gil deploy --at " + *at + " --tag " + *tag + " --promote")
+		println2("  ▸ 그 전까지 이 태그는 '배포됨'으로 읽히지 않는다 — 없는 배포를 주장하지 않는다.")
+	} else {
+		println2("deploy: " + *tag + " @ " + *at + " 🚀 (뷰어에 배포 마커로 표시됨)")
+	}
 	if *url != "" {
 		println2("  릴리스: " + *url)
 	}

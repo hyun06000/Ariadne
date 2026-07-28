@@ -120,10 +120,17 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/concepts.md",
 	},
 	"deploy": {
-		"gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--url <릴리스URL>] [--title T] [--body-file -]\n" +
+		"gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--state staged|live] [--promote]\n" +
+			"           [--url <릴리스URL>] [--title T] [--body-file -]\n" +
 			"  배포(공개) 지점을 그래프의 1급 시민으로. 특정 스텝에 '여기서 세상으로 나갔다' 마커를\n" +
 			"  얹는다(Gil-Deploy 트레일러). 추론 노드가 아니라 주석이라 그래프 위상은 불변 —\n" +
-			"  뷰어가 대상 노드에 🚀 배포 마커 + 태그 라벨을 렌더한다. 배포는 되돌리기 어려운\n" +
+			"  뷰어가 대상 노드에 🚀 배포 마커 + 태그 라벨을 렌더한다.\n" +
+			"  --state staged  배포 단위는 확정됐으나 **아직 안 올라갔다**(이슈 #56). 조율 대기 구간이\n" +
+			"                  구조적으로 길 때 — 안 자르면 계보가 끊기고, 자르면 없는 배포를 주장하게\n" +
+			"                  되던 자리다. staged 는 뷰어에 📦 로 그려지고 '배포됨'으로 안 읽힌다.\n" +
+			"  --promote       staged 로 찍어둔 것이 실제로 올라갔다. 앞 마커를 고치지 않고 새 마커로\n" +
+			"                  승격을 남긴다(append-only) — 언제 준비됐고 언제 올라갔나가 둘 다 남는다.\n" +
+			"  (기본은 --state live 라 옛 사용법은 그대로다.) 배포는 되돌리기 어려운\n" +
 			"  의도적 외부 행위라 '언제 왜 배포했나'를 배포 시점에 남긴다(자동 tag 감지 대신 명시).",
 		"docs/gil/deployment.md",
 	},

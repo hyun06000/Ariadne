@@ -4275,3 +4275,62 @@ class TestFsckReportsChainStacking(GilFixture):
         self.gil("chain-close", "first", "--retro", "-", input="# 회고\n됐다")
         self.gil("chain", "second", "--purpose", "P2")
         self.assertNotIn("적층", self.gil("fsck").stdout + self.gil("fsck").stderr)
+
+
+class TestDeployStaged(GilFixture):
+    """배포 단위 확정과 실제 롤아웃을 가른다 (이슈 #56, 다른 레포 실사용).
+
+    옛 마커는 찍는 순간 "여기서 세상으로 나갔다"였다. 그런데 배포 단위를 확정하고도 실제
+    롤아웃은 조율 때문에 몇 주 뒤인 구간이 구조적으로 길다. 그 사이 기록이 거짓이 된다 —
+    보고자는 notes 에 `rollout_state=staged` 라는 필드를 손으로 발명해 정정하고 있었다.
+    **상태 필드가 거짓이라 자유서술로 덮은 것**이고, 산문은 기계가 못 읽는다.
+
+    안 자르면 계보가 끊기고, 자르면 없는 배포를 주장하게 되던 자리 — 둘 다 못 해서 cut 을
+    미루고 있다는 게 보고의 핵심이었다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c1", "--author", "clew", "--purpose", "Q", "--body", "정의")
+        self.gil("step", "d/c1", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "d/c1", "--kind", "verify", "--title", "V",
+                 "--verdict", "supported", "--body", "B")
+        self.gil("step", "d/c1", "--kind", "analyze", "--title", "A", "--body", "B")
+        self.gil("step", "d/c1", "--kind", "success", "--title", "S", "--body", "B")
+
+    def test_default_stays_live(self):
+        """옛 사용법은 그대로다 — 새 상태가 기존 흐름을 깨지 않는다."""
+        r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v0.2.0")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "live")
+
+    def test_staged_is_recorded_as_machine_readable_state(self):
+        """산문이 아니라 상태로 남는다 — notes 에 손으로 쓴 필드를 발명하지 않아도 되게."""
+        r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--state", "staged")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "staged")
+        out = r.stdout + r.stderr
+        self.assertIn("아직 안 올라갔다", out)
+        self.assertIn("--promote", out)   # 다음 올바른 한 수
+
+    def test_promote_appends_rather_than_rewrites(self):
+        """승격은 앞 마커를 고치지 않는다 — 언제 준비됐고 언제 올라갔나가 둘 다 남는다."""
+        self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--state", "staged")
+        staged_sha = self._git("rev-parse", "HEAD").stdout.strip()
+        r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--promote")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "live")
+        # 앞의 staged 커밋이 그대로 살아 있다(append-only).
+        self.assertNotEqual(self._git("rev-parse", "HEAD").stdout.strip(), staged_sha)
+        self.assertIn("Gil-Deploy-State: staged",
+                      self._git("log", staged_sha, "-1", "--format=%B").stdout)
+
+    def test_bad_state_is_refused_with_both_meanings(self):
+        r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v1", "--state", "rolled")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("staged", out)
+        self.assertIn("live", out)
