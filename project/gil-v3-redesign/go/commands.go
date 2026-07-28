@@ -1469,6 +1469,10 @@ func pendingTip(chain, cycle string) *node {
 // ── gil approve — pending 에 대한 사람의 명시적 승인. 승인=산 잎(analyze/success). ──
 func cmdApprove(args []string) {
 	fs := newFlags("gil approve")
+	// --by <chain/cycle/step> (이슈 #85). pending 은 사람만 풀 수 있다(AIL #41) — 그 원칙은
+	// 그대로다. 다만 사람이 승인하는 대상이 "이 물음에 지금 답하라"가 아니라 **"이 후속이
+	// 답이 맞나"** 일 수 있다. 몇 달 전 물음을 사람이 맨손으로 판단하게 두지 않는다.
+	by := fs.str("by", "")
 	title := fs.str("title", "")
 	body := fs.str("body", "")
 	bodyFile := fs.str("body-file", "")
@@ -1486,6 +1490,14 @@ func cmdApprove(args []string) {
 	stTitle := orDefault(*title, "승인 — "+tip.step+" 의 대기를 사람이 승인")
 	subject := "gil " + chain + "/" + cycle + "/" + sid + " success: " + stTitle
 	stBody := resolveBody(*body, *bodyFile)
+	if b := strings.TrimSpace(*by); b != "" {
+		resolveAnsweredIn(b)
+		if stBody == "" {
+			stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 가지는 산 잎.\n\n" +
+				"근거: 이 물음의 답은 **" + b + "** 에서 이미 났다(이슈 #85). 사람은 '지금 답하라'가 아니라\n" +
+				"'이 후속이 답이 맞나'를 판단해 승인했다."
+		}
+	}
 	if stBody == "" {
 		stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 가지는 산 잎."
 	}
@@ -1496,6 +1508,9 @@ func cmdApprove(args []string) {
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
 		{"Gil-Step", sid}, {"Gil-Kind", "success"}, {"Gil-Parent", orNull(tip.parent)},
 		{"Gil-Approval", "approved"}, {"Gil-Supersedes", tip.step},
+	}
+	if b := strings.TrimSpace(*by); b != "" {
+		tr = append(tr, [2]string{"Gil-Answered-By", b}) // 무엇을 근거로 닫았나(이슈 #85)
 	}
 	alignHeadToTip(tip.sha, ref) // 대상 사이클 팁으로 HEAD 정합 — 승인 커밋이 옳은 계보에(이슈 #44)
 	commit(subject, stBody, tr, true)
@@ -1572,6 +1587,13 @@ func cmdClose(args []string) {
 	// 명시적으로 받는다 — gil 이 자동으로 죽이지 않는다(정직: 없는 성공을 날조하지도, 정직한
 	// 실패를 영구 미종결로 벌하지도 않는다). success=산 종결, fail-only+abandon=죽은 종결.
 	abandon := fs.boolFlag("abandon")
+	// --answered-in <chain/cycle/step> (이슈 #85, 상현님 실사용). 죽은 잎만 남았는데 그 물음의
+	// **답이 다른 자리에서 난** 경우가 있다. 옛 어휘는 둘뿐이었다 — 재분기 아니면 --abandon(막다른
+	// 길). 그래서 답이 옆 가지에서 난 사이클도 --abandon 으로 적혔고, 기록이 사실보다 어둡게
+	// 남았다("도구가 보증하는 정보가 아니라 내가 성실했기를 바라는 정보다").
+	// #80 이 목표 어휘에서 지적한 것과 같은 결핍이고 방향만 반대다: 거기선 성공을 부풀릴 압력,
+	// 여기선 실패로 눌러 적을 압력. 답이 난 자리로 **선이 남는다**.
+	answeredIn := fs.str("answered-in", "")
 	// --goal-met (이슈 #62): 목표를 선언하고 연 사이클은, 닫을 때 그 목표에 **답해야** 한다.
 	// 선언이 없으면 닫는 판단이 다시 자기확신으로 돌아간다 — 잎이 다 종결됐다는 사실만으로
 	// "됐다"가 되던 자리를 이 한 마디가 막는다.
@@ -1602,6 +1624,27 @@ func cmdClose(args []string) {
 	}
 	if len(live) == 0 {
 		// 산 잎이 없다. --abandon 이면 죽은 사이클로 봉인(이슈 #46), 아니면 두 정직한 길을 안내.
+		if ai := strings.TrimSpace(*answeredIn); ai != "" {
+			if len(dead) == 0 {
+				die("거부: 종결 잎(fail)이 하나도 없다 — 아직 닫을 가지가 없다. 먼저 analyze→fail 로 벽을 남겨라.")
+			}
+			resolveAnsweredIn(ai) // 그 자리가 실재하는지 — 없는 곳을 가리키는 선은 거짓말이다
+			sort.Strings(dead)
+			subject := "gil " + chain + "/" + cycle + " close: answered-elsewhere"
+			body := "이 사이클의 물음은 여기서 못 풀렸다(죽은 잎 [" + strings.Join(dead, " ") + "]). " +
+				"그러나 막다른 길이 아니다 — **그 답은 " + ai + " 에서 났다.**\n\n" +
+				"막다른 길(--abandon)과 구별해 적는다: 이 define 은 답을 얻었고, 얻은 자리가 여기가 아닐 뿐이다.\n" +
+				"읽는 쪽은 이 선을 따라 답으로 갈 수 있다(이슈 #85)."
+			tr := [][2]string{
+				{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
+				{"Gil-Kind", "close"}, {"Gil-Verdict", orDefault(*verdict, "answered-elsewhere")},
+				{"Gil-Answered-In", ai},
+			}
+			commit(subject, body, tr, true)
+			println2("close: " + ref + " — answered-elsewhere (답이 난 자리: " + ai + ")")
+			println2("  이 사이클은 막다른 길이 아니다 — 그래프에 답으로 가는 선이 남았다.")
+			return
+		}
 		if *abandon {
 			if len(dead) == 0 {
 				die("거부: 종결 잎(fail)이 하나도 없다 — 봉인할 죽은 가지가 없다. 먼저 analyze→fail 로 벽을 남겨라.")
@@ -1620,11 +1663,14 @@ func cmdClose(args []string) {
 			return
 		}
 		die("거부: 산 잎(success 스텝) 없음 — 닫을 수 없다.\n" +
-			"  fail 은 이 가설의 죽음이지 사이클의 죽음이 아니다. 두 정직한 길:\n" +
+			"  fail 은 이 가설의 죽음이지 사이클의 죽음이 아니다. 세 정직한 길:\n" +
 			"    (1) 재분기 — gil step " + ref + " --kind hypothesis --to <조상 define> --inherit <교훈>\n" +
 			"        (이 define 의 답을 아직 못 얻었다 — 새 가설로 다시 푼다)\n" +
-			"    (2) 포기 — gil close " + ref + " --abandon\n" +
-			"        (이 define 이 막다른 길로 확인됐다 — 죽은 사이클로 봉인, 벽의 지도로 남긴다)")
+			"    (2) 답이 옆에서 났다 — gil close " + ref + " --answered-in <chain/cycle/step>\n" +
+			"        (여기선 못 풀렸지만 그 물음의 답이 다른 자리에서 났다 — 그 자리로 선이 남는다, 이슈 #85)\n" +
+			"    (3) 포기 — gil close " + ref + " --abandon\n" +
+			"        (이 define 이 **막다른 길로 확인**됐다 — 죽은 사이클로 봉인, 벽의 지도로 남긴다)\n" +
+			"  (2)와 (3)을 구별해라. 답이 난 걸 포기로 적으면 기록이 사실보다 어둡게 남는다.")
 	}
 	// 미종결 잎 검사(이슈 #86) — fsck 가 잡던 것을 close 도 잡는다.
 	//
@@ -1822,6 +1868,22 @@ func inFlightCycles(chain string) ([]string, map[string]node) {
 		}
 	}
 	return out, tips
+}
+
+// resolveAnsweredIn — "답이 난 자리"가 실재하는지 확인한다(이슈 #85). 없는 곳을 가리키는
+// 선은 산문보다 나쁘다 — 구조로 보증한다고 해놓고 거짓을 가리킨다.
+func resolveAnsweredIn(ref string) {
+	parts := strings.Split(strings.TrimSpace(ref), "/")
+	if len(parts) != 3 {
+		die("거부: 답이 난 자리는 <chain>/<cycle>/<step> 꼴이어야 한다 — 받음: " + ref)
+	}
+	for _, n := range collectNodes("--all") {
+		if n.chain == parts[0] && n.cycle == parts[1] && n.step == parts[2] {
+			return
+		}
+	}
+	die("거부: " + ref + " 를 그래프에서 찾지 못했다 — 답이 난 자리는 실재해야 한다.\n" +
+		"  (gil log --depth step " + parts[0] + " 로 스텝 이름을 확인하라.)")
 }
 
 // ── gil deploy — 배포(공개) 지점을 그래프의 1급 시민으로 (이슈 #34, 상현님) ──
@@ -2237,6 +2299,10 @@ func cmdChainClose(args []string) {
 	// 그 회고에서 자라나는 다음 물음 — 다음 체인 인터뷰의 재료다(기준의 대체가 아니다).
 	retro := fs.str("retro", "")
 	seed := fs.str("seed", "")
+	// --superseded-by <chain> (이슈 #85). 옛 체인의 결론이 뒤에서 뒤집히는 일이 실제로 일어난다
+	// (실측: "토큰 2.5배 열위"가 다른 체인에서 0.55배로 뒤집혔다). 그걸 적을 구조적 자리가
+	// 회고 본문밖에 없으면, 읽는 쪽은 **어느 결론이 아직 유효한지**를 알려고 26개 회고를 다 읽어야 한다.
+	supersededBy := fs.str("superseded-by", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil chain-close <chain> [--verdict V] [--retro <회고파일|->] [--seed <시드파일|->]")
@@ -2324,6 +2390,12 @@ func cmdChainClose(args []string) {
 	}
 	if seedBody != "" {
 		tr = append(tr, [2]string{"Gil-Seed-Ref", "true"})
+	}
+	if sb := strings.TrimSpace(*supersededBy); sb != "" {
+		if chainPurpose(sb, "--all") == "" {
+			die("거부: --superseded-by \"" + sb + "\" 체인이 없다 — 뒤집은 쪽이 실재해야 선이 참이 된다.")
+		}
+		tr = append(tr, [2]string{"Gil-Superseded-By", sb}) // 이 체인의 결론은 저기서 뒤집혔다(이슈 #85)
 	}
 	// 봉인은 **그 체인의 끝**에 얹혀야 한다(이슈 #66, #44 계열). 옛 코드는 그때 체크아웃돼
 	// 있던 브랜치에 커밋해, 체인 브랜치 ref 는 옛 팁(대개 체인 선언 커밋)에 멈춘 채였다.

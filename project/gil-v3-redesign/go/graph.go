@@ -880,10 +880,17 @@ func chainsFromGraph() (map[string]chainAgg, []string) {
 				cyc[n.cycle] = true
 			}
 		}
+		// 봉인 판정은 **한 곳에서만** 나온다(이슈 #85, 상현님 실사용). 옛 코드는 이 브랜치가
+		// 담은 커밋만 훑어 chain-close 를 찾았다. 그런데 한 체인은 브랜치 여럿(<chain>,
+		// <chain>-<cycle>, 스텝 가지…)에 걸쳐 살고, 봉인 커밋은 그중 하나에만 있다. 그래서
+		// 순회 순서에 따라 같은 체인이 (closed) 도 (open) 도 됐다 — 실측: 봉인 커밋이 체인
+		// 브랜치에 있는데 (open) 인 체인 셋, 스텝 가지에만 있는데 (closed) 인 체인 하나.
+		// "정리했는데 정리 안 된 것처럼 보인다"는 보고가 정확히 이것이었다.
+		// chainClosed 는 chain-close·open 거부·handoff 가 이미 쓰는 판정이다 — 거기에 맞춘다.
 		status := "open"
 		if root.status == "init" {
 			status = "init"
-		} else if closed {
+		} else if closed || chainClosed(chainName, "--branches") {
 			status = "closed"
 		}
 		if _, seen := chains[chainName]; !seen {

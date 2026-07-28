@@ -371,6 +371,54 @@ type interviewReq struct {
 	waiting   bool   // 지금 이 답을 기다리는 프로세스가 살아 있나(백그라운드 --wait, 이슈 #82)
 }
 
+// chainClosedViewer / supersededByViewer — 관전 레포에서 이 체인이 봉인됐나, 결론이 다른
+// 체인에서 뒤집혔나(이슈 #85). 판정은 CLI 와 같은 트레일러를 본다 — 두 표면이 다른 답을
+// 하면 사람은 어느 쪽을 믿을지 모른다.
+func chainClosedViewer(chain string) bool {
+	return viewerChainTrailer(chain, "Gil-Kind") == "chain-close" ||
+		viewerHasKind(chain, "chain-close")
+}
+
+func supersededByViewer(chain string) string {
+	return viewerChainTrailer(chain, "Gil-Superseded-By")
+}
+
+// viewerHasKind — 이 체인에 그 kind 의 커밋이 하나라도 있나.
+func viewerHasKind(chain, kind string) bool {
+	const rs = "\x1e"
+	const fs = "\x1f"
+	out, err := viewerLog("--format=%(trailers:key=Gil-Chain,valueonly)" + fs +
+		"%(trailers:key=Gil-Kind,valueonly)" + rs)
+	if err != nil {
+		return false
+	}
+	for _, rec := range strings.Split(string(out), rs) {
+		c, k, _ := strings.Cut(strings.TrimLeft(rec, "\n"), fs)
+		if strings.TrimSpace(c) == chain && strings.TrimSpace(k) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// viewerChainTrailer — 이 체인 커밋들 중 그 트레일러의 최신 값.
+func viewerChainTrailer(chain, key string) string {
+	const rs = "\x1e"
+	const fs = "\x1f"
+	out, err := viewerLog("--format=%(trailers:key=Gil-Chain,valueonly)" + fs +
+		"%(trailers:key=" + key + ",valueonly)" + rs)
+	if err != nil {
+		return ""
+	}
+	for _, rec := range strings.Split(string(out), rs) {
+		c, v, _ := strings.Cut(strings.TrimLeft(rec, "\n"), fs)
+		if strings.TrimSpace(c) == chain && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 // viewerGitDir — 관전 중인 저장소의 .git 디렉토리(절대경로). 뷰어는 다른 작업 디렉토리에서
 // 도는 별도 프로세스라, 로컬 상태 파일(.git/gil/*)을 읽으려면 이걸 먼저 풀어야 한다.
 func viewerGitDir() string {

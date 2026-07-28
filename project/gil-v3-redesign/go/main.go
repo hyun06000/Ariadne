@@ -227,7 +227,7 @@ func cmdLog(args []string) {
 
 	switch *depth {
 	case "chain":
-		logDepthChain()
+		logDepthChain(*all)
 	case "cycle":
 		logDepthCycle(ch)
 	case "step":
@@ -308,17 +308,51 @@ func logDepthStep(ch string, all bool) {
 
 // logDepthChain — 체인 계보 트리(AIL #2). 뷰어 HTML 체인 그래프와 같은 집계원
 // (chainsFromGraph·chainParents)을 텍스트로 — AI 도 인간과 동일 정보를 본다.
-func logDepthChain() {
+// logDepthChain — 체인 목록. **봉인된 체인은 기본으로 접는다**(이슈 #85, 상현님 실사용).
+//
+// 왜. 26개를 한 화면에 같은 무게로 늘어놓으면 "지금 살아 있는 국면이 무엇인가"가 안 보인다.
+// 사람이 "쓸데없는 체인이 너무 많다"고 느낀 실체가 이것이었다 — 정리할 게 많은 게 아니라
+// **끝난 것이 끝나 보이지 않는다**(실측: 26개 중 24개가 봉인이었고 버릴 건 하나도 없었다).
+// 접는 게 지우는 것보다 낫다: append-only 는 그대로고, 화면만 지금을 말한다.
+func logDepthChain(all bool) {
 	chains, order := chainsFromGraph()
 	parents := chainParents()
+	superseded := supersededChains()
+	var folded int
 	for _, name := range order {
 		c := chains[name]
+		if c.status == "closed" && !all {
+			folded++
+			continue
+		}
 		line := "● " + name + "  [사이클 " + itoa(c.cycles) + "]  (" + c.status + ")"
 		if p := parents[name]; p != "" {
 			line += "  ← " + p
 		}
+		// 뒤집힌 결론은 뒤집혀 보여야 한다(이슈 #85) — 읽는 쪽이 제일 궁금한 건
+		// "어느 결론이 아직 유효한가"다.
+		if sb := superseded[name]; sb != "" {
+			line += "  ⤳ 대체됨 → " + sb
+		}
 		println2(line)
 	}
+	if folded > 0 {
+		println2("")
+		println2("  (봉인된 체인 " + itoa(folded) + "개는 접었다 — 끝난 것은 끝나 보이게. 펼치려면: gil log --depth chain --all)")
+	}
+}
+
+// supersededChains — 결론이 다른 체인에서 뒤집힌 체인들(Gil-Superseded-By, 이슈 #85).
+func supersededChains() map[string]string {
+	out := map[string]string{}
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Superseded-By") + sep
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--all"), sep) {
+		ch, sb, _ := cut(strings.TrimSpace(rec), fsep)
+		if c, b := strings.TrimSpace(ch), strings.TrimSpace(sb); c != "" && b != "" {
+			out[c] = b
+		}
+	}
+	return out
 }
 
 // logDepthCycle — 한 체인 안 사이클들 + 사이클 부모 엣지 + status(AIL #2). cyclesOf 공유.

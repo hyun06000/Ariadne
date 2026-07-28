@@ -195,6 +195,18 @@ var helpTable = map[string]helpEntry{
 			"  객체 회수(git gc)는 gil 이 하지 않는다 — 되돌릴 수 없는 마지막 한 줄은 사람이 실행한다.",
 		"docs/gil/concepts.md",
 	},
+	"close-vocabulary": {
+		"gil close <chain>/<cycle> --answered-in <chain/cycle/step>\n" +
+			"gil approve <chain>/<cycle> --by <chain/cycle/step>\n" +
+			"gil chain-close <chain> --superseded-by <chain>\n" +
+			"  종결의 어휘(이슈 #85). 죽은 잎만 남았다고 다 막다른 길이 아니다 — 그 물음의 답이\n" +
+			"  **다른 자리에서 났을 수 있다**. --abandon(막다른 길로 확인)과 구별해 적고, 그래프에\n" +
+			"  답으로 가는 선을 남긴다. --by 는 pending 을 사람이 승인하되 무엇을 근거로 닫는지를\n" +
+			"  남긴다(사람 승인 원칙은 그대로 — 판단 대상만 '지금 답하라'에서 '이 후속이 답이 맞나'로).\n" +
+			"  --superseded-by 는 옛 체인의 결론이 뒤에서 뒤집혔음을 구조로 남긴다 — 읽는 쪽이 제일\n" +
+			"  궁금한 건 '어느 결론이 아직 유효한가'인데, 회고 본문에만 있으면 전부 읽어야 안다.",
+		"docs/gil/concepts.md",
+	},
 	"context": {
 		"gil context <chain>[/<cycle>]\n" +
 			"  이 자리에 **도착한 누적 컨텍스트**를 준다 — 체인 목적·기준에서 시작해 조상 사이클들이\n" +

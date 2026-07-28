@@ -6302,3 +6302,100 @@ class TestCloseEnforcesLeafInvariant(GilFixture):
         r2 = self.gil("close", "c/c1", "--goal-met")
         self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
         self.assertEqual(self.gil("fsck").returncode, 0)
+
+
+class TestClosureVocabulary(GilFixture):
+    """끝난 것이 끝나 보이고, 답이 난 자리로 선이 남는다 (이슈 #85, 상현님 실사용).
+
+    26개 체인을 정리해 보니 **버릴 게 하나도 없었다**. 문제는 개수가 아니라 어휘였다 —
+    봉인해도 화면이 안 접히고, '답은 옆 가지에서 났다'를 적을 자리가 없었다."""
+
+    def _dead_only_cycle(self):
+        """죽은 잎만 남은 사이클 — 옛 어휘로는 --abandon 밖에 길이 없던 자리."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/roundtrip", "--author", "x", "--purpose", "총비용으로 넓히면 우위인가")
+        self.gil("step", "c/roundtrip", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "H")
+        self.gil("step", "c/roundtrip", "--kind", "verify", "--verdict", "refuted", "--title", "v")
+        self.gil("step", "c/roundtrip", "--kind", "analyze", "--title", "a")
+        self.gil("step", "c/roundtrip", "--kind", "fail", "--to", "s1", "--title", "벽")
+
+    def _answer_cycle(self):
+        """답이 실제로 난 자리(다른 사이클)."""
+        self.gil("close", "c/roundtrip", "--abandon")
+        self.gil("open", "c/tokenizer", "--author", "x", "--purpose", "원인은 표면구문인가")
+        self.gil("step", "c/tokenizer", "--kind", "hypothesis", "--falsify", "F2",
+                 "--falsify-to", "s1", "--title", "H2")
+        self.gil("step", "c/tokenizer", "--kind", "verify", "--verdict", "supported", "--title", "v2")
+        self.gil("step", "c/tokenizer", "--kind", "analyze", "--title", "a2")
+        self.gil("step", "c/tokenizer", "--kind", "success", "--title", "답")
+
+    def test_refusal_offers_answered_in_as_a_distinct_path(self):
+        """세 길이어야 한다 — 답이 난 걸 포기로 적으면 기록이 사실보다 어둡게 남는다."""
+        self._dead_only_cycle()
+        r = self.gil("close", "c/roundtrip")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("--answered-in", out)
+        self.assertIn("막다른 길로 확인", out)   # abandon 은 그 뜻으로만
+
+    def test_answered_in_records_the_line_to_the_answer(self):
+        self._dead_only_cycle()
+        self._answer_cycle()   # c/tokenizer/s5 success 가 답
+        self.gil("open", "c/postmortem", "--author", "x", "--purpose", "과거에 해법이 있나")
+        self.gil("step", "c/postmortem", "--kind", "hypothesis", "--falsify", "F3",
+                 "--falsify-to", "s1", "--title", "H3")
+        self.gil("step", "c/postmortem", "--kind", "verify", "--verdict", "refuted", "--title", "v3")
+        self.gil("step", "c/postmortem", "--kind", "analyze", "--title", "a3")
+        self.gil("step", "c/postmortem", "--kind", "fail", "--to", "s1", "--title", "벽")
+        r = self.gil("close", "c/postmortem", "--answered-in", "c/tokenizer/s5")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Answered-In"), "c/tokenizer/s5")
+        self.assertIn("answered-elsewhere", r.stdout)
+
+    def test_answered_in_must_point_at_something_real(self):
+        """없는 곳을 가리키는 선은 산문보다 나쁘다 — 구조로 보증한다며 거짓을 가리킨다."""
+        self._dead_only_cycle()
+        r = self.gil("close", "c/roundtrip", "--answered-in", "c/nowhere/s9")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("찾지 못했다", r.stdout + r.stderr)
+
+    def test_approve_by_records_the_evidence(self):
+        """사람은 여전히 누르되, 무엇을 근거로 닫는지가 기록에 남는다."""
+        self._dead_only_cycle()
+        self._answer_cycle()
+        self.gil("open", "c/measure", "--author", "x", "--purpose", "역량 탓인가 공백 탓인가")
+        self.gil("step", "c/measure", "--kind", "pending", "--title", "사람 대기")
+        r = self.gil("approve", "c/measure", "--by", "c/tokenizer/s5")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Answered-By"), "c/tokenizer/s5")
+
+    def test_closed_chains_are_folded_in_log(self):
+        """끝난 것이 끝나 보이게 — 접는 게 지우는 것보다 낫다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "옛 국면")
+        self.gil("chain-close", "a")
+        self.gil("chain", "b", "--purpose", "지금 국면", "--from", "a", "--inherit", "a 의 결론")
+        out = self.gil("log", "--depth", "chain").stdout
+        self.assertNotIn("● a ", out)
+        self.assertIn("● b ", out)
+        self.assertIn("접었다", out)
+        self.assertIn("● a ", self.gil("log", "--depth", "chain", "--all").stdout)
+
+    def test_superseded_by_is_visible(self):
+        """뒤집힌 것이 뒤집혀 보여야 한다 — 읽는 쪽이 제일 궁금한 건 '어느 결론이 유효한가'다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "old", "--purpose", "옛 결론")
+        self.gil("chain", "new", "--purpose", "그 결론을 뒤집는다", "--parallel-with", "old")
+        r = self.gil("chain-close", "old", "--superseded-by", "new")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Superseded-By"), "new")
+        out = self.gil("log", "--depth", "chain", "--all").stdout
+        self.assertIn("⤳ 대체됨 → new", out)
+
+    def test_superseded_by_must_point_at_a_real_chain(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "old", "--purpose", "옛 결론")
+        r = self.gil("chain-close", "old", "--superseded-by", "nowhere")
+        self.assertNotEqual(r.returncode, 0)

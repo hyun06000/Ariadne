@@ -417,11 +417,22 @@ func renderHTML(g graphView, static bool) string {
 			cls += " here"
 			head = `<path class="headarrow" d="M 0 -33 l -7 -11 l 14 0 z"/>` // HEAD ▼
 		}
+		// 봉인·대체 표식(이슈 #85). 지우지 않는다 — 흐리게 그리고 표식을 단다. "끝난 것이
+		// 끝나 보이고, 뒤집힌 것이 뒤집혀 보이는 것"이 정리의 실체였다(버릴 체인은 없었다).
+		mark := ""
+		if chainClosedViewer(ch.name) {
+			cls += " sealed"
+			mark += `<text class="cmark" dy="-34">✓ 봉인</text>`
+		}
+		if sb := supersededByViewer(ch.name); sb != "" {
+			cls += " superseded"
+			mark += `<text class="cmark sup" dy="64">⤳ ` + esc(sb) + ` 로 대체됨</text>`
+		}
 		nodes.WriteString(fmt.Sprintf(
 			`<g class="%s" data-chain="%s" transform="translate(%d,%d)">`+
 				`<circle r="26"/><text class="cyc" dy="5">%d</text>`+
-				`<text class="clabel" dy="48">%s</text>%s</g>`,
-			cls, esc(ch.name), c.x, c.y, len(ch.cycles), esc(ch.name), head))
+				`<text class="clabel" dy="48">%s</text>%s%s</g>`,
+			cls, esc(ch.name), c.x, c.y, len(ch.cycles), esc(ch.name), head, mark))
 	}
 
 	var b strings.Builder
@@ -653,7 +664,10 @@ func cycleJSON(g graphView, static bool) string {
 			sb.WriteString(",")
 		}
 		c := pos[ch.name]
-		sb.WriteString(fmt.Sprintf(`%q:{"x":%d,"y":%d,"cycles":[`, ch.name, c.x, c.y))
+		// 봉인·대체 여부를 함께 싣는다(이슈 #85) — 끝난 것이 끝나 보이고, 뒤집힌 것이
+		// 뒤집혀 보이게. 뷰어는 지우지 않는다: 흐리게 그리고 표식을 단다.
+		sb.WriteString(fmt.Sprintf(`%q:{"x":%d,"y":%d,"closed":%t,"supersededBy":%q,"cycles":[`,
+			ch.name, c.x, c.y, chainClosedViewer(ch.name), supersededByViewer(ch.name)))
 		for j, cy := range ch.cycles {
 			if j > 0 {
 				sb.WriteString(",")
@@ -903,6 +917,12 @@ svg#graph{display:block;max-width:100%;height:auto}
 .cnode .cyc{font-size:16px;font-weight:700;fill:var(--node)}
 .cnode .clabel{font-size:12px;fill:var(--dim)}
 .cnode.here circle{stroke:var(--here);stroke-width:3.5}
+.cnode.sealed circle{stroke:var(--dim);stroke-dasharray:4 3}
+.cnode.sealed .cyc{fill:var(--dim)}
+.cnode.sealed .clabel{fill:var(--dim);opacity:.75}
+.cnode .cmark{font-size:10px;font-weight:700;fill:var(--dim);text-anchor:middle}
+.cnode .cmark.sup{fill:#f59e0b}
+.cnode.superseded circle{stroke:#f59e0b}
 .cnode.here .cyc{fill:var(--here)}
 .cnode.here .clabel{fill:var(--here);font-weight:700}
 .cnode.sel circle{fill:var(--node);fill-opacity:.22}
