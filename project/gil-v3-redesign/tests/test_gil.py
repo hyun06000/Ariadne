@@ -6080,6 +6080,27 @@ class TestInterviewSubmitIsVisible(GilFixture):
         self._seed()
         self.assertNotIn('id="pane-reference"', self._build())
 
+    def test_reference_panel_is_collapsed_and_dismissable(self):
+        """확정된 기준은 **끝난 것**이다 — 화면을 계속 차지하면 지금 살아 있는 국면을 덮는다.
+
+        제출의 결과를 남기려다 영구 패널을 만들었던 것을 접었다(상현님 실사용)."""
+        self._seed()
+        self._resolve()
+        html = self._build()
+        self.assertIn("refsum", html)          # 한 줄 요약(details/summary)
+        self.assertIn("gil-ref-seen-", html)   # 한 번 닫으면 그 확정본은 다시 안 뜬다
+        self.assertNotIn("refstate", html)     # 옛 영구 패널 잔재가 없다
+
+    def test_submit_failure_explains_itself(self):
+        """"TypeError: Failed to fetch" 는 사람에게 아무것도 안 알려준다(상현님 실사용).
+
+        이 자리에 오는 원인은 대개 하나다 — 이 페이지를 만든 서버가 이미 없다."""
+        self._seed()
+        html = self._build()
+        self.assertIn("뷰어 서버에 닿지 못했습니다", html)
+        self.assertIn("답은 아직 제출되지 않았습니다", html)   # 잃은 게 아니라는 사실부터
+        self.assertIn("gil viewer serve", html)                 # 되살리는 한 수
+
     def test_reference_state_tracks_agent_reading(self):
         """에이전트가 읽으면 화면이 그걸 말한다 — 사람이 '전달됐나'를 묻지 않아도 되게."""
         self._seed()

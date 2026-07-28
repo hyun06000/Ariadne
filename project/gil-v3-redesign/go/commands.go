@@ -2212,9 +2212,34 @@ func interviewWatch(chain string, wait bool, timeoutS, then string) {
 	waiterBeat(chain, deadline)
 	defer waiterClear(chain)
 	dieHooks = append(dieHooks, func() { waiterClear(chain) })
+	// **싸게 기다린다**(상현님 실사용: 노트북이 뜨거워졌다). done() 은 인터뷰 상태를 알려고
+	// 저장소 전체를 두 번 훑는다(git log --branches ×2). 큰 저장소에서 그걸 2초마다 1시간
+	// 돌리면 CPU 한 코어를 먹는다 — 실측 11.8%, 47분 경과. 기다림은 사람의 제출을 기다리는
+	// 일이라 2초 정밀도가 필요 없다. 그래서 둘을 건다:
+	//  (1) ref 서명이 그대로면 그래프는 안 바뀐 것이다 — 비싼 판정을 아예 건너뛴다(for-each-ref 한 번).
+	//  (2) 간격을 2초에서 시작해 15초까지 늘린다 — 사람이 폼을 채우는 시간엔 그걸로 충분하다.
+	refSig := func() string {
+		out, err := gitTry("for-each-ref", "--format=%(objectname)", "refs/heads/")
+		if err != nil {
+			return ""
+		}
+		return out
+	}
+	lastSig := refSig()
+	tick := 2 * time.Second
+	const maxTick = 15 * time.Second
 	for time.Now().Before(deadline) {
-		time.Sleep(2 * time.Second)
+		time.Sleep(tick)
+		if tick < maxTick {
+			tick += 2 * time.Second
+		}
 		waiterBeat(chain, deadline) // 심장박동 — 끊기면 읽는 쪽이 죽은 표식으로 본다
+		if sig := refSig(); sig == lastSig {
+			continue // 커밋이 하나도 안 늘었다 — 제출이 있었을 리 없다
+		} else {
+			lastSig = sig
+			tick = 2 * time.Second // 뭔가 움직였다 — 다시 촘촘히 본다
+		}
 		if done() {
 			report()
 			markInterviewSeen(chain) // 기다려서 봤다 — 도착 고지를 끈다(#77)

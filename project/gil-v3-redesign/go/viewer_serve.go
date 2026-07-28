@@ -455,7 +455,7 @@ func renderHTML(g graphView, static bool) string {
 	// 제출의 **결과**가 화면에 남아야 한다(상현님: 제출해도 아무 일도 안 일어난다). 확정된
 	// 기준 문서와, 그 답이 에이전트에게 도달했는지를 지속적으로 보여준다.
 	if len(g.references) > 0 {
-		b.WriteString(`<section class="pane" id="pane-reference"><h2 class="panehead">✅ 확정된 기준 문서 — 사람이 제출한 답</h2><div id="references"></div></section>`)
+		b.WriteString(`<section class="pane" id="pane-reference"><h2 class="panehead">✅ 확정된 기준 문서</h2><div id="references"></div></section>`)
 		b.WriteString(`<script id="referencedata" type="application/json">` + referencesJSON(g) + `</script>`)
 	}
 	if !static && len(g.interviews) > 0 {
@@ -1022,13 +1022,14 @@ svg.cygraph{display:block}
 .prunebody{white-space:pre-wrap;font-size:12px;color:var(--dim);margin-bottom:12px;max-height:260px;overflow:auto}
 .prunebtn{font:inherit;font-size:13px;font-weight:700;padding:8px 18px;border-radius:7px;cursor:pointer;border:1px solid #e0574a;background:transparent;color:#e0574a}
 #pane-prune .panehead{color:#e0574a}
-.refcard{margin:4px 16px 16px;padding:14px 18px;background:var(--card,var(--bg));border:1px solid var(--line);border-radius:10px}
-.refhead{font-size:13px;color:var(--fg);margin-bottom:8px}
-.refhead b{color:var(--node)}
-.refstate{font-size:12px;margin:6px 0 10px}
-.refstate.ok{color:#2dd4bf;font-weight:600}
-.refstate.pendingread{color:#f59e0b;font-weight:600}
-.refbody{white-space:pre-wrap;font-size:12px;color:var(--dim);border-top:1px solid var(--line);padding-top:10px;max-height:320px;overflow:auto}
+.refcard{margin:4px 16px 10px;padding:10px 14px;background:var(--card,var(--bg));border:1px solid var(--line);border-radius:10px}
+.refcard{position:relative}
+.refsum{font-size:12px;color:var(--dim);cursor:pointer;list-style:none}
+.refsum::-webkit-details-marker{display:none}
+.refsum::before{content:"▸ ";color:var(--node)}
+details[open]>.refsum::before{content:"▾ "}
+.refx{position:absolute;top:8px;right:10px}
+.refbody{white-space:pre-wrap;font-size:12px;color:var(--dim);border-top:1px solid var(--line);padding-top:10px;margin-top:8px;max-height:280px;overflow:auto}
 .refjust{font-size:12px;color:#2dd4bf;font-weight:700;margin:0 0 8px}
 #pane-reference .panehead{color:#2dd4bf}
 .ivwait{font-size:12px;color:var(--dim,#888);margin:-6px 0 12px}
@@ -1138,6 +1139,7 @@ svg.dag{display:block}
 
 // jsPoll — 자동 새로고침 폴링. serve 모드에만 붙인다(정적 build 엔 서버가 없어 뺀다).
 const jsPoll = `
+window.__gilPollUrl='/poll';   // 살아있음 확인용 주소(서브 모드에서만 심긴다)
 let sig=null;
 async function poll(){
   try{
@@ -2196,26 +2198,37 @@ function buildReferences(){
   host.replaceChildren();
   let just=null;
   try{ just=sessionStorage.getItem('gil-just-submitted'); sessionStorage.removeItem('gil-just-submitted'); }catch(e){}
+  let shown=0;
   REFERENCES.forEach(r=>{
+    // 확정된 기준은 **끝난 것**이다 — 화면을 계속 차지하면 지금 살아 있는 국면을 덮는다
+    // (이슈 #85 의 교훈을 이 패널이 먼저 어겼다). 기본은 한 줄, 필요할 때만 펼친다.
+    // 한 번 닫으면 그 확정본은 다시 안 뜬다(sha 로 기억 — 새 차수가 오면 다시 뜬다).
+    let dismissed=false;
+    try{ dismissed=localStorage.getItem('gil-ref-seen-'+r.chain)===r.sha; }catch(e){}
+    if(dismissed&&just!==r.chain)return;
+    shown++;
     const card=document.createElement('div'); card.className='refcard';
-    if(just===r.chain){
-      const j=document.createElement('div'); j.className='refjust';
-      j.textContent='✓ 방금 제출한 답이 기준 문서로 확정됐습니다 — 이제 이 체인의 사이클을 열 수 있습니다.';
-      card.appendChild(j);
-    }
-    const head=document.createElement('div'); head.className='refhead';
-    head.innerHTML='체인 <b>'+esc(r.chain)+'</b> 의 기준 문서 — 확정됨 ('+esc(r.sha)+')';
-    card.appendChild(head);
-    // "내 답이 어디까지 갔나" 를 정직하게. 기다리는 프로세스 > 읽음 > 아직 안 읽음.
-    const st=document.createElement('div');
-    if(r.waiting){ st.className='refstate ok'; st.textContent='⏳ 에이전트가 이 답을 기다리는 중입니다 — 곧 이어서 일합니다.'; }
-    else if(r.seen){ st.className='refstate ok'; st.textContent='✓ 에이전트가 이 답을 읽었습니다.'; }
-    else { st.className='refstate pendingread'; st.textContent='· 아직 에이전트가 읽지 않았습니다. 다음 접촉 때 gil 이 맨 앞에서 알립니다 — 지금 이어가려면 에이전트에게 한 마디 걸어주세요.'; }
-    card.appendChild(st);
+    const det=document.createElement('details');
+    if(just===r.chain)det.open=true;               // 방금 제출한 것만 펼친 채로
+    const sum=document.createElement('summary'); sum.className='refsum';
+    const state=r.waiting?'⏳ 에이전트가 기다리는 중':(r.seen?'✓ 에이전트가 읽었습니다':'· 아직 안 읽음');
+    sum.textContent=(just===r.chain?'✓ 방금 제출한 답이 기준 문서로 확정됐습니다 — ':'')+
+      '체인 '+r.chain+' 기준 문서 ('+r.sha+') · '+state;
+    det.appendChild(sum);
     const body=document.createElement('div'); body.className='refbody'; body.textContent=r.text||'(본문 없음)';
-    card.appendChild(body);
+    det.appendChild(body);
+    card.appendChild(det);
+    const x=document.createElement('button'); x.className='card-close refx'; x.textContent='✕';
+    x.title='이 확정본은 그만 보기(다음 차수가 오면 다시 뜹니다)';
+    x.addEventListener('click',()=>{
+      try{ localStorage.setItem('gil-ref-seen-'+r.chain,r.sha); }catch(e){}
+      card.remove();
+      if(!host.children.length){ const p=document.getElementById('pane-reference'); if(p)p.style.display='none'; }
+    });
+    card.appendChild(x);
     host.appendChild(card);
   });
+  if(!shown){ const p=document.getElementById('pane-reference'); if(p)p.style.display='none'; }
 }
 buildReferences();
 const INTERVIEWS=JSON.parse(document.getElementById('interviewdata')?.textContent||'[]');
@@ -2282,7 +2295,28 @@ function buildInterviews(){
           setTimeout(()=>location.reload(),700);
         }
         else{ status.textContent=' ✕ '+txt.split('\n')[0]; submit.disabled=false; }
-      }catch(e){ status.textContent=' ✕ '+e; submit.disabled=false; }
+      }catch(e){
+        // "TypeError: Failed to fetch" 는 사람에게 아무것도 안 알려준다(상현님 실사용).
+        // 이 자리에 오는 원인은 대개 하나다 — **이 페이지를 만든 서버가 이미 없다**(뷰어를
+        // 껐거나 다시 띄웠거나, 옛 탭을 그대로 두고 있었다). 답은 사라지지 않았다: 아직
+        // 제출되지 않았을 뿐이라, 새로고침한 뒤 다시 누르면 된다. 그 사실을 말한다.
+        // 서버가 살아 있나 되묻는다. 주소는 폴링 스크립트가 심어 둔 것을 쓴다 — 정적
+        // build 에는 서버가 없고, 이 문자열이 정적 산출물에 섞이면 자기완결이 깨진다.
+        let alive=false;
+        const probe=window.__gilPollUrl;
+        if(probe){ try{ const p=await fetch(probe,{cache:'no-store'}); alive=p.ok; }catch(_){} }
+        status.textContent=alive?(' ✕ 제출 실패: '+e):
+          ' ✕ 뷰어 서버에 닿지 못했습니다 — 이 페이지를 띄운 서버가 꺼졌거나 다시 떴습니다.';
+        if(!alive){
+          const hint=document.createElement('div');
+          hint.className='ivwait';
+          hint.innerHTML='답은 아직 제출되지 않았습니다(사라지지도 않았습니다). '+
+            '<b>새로고침한 뒤 다시 제출</b>해 주세요 — 입력한 내용은 새로고침 전에 복사해 두시면 안전합니다.'+
+            '<br>서버가 꺼져 있으면 터미널에서: <code>gil viewer serve</code>';
+          form.appendChild(hint);
+        }
+        submit.disabled=false;
+      }
     });
     card.appendChild(form); host.appendChild(card);
   });
