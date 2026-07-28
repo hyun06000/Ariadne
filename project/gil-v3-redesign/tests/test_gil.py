@@ -3011,27 +3011,34 @@ class TestMCPRepoMismatch(GilFixture):
             p.stdout.close()
             p.stderr.close()
 
-    def test_warns_when_pinned_repo_differs_from_open_folder(self):
+    def test_mismatch_is_surfaced_with_both_paths(self):
+        """어긋나면 두 경로를 다 보여준다.
+
+        #49 때는 경고였으나 #51 에서 **거부로 승격**됐다 — 실측에서 사람과 에이전트가 서로
+        다른 그래프를 보고 있었고, 에이전트가 "기록이 거의 없다"며 새 체인을 열 뻔했다.
+        경고 한 줄로 감당할 위험이 아니었다. 여기서는 '두 경로가 다 드러나는가'를 지킨다.
+        """
         self.gil("init")
         other = tempfile.mkdtemp(prefix="gil-other-")
         try:
             t = self._tool_text({"CLAUDE_PROJECT_DIR": other}, ["--repo", self.repo])
-            self.assertIn("기록이 쌓이는 곳과 지금 열린 폴더가 다르다", t)
+            self.assertIn("덮어쓰고 있다", t)
             self.assertIn(other, t)
+            self.assertIn(self.repo, t)
         finally:
             shutil.rmtree(other, ignore_errors=True)
 
     def test_no_warning_when_they_agree(self):
-        """일치하면 조용하다 — 경고가 늘 뜨면 아무도 안 읽는다."""
+        """일치하면 조용하다 — 늘 막으면 아무도 안 읽는다."""
         self.gil("init")
         t = self._tool_text({"CLAUDE_PROJECT_DIR": self.repo}, ["--repo", self.repo])
-        self.assertNotIn("기록이 쌓이는 곳과", t)
+        self.assertNotIn("덮어쓰고 있다", t)
 
     def test_no_warning_when_repo_not_pinned(self):
         """--repo 를 안 붙이는 게 기본 — 그땐 애초에 어긋날 수 없다."""
         self.gil("init")
         t = self._tool_text({"CLAUDE_PROJECT_DIR": self.repo}, [])
-        self.assertNotIn("기록이 쌓이는 곳과", t)
+        self.assertNotIn("덮어쓰고 있다", t)
 
 
 class TestRefusalsGiveNextMove(GilFixture):
@@ -3138,6 +3145,124 @@ class TestStepMapLabels(GilFixture):
         html = self._build()
         self.assertIn("buildStepMap", html)
         self.assertIn("alpha", html)
+
+
+class TestReachCycleFromAnyBranch(GilFixture):
+    """다른 브랜치에 서 있어도 대상 사이클에 닿는다 (이슈 #44 · #47 G6).
+
+    옛 동작: currentCycle 이 HEAD 계보만 봐서, main 에 서 있으면 멀쩡히 존재하는 사이클을
+    "없음"으로 거부했다 — **재분기하고 싶어도 도구가 막는** 최악의 형태다. 사이클은 진짜 커밋
+    그래프에 있는 것이지 지금 무엇을 체크아웃했는지에 달린 게 아니다.
+
+    다만 '찾기'와 '이어붙이기'는 다른 일이다. 존재는 그래프 전체에서 찾되, 팁은 그 사이클의
+    가지에서 읽어야 한다 — 전체를 섞으면 backtrack 으로 갈라진 죽은 형제 가지가 팁으로 잡혀
+    순서 강제·종결 판정이 어긋난다(실제로 한 번 그렇게 깨뜨렸다).
+    """
+
+    def _cycle(self):
+        # gil init 으로 루트 커밋을 만들어야 기본 브랜치가 **실재**한다(커밋 없는 저장소의
+        # 기본 브랜치는 unborn 이라 checkout 이 안 된다 — 이 시험은 '다른 브랜치에 서 있기'가
+        # 성립해야 의미가 있다).
+        self.gil("init")
+        self.base = self._git("branch", "--show-current").stdout.strip()
+        self.gil("chain", "b", "--purpose", "P")
+        self.gil("open", "b/c001", "--author", "clew", "--purpose", "P", "--body", "B")
+        self.gil("step", "b/c001", "--kind", "success", "--title", "S", "--body", "B")
+
+    def test_step_reaches_cycle_from_another_branch(self):
+        self._cycle()
+        self._git("checkout", "-q", self.base)
+        self.assertEqual(self._git("branch", "--show-current").stdout.strip(), self.base,
+                         "대상 사이클이 아닌 브랜치에 서 있어야 이 시험이 성립한다")
+        r = self.gil("step", "b/c001", "--kind", "analyze", "--title", "A", "--body", "B")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_open_rejects_duplicate_cycle_on_another_branch(self):
+        """중복 가드는 그래프 전체로 본다 — 같은 이름 사이클이 둘이면 이후 조회가 모호해진다."""
+        self._cycle()
+        self._git("checkout", "-q", self.base)
+        r = self.gil("open", "b/c001", "--author", "clew", "--purpose", "P2", "--body", "B")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("이미 존재", r.stderr)
+
+    def test_missing_cycle_still_refused(self):
+        """정말 없는 건 여전히 거부한다 — 넓힌 게 '아무거나 받는다'는 뜻은 아니다."""
+        self.gil("chain", "b", "--purpose", "P")
+        r = self.gil("step", "b/c999", "--kind", "analyze", "--title", "A", "--body", "B")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("없음", r.stderr)
+
+
+class TestRepoResolutionIsHonest(GilFixture):
+    """저장소 해석이 어긋나면 조용히 돌지 않는다 (이슈 #51).
+
+    실측: 같은 폴더에서 CLI 는 체인 2개를, MCP 는 0개를 봤다. 사람과 에이전트가 **서로 다른
+    그래프**를 보고 있었고, 에이전트는 "기록이 거의 없다"며 새 체인을 열 뻔했다.
+
+    원인은 --repo 의 성격이다. 기본값을 바꾸는 옵션처럼 보이지만 실제로는 **호스트가 주는
+    정답을 무효화하는 스위치**이고, 사용자 스코프에 한 번 박히면 모든 프로젝트에 영원히 붙는다.
+    그리고 gil 의 대상은 폴더가 아니라 폴더 **안의** refs/gil/* 라, 엉뚱한 폴더에서도 빈
+    그래프를 새로 만들며 정상처럼 보인다 — git 이라면 즉시 멎을 상황이 여기선 조용히 돈다.
+    """
+
+    def _tool(self, args, env, name="gil_log"):
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve", *args], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1", **env))
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        read = lambda: json.loads(p.stdout.readline())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                             "clientInfo": {"name": "t", "version": "1"}}})
+            read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": name, "arguments": {}}})
+            m = read()
+            if "error" in m:
+                return True, m["error"].get("message", "")
+            r = m["result"]
+            return bool(r.get("isError")), r["content"][0]["text"]
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
+    def test_pinned_repo_that_overrides_open_folder_is_refused(self):
+        """경고가 아니라 **거부**다 — 경고로 감당할 위험이 아니다."""
+        self.gil("init")
+        other = tempfile.mkdtemp(prefix="gil-open-")
+        try:
+            err, t = self._tool(["--repo", self.repo], {"CLAUDE_PROJECT_DIR": other})
+            self.assertTrue(err, t)
+            self.assertIn("덮어쓰고 있다", t)
+            self.assertIn('"args": ["mcp", "serve"]', t)   # 다음 한 수(이슈 #47)
+        finally:
+            shutil.rmtree(other, ignore_errors=True)
+
+    def test_read_tools_always_show_the_target_path(self):
+        """어긋났을 때만이 아니라 **항상** 찍는다 — 조용한 정상 동작은 경고로 못 잡는다."""
+        self.gil("init")
+        err, t = self._tool([], {"CLAUDE_PROJECT_DIR": self.repo})
+        self.assertFalse(err, t)
+        self.assertIn("📂", t)
+        self.assertIn(os.path.realpath(self.repo), os.path.realpath(t.split("\n")[0][2:].strip()))
+
+    def test_matching_repo_is_not_refused(self):
+        """일치하면 조용히 돈다 — 늘 막으면 아무도 안 읽는다."""
+        self.gil("init")
+        err, t = self._tool(["--repo", self.repo], {"CLAUDE_PROJECT_DIR": self.repo})
+        self.assertFalse(err, t)
+
+    def test_version_check_failure_gives_a_next_move(self):
+        """자기갱신이 막혀도 손으로 가는 길을 준다(이슈 #47 의 결)."""
+        r = self.gil("help", "version")
+        # 메시지 자체는 네트워크 실패 시에만 뜨므로, 여기서는 소스에 경로가 박혔는지로 갈음한다.
+        self.assertEqual(r.returncode, 0)
 
 
 if __name__ == "__main__":

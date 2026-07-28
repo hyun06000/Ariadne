@@ -43,7 +43,16 @@ func cmdVersion(args []string) {
 	}
 	latest, err := latestTag()
 	if err != nil {
-		die("거부: 최신 릴리스 조회 실패(네트워크/GitHub) — " + err.Error())
+		// 다음 한 수를 준다(이슈 #47·#51). 비인증 GitHub API 는 시간당 60회라 403 이 흔한데,
+		// 옛 메시지는 "네트워크/GitHub"까지만 말하고 끝나 사람이 거기서 막혔다. 자기갱신이
+		// 막혔다고 설치까지 막힌 건 아니다 — 손으로 가는 길이 둘 다 있다.
+		die("거부: 최신 릴리스 조회 실패 — " + err.Error() + "\n" +
+			"  GitHub API 403 이면 비인증 호출 한도(시간당 60회)에 걸린 것이다. 잠시 뒤 다시\n" +
+			"  되지만, 지금 갱신하려면 아래 둘 중 하나로 손수 가면 된다:\n" +
+			"    (1) 설치 스크립트 — 플랫폼을 알아서 고르고 체크섬까지 검증한다:\n" +
+			"        curl -fsSL https://github.com/hyun06000/Ariadne/releases/latest/download/install.sh | sh\n" +
+			"    (2) gh 가 있으면 인증 호출로 자산을 직접 받는다(SHA256SUMS 대조 후 교체):\n" +
+			"        gh release download -R hyun06000/Ariadne -p 'gil-*' -p 'SHA256SUMS'")
 	}
 	if latest == gilVersion {
 		println2("최신이다 (" + latest + ").")

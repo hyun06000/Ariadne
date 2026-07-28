@@ -100,22 +100,34 @@ func cmdMCP(args []string) {
 			die("거부: 저장소 경로로 이동 못 함: " + target)
 		}
 	}
-	// 불일치 경고(이슈 #49): --repo 로 폴더를 못박았는데 호스트가 가리키는 프로젝트는 다른
-	// 곳이면, 사람은 자기 폴더에 기록이 쌓이는 줄 알지만 실제로는 딴 데 쌓인다. **아무 에러도
-	// 안 난다** — 우리가 제일 경계하는 조용한 실패다. 그래서 모든 툴 응답 앞에 이걸 달아
-	// 에이전트가 사람에게 먼저 알리게 한다(막지는 않는다 — 의도적 고정일 수도 있다).
+	// --repo 가 호스트의 정답을 덮으면 **거부**한다(이슈 #51, 경고에서 승격).
+	//
+	// 왜 경고로는 부족한가. MCP 서버는 세션마다 새로 뜨고 그때 CLAUDE_PROJECT_DIR 을 물어
+	// 해석한다 — 즉 --repo 만 없으면 이 구조는 **원래 이미 "열린 폴더를 따라가는"** 동작이다.
+	// --repo 는 기본값을 바꾸는 옵션처럼 보이지만 실제로는 **호스트가 주는 정답을 무효화하는
+	// 스위치**이고, ~/.claude.json 사용자 스코프에 한 번 박히면 이후 모든 프로젝트·모든
+	// 세션에 영원히 적용된다. 사람이 그걸 박은 순간은 대개 gil 을 처음 시험하던 폴더 하나에서다.
+	//
+	// 그 결과가 실측으로 나왔다: 같은 폴더에서 CLI 는 체인 2개, MCP 는 체인 0개 — 사람과
+	// 에이전트가 **서로 다른 그래프**를 봤고, 에이전트는 "기록이 거의 없다"며 새 체인을 열 뻔했다.
+	// 이건 경고 한 줄로 감당할 위험이 아니다. 막고, 왜 막았는지와 다음 한 수를 준다(이슈 #47).
 	if *repo != "" {
 		if host := os.Getenv("CLAUDE_PROJECT_DIR"); host != "" {
 			a, _ := filepath.Abs(*repo)
 			b, _ := filepath.Abs(host)
 			if a != b {
-				mcpRepoMismatch = "⚠ 기록이 쌓이는 곳과 지금 열린 폴더가 다르다.\n" +
-					"  기록 위치(설정의 --repo): " + a + "\n" +
-					"  지금 열린 폴더: " + b + "\n" +
-					"  사람에게 **먼저** 이렇게 알려라: \"지금 보고 계신 폴더가 아니라 다른 폴더에 " +
-					"기록이 쌓입니다. 이 폴더에 남기시려면 설정에서 --repo 를 빼야 하고, 그러면 " +
-					"제가 열려 있는 폴더를 자동으로 따라갑니다(앱 재시작 필요).\"\n" +
-					"  사람이 그대로 진행하길 원하면 계속해도 된다 — 다만 모르는 채로 진행하게 두지 마라."
+				mcpRepoMismatch = "거부: 설정의 --repo 가 지금 열린 폴더를 덮어쓰고 있다.\n" +
+					"  --repo(설정에 박힌 곳): " + a + "\n" +
+					"  지금 열린 폴더:        " + b + "\n" +
+					"  이대로 두면 사람이 보는 폴더가 아닌 곳에 기록이 쌓인다 — 아무 에러도 없이.\n" +
+					"  (실측: 같은 폴더에서 사람은 체인 2개를, 에이전트는 0개를 봤다.)\n\n" +
+					"  고치는 법 — MCP 설정에서 \"--repo\" 인자만 빼라. 그러면 gil 이 열린 폴더를\n" +
+					"  자동으로 따라간다(세션마다 새로 해석한다). 보통 ~/.claude.json 에 있고,\n" +
+					"  gil 을 처음 시험하던 폴더가 그대로 박혀 있는 경우가 대부분이다:\n" +
+					"    \"args\": [\"mcp\", \"serve\"]      ← 이렇게 (--repo 없이)\n" +
+					"  고친 뒤 앱을 완전히 종료했다 다시 켜라.\n\n" +
+					"  사람에게는 이렇게 말해라: \"설정에 예전 테스트 폴더가 박혀 있어서, 지금 보고\n" +
+					"  계신 폴더가 아닌 곳에 기록이 쌓이게 돼 있어요. 설정 한 줄만 지우면 됩니다.\""
 			}
 		}
 	}
@@ -141,9 +153,6 @@ func text(s string) *mcp.CallToolResult {
 	if strings.TrimSpace(s) == "" {
 		s = "(완료)"
 	}
-	if mcpRepoMismatch != "" {
-		s = mcpRepoMismatch + "\n\n" + s
-	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 }
 
@@ -166,6 +175,11 @@ func addList(args []string, name string, vals []string) []string {
 // 준다. 이걸 안 하면 날 git 에러("git checkout 실패: exit status 128")가 그대로 올라가는데,
 // 비개발자는 물론 에이전트도 거기서 다음 수를 못 찾는다(이슈 #47 의 최악 형태).
 func requireReady() {
+	// 저장소 해석이 어긋난 채로는 아무것도 하지 않는다(이슈 #51). 여기서 막지 않으면
+	// 기록이 사람이 안 보는 폴더에 조용히 쌓인다.
+	if mcpRepoMismatch != "" {
+		die(mcpRepoMismatch)
+	}
 	if !gitOK("rev-parse", "--git-dir") {
 		die("거부: 이 폴더는 아직 gil 로 관리되지 않는다(git 저장소가 아니다).\n" +
 			"  먼저 gil_init 툴을 불러라 — 저장소를 만들고 존재·기억까지 한 번에 세운다.\n" +
@@ -185,8 +199,22 @@ func tool[In any](s *mcp.Server, name, desc string, argv func(In) []string, run 
 			if err != nil {
 				return nil, nil, err
 			}
+			if name == "gil_log" || name == "gil_handoff" || name == "gil_fsck" {
+				out = repoBanner() + out
+			}
 			return text(out), nil, nil
 		})
+}
+
+// repoBanner — 지금 읽고 있는 저장소가 어디인지 한 줄(이슈 #51). 읽기 툴에만 붙인다 —
+// 모든 응답에 붙이면 잡음이 되어 아무도 안 읽는다.
+func repoBanner() string {
+	wd, err := os.Getwd()
+	if err != nil || wd == "" {
+		return ""
+	}
+	return "📂 " + wd + "\n" +
+		"  (이 폴더의 기록을 읽고 있다. 사람이 보고 있는 폴더와 다르면 그 자리에서 알려라.)\n\n"
 }
 
 // ── 툴 입력 구조체 ──
@@ -333,7 +361,12 @@ func registerGilTools(s *mcp.Server) {
 			return addFlag(a, "body", in.Body)
 		}, cmdReject)
 
-	tool(s, "gil_log", "사고 그래프를 읽는다. 분기·죽은 잎이 한눈에 보인다.",
+	// 읽기 툴은 **대상 경로를 늘 앞에 찍는다**(이슈 #51 제안 4). 경고는 어긋났을 때만 뜨지만,
+	// 진짜 위험한 건 "어긋났는데도 아무 이상 없이 잘 도는" 경우다 — gil 의 대상은 폴더가
+	// 아니라 폴더 **안의** refs/gil/* 라, 엉뚱한 폴더에서도 빈 그래프를 새로 만들며 정상처럼
+	// 보인다(git 이라면 "not a git repository" 로 즉시 멎을 상황). 그건 경고로는 못 잡고
+	// 상시 표시로만 잡힌다. 세션마다 새로 해석되는 값이니 세션마다 한 번은 눈에 보여야 한다.
+	tool(s, "gil_log", "사고 그래프를 읽는다. 분기·죽은 잎이 한눈에 보인다. 응답 첫 줄에 지금 읽고 있는 저장소 경로가 찍힌다.",
 		func(in inLog) []string {
 			var a []string
 			if in.Chain != "" {

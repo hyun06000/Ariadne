@@ -121,7 +121,11 @@ func commitOn(branch, createFrom, subject, body string, trailers [][2]string, al
 	gitInput(msg, args...)
 }
 
-// currentCycle — 이 (chain,cycle)의 스텝들. 참조: _current_cycle. collectNodes는 새→old 순.
+// currentCycle — 이 (chain,cycle)의 스텝들. collectNodes는 새→old 순.
+//
+// 범위가 HEAD 인 데는 이유가 있다: 한 사이클이 backtrack 으로 갈라지면 죽은 형제 가지와 산
+// 가지가 함께 존재하는데, 이어붙일 팁은 **지금 밟고 있는 가지**의 것이어야 한다. 전체 그래프를
+// 섞으면 죽은 가지의 커밋이 팁으로 잡혀 순서 강제·종결 판정이 어긋난다.
 func currentCycle(chain, cycle string) []node {
 	var out []node
 	for _, n := range collectNodes("HEAD") {
@@ -130,6 +134,39 @@ func currentCycle(chain, cycle string) []node {
 		}
 	}
 	return out
+}
+
+// cycleAnywhere — 이 사이클이 **그래프 어딘가에** 있나(브랜치 전체). 존재 확인 전용.
+func cycleAnywhere(chain, cycle string) []node {
+	var out []node
+	for _, n := range collectNodes("--branches") {
+		if n.chain == chain && n.cycle == cycle {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// reachCycle — 대상 사이클로 **찾아가서** 그 가지의 스텝들을 준다(이슈 #44·#47 G6).
+//
+// HEAD 계보만 보던 시절엔 다른 브랜치에 서 있으면 멀쩡히 존재하는 사이클을 "없음"으로
+// 거부했다 — 재분기하고 싶어도 도구가 막는 최악의 형태다(실측: main 에 서서
+// gil step b/c001 → "b/c001 없음"). 사이클은 진짜 커밋 그래프에 있는 것이지 지금 무엇을
+// 체크아웃했는지에 달린 게 아니다.
+//
+// **찾기와 이어붙이기는 다른 일이다.** 존재는 그래프 전체에서 찾고, 찾았으면 HEAD 를 그
+// 사이클의 팁으로 옮긴 뒤 다시 HEAD 기준으로 읽는다 — 그래야 죽은 형제 가지가 팁 계산에
+// 섞이지 않는다.
+func reachCycle(chain, cycle, ref string) []node {
+	if steps := currentCycle(chain, cycle); len(steps) > 0 {
+		return steps // 이미 그 가지 위에 있다
+	}
+	all := cycleAnywhere(chain, cycle)
+	if len(all) == 0 {
+		return nil // 정말 없다 — 호출부가 "먼저 gil open" 으로 거부한다
+	}
+	alignHeadToTip(all[0].sha, ref) // all[0] = 가장 최근 커밋 = 마지막으로 작업하던 가지
+	return currentCycle(chain, cycle)
 }
 
 // alignHeadToTip — 선형 append(step/reject/approve)가 대상 사이클의 팁 커밋 위에 얹히도록
@@ -327,7 +364,9 @@ func cmdOpen(args []string) {
 			die("거부: " + kv[0] + " id \"" + kv[1] + "\"는 소문자·숫자·하이픈만")
 		}
 	}
-	if len(currentCycle(chain, cycle)) > 0 {
+	// 중복 가드는 **그래프 전체**로 본다 — 다른 브랜치에 이미 있는 사이클 이름을 또 여는
+	// 구멍이 있었다(같은 이름 사이클이 둘이면 이후 조회가 어느 쪽인지 모른다).
+	if len(cycleAnywhere(chain, cycle)) > 0 {
 		die("거부: " + ref + " 이미 존재 (open은 새 사이클만)")
 	}
 	// 닫힌 부모 체인 사이클 금지 (dev/c002 죽은 잎이 가르친 규칙). --branches 로 본다 — 체인은
@@ -481,7 +520,7 @@ func cmdStep(args []string) {
 	}
 	ref := pos[0]
 	chain, cycle, _ := cut(ref, "/")
-	steps := currentCycle(chain, cycle)
+	steps := reachCycle(chain, cycle, ref) // 다른 브랜치에 서 있어도 찾아간다(이슈 #44)
 	if len(steps) == 0 {
 		die("거부: " + ref + " 없음 (먼저 gil open)")
 	}
