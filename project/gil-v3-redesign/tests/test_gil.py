@@ -1632,6 +1632,52 @@ class TestViewer(GilFixture):
         self.assertNotIn("const gap=104", html)    # 옛 고정 간격이 남아 있으면 안 된다
         self.assertIn("rotate(-", html)            # 긴 라벨은 기울여 세운다(상현님 제안)
 
+    def test_map_has_chain_filter_and_minimap(self):
+        """26체인·381스텝이 되면 전체맵은 눈으로 따라갈 수 없다 (이슈 #79, 상현님 실사용).
+
+        뎁스 접기(AIL #6)는 '얼마나 자세히'를 줄이지만 '무엇을'은 못 줄인다 — 지금 보려는
+        체인만 남기는 축과, 확대했을 때 길을 잃지 않는 미니맵이 따로 필요하다."""
+        self._seed_graph()
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("chainFilterBar", html)      # 체인 하나만 그리는 축
+        self.assertIn("gilMapChain", html)         # 고른 값은 리로드를 넘어 유지된다
+        self.assertIn("minimap", html)             # 확대 중 위치를 잃지 않게
+        self.assertIn("enableChainGraphZoom", html)  # 체인 그래프도 같은 엔진을 쓴다
+
+    def test_working_node_marks_where_uncommitted_work_is(self):
+        """미커밋 작업은 노드가 없어 '어디서 손대고 있는지'가 그래프에 없었다 (상현님).
+
+        가장 가까운 조상 스텝을 앵커로 '작업중' 유령 노드를 그린다. 커밋되면 그 자리에
+        진짜 스텝이 선다."""
+        self._seed_graph()
+        with open(os.path.join(self.repo, "wip.txt"), "w", encoding="utf-8") as f:
+            f.write("작업중\n")
+        import socket, time, urllib.request
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo, "--port", str(port)],
+                             env=dict(os.environ, GIL_NO_VIEWER="1"),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            body = ""
+            for _ in range(40):
+                try:
+                    body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read().decode()
+                    break
+                except Exception:
+                    time.sleep(0.05)
+            self.assertIn('"dirty":true', body)          # 미커밋 상태가 실린다
+            self.assertIn('"step":"s', body)             # 앵커 스텝까지 — 어디서 작업 중인가
+            self.assertIn("dnode working", body)         # 유령 노드를 그리는 코드
+        finally:
+            p.terminate()
+            try:
+                p.wait(timeout=3)
+            except Exception:
+                p.kill()
+
     def test_viewer_build_requires_out(self):
         self._seed_graph()
         r = self.gil("viewer", "build")

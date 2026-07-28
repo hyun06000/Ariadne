@@ -421,6 +421,10 @@ func renderHTML(g graphView, static bool) string {
 		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g, static) + `</script>`)
 		b.WriteString(`<script id="parentdata" type="application/json">` + parentsJSON(g) + `</script>`)
 		b.WriteString(`<script id="dagdata" type="application/json">` + dagJSON(g, static) + `</script>`)
+		// 작업중(미커밋)이 **어디서** 벌어지는지(#79 후속). static 스냅샷은 워킹트리와 무관하다.
+		if !static {
+			b.WriteString(`<script id="workdata" type="application/json">` + workJSON(g) + `</script>`)
+		}
 	}
 	script := js
 	if !static {
@@ -456,6 +460,25 @@ func workBadge(g graphView, static bool) string {
 // nodes SVG 를 edges 뒤 별도 <g id="nodes"> 에 넣기 위해 renderHTML 의 svg 조립을
 // 분리했어야 하나, 간결히: 위에서 만든 svg(엣지+노드)를 그대로 두고 expand 레이어만 추가.
 // (실제로는 위 Sprintf 의 두 번째 %s 를 비우고 nodes 를 edges 와 함께 첫 %s 에 넣는다.)
+
+// workJSON — 미커밋 작업과 그 앵커(가장 가까운 조상 스텝). 뷰어가 '작업중' 유령 노드를 그린다.
+func workJSON(g graphView) string {
+	if !g.work.dirty {
+		return `{"dirty":false}`
+	}
+	a := g.anchor
+	return fmt.Sprintf(`{"dirty":true,"summary":%q,"branch":%q,"sha":%q,"chain":%q,"cycle":%q,"step":%q,"ahead":%d,"files":%s}`,
+		g.work.summary(), a.branch, a.sha, a.chain, a.cycle, a.step, a.ahead, jsonStrings(g.work.sample))
+}
+
+// jsonStrings — 문자열 슬라이스를 JSON 배열로(작은 헬퍼 — 의존성 0 원칙).
+func jsonStrings(in []string) string {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
 
 // cycleJSON — 체인별 사이클 데이터를 JS 로 넘긴다(추가 요청 없이 클릭 확장용).
 // 각 체인의 노드 좌표도 함께 실어 확장 패널을 그 자리에 띄운다.
@@ -918,6 +941,19 @@ svg.dag{display:block}
 .dagbar .zhint{color:var(--dim);font-size:11px;align-self:center}
 .dagwrap.grabbing{cursor:grabbing}
 .dagwrap.zoomed{cursor:grab}
+/* 미니맵(이슈 #79): 확대하면 어디를 보고 있는지 잃는다 — 전체 축소본 위에 지금 창을 그린다. */
+.minimap{background:var(--card);border:1px solid var(--line);
+  border-radius:6px;padding:3px;cursor:pointer;display:none;margin-left:auto}
+.dagbar.zoomed .minimap{display:block}
+.dagbar{align-items:center}
+.minimap svg{display:block;max-width:none;flex:0 0 auto}
+.minimap{flex:0 0 auto;line-height:0}
+.dnode.working circle{fill:var(--here);fill-opacity:.18;stroke:var(--here);stroke-dasharray:3 3}
+.dag .worklbl{fill:var(--here);font-size:10px;font-weight:700;text-anchor:middle}
+.dedge.work{stroke:var(--here);stroke-dasharray:4 3;opacity:.9}
+.minimap .mmview{fill:var(--node);fill-opacity:.18;stroke:var(--node);stroke-width:2;vector-effect:non-scaling-stroke}
+.dagbar select{background:var(--card);border:1px solid var(--line);border-radius:6px;color:var(--fg);
+  font:inherit;font-size:11px;padding:2px 6px}
 .dag .cycbox{fill:none;stroke:var(--line);stroke-dasharray:3 3;opacity:.7}
 .dag .dedge{stroke:var(--edge);stroke-width:1.5}
 .dag .dedge.cross{stroke:var(--here);stroke-width:2}
@@ -977,6 +1013,9 @@ const SVGNS='http://www.w3.org/2000/svg';
 const DATA=JSON.parse(document.getElementById('cycledata')?.textContent||'{}');
 const PARENTS=JSON.parse(document.getElementById('parentdata')?.textContent||'{}');
 const DAG=JSON.parse(document.getElementById('dagdata')?.textContent||'[]');
+// 미커밋 작업은 아직 커밋이 아니라 노드가 없다 — 그래서 커밋 전까지 "어디서 손대고 있는지"가
+// 그래프 어디에도 없었다(상현님). 앵커(가장 가까운 조상 스텝) 옆에 유령 노드로 그린다.
+const WORK=JSON.parse(document.getElementById('workdata')?.textContent||'{}');
 let openChain=null;
 
 // 열린 카드 경로를 세션에 저장 — 폴링 리로드 후 복원해 카드가 닫히지 않게(피드백 1).
@@ -1476,11 +1515,39 @@ function selectChain(chain){
 // 사이클=옅은 점선 박스, 스텝=작은 점(글씨 없이). 현재위치(HEAD)는 ▼ 역삼각형.
 // 현재 뎁스(AIL #6). 'step'(기본)·'cycle'·'체인'. gil log --depth 의 뷰어판.
 let MAP_DEPTH='step';
+// 전체맵 체인 필터(이슈 #79). 26체인·381스텝이 되면 전체맵은 사람이 눈으로 따라갈 수 없다.
+// 뎁스 접기(AIL #6)는 '얼마나 자세히'를 줄이지만 '무엇을'은 못 줄인다 — 지금 보려는 체인
+// 하나만 남기는 축이 따로 필요하다. ''=전체.
+let MAP_CHAIN=(()=>{ try{ return localStorage.getItem('gilMapChain')||''; }catch(e){ return ''; } })();
 
 // aggregateDAG — 스텝 DAG 를 사이클/체인 단위로 접어 합성 노드 배열을 만든다(AIL #6).
 // 반환 노드는 buildStepMap 이 쓰는 필드(sha·chain·cycle·step·kind·outcome·parents·here·subj)를
 // 흉내낸다 — 같은 배치·엣지·줌팬 엔진에 그대로 태우려고. 새 데이터 주입 없이 순수 클라이언트
 // 집계라 Warp-anchor(새 명령·채널 최소) 원칙에 맞는다.
+// chainFilterBar — "지금 이 체인만" 을 고르는 줄(이슈 #79). 26개가 넘어가면 칩은 줄을 먹으니
+// select 로 둔다. 고른 값은 localStorage 에 남아 폴링 리로드를 넘어 유지된다.
+function chainFilterBar(chains){
+  const bar=document.createElement('div'); bar.className='dagbar';
+  const lab=document.createElement('span'); lab.className='zhint'; lab.textContent='체인:';
+  const sel=document.createElement('select');
+  const mk=(v,t)=>{const o=document.createElement('option');o.value=v;o.textContent=t;
+    if(v===MAP_CHAIN)o.selected=true;sel.appendChild(o);};
+  mk('','전체 ('+chains.length+'개 체인)');
+  chains.forEach(c=>mk(c,c));
+  sel.addEventListener('change',()=>{
+    MAP_CHAIN=sel.value;
+    try{ localStorage.setItem('gilMapChain',MAP_CHAIN); }catch(e){}
+    buildStepMap();
+  });
+  bar.appendChild(lab); bar.appendChild(sel);
+  if(MAP_CHAIN){
+    const hint=document.createElement('span'); hint.className='zhint';
+    hint.textContent='— 이 체인만 그린다(다른 체인은 숨김). 계보 전체는 "전체".';
+    bar.appendChild(hint);
+  }
+  return bar;
+}
+
 function aggregateDAG(depth){
   if(depth==='step')return DAG;
   const keyOf=n=>depth==='cycle'?(n.chain+'/'+n.cycle):n.chain;
@@ -1517,9 +1584,13 @@ function aggregateDAG(depth){
 function buildStepMap(){
   const host=document.getElementById('view-map');
   host.replaceChildren();
-  const DAG=aggregateDAG(MAP_DEPTH);
-  if(!DAG.length){ host.textContent='아직 노드가 없다.'; return; }
-  const byId={}; DAG.forEach(n=>byId[n.sha]=n);
+  const folded=aggregateDAG(MAP_DEPTH);
+  const ALLCHAINS=[...new Set(folded.map(n=>n.chain).filter(Boolean))].sort();
+  if(MAP_CHAIN&&!ALLCHAINS.includes(MAP_CHAIN))MAP_CHAIN='';   // 사라진 체인이 필터에 남지 않게
+  const VIS=folded.filter(n=>!MAP_CHAIN||n.chain===MAP_CHAIN);
+  host.appendChild(chainFilterBar(ALLCHAINS));
+  if(!VIS.length){ host.appendChild(document.createTextNode('아직 노드가 없다.')); return; }
+  const byId={}; VIS.forEach(n=>byId[n.sha]=n);
   // 전체맵의 선은 **gil 룰**로 그린다(이슈 #70). 옛 전체맵은 커밋 조상관계를 날것으로 이어,
   // 계보상 무관한 체인 — orphan 이거나 그냥 나중에 열린 체인 — 까지 한 줄로 길게 붙였다.
   // 아래 하위 패널(체인·사이클 그래프)은 gil 판정(닫힌 끝에서 태어났을 때만 계승, #53)을
@@ -1531,14 +1602,14 @@ function buildStepMap(){
     if(pn.chain===n.chain) return true;              // 체인 안의 흐름 — 언제나 계보다
     return PARENTS[n.chain]===pn.chain;              // 체인 넘기는 진짜 계승일 때만
   });
-  DAG.forEach(n=>{ n.gparents=gilParents(n); });
-  const kids={}; DAG.forEach(n=>{ n.gparents.forEach(p=>{ (kids[p]=kids[p]||[]).push(n.sha); }); });
+  VIS.forEach(n=>{ n.gparents=gilParents(n); });
+  const kids={}; VIS.forEach(n=>{ n.gparents.forEach(p=>{ (kids[p]=kids[p]||[]).push(n.sha); }); });
   // x = 위상 깊이(시간, 왼→오른). 계보 부모→자식이 이 x축으로 이어진다. 계보가 끊긴 체인은
   // depth 0 에서 새로 시작한다 — 무관한 체인이 앞 체인 꼬리에 길게 붙지 않는다.
   const depth={};
   function dep(sha){ if(sha in depth)return depth[sha]; const n=byId[sha]; if(!n)return 0;
     let d=0; n.gparents.forEach(p=>{ if(byId[p])d=Math.max(d,dep(p)+1); }); depth[sha]=d; return d; }
-  DAG.forEach(n=>dep(n.sha));
+  VIS.forEach(n=>dep(n.sha));
   // 전역 레인(row) 배정 — git 그래프식: 첫 부모의 레인을 물려받고(선형 연속), 자리 다툼일
   // 때만 아래 빈 레인으로. 체인 무관 → 메인 흐름이 한 줄(row 0)로 흐르고 분기만 내려간다.
   // 교차 최소화(AIL #10, 상현님 실 AIL 216노드 관전으로 재확인): 같은 depth 안에서 노드를
@@ -1547,7 +1618,7 @@ function buildStepMap(){
   // 216노드에선 교차 162→48(약 70%↓) 로 결정적이었다. 단순 fixture 로 성급히 철회한 걸 실
   // 데이터로 되돌린다. Sugiyama 완전판(레이어 반복 교차정렬)은 아직 과하다 — 이 1패스로 충분.
   const parentRow=n=>{ const gp=n.gparents.filter(p=>byId[p]); return gp.length?Math.min(...gp.map(p=>row[p]??0)):-1; };
-  const byDepth={}; DAG.forEach(n=>{ (byDepth[depth[n.sha]]=byDepth[depth[n.sha]]||[]).push(n); });
+  const byDepth={}; VIS.forEach(n=>{ (byDepth[depth[n.sha]]=byDepth[depth[n.sha]]||[]).push(n); });
   const row={}, busy={}; let maxRow=0; // busy[row]=그 레인을 마지막 점유한 depth
   Object.keys(byDepth).map(Number).sort((a,b)=>a-b).forEach(d=>{
     byDepth[d].slice().sort((a,b)=>parentRow(a)-parentRow(b)).forEach(n=>{
@@ -1571,28 +1642,30 @@ function buildStepMap(){
   // 미리 확보한다 — 확보 없이 기울이면 위로 잘려 실종만 모양을 바꾼다(이슈 #71).
   const ROT=35, RAD=ROT*Math.PI/180;
   let longestCyName=0;
-  if(!aggMode) DAG.forEach(n=>{ longestCyName=Math.max(longestCyName,(n.cycle||'').length); });
+  if(!aggMode) VIS.forEach(n=>{ longestCyName=Math.max(longestCyName,(n.cycle||'').length); });
   const cyLabelW=longestCyName*6;                       // cyclabel 9px ≈ 6px/글자
   const rotHead=Math.min(120, Math.ceil(cyLabelW*Math.sin(RAD)));
   const padTop = aggMode ? 38 : 62+rotHead;
   let longestLabel=0;
-  if(aggMode) DAG.forEach(n=>{ const s=(MAP_DEPTH==='cycle'?n.cycle:n.chain)||''; longestLabel=Math.max(longestLabel,s.length); });
+  if(aggMode) VIS.forEach(n=>{ const s=(MAP_DEPTH==='cycle'?n.cycle:n.chain)||''; longestLabel=Math.max(longestLabel,s.length); });
   const colW = aggMode ? Math.max(48, longestLabel*7+18) : 34; // ~7px/글자 + 여백
   // 집계 모드는 첫 노드 라벨(중앙정렬)이 왼쪽으로 삐져나가니 padX 를 라벨 절반만큼 확보.
   const padX = aggMode ? Math.max(26, longestLabel*7/2+8) : 26;
-  let maxD=0; DAG.forEach(n=>{ if(depth[n.sha]>maxD)maxD=depth[n.sha]; });
+  let maxD=0; VIS.forEach(n=>{ if(depth[n.sha]>maxD)maxD=depth[n.sha]; });
   // 오른쪽 여유 = 가장 긴 체인 이름이 박스 위 라벨로 삐져나가도 안 잘리게.
-  let maxName=0; DAG.forEach(n=>{ maxName=Math.max(maxName,(n.chain||'').length); });
-  const rightPad=Math.max(padX, maxName*7+16);
+  let maxName=0; VIS.forEach(n=>{ maxName=Math.max(maxName,(n.chain||'').length); });
+  let maxColUsed=false;
+  const workPad=(WORK&&WORK.dirty)?colW+40:0;   // 작업중 유령 노드가 잘리지 않게 한 칸 더
+  const rightPad=Math.max(padX, maxName*7+16)+workPad;
   const W=padX+rightPad+maxD*colW+r*2, H=padTop+padBot+maxRow*rowH+r*2;
   const X=sha=>padX+r+depth[sha]*colW;
   const Y=sha=>padTop+r+row[sha]*rowH;
   const svg=svgEl('svg',{class:'dag',viewBox:'0 0 '+W+' '+H,width:W,height:H});
   const agg=aggMode; // 집계 모드(사이클/체인)면 사이클 박스 대신 노드 라벨을 쓴다.
   // 1) 사이클 구간 박스(x 범위 = 그 사이클 스텝들의 depth, y 범위 = 그 스텝들의 row). 집계 모드는 생략.
-  const cyc={}; if(!agg) DAG.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
+  const cyc={}; if(!agg) VIS.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
   // 체인별 첫(가장 왼쪽) 사이클 — 그 위에 체인 이름을 얹는다.
-  const chainMinD={}; DAG.forEach(n=>{ if(chainMinD[n.chain]===undefined||depth[n.sha]<chainMinD[n.chain])chainMinD[n.chain]=depth[n.sha]; });
+  const chainMinD={}; VIS.forEach(n=>{ if(chainMinD[n.chain]===undefined||depth[n.sha]<chainMinD[n.chain])chainMinD[n.chain]=depth[n.sha]; });
   // 라벨 겹침 회피(이슈 #37). 옛 방식은 **직전 같은 종류 라벨** 하나하고만 비교하고 11px 씩
   // 계단을 올렸는데, 두 가지가 다 틀렸다: (a) 체인 라벨(11px 굵게)은 높이가 11px 를 넘어서
   // 한 단 올려도 여전히 포갰다 (b) 체인 라벨과 사이클 라벨은 서로 다른 종류라 비교조차 안 됐다.
@@ -1674,7 +1747,7 @@ function buildStepMap(){
   function X_(d){ return padX+r+d*colW; }
   function Y_(rw){ return padTop+r+rw*rowH; }
   // 2) 엣지(부모→자식). backtrack 형제가지=빨강 파선. 경계 넘는(체인 전환) 엣지=주황.
-  DAG.forEach(n=>{ n.gparents.forEach(p=>{ if(!byId[p])return;
+  VIS.forEach(n=>{ n.gparents.forEach(p=>{ if(!byId[p])return;
     const x1=X(p),y1=Y(p),x2=X(n.sha),y2=Y(n.sha);
     const branch=n.parent&&n.parent!=='null'&&byId[p].step!==n.parent;
     // 체인을 넘는 엣지를 "체인 전환(주황)"이라 부르려면, 그게 **진짜 계승**이어야 한다
@@ -1689,7 +1762,7 @@ function buildStepMap(){
     svg.appendChild(svgEl('path',{class:cls,fill:'none',d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
   }); });
   // 3) 노드 + HEAD ▼. 스텝 모드=작은 점(글씨 없음). 집계 모드=큰 점+이름 라벨(+⚡분기).
-  DAG.forEach(n=>{
+  VIS.forEach(n=>{
     const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':'')+(agg?' agg':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
     const tip=agg?(n.subj+(n.here?'  ◀ HEAD':'')):(n.chain+'/'+n.cycle+'/'+n.step+' '+n.kind+(n.here?' ◀ HEAD':'')+'\n'+n.subj);
     g.appendChild(svgEl('title',{},tip));
@@ -1708,6 +1781,37 @@ function buildStepMap(){
     g.addEventListener('click',()=>agg?jumpToAgg(n):jumpToNode(n));
     svg.appendChild(g);
   });
+  // 작업중(미커밋) 유령 노드 — 앵커 스텝 오른쪽에 점선 원 + ✎ 라벨(상현님). 커밋 전에도
+  // "지금 어디서 손대고 있나"가 그래프에 보인다. 커밋되면 진짜 노드가 그 자리를 잇는다.
+  if(WORK&&WORK.dirty){
+    // 앵커 찾기는 층으로 내려간다. HEAD 가 분리(detached)돼 있으면 그 스텝이 어느 브랜치에도
+    // 없어 sha 로는 안 잡힌다(실사용 저장소가 정확히 그 상태였다) — 그때는 id 로, 그것도
+    // 없으면 같은 사이클·체인의 마지막 노드로 붙인다. 자리를 못 찾아 안 그리는 것이 최악이다.
+    const inView=n=>!MAP_CHAIN||n.chain===MAP_CHAIN;
+    const newest=list=>list.slice().sort((a,b)=>stepNumJS(b.step||'')-stepNumJS(a.step||''))[0];
+    const anchor=
+      VIS.find(n=>n.sha===WORK.sha) ||
+      VIS.find(n=>n.chain===WORK.chain&&n.cycle===WORK.cycle&&n.step===WORK.step) ||
+      newest(VIS.filter(n=>n.chain===WORK.chain&&n.cycle===WORK.cycle)) ||
+      newest(VIS.filter(n=>n.chain===WORK.chain));
+    void inView;
+    if(anchor){
+      const wx=X(anchor.sha)+colW, wy=Y(anchor.sha);
+      svg.appendChild(svgEl('path',{class:'dedge work',fill:'none',
+        d:'M '+(X(anchor.sha)+r)+' '+Y(anchor.sha)+' L '+(wx-r)+' '+wy}));
+      const wg=svgEl('g',{class:'dnode working',transform:'translate('+wx+','+wy+')'});
+      const tip='✎ 작업중(미커밋) — '+WORK.summary+
+        (WORK.branch?'\n브랜치: '+WORK.branch:'')+
+        (WORK.ahead?'\n앵커 이후 평범한 커밋 '+WORK.ahead+'개':'')+
+        (WORK.files&&WORK.files.length?'\n'+WORK.files.join('\n'):'')+
+        '\n커밋하면 이 자리에 진짜 스텝이 선다.';
+      wg.appendChild(svgEl('title',{},tip));
+      wg.appendChild(svgEl('circle',{r:agg?r+2:r}));
+      const lb=svgEl('text',{class:'worklbl',x:0,y:-(r+6)}); lb.textContent='✎ 작업중'; wg.appendChild(lb);
+      svg.appendChild(wg);
+      maxColUsed=true;
+    }
+  }
   const wrap=document.createElement('div'); wrap.className='dagwrap'; wrap.appendChild(svg);
   host.appendChild(enableZoomPan(wrap,svg,W,H));
   host.appendChild(wrap);
@@ -1731,10 +1835,10 @@ function enableZoomPan(wrap,svg,W,H){
     vb.w=Math.min(Math.max(vb.w,MINW),W); vb.h=vb.w*H/W;
     vb.x=Math.min(Math.max(vb.x,0),W-vb.w); vb.y=Math.min(Math.max(vb.y,0),H-vb.h);
   }
-  function apply(){
+  let apply=function(){
     svg.setAttribute('viewBox',vb.x+' '+vb.y+' '+vb.w+' '+vb.h);
     wrap.classList.toggle('zoomed',vb.w<W-0.5);
-  }
+  };
   // 화면 픽셀 → viewBox 좌표.
   function toVB(e){
     const rc=svg.getBoundingClientRect();
@@ -1754,7 +1858,29 @@ function enableZoomPan(wrap,svg,W,H){
   btn('−','축소',()=>{const c=center();zoomAt(1.4,c.x,c.y);});
   btn('전체','전체 보기(리셋)',()=>{vb={x:0,y:0,w:W,h:H};apply();});
   const zh=document.createElement('span'); zh.className='zhint';
-  zh.textContent='Ctrl+휠=줌 · 확대 후 드래그=이동'; bar.appendChild(zh);
+  zh.textContent='Ctrl+휠=줌 · 확대 후 드래그=이동 · 미니맵 클릭=그 자리로'; bar.appendChild(zh);
+  // 미니맵(이슈 #79): 확대하면 전체 속 위치를 잃는다. 전체 축소본에 지금 보는 창을 그리고,
+  // 클릭·드래그로 그 자리로 뛴다. 큰 그래프에서 확대 없이는 읽을 수 없고, 확대하면 길을
+  // 잃는 딜레마를 푸는 최소 장치다. 노드를 다시 그리지 않고 원본 SVG 를 통째로 복제한다.
+  const MMW=170, MMH=Math.max(40,Math.round(MMW*H/W));
+  const mm=document.createElement('div'); mm.className='minimap';
+  const mmsvg=svgEl('svg',{class:'mmsvg',viewBox:'0 0 '+W+' '+H,width:MMW,height:MMH,
+    style:'width:'+MMW+'px;height:'+MMH+'px'});
+  const shrunk=svg.cloneNode(true);
+  shrunk.removeAttribute('width'); shrunk.removeAttribute('height');
+  shrunk.removeAttribute('class');   // .dag 등 원본 클래스가 미니맵 크기를 다시 늘리지 않게
+  shrunk.removeAttribute('style');
+  shrunk.setAttribute('viewBox','0 0 '+W+' '+H);
+  const holder=svgEl('g',{}); holder.appendChild(shrunk); mmsvg.appendChild(holder);
+  const mmview=svgEl('rect',{class:'mmview',x:0,y:0,width:W,height:H});
+  mmsvg.appendChild(mmview); mm.appendChild(mmsvg);
+  function mmJump(e){
+    const rc=mmsvg.getBoundingClientRect();
+    const cx=(e.clientX-rc.left)/rc.width*W, cy=(e.clientY-rc.top)/rc.height*H;
+    vb.x=cx-vb.w/2; vb.y=cy-vb.h/2; clamp(); apply();
+  }
+  mm.addEventListener('pointerdown',e=>{e.stopPropagation();mm.setPointerCapture(e.pointerId);mmJump(e);});
+  mm.addEventListener('pointermove',e=>{if(e.buttons)mmJump(e);});
   // Ctrl(⌘)+휠 줌 — 포인터 위치 중심. 일반 휠은 페이지 스크롤 그대로 둔다.
   svg.addEventListener('wheel',e=>{
     if(!e.ctrlKey&&!e.metaKey)return;
@@ -1777,8 +1903,34 @@ function enableZoomPan(wrap,svg,W,H){
   });
   svg.addEventListener('pointerup',()=>{drag=null;wrap.classList.remove('grabbing');});
   svg.addEventListener('click',e=>{ if(moved){e.stopPropagation();moved=false;} },true);
+  const mmapply=()=>{
+    mmview.setAttribute('x',vb.x); mmview.setAttribute('y',vb.y);
+    mmview.setAttribute('width',vb.w); mmview.setAttribute('height',vb.h);
+    wrap.classList.toggle('zoomed',vb.w<W-0.5);
+    bar.classList.toggle('zoomed',vb.w<W-0.5);
+  };
+  const baseApply=apply;
+  apply=function(){ baseApply(); mmapply(); };
+  bar.appendChild(mm);
   apply();
   return bar;
+}
+
+// 체인 그래프에도 줌·팬·미니맵(이슈 #79). 체인이 늘수록 SVG 가 넓어지고 CSS 가 폭에 맞춰
+// 줄이니, 26체인에서 노드가 39px 까지 작아져 **누르기 힘들어졌다**. 전체맵과 같은 엔진을
+// 그대로 태운다 — 새 장치를 만들지 않고 이미 검증된 하나를 공유한다.
+function enableChainGraphZoom(){
+  // 체인 그래프 = .cnode(체인 노드)를 품은 서버 렌더 SVG. 'class 없는 svg' 같은 느슨한
+  // 선택자는 미니맵의 복제 SVG 까지 집어 자기 자신을 감싸는 사고를 낸다(실측).
+  const svg=[...document.querySelectorAll('svg')].find(x=>x.querySelector('.cnode')&&!x.closest('.minimap'));
+  if(!svg||svg.dataset.zoomed)return;
+  const W=parseFloat(svg.getAttribute('width')), H=parseFloat(svg.getAttribute('height'));
+  if(!W||!H)return;
+  svg.dataset.zoomed='1';
+  const wrap=document.createElement('div'); wrap.className='dagwrap';
+  svg.parentNode.insertBefore(wrap,svg); wrap.appendChild(svg);
+  const bar=enableZoomPan(wrap,svg,W,H);
+  wrap.parentNode.insertBefore(bar,wrap);
 }
 
 document.addEventListener('click',e=>{
@@ -1868,6 +2020,7 @@ function buildInterviews(){
 function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
 document.querySelectorAll('#depthseg button').forEach(b=>b.addEventListener('click',()=>setMapDepth(b.dataset.depth))); // 뎁스 토글(AIL #6)
 buildStepMap();  // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
+enableChainGraphZoom(); // 체인 그래프도 줌·팬·미니맵(이슈 #79)
 buildInterviews(); // 사람 답 대기 인터뷰 폼(이슈 #33)
 restoreSel();
 `

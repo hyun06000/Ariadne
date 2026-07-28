@@ -345,6 +345,7 @@ type graphView struct {
 	allNodes            []viewerNode      // 전체 스텝 노드(진짜 커밋 DAG 그래프용)
 	nodeCount, tipCount int
 	work                workStatus       // 현재 HEAD 워킹트리의 미커밋 작업 상태(진행 라이브 표시)
+	anchor              workAnchorInfo   // 그 작업이 **어디서** 벌어지고 있나(#79 후속)
 	interviews          []interviewReq   // 아직 답 안 된 인터뷰 요구(사람 폼 대기, 이슈 #33)
 }
 
@@ -416,6 +417,19 @@ func extractInterviewJSON(body string) string {
 // workStatus — 대상 레포 워킹트리의 미커밋 변경 요약. gil 그래프에 커밋으로 박지 않고
 // (커밋=완결 사고단위 불변식 유지) 뷰어가 현재 스텝 위에 오버레이로만 그린다. 이래야
 // 마지막 커밋 이후 작업이 살아있어도 "멈춘 듯" 보이지 않는다(상현님).
+// workAnchorInfo — **어디서** 작업 중인가(이슈 #79 후속, 상현님). 미커밋 변경은 아직 노드가
+// 아니라서, 커밋하기 전까지 그래프 어디에도 "지금 여기서 손대고 있다"가 없다. HEAD 계보에서
+// 가장 가까운 gil 스텝을 앵커로 잡아, 뷰어가 그 옆에 '작업중' 유령 노드를 그리게 한다.
+// HEAD 가 gil 커밋 위가 아니어도(평범한 브랜치여도) 조상으로 거슬러 찾으므로 늘 자리가 있다.
+type workAnchorInfo struct {
+	sha    string // 앵커 스텝 커밋(9자). 없으면 ""
+	chain  string
+	cycle  string
+	step   string
+	branch string // 지금 HEAD 브랜치(분리면 "")
+	ahead  int    // 앵커 이후 이 브랜치에 쌓인 gil 아닌 커밋 수(문서 커밋 등)
+}
+
 type workStatus struct {
 	dirty      bool     // 미커밋 변경이 있는가
 	files      int      // 변경된 경로 수(staged+unstaged+untracked, 중복 제거)
@@ -432,6 +446,35 @@ func (w workStatus) summary() string {
 		s += fmt.Sprintf(", +%d −%d", w.added, w.deleted)
 	}
 	return s
+}
+
+// workAnchor — HEAD 에서 조상으로 거슬러 처음 만나는 gil 스텝. 그 사이의 평범한 커밋 수도 센다.
+func workAnchor() workAnchorInfo {
+	info := workAnchorInfo{branch: currentBranch()}
+	if info.branch == "HEAD" {
+		info.branch = ""
+	}
+	fmtStr := "%H" + "\x1f" + trailer("Gil-Chain") + "\x1f" + trailer("Gil-Cycle") +
+		"\x1f" + trailer("Gil-Step") + "\x1e"
+	raw, err := viewerGit("log", "--format="+fmtStr, "HEAD")
+	if err != nil {
+		return info
+	}
+	for _, rec := range strings.Split(string(raw), "\x1e") {
+		rec = strings.Trim(rec, "\n")
+		if strings.TrimSpace(rec) == "" {
+			continue
+		}
+		f := strings.Split(rec, "\x1f")
+		if len(f) < 4 || strings.TrimSpace(f[3]) == "" {
+			info.ahead++ // gil 이 만들지 않은 커밋 — 앵커 위에 얹힌 것
+			continue
+		}
+		info.sha = f[0][:9]
+		info.chain, info.cycle, info.step = strings.TrimSpace(f[1]), strings.TrimSpace(f[2]), strings.TrimSpace(f[3])
+		return info
+	}
+	return info
 }
 
 // workingStatus — 대상 레포의 미커밋 상태를 읽는다. 실패/클린이면 dirty=false.
@@ -618,7 +661,7 @@ func buildGraph() graphView {
 			chainOrder = append(chainOrder, ch)
 		}
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), interviews: pendingInterviews()}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), anchor: workAnchor(), interviews: pendingInterviews()}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}
