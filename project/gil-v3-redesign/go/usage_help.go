@@ -141,6 +141,13 @@ var helpTable = map[string]helpEntry{
 			"  흩어진 체인을 하나로 묶는다 — 실제 git merge(파일까지). 충돌 시 멈춤(사람이 해결).",
 		"docs/gil/deployment.md",
 	},
+	"docs": {
+		"gil docs install [--force] [--no-gate] [--name <존재이름>]\n" +
+			"  온보딩을 이 저장소에 설치한다 — docs/gil/ wiki · llms.txt · 대문(CLAUDE.md)의 진입점 블록.\n" +
+			"  복원 경로의 첫 칸(대문)이 비어 있으면 사슬의 나머지가 튼튼해도 거기서 끊긴다(이슈 #73).\n" +
+			"  기존 문서는 덮지 않는다(--force 로만 갱신). 대문은 마커 사이만 교체 — 사람이 쓴 나머지는 무접촉.",
+		"docs/gil/index.md",
+	},
 	"goto": {
 		"gil goto <chain>/<cycle>[/<step>]\n" +
 			"  사고 나무 안에서 자리를 옮긴다 — 인자가 <chain>/<cycle> 이면 그 사이클의 산 잎으로,\n" +

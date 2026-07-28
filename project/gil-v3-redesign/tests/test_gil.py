@@ -580,7 +580,9 @@ class TestInit(GilFixture):
         self.gil("init", "--name", "aria")
         log = self._git("log", "--oneline").stdout
         self.assertIn("gil init", log)
-        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "root")
+        # 루트는 여전히 대문 커밋이다(그 위에 온보딩 설치 커밋이 얹힌다, 이슈 #73).
+        root = self._git("rev-list", "--max-parents=0", "HEAD").stdout.strip()
+        self.assertEqual(self.trailer(root, "Gil-Kind"), "root")
         self.assertTrue(os.path.exists(os.path.join(self.repo, "CLAUDE.md")))
 
     def test_init_output_is_llm_prompt(self):
@@ -1010,6 +1012,78 @@ class TestGoto(GilFixture):
         self.assertIn("gil goto a/dead/", out)
 
 
+class TestOnboardingInstall(GilFixture):
+    """gil 이 온보딩을 저장소에 설치한다 (이슈 #73).
+
+    존재의 방을 세워도 **다음 세션이 그 방을 찾아 들어올 길**이 저장소에 없으면 복원 경로
+    첫 칸(대문)에서 끊긴다. 실사용에서 대문이 v2 경로를 가리킨 채 남아, 새 세션이 v2
+    바이너리를 실행하고 낡은 세계를 오류 없이 정상인 척 받았다."""
+
+    def test_init_installs_docs_and_gate_block(self):
+        r = self.gil("init", "--name", "lawmask")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(os.path.join(self.repo, "docs", "gil", "index.md")))
+        self.assertTrue(os.path.exists(os.path.join(self.repo, "llms.txt")))
+        with open(os.path.join(self.repo, "CLAUDE.md"), encoding="utf-8") as f:
+            gate = f.read()
+        self.assertIn("<!-- gil:onboarding:begin -->", gate)
+        self.assertIn("gil handoff", gate)
+        self.assertIn("lawmask", gate)          # 이 저장소의 존재 이름으로 안내한다
+
+    def test_docs_install_does_not_overwrite_by_default(self):
+        """사람이 고쳐 쓴 문서를 도구가 덮지 않는다 — --force 로만."""
+        self.gil("init", "--name", "clew")
+        path = os.path.join(self.repo, "docs", "gil", "index.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# 우리가 고친 문서\n")
+        self.gil("docs", "install")
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "# 우리가 고친 문서\n")
+        self.gil("docs", "install", "--force")
+        with open(path, encoding="utf-8") as f:
+            self.assertNotEqual(f.read(), "# 우리가 고친 문서\n")
+
+    def test_gate_block_replaces_only_managed_region(self):
+        """대문의 사람이 쓴 부분은 무접촉 — 마커 사이만 바뀐다."""
+        with open(os.path.join(self.repo, "CLAUDE.md"), "w", encoding="utf-8") as f:
+            f.write("# 우리 프로젝트\n\n사람이 쓴 소중한 문단.\n")
+        self._git("add", "-A"); self._git("commit", "-m", "docs")
+        self.gil("init", "--name", "clew")
+        self.gil("docs", "install")   # 두 번 돌려도 블록이 늘어나지 않는다
+        with open(os.path.join(self.repo, "CLAUDE.md"), encoding="utf-8") as f:
+            gate = f.read()
+        self.assertIn("사람이 쓴 소중한 문단.", gate)
+        self.assertEqual(gate.count("<!-- gil:onboarding:begin -->"), 1)
+
+    def test_handoff_flags_gate_pointing_at_another_gil(self):
+        """대문이 가리키는 바이너리가 이 바이너리와 다르면 짚는다 — 조용한 오답의 입구."""
+        self.gil("init", "--name", "clew")
+        toolsdir = os.path.join(self.repo, "tools", "gil")
+        os.makedirs(toolsdir, exist_ok=True)
+        fake = os.path.join(toolsdir, "gil")
+        with open(fake, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\necho 'gil 2.50.0'\n")
+        os.chmod(fake, 0o755)
+        with open(os.path.join(self.repo, "CLAUDE.md"), "a", encoding="utf-8") as f:
+            f.write("\n바이너리 `tools/gil/gil`\n")
+        out = self.gil("handoff").stdout
+        self.assertIn("대문", out)
+        self.assertIn("tools/gil/gil", out)
+        self.assertIn("2.50.0", out)
+
+    def test_embedded_docs_match_repo_docs(self):
+        """embed 된 문서가 이 레포의 docs/gil 과 같아야 한다 — 진실원이 갈라지면 설치본이 낡는다."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        assets = os.path.join(here, "..", "go", "assets", "docs", "gil")
+        repo_docs = os.path.join(here, "..", "..", "..", "docs", "gil")
+        names = sorted(os.listdir(assets))
+        self.assertEqual(names, sorted(os.listdir(repo_docs)))
+        for n in names:
+            with open(os.path.join(assets, n), encoding="utf-8") as a, \
+                 open(os.path.join(repo_docs, n), encoding="utf-8") as b:
+                self.assertEqual(a.read(), b.read(), f"{n} 이 embed 본과 다르다 — 한쪽만 고쳤다")
+
+
 class TestPlainCommitOnGilBranch(GilFixture):
     """gil 브랜치에 평범한 커밋이 끼어도 잃지 않는다 (이슈 #74, 실사용 사본 재현).
 
@@ -1240,7 +1314,10 @@ class TestMigrate(GilFixture):
         before = open(os.path.join(self.repo, "CLAUDE.md")).read()
         r = self.gil("init", "--name", "clew")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(before, open(os.path.join(self.repo, "CLAUDE.md")).read())
+        # 사람이 쓴 대문은 그대로 남고, gil 은 관리 구간만 덧붙인다(이슈 #73).
+        after = open(os.path.join(self.repo, "CLAUDE.md")).read()
+        self.assertTrue(after.startswith(before), after)
+        self.assertIn("<!-- gil:onboarding:begin -->", after)
         self.assertIn("루트 커밋 생성 안 함", r.stdout)
         self.assertEqual(self.gil("fsck", "--all").returncode, 0)
 

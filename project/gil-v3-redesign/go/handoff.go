@@ -5,10 +5,23 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 )
+
+// runOut — 외부 실행파일 하나를 돌려 표준출력을 얻는다(실패면 ""). 대문이 가리키는 gil 이
+// 무엇인지 확인하는 용도 — 실패는 정보가 없다는 뜻일 뿐, handoff 를 막지 않는다.
+func runOut(bin string, args ...string) string {
+	out, err := exec.Command(bin, args...).Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
 
 // nextAllowed — 스텝 원칙상 팁 다음에 허용되는 동작. 참조: _next_allowed.
 func nextAllowed(tipKind, tipOutcome string) string {
@@ -253,6 +266,49 @@ func cycleLoadBanner(openChains map[string]int) []string {
 	return L
 }
 
+// gatePointerBanner — 대문이 가리키는 gil 바이너리가 지금 이 바이너리와 다르면 짚는다(이슈 #73).
+//
+// 왜. 실사용에서 정확히 이렇게 잃었다: 대문(CLAUDE.md)에 v2 시절 경로(tools/gil/gil)가 남아
+// 있었고, 새 세션이 그걸 따라 **v2 바이너리를 실행했다.** 오류도 경고도 없이 그럴듯한 옛
+// 세계가 출력됐고 — 어제 연 체인은 거기 없었다. 낡은 세계를 완전한 세계인 척 내놓는 것이
+// 이 계열에서 제일 위험하다. 우리는 v2 를 고칠 수 없으니, v3 쪽에서 먼저 말한다.
+func gatePointerBanner() []string {
+	b, err := os.ReadFile(gateFile())
+	if err != nil {
+		return nil
+	}
+	var L []string
+	seen := map[string]bool{}
+	for _, m := range gilPathRe.FindAllStringSubmatch(string(b), -1) {
+		p := strings.TrimPrefix(m[1], "./")
+		if seen[p] || p == "" {
+			continue
+		}
+		seen[p] = true
+		fi, err := os.Stat(p)
+		if err != nil || fi.IsDir() {
+			continue // 없는 경로는 이 축의 위험이 아니다(그냥 낡은 문서)
+		}
+		ver := strings.TrimSpace(runOut(p, "version"))
+		if strings.Contains(ver, gilVersion) {
+			continue // 이 바이너리와 같은 것을 가리킨다 — 정상
+		}
+		if ver == "" {
+			ver = "(버전을 못 읽음)"
+		}
+		L = append(L, "  ⚠ 대문("+gateFile()+")이 가리키는 gil: "+p+" → "+clipLine(ver, 60))
+		L = append(L, "     지금 도는 gil: "+gilVersion+". 다르다 — 옛 바이너리는 이 그래프를 못 보면서")
+		L = append(L, "     **오류 없이** 낡은 세계를 정상인 척 출력한다. 대문을 고치거나 옛 바이너리를 치워라.")
+	}
+	if len(L) == 0 {
+		return nil
+	}
+	return append(append([]string{"── 대문이 가리키는 도구 ──"}, L...), "")
+}
+
+// gilPathRe — 대문 본문에서 gil 바이너리 경로처럼 보이는 것(백틱 안의 …/gil).
+var gilPathRe = regexp.MustCompile("`([^`\\s]*/gil)`")
+
 // plainTipBanner — 팁이 gil 커밋이 아닌 gil 브랜치를 알린다(이슈 #74).
 //
 // 왜. 사이클·체인 브랜치 끝에 평범한 커밋(문서 갱신 등)이 하나 얹히면, 옛 handoff 는 그
@@ -326,6 +382,7 @@ func handoffReport() string {
 	var L []string
 	L = append(L, "═══ gil handoff — 세션 부활 정보 ═══", "")
 	L = append(L, currencyBanner()...)
+	L = append(L, gatePointerBanner()...)
 	L = append(L, plainTipBanner()...)
 	L = append(L, deadBranchBanner()...)
 	L = append(L, pendingBanner()...)

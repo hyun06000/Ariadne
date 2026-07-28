@@ -5,26 +5,29 @@
 // v2 rooms 트리든(하드코딩 없이) 파싱해 v3 커밋 그래프로 변환한다.
 //
 // v2 스키마(폴더 기반): rooms/<room>/chains/<chain>/C0xx-<slug>/cycle.yaml
-//   cycle.yaml: id · chain · parent · lineage[] · author · status · opened · closed ·
-//               title · verdict · superseded_by · step ...
+//
+//	cycle.yaml: id · chain · parent · lineage[] · author · status · opened · closed ·
+//	            title · verdict · superseded_by · step ...
 //
 // v2→v3 매핑 (상현님 확정, 실데이터 182 사이클 커버):
-//   5단계 → kind (압축): hypothesis(+design 흡수)→define, verification→verify,
-//                        analysis+report+verdict→종결 스텝.
-//   verdict → 종결 kind: supported/success→success(산 잎), rejected→fail(죽은 잎),
-//                        **그 밖의 전부**(partial·inconclusive·verdict 없음·미지의 값)→pending.
-//                        없는 성공을 날조하지 않는다(이슈 #50) — 결론이 아닌 것을 산 잎으로
-//                        접으면 이주된 이력이 원본보다 낙관적인 거짓말이 된다.
-//   구조: chain→Gil-Chain, C0xx-slug→Gil-Cycle(소문자화), parent→--parent(같은 체인),
-//         lineage→교훈계승(목적문·트레일러), title/author/opened/closed→메타.
-//   이주 표식: 커밋 subject 에 [migrate], Gil-Kind: migrate(체인·사이클 루트),
-//             Gil-Migrated-From: <v2 id> (v2 SPEC 이주 규정 계승).
+//
+//	5단계 → kind (압축): hypothesis(+design 흡수)→define, verification→verify,
+//	                     analysis+report+verdict→종결 스텝.
+//	verdict → 종결 kind: supported/success→success(산 잎), rejected→fail(죽은 잎),
+//	                     **그 밖의 전부**(partial·inconclusive·verdict 없음·미지의 값)→pending.
+//	                     없는 성공을 날조하지 않는다(이슈 #50) — 결론이 아닌 것을 산 잎으로
+//	                     접으면 이주된 이력이 원본보다 낙관적인 거짓말이 된다.
+//	구조: chain→Gil-Chain, C0xx-slug→Gil-Cycle(소문자화), parent→--parent(같은 체인),
+//	      lineage→교훈계승(목적문·트레일러), title/author/opened/closed→메타.
+//	이주 표식: 커밋 subject 에 [migrate], Gil-Kind: migrate(체인·사이클 루트),
+//	          Gil-Migrated-From: <v2 id> (v2 SPEC 이주 규정 계승).
 package main
 
 import (
-	"sync"
+	"os"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // ── v2 cycle.yaml 파싱 (의존성 0: Go 표준만, 최소 YAML 리더) ──
@@ -32,18 +35,18 @@ import (
 // v2 cycle.yaml 은 스칼라 + 짧은 인라인 리스트뿐이라 완전한 YAML 엔진이 필요없다.
 // 라인 단위로 `key: value` 를 읽고, 주석(#)·따옴표·인라인 리스트([a, b])를 처리한다.
 type v2cycle struct {
-	path     string // 저장소 상대 경로 (진단·정렬용)
-	id       string   // C0xx-slug
-	chain    string
-	parents  []string // 부모 사이클(들). v2 parent 는 보통 스칼라지만 인라인 리스트(머지)도 있다.
-	lineage  []string // 다른 체인 교훈 (chain/C0xx...)
-	author   string
-	status   string // closed | open
-	opened   string
-	closed   string
-	title    string
-	verdict  string // supported|success|rejected|partial|null|""
-	superBy  string // superseded_by (무효화 후속) 또는 ""
+	path    string // 저장소 상대 경로 (진단·정렬용)
+	id      string // C0xx-slug
+	chain   string
+	parents []string // 부모 사이클(들). v2 parent 는 보통 스칼라지만 인라인 리스트(머지)도 있다.
+	lineage []string // 다른 체인 교훈 (chain/C0xx...)
+	author  string
+	status  string // closed | open
+	opened  string
+	closed  string
+	title   string
+	verdict string // supported|success|rejected|partial|null|""
+	superBy string // superseded_by (무효화 후속) 또는 ""
 }
 
 // parseV2Cycle — cycle.yaml 본문을 v2cycle 로. 우리가 쓰는 필드만 취한다(나머지 무시).
@@ -560,7 +563,19 @@ func cmdMigrate(args []string) {
 		for _, ln := range globalMissingNotice("") {
 			stderr(ln)
 		}
+		stderr("  (gil init 이 온보딩 문서·대문 진입점까지 같이 깐다 — 이슈 #73)")
+	} else if _, err := os.Stat("docs/gil/index.md"); err != nil {
+		// 세계는 섰는데 저장소에 길이 없다 — 다음 세션이 대문에서 옛 경로를 따라간다(#73).
+		stderr("")
+		stderr("⚠ 이 저장소에 온보딩이 없다(docs/gil/ 부재) — 복원 경로의 첫 칸(대문)이 비었다.")
+		stderr("  설치:  gil docs install")
 	}
+	// 이주본에서 제일 위험한 건 **남아 있는 v2 바이너리**다. 오류 없이 낡은 세계를 정상인 척
+	// 출력하므로, 새 세션이 그걸 실행하면 어제 연 체인이 통째로 안 보인다(#73 실사용).
+	stderr("")
+	stderr("⚠ 옛 v2 바이너리가 저장소에 남아 있으면 치워라(예: tools/gil/gil).")
+	stderr("  v2 는 v3 그래프를 보지 못하는데 **오류 없이** 낡은 세계를 정상인 척 출력한다 —")
+	stderr("  대문이 그 경로를 가리키고 있으면 다음 세션이 그대로 따라간다. 대문의 gil 경로도 고쳐라.")
 	if migrated != len(cycles) {
 		stderr("  ⚠ 이주 수(" + itoa(migrated) + ") ≠ 수집 수(" + itoa(len(cycles)) + ") — 확인 요망.")
 	}

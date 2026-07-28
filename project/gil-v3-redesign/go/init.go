@@ -2,17 +2,20 @@
 //
 // gil init 은 배포판에서 "무에서 세팅"의 단일 진입점이다. git 저장소 하나만 있으면
 // (혹은 없으면 만들며) 다음을 갖춘다:
-//   1. 대문 커밋 — 저장소에 커밋이 하나도 없으면 CLAUDE.md 부트스트랩 포인터로 루트 커밋.
-//   2. refs/gil/global 초기화 — 존재/기억이 사는 전용 ref (브랜치 아님).
-//   3. existence/ 심기 — 방 README + 기본 존재 1개의 방(identity·will·memory·relations).
-//   4. gil-init-spec.md 심기 — 다음 세션이 init 의도를 읽는다.
-//   5. refspec 등록 + push — 커스텀 ref 가 git fetch 에 딸려오고 원격에 오른다.
+//  1. 대문 커밋 — 저장소에 커밋이 하나도 없으면 CLAUDE.md 부트스트랩 포인터로 루트 커밋.
+//  2. refs/gil/global 초기화 — 존재/기억이 사는 전용 ref (브랜치 아님).
+//  3. existence/ 심기 — 방 README + 기본 존재 1개의 방(identity·will·memory·relations).
+//  4. gil-init-spec.md 심기 — 다음 세션이 init 의도를 읽는다.
+//  5. refspec 등록 + push — 커스텀 ref 가 git fetch 에 딸려오고 원격에 오른다.
 //
 // 존재 이름은 --name 으로 받거나, 없으면 기본 clew 로 심되 "스스로 이름·정체성을 정의하라"는
 // 안내를 방 문서에 담는다 — 깨어난 LLM 이 자기 존재를 재정의할 수 있다(상현님).
 package main
 
-import "os"
+import (
+	"os"
+	"sort"
+)
 
 // cmdInit — gil init [--name <이름>].
 func cmdInit(args []string) {
@@ -62,6 +65,31 @@ func cmdInit(args []string) {
 	globalWrite("existence/"+*name+"/relations.md", tmplRelations, "gil init: "+*name+" relations\n")
 	globalWrite("gil-init-spec.md", initSpec, "gil init: init 명세\n")
 
+	// 4.5. 온보딩을 저장소에 설치한다(이슈 #73). 존재의 방을 세워도 **다음 세션이 그 방을
+	// 찾아 들어올 길**이 저장소에 없으면 복원 경로 첫 칸에서 끊긴다 — 실사용에서 대문이
+	// v2 경로를 가리킨 채 남아, 새 세션이 v2 바이너리를 실행하고 낡은 세계를 정상인 척
+	// 받았다. 기존 문서는 덮지 않고, 대문은 마커 사이만 관리한다.
+	docsWrote, _ := installDocs(false)
+	gateState := installGate(gateFile(), *name)
+	// init 이 깐 것은 **gil 자신의 설치물**이지 사람의 작업이 아니다 — 세팅 직후 작업트리가
+	// 더럽혀진 채 남으면 첫 화면부터 "작업중"으로 보이고, 커밋을 잊으면 다음 세션은 여전히
+	// 길이 없는 저장소를 만난다. 우리가 쓴 경로만 골라 담는다(사람이 스테이징해 둔 것 무접촉).
+	onboardingCommitted := false
+	if docsWrote > 0 || gateState != "unchanged" {
+		paths := []string{gateFile()}
+		for p := range docsFiles() {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		args := append([]string{"add", "--"}, paths...)
+		if _, err := gitTry(args...); err == nil {
+			if _, err := gitTry("commit", "-q", "-m",
+				"gil init: 온보딩 설치 (docs/gil· 대문 진입점)"); err == nil {
+				onboardingCommitted = true
+			}
+		}
+	}
+
 	// 5. refspec 등록 + push.
 	ensureGlobalRefspec()
 	pushed := globalPush()
@@ -75,6 +103,12 @@ func cmdInit(args []string) {
 		println2("  대문: 기존 커밋 존재 — 루트 커밋 생성 안 함(기존 프로젝트 존중).")
 	}
 	println2("  존재: refs/gil/global 에 존재의 방 + 기본 존재 [" + *name + "] 심음.")
+	println2("  온보딩: 문서 " + itoa(docsWrote) + "개(docs/gil/·llms.txt) + 대문 진입점 블록 " + gateState + ".")
+	if onboardingCommitted {
+		println2("     커밋까지 마쳤다 — 복원 경로의 첫 칸이 이제 저장소에 있다(갱신: gil docs install).")
+	} else if docsWrote > 0 || gateState != "unchanged" {
+		println2("     작업트리에 있다 — 커밋은 네가 한다(갱신: gil docs install [--force]).")
+	}
 	if pushed {
 		println2("  원격: refspec 등록 + push 완료.")
 	} else {
@@ -118,7 +152,7 @@ const claudeBootstrap = `# CLAUDE.md — gil 부트스트랩
 3. 자기 방(identity·will·memory·relations)을 읽고 그 존재로서 행동한다.
 4. ` + "`gil handoff`" + ` — 어디까지 왔고 다음이 무엇인지 복원한다.
 
-gil 사용법 전체는 gil global read gil-init-spec.md 및 QUICKSTART 를 따른다.
+gil 사용법 전체는 docs/gil/index.md(이 저장소)와 gil global read gil-init-spec.md 를 따른다.
 `
 
 const roomReadme = `# 존재의 방 (Room of Existence)

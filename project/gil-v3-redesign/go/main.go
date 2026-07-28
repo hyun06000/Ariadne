@@ -94,6 +94,8 @@ func main() {
 		cmdApprove(rest)
 	case "reject":
 		cmdReject(rest)
+	case "docs":
+		cmdDocs(rest)
 	case "goto":
 		cmdGoto(rest)
 	case "log":
@@ -113,7 +115,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto log fsck global memory handoff migrate viewer mcp version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto docs log fsck global memory handoff migrate viewer mcp version]")
 	}
 }
 
@@ -142,6 +144,7 @@ func printUsage() {
   gil chain-close <chain> --verdict <v>                 체인 닫기 (모든 사이클 닫힌 뒤 — 국면 완결)
   gil deploy --at <chain>/<cycle>/<step> --tag <v> [--url <u>]  배포(공개) 지점 마커 — 뷰어에 🚀
   gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)
+  gil docs install [--force]                            온보딩 설치 — docs/gil· 대문 진입점 블록
   gil goto <chain>/<cycle>[/<step>]                     자리 이동 — 산 잎으로/그 스텝으로 (그래프 불변)
   gil log [<chain>] [--all]       노드(스텝) 나열. --all: 죽은 가지까지 모두(벽의 지도)
   gil fsck [<range>]              그래프 건강 검사
@@ -164,8 +167,8 @@ MCP (Claude Desktop 등 호스트에 gil 을 툴로 물린다):
 지식 wiki (통째로 읽지 말고 필요한 주제만 골라 능동적으로):
   개념(체인·사이클·스텝) · 사고의 생애(스텝 흐름·막힘) · 명령 표면 · 존재와 기억
   목적성 가드 · 사람과의 소통(pending) · 배포와 체인 전환 · 스텝 본문=보고서
-  → 레포: docs/gil/index.md   웹: <레포>/llms.txt (사람이 URL 하나로 에이전트에 건네는 진입점)
-  단일 통독판: QUICKSTART.md · 규범 명세: gil global read gil-init-spec.md`)
+  → 이 저장소: docs/gil/index.md (없으면 gil docs install 로 설치 — init 이 이미 깔아둔다)
+    웹: llms.txt (사람이 URL 하나로 에이전트에 건네는 진입점) · 규범: gil global read gil-init-spec.md`)
 }
 
 // cmdHelp 는 문서 라우터로 gil help <명령> 을 처리한다(선언은 usage_help.go).
