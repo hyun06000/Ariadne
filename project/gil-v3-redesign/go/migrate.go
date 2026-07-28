@@ -12,8 +12,9 @@
 //   5단계 → kind (압축): hypothesis(+design 흡수)→define, verification→verify,
 //                        analysis+report+verdict→종결 스텝.
 //   verdict → 종결 kind: supported/success→success(산 잎), rejected→fail(죽은 잎),
-//                        partial→success(+주석), (verdict 없음 & closed)→success,
-//                        (null & status:open)→pending.
+//                        **그 밖의 전부**(partial·inconclusive·verdict 없음·미지의 값)→pending.
+//                        없는 성공을 날조하지 않는다(이슈 #50) — 결론이 아닌 것을 산 잎으로
+//                        접으면 이주된 이력이 원본보다 낙관적인 거짓말이 된다.
 //   구조: chain→Gil-Chain, C0xx-slug→Gil-Cycle(소문자화), parent→--parent(같은 체인),
 //         lineage→교훈계승(목적문·트레일러), title/author/opened/closed→메타.
 //   이주 표식: 커밋 subject 에 [migrate], Gil-Kind: migrate(체인·사이클 루트),
@@ -179,26 +180,27 @@ func v2ToV3ID(id string) string {
 	return strings.ToLower(strings.TrimSpace(id))
 }
 
-// ── verdict → v3 종결 kind (상현님 확정) ──
+// ── verdict → v3 종결 kind ──
+//
+// **없는 성공을 날조하지 않는다**(이슈 #50). 옛 매핑은 partial·inconclusive·verdict 없음을
+// 전부 success 로 접었다 — 실사용 저장소에서 71 사이클 중 18개(25%)가 "산 잎"으로 둔갑했다.
+// 그 순간 이주된 이력은 원본보다 **낙관적인 거짓말**이 된다. gil 이 close --abandon 에서
+// 지킨 원칙("없는 성공을 날조하지 않는다")이 이주에서 깨지면 안 된다.
+//
+// v3 어휘는 셋뿐이다: success(산 잎) · fail(죽은 잎) · pending(사람 판단 대기). 그래서
+// **명확히 지지된 것만 success, 명확히 기각된 것만 fail, 나머지는 전부 pending** 이다.
+// pending 은 "모른다"가 아니라 "이건 사람이 봐야 한다"는 정직한 표식이다 — 결론이 없던
+// 사이클에 딱 맞는다. 원본 verdict 문자열은 종결 스텝 본문에 그대로 보존되므로 잃지 않는다.
 func verdictToClosureKind(c v2cycle) string {
-	v := strings.ToLower(strings.TrimSpace(c.verdict))
-	switch v {
+	switch strings.ToLower(strings.TrimSpace(c.verdict)) {
 	case "rejected":
 		return "fail"
-	case "supported", "success", "partial":
-		return "success"
-	case "", "null", "~":
-		// verdict 없음: 닫힌 사이클이면 완결로 보고 success, 열려 있으면 사람 대기(pending).
-		if strings.TrimSpace(c.status) == "open" {
-			return "pending"
-		}
+	case "supported", "success":
 		return "success"
 	default:
-		// 알 수 없는 verdict 값 — 보수적으로 success(닫힘)/pending(열림).
-		if strings.TrimSpace(c.status) == "open" {
-			return "pending"
-		}
-		return "success"
+		// partial · inconclusive · verdict 없음 · 알 수 없는 값 — 결론이 아니다.
+		// 사람이 그 사이클을 다시 보고 approve/reject 로 결말을 지어야 한다.
+		return "pending"
 	}
 }
 
@@ -358,6 +360,7 @@ func cmdMigrate(args []string) {
 		if *prefix != "" {
 			stderr("  (접두 " + *prefix + " → 브랜치 " + *prefix + "<chain>)")
 		}
+		migrateVerdictSummary(byChain)
 		stderr("dry-run: 커밋하지 않음. 실제 이주는 --dry-run 없이.")
 		return
 	}
@@ -553,12 +556,16 @@ func migrateClosureNote(c v2cycle, kind string) string {
 	case "fail":
 		return "벽(죽은 잎). v2 verdict=rejected — 이 가설은 기각됐다. v2 사이클 " + c.id + " 이주."
 	case "pending":
-		return "사람 대기. v2 status=open·verdict 미정 — 미종결 사이클을 이주(사람 판단 대기)."
-	default: // success
-		note := "산 잎. v2 사이클 " + c.id + " 종결(누적 종합)."
-		if strings.ToLower(strings.TrimSpace(c.verdict)) == "partial" {
-			note = "산 잎(부분 지지). v2 verdict=partial — 조건부 성공으로 이주. v2: " + c.id + "."
+		v := strings.TrimSpace(c.verdict)
+		if v == "" {
+			return "사람 대기. v2 에 판정(verdict)이 없다 — 성공으로 단정하지 않고 사람 판단을 " +
+				"기다린다(이슈 #50: 없는 성공을 날조하지 않는다). v2 사이클 " + c.id + " 이주."
 		}
+		return "사람 대기. v2 verdict=" + v + " — 지지도 기각도 아닌 결말이라 success/fail 중 " +
+			"어느 쪽으로도 접지 않았다(그렇게 접으면 이력이 원본보다 낙관적인 거짓말이 된다). " +
+			"사람이 다시 보고 approve/reject 로 결말을 지어라. v2 사이클 " + c.id + " 이주."
+	default: // success
+		note := "산 잎. v2 verdict=" + orDefault(c.verdict, "supported") + " — 명확히 지지된 결말. v2 사이클 " + c.id + " 종결."
 		if c.superBy != "" {
 			note += " ⚠ 이 결론은 이후 " + c.superBy + " 로 무효화(superseded)됐다."
 		}
@@ -590,4 +597,38 @@ func migrateStepBody(kind string, c v2cycle, note string) string {
 	}
 	b.WriteString("\n> **title**: " + orDefault(c.title, "(없음)") + "\n")
 	return b.String()
+}
+
+// migrateVerdictSummary — 이주가 결말을 어떻게 접었는지 먼저 밝힌다(이슈 #50).
+//
+// 사람이 알아야 할 건 "몇 개가 사람 판단으로 남는가"다. 그걸 이주 **뒤에** 알면 이미 71개
+// 브랜치가 생긴 뒤라 되돌리기 번거롭다. dry-run 에서 미리 세어 보여주고, 다음 한 수까지 준다.
+func migrateVerdictSummary(byChain map[string][]v2cycle) {
+	n := map[string]int{}
+	var needHuman []string
+	for _, cs := range byChain {
+		for _, c := range cs {
+			k := verdictToClosureKind(c)
+			n[k]++
+			if k == "pending" {
+				needHuman = append(needHuman,
+					v2ToV3ID(c.id)+"(verdict="+orDefault(c.verdict, "없음")+")")
+			}
+		}
+	}
+	stderr("")
+	stderr("결말 매핑: 산 잎 " + itoa(n["success"]) + " · 죽은 잎 " + itoa(n["fail"]) +
+		" · 사람 판단 대기 " + itoa(n["pending"]))
+	if len(needHuman) == 0 {
+		return
+	}
+	stderr("  ▸ 아래 " + itoa(len(needHuman)) + " 개는 v2 에서 지지도 기각도 아닌 결말이라 " +
+		"success 로 접지 않았다(이슈 #50).")
+	stderr("    그렇게 접으면 이주된 이력이 원본보다 낙관적인 거짓말이 된다 — 없는 성공을 " +
+		"날조하지 않는다.")
+	stderr("    이주 뒤 사람이 다시 보고 결말을 지어라: gil approve <chain>/<cycle>  또는  " +
+		"gil reject <chain>/<cycle> --to s1")
+	for _, x := range needHuman {
+		stderr("      " + x)
+	}
 }

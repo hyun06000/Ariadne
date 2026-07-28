@@ -29,6 +29,10 @@ import (
 var mcpMode bool
 var mcpOut strings.Builder
 
+// mcpRepoMismatch — 설정의 --repo 와 호스트가 연 폴더가 어긋날 때의 경고문(이슈 #49).
+// 비면 어긋남 없음. 모든 툴 응답 머리에 붙어, 조용한 실패가 조용하지 않게 만든다.
+var mcpRepoMismatch string
+
 // gilAbort — die/gilExit 가 MCP 모드에서 던지는 값. 핸들러가 recover 해 툴 에러로 바꾼다.
 type gilAbort struct {
 	msg  string
@@ -96,6 +100,25 @@ func cmdMCP(args []string) {
 			die("거부: 저장소 경로로 이동 못 함: " + target)
 		}
 	}
+	// 불일치 경고(이슈 #49): --repo 로 폴더를 못박았는데 호스트가 가리키는 프로젝트는 다른
+	// 곳이면, 사람은 자기 폴더에 기록이 쌓이는 줄 알지만 실제로는 딴 데 쌓인다. **아무 에러도
+	// 안 난다** — 우리가 제일 경계하는 조용한 실패다. 그래서 모든 툴 응답 앞에 이걸 달아
+	// 에이전트가 사람에게 먼저 알리게 한다(막지는 않는다 — 의도적 고정일 수도 있다).
+	if *repo != "" {
+		if host := os.Getenv("CLAUDE_PROJECT_DIR"); host != "" {
+			a, _ := filepath.Abs(*repo)
+			b, _ := filepath.Abs(host)
+			if a != b {
+				mcpRepoMismatch = "⚠ 기록이 쌓이는 곳과 지금 열린 폴더가 다르다.\n" +
+					"  기록 위치(설정의 --repo): " + a + "\n" +
+					"  지금 열린 폴더: " + b + "\n" +
+					"  사람에게 **먼저** 이렇게 알려라: \"지금 보고 계신 폴더가 아니라 다른 폴더에 " +
+					"기록이 쌓입니다. 이 폴더에 남기시려면 설정에서 --repo 를 빼야 하고, 그러면 " +
+					"제가 열려 있는 폴더를 자동으로 따라갑니다(앱 재시작 필요).\"\n" +
+					"  사람이 그대로 진행하길 원하면 계속해도 된다 — 다만 모르는 채로 진행하게 두지 마라."
+			}
+		}
+	}
 	requireGit()
 	mcpMode = true
 
@@ -117,6 +140,9 @@ func cmdMCP(args []string) {
 func text(s string) *mcp.CallToolResult {
 	if strings.TrimSpace(s) == "" {
 		s = "(완료)"
+	}
+	if mcpRepoMismatch != "" {
+		s = mcpRepoMismatch + "\n\n" + s
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 }

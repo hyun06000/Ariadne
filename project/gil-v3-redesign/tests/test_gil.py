@@ -972,9 +972,11 @@ class TestMigrate(GilFixture):
         self.assertIn("실사이클 5개", out.stderr)
         self.assertIn("체인 2개", out.stderr)
         # verdict → 종결 kind 매핑.
-        self.assertRegex(out.stderr, r"c001-seed .*→ success")
-        self.assertRegex(out.stderr, r"c003-quiet .*→ success")   # verdict 없음+closed
+        self.assertRegex(out.stderr, r"c001-seed .*→ success")    # supported
         self.assertRegex(out.stderr, r"c001-wall .*→ fail")       # rejected
+        # 이슈 #50: verdict 가 없으면 닫힌 사이클이라도 success 로 접지 않는다 —
+        # 없는 성공을 날조하지 않는다. 사람이 다시 보고 결말을 짓게 pending 으로 남긴다.
+        self.assertRegex(out.stderr, r"c003-quiet .*→ pending")   # verdict 없음+closed
         self.assertRegex(out.stderr, r"c002-waiting .*→ pending") # null+open
         # dry-run 은 커밋하지 않는다.
         self.assertIn("커밋하지 않음", out.stderr)
@@ -2875,6 +2877,118 @@ class TestQuietByDefault(GilFixture):
             out, err = p.communicate(timeout=10)
         self.assertIn("뷰어 서버가 떴다", out, out + err)   # 주소는 나온다
         self.assertNotIn("브라우저로 열었다", out)           # 창은 안 뜬다
+
+
+class TestMigrateVerdictHonesty(GilFixture):
+    """이주는 없는 성공을 날조하지 않는다 (이슈 #50).
+
+    옛 매핑은 partial·inconclusive·verdict 없음을 전부 success 로 접었다. 실사용 저장소에서
+    71 사이클 중 18개(25%)가 "산 잎"으로 둔갑했다 — 그 순간 이주된 이력은 원본보다 낙관적인
+    거짓말이 된다. gil 이 close --abandon 에서 지킨 원칙이 이주에서 깨지면 안 된다.
+    """
+
+    def _v2(self, verdict, status="closed"):
+        """verdict/status 만 가진 최소 v2 사이클."""
+        import types
+        # 매핑 함수는 Go 안에 있으므로, dry-run 출력으로 관찰한다.
+        return verdict, status
+
+    def _make_v2_repo(self, cycles):
+        """cycles: [(id, verdict, status)] → v2 폴더 구조를 만들고 커밋한다."""
+        for cid, verdict, status in cycles:
+            d = os.path.join(self.repo, "cycles", cid)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "cycle.yaml"), "w", encoding="utf-8") as f:
+                f.write(f"id: {cid}\nchain: demo\ntitle: {cid}\nstatus: {status}\n")
+                if verdict is not None:
+                    f.write(f"verdict: {verdict}\n")
+        self._git("add", "-A")
+        self._git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "v2 fixture")
+
+    def test_inconclusive_and_partial_do_not_become_success(self):
+        """결론이 아닌 것은 산 잎으로 접지 않는다 — 사람 판단 대기로 남는다."""
+        self._make_v2_repo([
+            ("C001-supported", "supported", "closed"),
+            ("C002-rejected", "rejected", "closed"),
+            ("C003-inconclusive", "inconclusive", "closed"),
+            ("C004-partial", "partial", "closed"),
+            ("C005-noverdict", None, "closed"),
+        ])
+        r = self.gil("migrate", "--from", "HEAD", "--dry-run")
+        out = r.stdout + r.stderr
+        self.assertIn("verdict=supported → success", out)
+        self.assertIn("verdict=rejected → fail", out)
+        self.assertIn("verdict=inconclusive → pending", out)
+        self.assertIn("verdict=partial → pending", out)
+        self.assertIn("verdict=- → pending", out)
+
+    def test_dry_run_counts_what_needs_human_judgement(self):
+        """이주 **전에** 몇 개가 사람 판단으로 남는지 알려준다 — 뒤에 알면 이미 늦다."""
+        self._make_v2_repo([
+            ("C001-a", "supported", "closed"),
+            ("C002-b", "partial", "closed"),
+            ("C003-c", "inconclusive", "closed"),
+        ])
+        r = self.gil("migrate", "--from", "HEAD", "--dry-run")
+        out = r.stdout + r.stderr
+        self.assertIn("사람 판단 대기 2", out)
+        self.assertIn("gil approve", out)   # 다음 한 수를 준다(이슈 #47)
+        self.assertIn("gil reject", out)
+
+
+class TestMCPRepoMismatch(GilFixture):
+    """--repo 로 못박은 폴더와 호스트가 연 폴더가 다르면 **먼저 말한다** (이슈 #49).
+
+    아무 에러도 안 나는 게 이 버그의 본질이다: 사람은 자기 폴더에 기록이 쌓이는 줄 알지만
+    실제로는 딴 데 쌓이고, 나중에야 그 폴더가 비어 있는 걸 발견한다. 조용한 실패를
+    조용하지 않게 만든다.
+    """
+
+    def _tool_text(self, extra_env, args):
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve", *args], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1", **extra_env))
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        read = lambda: json.loads(p.stdout.readline())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                             "clientInfo": {"name": "t", "version": "1"}}})
+            read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": "gil_log", "arguments": {}}})
+            r = read()["result"]
+            return r["content"][0]["text"]
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
+    def test_warns_when_pinned_repo_differs_from_open_folder(self):
+        self.gil("init")
+        other = tempfile.mkdtemp(prefix="gil-other-")
+        try:
+            t = self._tool_text({"CLAUDE_PROJECT_DIR": other}, ["--repo", self.repo])
+            self.assertIn("기록이 쌓이는 곳과 지금 열린 폴더가 다르다", t)
+            self.assertIn(other, t)
+        finally:
+            shutil.rmtree(other, ignore_errors=True)
+
+    def test_no_warning_when_they_agree(self):
+        """일치하면 조용하다 — 경고가 늘 뜨면 아무도 안 읽는다."""
+        self.gil("init")
+        t = self._tool_text({"CLAUDE_PROJECT_DIR": self.repo}, ["--repo", self.repo])
+        self.assertNotIn("기록이 쌓이는 곳과", t)
+
+    def test_no_warning_when_repo_not_pinned(self):
+        """--repo 를 안 붙이는 게 기본 — 그땐 애초에 어긋날 수 없다."""
+        self.gil("init")
+        t = self._tool_text({"CLAUDE_PROJECT_DIR": self.repo}, [])
+        self.assertNotIn("기록이 쌓이는 곳과", t)
 
 
 if __name__ == "__main__":

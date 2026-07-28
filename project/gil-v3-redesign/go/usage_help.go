@@ -145,7 +145,10 @@ var helpTable = map[string]helpEntry{
 			"  --prefix: 이주 브랜치에 접두(예 v3-)를 붙여 기존 브랜치와 충돌 회피. 충돌 시 아무것도\n" +
 			"  만들지 않고 거부(원자성) — --prefix 로 다시 돌려라.\n" +
 			"  5단계 압축(hypothesis+design→define, verification→verify, analysis+report→종결),\n" +
-			"  verdict→종결 kind(supported→success, rejected→fail, null&open→pending). [migrate] 표식.",
+			"  verdict→종결 kind: supported/success→success, rejected→fail, **그 밖의 전부**\n" +
+			"  (partial·inconclusive·verdict 없음)→pending. 없는 성공을 날조하지 않는다(이슈 #50) —\n" +
+			"  결론이 아닌 것을 산 잎으로 접으면 이주된 이력이 원본보다 낙관적인 거짓말이 된다.\n" +
+			"  --dry-run 이 '사람 판단 대기' 개수와 대상을 먼저 보여준다. [migrate] 표식.",
 		"docs/gil/lifecycle.md · docs/gil/concepts.md",
 	},
 	"mcp": {
