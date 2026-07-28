@@ -18,12 +18,14 @@ import "os"
 func cmdInit(args []string) {
 	fs := newFlags("gil init")
 	name := fs.str("name", "clew")
-	// --no-open: 관전 서버는 띄우되 시스템 브라우저는 열지 않는다(이슈 #48). init 이 serve 를
-	// 자동 기동하므로 첫 창이 여기서 이미 떠버린다 — 인앱 패널로 볼 호스트에선 그게 방해다.
-	noOpen := fs.boolFlag("no-open")
+	// 브라우저는 기본으로 열지 않는다(조용히 서버만). --open 을 줄 때만 연다.
+	// --no-open 은 기본이 된 지금 아무 일도 안 하지만, 이미 쓰인 문서·스크립트가 깨지지
+	// 않도록 계속 받는다(무해한 no-op).
+	open := fs.boolFlag("open")
+	_ = fs.boolFlag("no-open")
 	fs.parse(args)
-	if *noOpen {
-		os.Setenv("GIL_NO_BROWSER", "1")
+	if *open {
+		os.Setenv("GIL_OPEN_BROWSER", "1")
 	}
 	if *name == "" || !idRe.MatchString(*name) {
 		die("거부: 존재 이름 \"" + *name + "\"은 소문자·숫자·하이픈만")
@@ -76,7 +78,9 @@ func cmdInit(args []string) {
 	if pushed {
 		println2("  원격: refspec 등록 + push 완료.")
 	} else {
-		println2("  원격: refspec 등록. push 실패(원격 없음) — 원격 붙이면 `gil global push`.")
+		// 원격이 없는 건 정상이다 — gil 은 로컬만으로 온전히 돈다. 첫 화면에 "실패"라는 단어를
+		// 띄우면 비개발자는 자기가 뭘 잘못한 줄 안다. 있는 그대로, 담담하게.
+		println2("  기록: 이 저장소 안에 남는다(로컬). 원격은 필요할 때 붙이면 된다.")
 	}
 	// 영속성 소프트 안내(상현님) — gil 은 환경을 감지·판정하지 않는다(권한 밖). 대신 *항상 참인
 	// 사실*을 조건 없이 알린다: 존재는 이 저장소에 사니, 영속되는 박스면 이어지고 일회용 샌드박스면

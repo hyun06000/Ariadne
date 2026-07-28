@@ -80,10 +80,20 @@ func cmdMCP(args []string) {
 	fs := newFlags("gil mcp serve")
 	repo := fs.str("repo", "")
 	fs.parse(args[1:])
-	if *repo != "" {
-		abs, err := filepath.Abs(*repo)
+	// 어느 저장소를 볼 것인가. 우선순위: --repo > 호스트가 알려준 프로젝트 루트 > 현재 위치.
+	//
+	// **--repo 를 설정에 박지 않는 게 기본이다.** 박으면 그 사람은 다른 작업을 할 때마다 MCP
+	// 설정 파일을 고쳐야 하는데, 비개발자에겐 불가능한 요구다. Claude Code 는 서버를 띄울 때
+	// CLAUDE_PROJECT_DIR 에 프로젝트 루트를 넣어주므로, 그걸 따라가면 **사람이 여는 폴더마다
+	// gil 이 알아서 따라붙는다** — 등록은 한 번, 경로는 사람이 몰라도 된다.
+	target := *repo
+	if target == "" {
+		target = os.Getenv("CLAUDE_PROJECT_DIR")
+	}
+	if target != "" {
+		abs, err := filepath.Abs(target)
 		if err != nil || os.Chdir(abs) != nil {
-			die("거부: --repo 경로로 이동 못 함: " + *repo)
+			die("거부: 저장소 경로로 이동 못 함: " + target)
 		}
 	}
 	requireGit()
@@ -126,11 +136,26 @@ func addList(args []string, name string, vals []string) []string {
 	return args
 }
 
+// requireReady — 이 폴더가 gil 로 관리되고 있나. 아니면 **사람 언어로** 거부하고 다음 한 수를
+// 준다. 이걸 안 하면 날 git 에러("git checkout 실패: exit status 128")가 그대로 올라가는데,
+// 비개발자는 물론 에이전트도 거기서 다음 수를 못 찾는다(이슈 #47 의 최악 형태).
+func requireReady() {
+	if !gitOK("rev-parse", "--git-dir") {
+		die("거부: 이 폴더는 아직 gil 로 관리되지 않는다(git 저장소가 아니다).\n" +
+			"  먼저 gil_init 툴을 불러라 — 저장소를 만들고 존재·기억까지 한 번에 세운다.\n" +
+			"  사람에게는 이렇게 말해라: \"이 폴더에서 작업 기록을 시작할게요.\"")
+	}
+	if !gitOK("rev-parse", "--verify", "-q", globalRef) {
+		die("거부: 이 저장소엔 아직 gil 세계가 없다(존재·기억이 사는 refs/gil/global 부재).\n" +
+			"  먼저 gil_init 툴을 불러라. 그 전에는 체인도 사이클도 열 수 없다.")
+	}
+}
+
 // tool — cmd* 를 부르는 표준 핸들러를 만든다. 입력 구조체 → CLI 인자 조립은 호출부가 준다.
 func tool[In any](s *mcp.Server, name, desc string, argv func(In) []string, run func([]string)) {
 	mcp.AddTool(s, &mcp.Tool{Name: name, Description: desc},
 		func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
-			out, err := runGil(func() { run(argv(in)) })
+			out, err := runGil(func() { requireReady(); run(argv(in)) })
 			if err != nil {
 				return nil, nil, err
 			}
@@ -309,7 +334,28 @@ func registerGilTools(s *mcp.Server) {
 			return addFlag(a, "title", in.Title)
 		}, cmdDeploy)
 
+	// gil_init 은 requireReady 게이트 밖에 산다 — 이게 바로 그 준비를 하는 툴이다.
+	// 세팅을 터미널로 내몰면 "프롬프트만으로 완주"가 깨진다(비개발자는 터미널을 안 쓴다).
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "gil_init",
+		Description: "이 폴더에 gil 세계를 세운다(저장소·대문·존재·기억). 다른 gil 툴이 " +
+			"'아직 gil 로 관리되지 않는다'고 거부하면 이걸 먼저 부른다. 이미 세워져 있으면 거부한다.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in inInit) (*mcp.CallToolResult, any, error) {
+		// 관전 서버의 시스템 브라우저 자동 실행은 끈다 — 호스트 안에서 도는 에이전트에게는
+		// 밖으로 튀어나오는 창이 방해다(이슈 #48). 주소는 출력에 그대로 나온다.
+		a := []string{"--no-open"}
+		out, err := runGil(func() { cmdInit(addFlag(a, "name", in.Name)) })
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(out), nil, nil
+	})
+
 	registerInterviewTool(s)
+}
+
+type inInit struct {
+	Name string `json:"name,omitempty" jsonschema:"이 저장소에서 깨어날 존재의 이름(기본 clew)"`
 }
 
 // ── 단계 B: 인터뷰 = Elicitation ──

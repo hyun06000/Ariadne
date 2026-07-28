@@ -15,7 +15,7 @@ type helpEntry struct {
 
 var helpTable = map[string]helpEntry{
 	"init": {
-		"gil init [--name <이름>] [--no-open]\n" +
+		"gil init [--name <이름>] [--open]\n" +
 			"  무에서 gil 세계를 세운다 — 대문(CLAUDE.md) + refs/gil/global + 존재의 방.\n" +
 			"  뷰어가 있으면 관전 서버도 함께 띄운다. 이미 세팅됐으면 거부(멱등).",
 		"docs/gil/existence.md · docs/gil/index.md",
@@ -150,6 +150,8 @@ var helpTable = map[string]helpEntry{
 	},
 	"mcp": {
 		"gil mcp serve [--repo <경로>]   gil 을 stdio MCP 서버로 연다\n" +
+			"  --repo 는 보통 필요 없다 — 호스트가 알려주는 프로젝트 루트(CLAUDE_PROJECT_DIR)를 따라가므로\n" +
+			"  등록은 한 번, 폴더는 사람이 여는 대로 따라붙는다. 한 폴더에 고정할 때만 --repo 를 쓴다.\n" +
 			"\nClaude Desktop 같은 MCP 호스트가 gil 명령을 툴(gil_chain·gil_open·gil_step…)로 직접\n" +
 			"부른다. 인터뷰(gil_interview)는 호스트의 네이티브 폼(Elicitation)으로 사람에게 그 자리에서\n" +
 			"묻고 답을 받아 기준 문서를 확정한다 — 뷰어 폼·localhost 링크를 거치지 않아 대기가 하나뿐이다.\n" +
@@ -160,15 +162,15 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/human-in-the-loop.md",
 	},
 	"viewer": {
-		"gil viewer serve [--repo <경로>] [--port <포트>] [--no-open]   브라우저 관전 서버(자동 새로고침)\n" +
+		"gil viewer serve [--repo <경로>] [--port <포트>] [--open]   관전 서버(자동 새로고침)\n" +
 			"gil viewer build --out <파일> [--repo <경로>]     정적 자기완결 HTML 1회 출력(Pages 등)\n" +
 			"gil viewer [text] [--repo <경로>]                텍스트 트리 1회 출력\n" +
 			"  사고 그래프(체인>사이클>스텝)를 읽어 그린다. gil init 이 serve 를 자동 기동한다.\n" +
 			"  build 는 서버 없이 도는 정적 HTML(스텝 본문 인라인·폴링 없음) — 정적 호스팅용.\n" +
-			"  --no-open: 서버는 띄우되 시스템 브라우저는 안 연다(주소는 stdout 에 나온다). 인앱\n" +
-			"    브라우저 패널이 있는 호스트에서 도는 에이전트라면 이걸 써라 — 밖의 창이 튀어나오면\n" +
-			"    사람이 앱을 떠나야 하고, 같은 주소를 인앱에 다시 열면 창이 둘로 갈라진다(이슈 #48).\n" +
-			"    gil init 에도 같은 플래그가 있다(init 이 serve 를 자동 기동하므로).",
+			"  **브라우저는 기본으로 안 연다** — 조용히 서버만 띄우고 주소를 출력한다(이슈 #48).\n" +
+			"    자동으로 튀어나오는 창은 도움보다 방해였다: 에이전트가 인앱 패널에 띄우려는데 밖에\n" +
+			"    창이 하나 더 뜨고, 반복 실행마다 브라우저가 쌓인다. 시스템 브라우저까지 열려면\n" +
+			"    --open 을 명시하라(gil init 도 같다). --no-open 은 기본이 된 지금 no-op 이다.",
 		"docs/gil/reports.md",
 	},
 }

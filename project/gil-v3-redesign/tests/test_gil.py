@@ -2499,6 +2499,7 @@ class TestMCPServe(GilFixture):
         """
         import json
         caps = {"elicitation": {}} if elicit_answer is not None else {}
+        self.gil("init")   # MCP 툴은 gil 로 관리되는 저장소를 요구한다(requireReady)
         p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, bufsize=1,
@@ -2592,6 +2593,7 @@ class TestMCPServe(GilFixture):
     def test_interview_declined_is_not_answered_by_llm(self):
         """사람이 폼을 취소하면 기준은 만들어지지 않는다 — LLM 이 대신 답하지 못하게."""
         import json
+        self.gil("init")   # MCP 툴은 gil 로 관리되는 저장소를 요구한다(requireReady)
         p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, bufsize=1,
@@ -2831,30 +2833,31 @@ class TestChainRetro(GilFixture):
         self.assertNotEqual(r.returncode, 0, "시드는 인터뷰를 대신하지 못한다")
 
 
-class TestNoOpenFlag(GilFixture):
-    """--no-open — 서버는 띄우되 시스템 브라우저는 안 연다 (이슈 #48).
+class TestQuietByDefault(GilFixture):
+    """브라우저는 **기본으로 열지 않는다** (이슈 #48).
 
-    에이전트가 인앱 브라우저 패널을 가진 호스트에서 돌 때, 밖의 브라우저 창이 튀어나오면
-    사람이 앱을 떠나야 하고 같은 주소를 인앱에 다시 열면 창이 둘로 갈라진다. 주소는 stdout
-    에 그대로 나오므로 자동 실행을 꺼도 여는 데 아무 지장이 없다.
+    자동으로 튀어나오는 창은 도움보다 방해였다: 에이전트가 인앱 패널에 띄우려는데 밖에 창이
+    하나 더 뜨고, 테스트·반복 실행마다 브라우저가 쌓인다. 주소는 언제나 출력에 나오므로
+    사람도 에이전트도 여는 데 지장이 없다. 여는 건 명시적 --open 일 때만.
     """
 
-    def test_init_accepts_no_open(self):
+    def test_init_still_accepts_no_open(self):
+        """--no-open 은 이제 기본이라 no-op — 이미 쓰인 문서·스크립트가 깨지지 않게 계속 받는다."""
         r = self.gil("init", "--no-open")
         self.assertEqual(r.returncode, 0, r.stderr)
 
-    def test_viewer_help_documents_no_open(self):
-        """표면에 안 보이면 없는 기능이다 — 환경변수만 있던 걸 플래그로 올린 이유."""
+    def test_viewer_help_documents_open(self):
+        """표면에 안 보이면 없는 기능이다."""
         r = self.gil("help", "viewer")
-        self.assertIn("--no-open", r.stdout + r.stderr)
+        self.assertIn("--open", r.stdout + r.stderr)
 
-    def test_no_open_suppresses_browser_launch(self):
-        """--no-open 이면 '브라우저로 열었다' 가 나오지 않는다(억제는 openBrowser 한 곳에서)."""
-        self.gil("init", "--no-open")
+    def test_browser_not_opened_by_default(self):
+        """아무 플래그도 없이 serve 해도 '브라우저로 열었다' 가 나오지 않는다."""
+        self.gil("init")
         env = dict(os.environ)
         env.pop("GIL_NO_VIEWER", None)
         env.pop("GIL_NO_BROWSER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--port", "8796", "--no-open"],
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--port", "8796"],
                              cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              text=True, env=env)
         try:

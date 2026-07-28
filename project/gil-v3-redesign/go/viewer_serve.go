@@ -206,7 +206,7 @@ func serve(args []string) {
 	// 포그라운드 serve 를 사람이 직접 띄웠으면 브라우저도 자동으로 연다(실사용 피드백: 날 IP
 	// 주소만 보면 뭔지 몰라 넘어간다). launchViewer(자동 기동)는 부모가 이미 열므로 GIL_NO_BROWSER
 	// 로 이 경로를 끈다. 서버가 실제 바인딩된 뒤 열려고 잠깐 기다렸다 연다(goroutine).
-	if os.Getenv("GIL_NO_BROWSER") == "" {
+	if os.Getenv("GIL_OPEN_BROWSER") != "" {
 		go func() {
 			if waitPort(port, 2*time.Second) {
 				if openBrowser(url) {
