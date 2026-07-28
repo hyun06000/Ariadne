@@ -14,6 +14,7 @@ import os
 import sys
 import subprocess
 import tempfile
+import time
 import shutil
 import unittest
 
@@ -1388,7 +1389,9 @@ class TestInterviewArrival(GilFixture):
                            input=json.dumps([{"q": "기준?", "type": "text"}]), capture_output=True)
         out = r.stdout + r.stderr
         self.assertIn("기본은 기다리는 것이다", out)
-        self.assertIn("다음 턴의 첫 명령", out)
+        # 차선(다음 턴의 첫 명령)도 여전히 적히되, 이제 백그라운드 --wait 뒤에 온다(이슈 #82).
+        self.assertIn("다음 턴의 **첫 명령**", out)
+        self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
 
 
 class TestOnboardingInstall(GilFixture):
@@ -5661,3 +5664,91 @@ class TestDetachedHeadAnchors(GilFixture):
         self.gil("step", "c1/gap", "--kind", "verify", "--verdict", "supported", "--title", "v")
         r = self.gil("fsck")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TestInterviewWaiterVisible(GilFixture):
+    """기다리는 사람이 보인다 — 백그라운드 --wait 를 1급으로 (이슈 #82, #58·#77 의 세 번째 겹).
+
+    #77 수정은 설계대로 작동했는데도 사람이 두 번 말해야 했다. 남은 겹은 '다음 턴을 여는
+    열쇠가 사람 손에만 있다'는 것 — 그래서 gil 이 밀 수 있는 유일한 형태(말하면서 동시에
+    기다리기 = 백그라운드 --wait)를 안내의 1급으로 올리고, 기다리는 중이라는 사실을
+    사람에게도 보이게 한다."""
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "tooling", "--purpose", "P")
+        return self.gil("interview", "tooling", "--ask", "-",
+                        input='[{"q":"무엇을 풀려는가","type":"text"}]')
+
+    def _wait_bg(self, timeout="30"):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.Popen([*GIL_CMD, "interview", "tooling", "--wait", "--timeout", timeout],
+                                cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, env=env)
+
+    def _submit(self):
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준\n성공 기준: 통과")
+        return self.gil("interview", "tooling", "--resolve", "ref.md")
+
+    def test_ask_promotes_background_wait(self):
+        """두 선택지만 놓으면 매번 차선으로 미끄러진다 — 제3의 형태를 그 자리에 적는다."""
+        out = self._seed().stdout
+        self.assertIn("백그라운드", out)
+        self.assertIn("--wait --timeout 3600", out)
+
+    def test_status_says_nobody_is_waiting(self):
+        """'답 대기' 와 '답 대기 + 아무도 안 기다림' 은 전혀 다른 상황이다."""
+        self._seed()
+        out = self.gil("interview", "tooling", "--status").stdout
+        self.assertIn("아무도 기다리고 있지 않다", out)
+        self.assertIn("백그라운드", out)
+
+    def test_status_sees_live_waiter(self):
+        self._seed()
+        p = self._wait_bg()
+        try:
+            out, deadline = "", time.time() + 10
+            while time.time() < deadline:
+                out = self.gil("interview", "tooling", "--status").stdout
+                if "살아 있다" in out:
+                    break
+                time.sleep(0.5)
+            self.assertIn("살아 있다", out)
+        finally:
+            p.kill()
+            p.wait()
+
+    def test_handoff_distinguishes_waiter(self):
+        self._seed()
+        self.assertIn("아무도 안 기다린다", self.gil("handoff").stdout)
+
+    def test_waiter_mark_is_cleared_after_submit(self):
+        """유령이 '기다리는 중'이라 말하면 사람은 또 아무도 없는 곳에 제출한다."""
+        self._seed()
+        p = self._wait_bg()
+        time.sleep(1)
+        self._submit()
+        p.wait(timeout=20)
+        self.assertFalse(os.path.exists(os.path.join(
+            self.repo, ".git", "gil", "interview-waiting-tooling")))
+
+    def test_then_runs_on_submit(self):
+        """--then: 호스트가 프로세스 완료로 못 깨워도 훅 하나는 확실히 걸린다."""
+        self._seed()
+        mark = os.path.join(self.repo, "then.txt")
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        p = subprocess.Popen([*GIL_CMD, "interview", "tooling", "--wait", "--timeout", "30",
+                              "--then", "echo ran > " + mark],
+                             cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, env=env)
+        time.sleep(1)
+        self._submit()
+        p.wait(timeout=20)
+        self.assertTrue(os.path.exists(mark), p.stdout.read() if p.stdout else "")
+
+    def test_then_without_wait_is_refused(self):
+        self._seed()
+        r = self.gil("interview", "tooling", "--then", "echo x")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--wait", r.stdout + r.stderr)

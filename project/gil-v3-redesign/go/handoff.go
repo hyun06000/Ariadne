@@ -436,7 +436,15 @@ func handoffReport() string {
 				L = append(L, "        (이 체인엔 이미 확정된 기준이 있다 — 지금은 그 기준을 **개정하는 중**이다.)")
 			}
 			L = append(L, "        · 사람에게 제출을 청하라. 기준을 대신 쓰지 마라.")
-			L = append(L, "        · 제출 여부 확인: gil interview "+cname+" --status  (기다리려면 --wait)")
+			// "답 대기" 와 "답 대기 + 아무도 안 기다림" 은 전혀 다른 상황이다(이슈 #82 제안 4).
+			// 뒤쪽은 사람이 제출해도 아무 일이 안 일어나는 상태 — 이어받은 세션이 그걸 모르면
+			// 또 한 번 사람에게 "답했어" 라고 말하게 만든다.
+			if interviewWaiterActive(cname) {
+				L = append(L, "        · 기다리는 프로세스가 살아 있다(백그라운드 --wait) — 제출되면 그쪽이 이어간다.")
+			} else {
+				L = append(L, "        · ⚠ 아무도 안 기다린다 — 지금 제출돼도 아무 일이 일어나지 않는다.")
+				L = append(L, backgroundWaitHint(cname)...)
+			}
 		}
 		cyc, cycOrder := cyclesOf(cname)
 		// 잎 상태와 사이클 상태는 다르다(이슈 #62, 상현님 실사용). 옛 handoff 는 잎이 다

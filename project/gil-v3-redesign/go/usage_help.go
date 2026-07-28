@@ -136,8 +136,13 @@ var helpTable = map[string]helpEntry{
 			"  제출하면 reference-<chain>.md 로 저장되고 레퍼런스가 커밋된다(pending→approve 의 거울).\n" +
 			"  질문: [{\"q\":\"질문\",\"type\":\"text|radio|checkbox\",\"options\":[\"...\"]}]\n" +
 			"  gil interview <chain> --status  — 사람이 제출했나 한 줄로(pending|done, 이슈 #58).\n" +
-			"  gil interview <chain> --wait [--timeout <초>]  — 제출될 때까지 기다렸다 기준 문서를 뱉는다.\n" +
-			"    (제출은 자동 통지되지 않는다 — '기다려라'는 이 둘로 실행한다. 기준을 대신 쓰지 마라.)\n" +
+			"  gil interview <chain> --wait [--timeout <초>] [--then <명령>]  — 제출될 때까지 기다렸다\n" +
+			"    기준 문서를 뱉는다. --then 은 제출되는 순간 그 명령을 실행한다(호스트 훅, 이슈 #82).\n" +
+			"  ▸ 대화형 세션이면 --wait 를 **백그라운드**로 돌려라 — 말하는 것과 기다리는 것을 동시에 한다:\n" +
+			"      gil interview <chain> --wait --timeout 3600 > /tmp/gil-ref.md 2>&1 &\n" +
+			"    턴을 끝내고 사람에게 제출을 청하면서도, 제출 순간 프로세스가 끝나 호스트가 너를 깨운다.\n" +
+			"    '다음 턴의 첫 명령으로 --status' 는 차선이다 — 그 다음 턴은 사람이 말을 걸어야 존재한다(#82).\n" +
+			"    (제출은 자동 통지되지 않는다 — '기다려라'는 이 셋으로 실행한다. 기준을 대신 쓰지 마라.)\n" +
 			"  gil interview <chain> --resolve <파일>  — 뷰어 제출이 호출(사람이 직접 쓸 일은 드묾).",
 		"docs/gil/concepts.md",
 	},

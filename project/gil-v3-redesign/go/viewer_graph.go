@@ -13,8 +13,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 var viewerRepoDir = "." // --repo 로 지정. git 을 이 레포에서 실행.
@@ -358,6 +360,23 @@ type interviewReq struct {
 	chain     string
 	sha       string
 	questions string // gil-interview 펜스 안의 질문 배열 JSON
+	waiting   bool   // 지금 이 답을 기다리는 프로세스가 살아 있나(백그라운드 --wait, 이슈 #82)
+}
+
+// viewerWaiterActive — 관전 중인 저장소에서 이 체인의 대기 표식이 살아있나(이슈 #82).
+// interviewWaiterActive 와 같은 판정이되 git-dir 을 관전 레포 기준으로 푼다 — 뷰어는 다른
+// 작업 디렉토리에서 도는 별도 프로세스다.
+func viewerWaiterActive(chain string) bool {
+	out, err := viewerGit("rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return false
+	}
+	p := filepath.Join(strings.TrimSpace(string(out)), "gil", "interview-waiting-"+chain)
+	st, err := os.Stat(p)
+	if err != nil {
+		return false
+	}
+	return time.Since(st.ModTime()) <= waiterStale
 }
 
 // pendingInterviews — Gil-Interview:pending 커밋 중 아직 done 으로 해소 안 된 것들. 같은
@@ -398,7 +417,8 @@ func pendingInterviews() []interviewReq {
 		if iv == "pending" && !seenChain[chain] {
 			settled[chain] = true
 			seenChain[chain] = true
-			reqs = append(reqs, interviewReq{chain: chain, sha: sha[:9], questions: extractInterviewJSON(body)})
+			reqs = append(reqs, interviewReq{chain: chain, sha: sha[:9], questions: extractInterviewJSON(body),
+				waiting: viewerWaiterActive(chain)})
 		}
 	}
 	var open []interviewReq

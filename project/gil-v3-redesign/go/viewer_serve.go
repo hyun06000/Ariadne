@@ -756,7 +756,7 @@ func interviewsJSON(g graphView) string {
 		}
 		cb, _ := json.Marshal(iv.chain)
 		shb, _ := json.Marshal(iv.sha)
-		sb.WriteString(fmt.Sprintf(`{"chain":%s,"sha":%s,"questions":%s}`, cb, shb, q))
+		sb.WriteString(fmt.Sprintf(`{"chain":%s,"sha":%s,"waiting":%t,"questions":%s}`, cb, shb, iv.waiting, q))
 	}
 	sb.WriteString("]")
 	return sb.String()
@@ -896,6 +896,8 @@ svg.cygraph{display:block}
 .ivcard{margin:4px 16px 16px;padding:16px 18px;background:var(--card,var(--bg));border:1px solid var(--node);border-radius:10px}
 .ivhead{font-size:13px;color:var(--fg);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
 .ivhead b{color:var(--node)}
+.ivwait{font-size:12px;color:var(--dim,#888);margin:-6px 0 12px}
+.ivwait.on{color:var(--node);font-weight:600}
 .ivform{display:flex;flex-direction:column;gap:16px}
 .ivfield{display:flex;flex-direction:column;gap:6px}
 .ivq{font-size:13px;font-weight:600;color:var(--fg)}
@@ -1981,6 +1983,12 @@ function buildInterviews(){
     const head=document.createElement('div'); head.className='ivhead';
     head.innerHTML='체인 <b>'+esc(iv.chain)+'</b> 의 기준 문서를 함께 만든다 — 문제 풀듯 답하고 제출하세요.';
     card.appendChild(head);
+    // 기다리는 사람이 보이게(이슈 #82) — 제출하고 아무 반응이 없으면 "놓쳤나"를 의심하게 된다.
+    const wait=document.createElement('div');
+    wait.className='ivwait'+(iv.waiting?' on':'');
+    wait.textContent=iv.waiting?'⏳ 에이전트가 이 답을 기다리는 중 — 제출하면 곧바로 이어집니다.'
+                               :'· 지금은 아무도 기다리고 있지 않습니다. 제출은 저장되고, 에이전트는 다음 접촉 때 읽습니다.';
+    card.appendChild(wait);
     const form=document.createElement('form'); form.className='ivform';
     (iv.questions||[]).forEach((q,qi)=>{
       const fld=document.createElement('div'); fld.className='ivfield';

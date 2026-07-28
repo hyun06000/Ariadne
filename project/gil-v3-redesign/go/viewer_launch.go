@@ -28,6 +28,29 @@ func viewerPortNum() string {
 	return viewerPortDefault
 }
 
+// ensureViewer — **세션의 첫 gil 명령이 무엇이든** 관전 서버가 있게 한다 (상현님 실사용).
+//
+// 왜. 지금까지 뷰어를 띄우는 자리는 gil init 과 gil handoff 둘뿐이었다. 그런데 gil 이 이미
+// 깔린 머신에서 새로 깨어난 세션은 init 을 부를 일이 없고, 복원을 memory read·log·interview
+// --status 로 시작하는 경우가 흔하다 — 그러면 그 세션 내내 뷰어가 없다. "에이전트가 알아서
+// handoff 를 먼저 부른다"는 자기규율이고, 자기규율은 원리적으로 불충분하다(#55 와 같은 논거).
+// 그래서 레일을 도구 쪽에 깐다: 포트가 비어 있으면 어느 명령에서든 띄운다.
+//
+// 이미 떠 있으면 **아무 말도 하지 않는다** — 명령마다 브라우저를 다시 열거나 한 줄씩 더
+// 붙이면, 정작 중요한 출력이 잡음에 묻힌다(뜰 때 한 번만 말한다).
+func ensureViewer() {
+	if os.Getenv("GIL_NO_VIEWER") != "" {
+		return
+	}
+	if portOpen(viewerPortNum()) {
+		return // 이미 관전 중(남의 레포면 launchViewer 가 부를 때 그 사실을 말한다)
+	}
+	if !gitOK("rev-parse", "--git-dir") {
+		return // git 저장소가 아니다 — 관전할 그래프가 없다
+	}
+	launchViewer()
+}
+
 // launchViewer — gil 자기 자신을 `gil viewer serve` 로 관전 서버를 백그라운드로 띄운다.
 // 실패는 치명적이지 않다: 이미 떠 있으면 URL 만 알린다.
 func launchViewer() {

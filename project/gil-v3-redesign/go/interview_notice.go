@@ -139,7 +139,12 @@ func interviewWaitingLines() []string {
 	var L []string
 	for _, c := range chains {
 		L = append(L, "  · [인터뷰] "+c+" — 기준 문서 미확정. 사람이 뷰어 폼에 답해야 사이클을 연다.")
-		L = append(L, "      기다려라(기본): gil interview "+c+" --wait   |  확인만: --status")
+		if interviewWaiterActive(c) {
+			L = append(L, "      기다리는 프로세스가 살아 있다(백그라운드 --wait) — 제출되면 그쪽이 이어간다.")
+			continue
+		}
+		L = append(L, "      ⚠ 아무도 안 기다린다 — 지금 제출돼도 아무 일이 안 일어난다(이슈 #82).")
+		L = append(L, backgroundWaitHint(c)...)
 	}
 	return L
 }

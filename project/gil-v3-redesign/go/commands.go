@@ -1709,6 +1709,9 @@ func cmdInterview(args []string) {
 	status := fs.boolFlag("status")
 	wait := fs.boolFlag("wait")
 	timeout := fs.str("timeout", "")
+	// --then <명령>(이슈 #82 제안 3): 제출되는 순간 실행할 명령. 백그라운드 --wait 와 짝이다 —
+	// 호스트가 프로세스 완료로 에이전트를 깨우지 못해도, 훅 하나는 확실히 걸린다.
+	then := fs.str("then", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil interview <chain> --ask <질문JSON|-> [--title T]\n" +
@@ -1723,8 +1726,14 @@ func cmdInterview(args []string) {
 		return
 	}
 	if *status || *wait {
-		interviewWatch(chain, *wait, *timeout)
+		if strings.TrimSpace(*then) != "" && !*wait {
+			die("거부: --then 은 --wait 와 함께 쓴다 — 기다리지 않으면 이어서 실행할 순간이 없다.")
+		}
+		interviewWatch(chain, *wait, *timeout, *then)
 		return
+	}
+	if strings.TrimSpace(*then) != "" {
+		die("거부: --then 은 --wait 와 함께 쓴다: gil interview " + chain + " --wait --then '<명령>'")
 	}
 	if *ask == "" {
 		die("사용: gil interview <chain> --ask <질문JSON|->  (또는 --resolve <파일>)")
@@ -1804,8 +1813,12 @@ func cmdInterview(args []string) {
 	// "기다려라"만 말하고 기다릴 수단을 안 주면 바쁜대기 아니면 우회로 민다(이슈 #58). 그리고
 	// 수단을 둘 다 나란히 놓으면 싼 쪽(--status 한 번)을 고른다 — 어느 것이 기본인지 못박는다(#77).
 	println2("  ▸ **기본은 기다리는 것이다**: gil interview " + chain + " --wait [--timeout <초>]")
+	// "말할 수 있는 유일한 길"로 보이는 --status 만 남겨두면 매번 그쪽으로 미끄러진다 —
+	// 그리고 그 길은 사람이 한 번 더 말을 걸어야만 이어진다(이슈 #82). 제3의 형태를 먼저 놓는다.
+	for _, ln := range backgroundWaitHint(chain) {
+		println2(ln)
+	}
 	println2("  ▸ --status 는 확인용이다(pending|done 한 줄). 한 번 묻고 턴을 끝내는 것으로 갈음하지 마라.")
-	println2("     턴을 끝낼 거라면 **다음 턴의 첫 명령**으로 gil interview " + chain + " --status 를 다시 불러라.")
 	println2("     (답이 도착해 있으면 gil 이 어느 명령에서든 맨 앞에 ⚡ 한 줄로 고지한다 — 그래도 네가 먼저 물어라.)")
 }
 
@@ -1816,7 +1829,7 @@ func cmdInterview(args []string) {
 // 에이전트를 둘 중 나쁜 쪽으로 민다 — 바쁜대기(무의미한 git log 반복)거나 우회(내가 기준을 쓴다).
 // 레일이 사람의 응답을 전달하지 못하면 레일을 뚫는 게 합리적으로 보이기 시작한다. 그래서 기다림을
 // 정직한 한 줄(--status)과 진짜 대기(--wait)로 만든다.
-func interviewWatch(chain string, wait bool, timeoutS string) {
+func interviewWatch(chain string, wait bool, timeoutS, then string) {
 	if chainPurpose(chain, "--branches") == "" {
 		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — 먼저 gil chain 으로 열어라.")
 	}
@@ -1841,7 +1854,14 @@ func interviewWatch(chain string, wait bool, timeoutS string) {
 		if pending {
 			println2("interview: " + chain + " — pending (사람 답 대기 중)")
 			println2("▸ 사람에게 뷰어 폼 제출을 청하라. 답이 오면 이 명령이 done 으로 바뀐다.")
-			println2("▸ 기다리려면: gil interview " + chain + " --wait [--timeout <초>]")
+			if interviewWaiterActive(chain) {
+				println2("▸ 지금 이 답을 **기다리는 프로세스가 살아 있다**(백그라운드 --wait). 제출되면 그쪽이 이어간다.")
+			} else {
+				println2("▸ 아무도 기다리고 있지 않다 — 지금 턴을 끝내면 사람이 다시 말을 걸 때까지 아무 일도 안 일어난다(이슈 #82).")
+				for _, ln := range backgroundWaitHint(chain) {
+					println2(ln)
+				}
+			}
 		} else {
 			println2("interview: " + chain + " — none (심어둔 인터뷰가 없다)")
 			println2("▸ 먼저 질문을 심어라: gil interview " + chain + " --ask <질문JSON|->")
@@ -1861,19 +1881,28 @@ func interviewWatch(chain string, wait bool, timeoutS string) {
 		secs = n
 	}
 	println2("interview: " + chain + " — 사람 답을 기다린다(최대 " + strconv.Itoa(secs) + "초). 뷰어 폼 제출을 청하라.")
+	println2("  ▸ 뷰어가 이 대기를 사람에게 보여준다(\"에이전트가 이 답을 기다리는 중\") — 제출이 곧바로 이어진다는 걸 사람이 안다.")
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	// 대기 표식(이슈 #82): 기다리는 중임을 뷰어·handoff·--status 가 볼 수 있게 한다.
+	// die 로 빠져나가도 표식을 남기지 않는다 — 유령이 "기다리는 중"이라 말하면 사람은 다시
+	// 아무도 없는 곳에 제출한다.
+	waiterBeat(chain, deadline)
+	defer waiterClear(chain)
+	dieHooks = append(dieHooks, func() { waiterClear(chain) })
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
+		waiterBeat(chain, deadline) // 심장박동 — 끊기면 읽는 쪽이 죽은 표식으로 본다
 		if done() {
 			report()
 			markInterviewSeen(chain) // 기다려서 봤다 — 도착 고지를 끈다(#77)
+			runThen(chain, then)
 			return
 		}
 	}
 	// 시간초과는 실패가 아니다 — 사람이 아직 안 답했을 뿐이다. 지어내지 말고 그대로 알린다.
 	die("시간초과: \"" + chain + "\" 인터뷰가 " + strconv.Itoa(secs) + "초 안에 제출되지 않았다 — 아직 pending 이다.\n" +
-		"  기준을 대신 쓰지 마라. 사람에게 폼 제출을 청하고 다시 기다려라:\n" +
-		"    gil interview " + chain + " --wait --timeout " + strconv.Itoa(secs))
+		"  기준을 대신 쓰지 마라. 사람에게 폼 제출을 청하고 다시 기다려라(백그라운드로 돌리면 그동안 말도 할 수 있다):\n" +
+		"    gil interview " + chain + " --wait --timeout " + strconv.Itoa(secs) + " > /tmp/gil-" + chain + "-ref.md 2>&1 &")
 }
 
 // interviewResolve — 인터뷰를 해소한다(뷰어 제출이 호출). 답변으로 조립된 레퍼런스 파일을

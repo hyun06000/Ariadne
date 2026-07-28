@@ -73,6 +73,14 @@ func main() {
 	if cmd != "help" && cmd != "-h" && cmd != "--help" && cmd != "version" {
 		noticeArrivedInterviews()
 	}
+	// 관전 서버는 세션의 첫 명령이 무엇이든 떠야 한다(상현님 실사용: gil 이 이미 깔린 머신에서
+	// 새 세션을 열면 init 도 handoff 도 안 부르는 경로가 흔하고, 그러면 그 세션 내내 뷰어가
+	// 없다). init·handoff 는 자기 자리에서 브라우저까지 여니 여기서 중복하지 않는다.
+	switch cmd {
+	case "help", "-h", "--help", "version", "init", "handoff", "viewer", "docs", "mcp":
+	default:
+		ensureViewer()
+	}
 	switch cmd {
 	case "help", "-h", "--help":
 		cmdHelp(rest)
