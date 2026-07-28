@@ -68,6 +68,64 @@ func viewerDirective() string {
 		"  앱을 떠나야 하므로 마지막 수단이다)."
 }
 
+// referenceDigest — 이 체인의 기준 문서(레퍼런스 트루스) 요지를 handoff 에 싣는다(이슈 #62).
+// 전문은 길 수 있으니 (a) "하지 마라"류 금지 항목을 우선 뽑고 (b) 없으면 앞머리 몇 줄을,
+// 그리고 전문을 읽는 한 수를 함께 준다. 기준은 "언제 닫나"를 정하는 자라, 이걸 안 보고
+// 이어받으면 도구의 일반 안내가 사람이 세운 기준을 이긴다.
+func referenceDigest(chain string) []string {
+	ref := chainReferenceText(chain, "--branches")
+	if strings.TrimSpace(ref) == "" {
+		return nil
+	}
+	var L []string
+	L = append(L, "    📌 이 체인의 기준 문서(사람이 세운 자) — 판단은 여기에 비추어라:")
+	// "하지 마라"·금지·말 것 이 들어간 문단을 우선 뽑는다.
+	var banned []string
+	for _, ln := range strings.Split(ref, "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if strings.Contains(t, "하지 마") || strings.Contains(t, "말 것") ||
+			strings.Contains(t, "금지") || strings.Contains(t, "마라") {
+			banned = append(banned, t)
+		}
+	}
+	if len(banned) > 0 {
+		L = append(L, "        ⛔ 하지 마라로 못박힌 것:")
+		for i, b := range banned {
+			if i >= 3 {
+				L = append(L, "           … (나머지는 전문에서)")
+				break
+			}
+			L = append(L, "           · "+clipLine(b, 100))
+		}
+	} else {
+		n := 0
+		for _, ln := range strings.Split(ref, "\n") {
+			t := strings.TrimSpace(ln)
+			if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "──") {
+				continue
+			}
+			L = append(L, "        · "+clipLine(t, 100))
+			if n++; n >= 3 {
+				break
+			}
+		}
+	}
+	L = append(L, "        전문: gil log "+chain+"  (chain-root 본문) 또는 뷰어 체인 카드")
+	return L
+}
+
+// clipLine — 한 줄을 룬 단위로 자른다(바이트로 자르면 한글이 깨진다).
+func clipLine(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 // currencyBanner — 도구 현행성 확인(AIL #12). 새 존재가 계승될 때 구버전 정신모델로
 // 작업하다 우회로에 빠지는 걸 막는다(open --body 미사용→amend, which gil→소스 오인 등이
 // 모두 "낡은 도구·문서를 안 짚어서"였다). handoff 첫 관문에서 (a)현재 버전 (b)최신 대비
@@ -223,6 +281,11 @@ func handoffReport() string {
 	for _, cname := range openOrder {
 		cinfo := chains[cname]
 		L = append(L, "▶ 열린 체인: "+cname+" ("+cinfo.mode+" 모드 — 스텝 승인 방식일 뿐, 체인 앞 인터뷰는 어느 모드든 필수)")
+		// 기준 문서를 handoff 가 인용한다(이슈 #62 제안 2). 지금까지 handoff 어디에도 기준
+		// 이야기가 없어, 이어받은 에이전트가 chain-root 본문을 **스스로 읽기로 마음먹어야만**
+		// 봤다 — 자기규율이고, 자기규율은 원리적으로 불충분하다(#55 와 같은 논리로 규범이어야
+		// 한다). 특히 "하지 마라"는 사람이 명시적으로 세운 금지선이라 먼저 보여야 한다.
+		L = append(L, referenceDigest(cname)...)
 		// 세션이 끊겼다 이어질 때의 복구 지점(이슈 #58): 이 체인이 사람 답을 기다리는 중이면
 		// 그것이 지금 유일하게 할 일이다. 안 적으면 이어받은 세션이 "왜 open 이 거부되지"로 헤맨다.
 		if chainInterviewPending(cname, "--branches") && !chainReferenceApproved(cname, "--branches") {
@@ -231,13 +294,33 @@ func handoffReport() string {
 			L = append(L, "        · 제출 여부 확인: gil interview "+cname+" --status  (기다리려면 --wait)")
 		}
 		cyc, cycOrder := cyclesOf(cname)
+		// 잎 상태와 사이클 상태는 다르다(이슈 #62, 상현님 실사용). 옛 handoff 는 잎이 다
+		// 종결됐으면 그 사이클을 없는 것처럼 건너뛰고 "열린 사이클 없음"이라 적었다 —
+		// gil close 를 받은 적 없는데도. 그래서 사람이 기준 문서에 "완전한 성공 전엔 닫지
+		// 마라"고 못박아 일부러 열어둔 사이클을, 도구가 "새 사이클을 열거나 체인을 닫아라"로
+		// 밀었다. 이어받은 에이전트는 기준 문서보다 handoff 를 먼저 본다 — 그대로 따르면
+		// 미완의 사이클을 버려두고 새 사이클로 도망친다(#45 가 막으려는 바로 그 행동).
+		// 사이클이 끝났다는 건 gil 자신의 규칙으로 close 커밋이 있다는 뜻이다.
+		closedCyc := closedCycles("--branches")
 		hasOpen := false
 		for _, cid := range cycOrder {
 			c := cyc[cid]
-			if c.status != "in_progress" && c.status != "pending" {
-				continue
+			if closedCyc[cname+"\x01"+cid] {
+				continue // 진짜로 닫힌 사이클
 			}
 			hasOpen = true
+			if c.status != "in_progress" && c.status != "pending" {
+				// 잎은 다 종결됐지만 사이클은 안 닫혔다 — 두 상태를 갈라 적는다.
+				L = append(L, "    ◦ 사이클 "+cid+" (미종결 — 잎 상태: "+c.status+")")
+				L = append(L, "        잎은 다 종결됐다. 그러나 이 사이클은 아직 닫히지 않았다 —")
+				L = append(L, "        '잎이 다 종결됐다'는 '사이클 목표가 달성됐다'와 다르다.")
+				L = append(L, "        · 목표에 닿았으면 닫아라: gil close "+cname+"/"+cid+
+					"   (죽은 사이클이면 --abandon)")
+				L = append(L, "        · 아직이면 갈래를 더 내라: gil step "+cname+"/"+cid+
+					" --kind hypothesis --to <조상 define|analyze> --inherit <여기까지의 교훈>")
+				L = append(L, "        · 언제 닫는지는 이 체인의 기준 문서가 정한다 — 위 📌 기준을 먼저 읽어라.")
+				continue
+			}
 			tip := c.liveTip()
 			nxt := nextAllowed(tip.kind, tip.outcome)
 			oc := ""
@@ -252,7 +335,7 @@ func handoffReport() string {
 			}
 		}
 		if !hasOpen {
-			L = append(L, "    열린 사이클 없음 — 다음 둘 중 하나:")
+			L = append(L, "    닫히지 않은 사이클 없음 — 다음 둘 중 하나:")
 			L = append(L, "      · 이 국면을 더 판다 → 닫힌 사이클 끝에서 새 사이클: gil open "+cname+"/<cycle> --author <a> --purpose <p>")
 			L = append(L, "      · 이 국면이 완결됐다 → 체인을 닫고 새 체인으로: gil chain-close "+cname+" → gil chain <새이름> --purpose <다음 국면>")
 			L = append(L, "        (사이클만 계속 늘리지 말 것 — 국면이 끝났으면 체인을 전환해 교훈을 이어받는다.)")

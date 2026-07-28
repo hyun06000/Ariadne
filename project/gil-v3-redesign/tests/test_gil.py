@@ -3889,3 +3889,82 @@ class TestTerminalAttachAndAt(GilFixture):
                  "--title", "막힘", "--body", "벽")
         out = (lambda r: r.stdout + r.stderr)(self.gil("fsck"))
         self.assertNotIn("매달린 미종결 잎", out)
+
+
+class TestHandoffRespectsTheReference(GilFixture):
+    """기준 문서가 handoff 의 판정에 참여한다 (이슈 #62, 상현님 실사용).
+
+    사람이 기준 문서에 "완전한 성공 전엔 사이클을 닫지 마라"고 못박고 사이클을 일부러 열어
+    뒀는데, handoff 는 "열린 사이클 없음 → 새 사이클을 열거나 체인을 닫아라"로 밀었다.
+    잎이 다 종결됐다는 이유였다 — 그러나 **'잎이 다 종결됐다' ≠ '사이클 목표가 달성됐다'**.
+
+    handoff 는 세션을 이어받는 첫 관문이라(#55) 영향이 크다. 이어받은 에이전트는 기준 문서보다
+    handoff 를 먼저 보고, 그대로 따르면 미완의 사이클을 버려두고 새 사이클로 도망친다 —
+    #45 가 막으려는 바로 그 행동을 도구가 권유한 셈이다.
+    """
+
+    REF = ("# 기준 문서 — adopt\n\n"
+           "## 3. 이 체인에서 \"이건 하지 마라\"로 못 박을 것이 있나요?\n"
+           "완전한 성공을 얻기 전에는 사이클을 닫지 마라. 계속 실패하고 실패로부터 배워라.\n")
+
+    def setUp(self):
+        super().setUp()
+        self._no_interview_autofill = True  # 기준 문서를 직접 심는다 — 보정이 덮어쓰지 않게
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "adopt", "--purpose", "채택")
+        self.gil("interview", "adopt", "--ask", "-",
+                 input='[{"q":"하지 마라로 못 박을 것","type":"text"}]')
+        with open(os.path.join(self.repo, "reference-adopt.md"), "w", encoding="utf-8") as f:
+            f.write(self.REF)
+        self.gil("interview", "adopt", "--resolve", "reference-adopt.md")
+        self.gil("open", "adopt/gap", "--author", "clew", "--purpose", "갭", "--body", "갭 11개")
+
+    def _terminate_all_leaves(self):
+        self.gil("step", "adopt/gap", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "adopt/gap", "--kind", "verify", "--title", "V",
+                 "--verdict", "supported", "--body", "지지")
+        self.gil("step", "adopt/gap", "--kind", "analyze", "--title", "A", "--body", "해석")
+        self.gil("step", "adopt/gap", "--kind", "success", "--title", "S", "--body", "G2 닫음")
+
+    def _handoff(self):
+        r = self.gil("handoff")
+        return r.stdout + r.stderr
+
+    def test_unclosed_cycle_is_not_reported_as_absent(self):
+        """잎이 다 종결돼도 닫히지 않은 사이클은 여전히 있다 — 없는 것처럼 적지 않는다."""
+        self._terminate_all_leaves()
+        out = self._handoff()
+        self.assertNotIn("열린 사이클 없음", out)
+        self.assertIn("사이클 gap (미종결", out)
+
+    def test_leaf_state_and_cycle_state_are_distinguished(self):
+        """두 개념이 한 문장에 뭉개지지 않는다 — 잎 상태는 따로 적는다."""
+        self._terminate_all_leaves()
+        out = self._handoff()
+        self.assertIn("잎 상태: solved", out)
+        self.assertIn("'잎이 다 종결됐다'는 '사이클 목표가 달성됐다'와 다르다", out)
+
+    def test_both_moves_are_offered_not_just_closing(self):
+        """닫는 길과 더 파는 길을 나란히 준다 — 도구가 이탈을 권유하지 않게."""
+        self._terminate_all_leaves()
+        out = self._handoff()
+        self.assertIn("gil close adopt/gap", out)
+        # 안내가 실제 문법이어야 한다 — 틀린 한 수를 주면 거부로 되돌아온다.
+        self.assertNotIn("--verdict solved", out)
+        self.assertIn("--kind hypothesis --to", out)
+
+    def test_handoff_quotes_the_reference_prohibitions(self):
+        """기준 문서의 '하지 마라'를 handoff 가 인용한다 — 스스로 읽기로 마음먹지 않아도."""
+        out = self._handoff()
+        self.assertIn("기준 문서", out)
+        self.assertIn("하지 마라로 못박힌 것", out)
+        self.assertIn("완전한 성공을 얻기 전에는 사이클을 닫지 마라", out)
+
+    def test_closed_cycle_disappears_as_before(self):
+        """진짜로 닫힌 사이클은 예전처럼 안내에서 빠진다 — 규칙을 뒤집는 게 아니다."""
+        self._terminate_all_leaves()
+        rc = self.gil("close", "adopt/gap")
+        self.assertEqual(rc.returncode, 0, rc.stdout + rc.stderr)
+        out = self._handoff()
+        self.assertIn("닫히지 않은 사이클 없음", out)
