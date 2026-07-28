@@ -3132,6 +3132,106 @@ class TestQuietByDefault(GilFixture):
         self.assertNotIn("브라우저로 열었다", out)           # 창은 안 뜬다
 
 
+class TestMigrateLineageTopology(GilFixture):
+    """v2 의 체인 *내부* 계보를 커밋 그래프에 심는다 (이슈 #61, 실사용 보고).
+
+    옛 이주는 사이클 가지를 언제나 체인 루트에서 팠다. 트레일러에 부모를 적어도 커밋
+    그래프에서는 모든 사이클이 형제였다 — 실측: 인접쌍 37개 전부 독립, merge-base 가 예외
+    없이 체인 루트. 계보를 위상에서 읽는 뷰어에는 통째로 안 보였다.
+
+    #53("없던 이어받음이 생긴다")의 정확한 짝 — **있던 이어받음이 사라진다.** 한 체인이 곧
+    하나의 논증 사슬인 저장소에서는, 그 순서를 잃으면 남는 건 "같은 체인에 속한 N개 사이클"
+    이라는 집합뿐이고 어느 결론이 어느 결론 위에 서 있는지를 잃는다.
+    """
+
+    def _write(self, relpath, content):
+        full = os.path.join(self.repo, relpath)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as f:
+            f.write(content)
+
+    def _v2cycle(self, chain, cid, **fields):
+        lines = [f"id: {cid}", f"chain: {chain}"]
+        for k, v in fields.items():
+            lines.append(f"{k}: {v}")
+        self._write(f"rooms/experiment/chains/{chain}/{cid}/cycle.yaml",
+                    "\n".join(lines) + "\n")
+
+    def _seed_v2(self):
+        """한 체인이 하나의 논증 사슬인 v2 를 흉내낸다 — 부모가 pending 인 사례까지."""
+        self._write("CLAUDE.md", "# 대문\n")
+        self._v2cycle("alpha", "C001-seed", parent="null",
+                      status="closed", verdict="supported", title="첫 사이클")
+        self._v2cycle("alpha", "C002-grow", parent="C001-seed",
+                      status="closed", verdict="supported", title="둘째 사이클")
+        self._v2cycle("alpha", "C003-quiet", parent="C002-grow",
+                      status="closed", title="verdict 없는 닫힌 사이클")   # → pending 종결
+        self._v2cycle("alpha", "C004-after-quiet", parent="C003-quiet",
+                      status="open", verdict="null", title="pending 부모 위에서 이어 연 사이클")
+        self._v2cycle("beta", "C001-wall", parent="null",
+                      status="closed", verdict="rejected", title="기각된 가설")
+        self._v2cycle("beta", "C002-waiting", parent="null",
+                      status="open", verdict="null", title="사람 대기")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "v2 seed")
+        return self._git("rev-parse", "HEAD").stdout.strip()
+
+    def _migrate(self):
+        v2root = self._seed_v2()
+        self._git("checkout", "-q", "-b", "v3-migration")
+        return self.gil("migrate", "--from", v2root)
+
+    def _tip(self, branch):
+        return self._git("rev-parse", branch).stdout.strip()
+
+    def _is_ancestor(self, anc, desc):
+        return self._git("merge-base", "--is-ancestor", anc, desc).returncode == 0
+
+    def test_child_cycle_descends_from_parent_cycle(self):
+        """c002 는 c001 의 자손이어야 한다 — 형제가 아니라."""
+        self.assertEqual(self._migrate().returncode, 0)
+        self.assertTrue(self._is_ancestor(self._tip("alpha-c001-seed"),
+                                          self._tip("alpha-c002-grow")),
+                        "자식 사이클이 부모 사이클의 자손이 아니다(체인 루트의 형제로 남았다)")
+
+    def test_lineage_is_a_chain_not_a_set(self):
+        """사슬이 이어진다 — c001 → c002 → c003."""
+        self._migrate()
+        self.assertTrue(self._is_ancestor(self._tip("alpha-c002-grow"),
+                                          self._tip("alpha-c003-quiet")))
+        # 그리고 체인 루트가 인접쌍의 merge-base 로 주저앉지 않는다.
+        mb = self._git("merge-base", self._tip("alpha-c001-seed"),
+                       self._tip("alpha-c002-grow")).stdout.strip()
+        self.assertEqual(mb, self._tip("alpha-c001-seed"))
+
+    def test_rootless_cycle_still_starts_at_chain_root(self):
+        """parent: null 은 그대로 체인 루트에서 — 없던 계보를 지어내지 않는다.
+
+        (체인 루트끼리 순차로 이어지는 건 별개 동작이라, 같은 체인 안에서 본다.)"""
+        self._migrate()
+        self.assertFalse(self._is_ancestor(self._tip("beta-c001-wall"),
+                                           self._tip("beta-c002-waiting")),
+                         "parent:null 인데 앞 사이클의 자손이 됐다 — 없던 계보를 지어냈다")
+
+    def test_lineage_survives_open_parent(self):
+        """부모가 pending 으로 끝나도 계보를 버리지 않는다 — v2 가 기록한 사실이다.
+
+        옛 코드는 '닫힌 부모'만 인정해, pending 으로 남은 부모의 계보를 통째로 버렸다
+        (실사용 보고: 16건). parent 는 '여기서 이어 열었다'는 사실이지 '부모가 닫혔다'는
+        주장이 아니다."""
+        self._migrate()
+        body = self._git("log", "alpha-c004-after-quiet", "--format=%B").stdout
+        self.assertIn("Gil-Cycle-Parent: c003-quiet", body)
+        self.assertTrue(self._is_ancestor(self._tip("alpha-c003-quiet"),
+                                          self._tip("alpha-c004-after-quiet")),
+                        "pending 부모의 계보가 위상에서 사라졌다")
+
+    def test_open_parent_is_reported_not_hidden(self):
+        """닫히지 않은 부모 위에 이어졌음을 그 자리에서 말한다 — 조용하면 '보존됨'으로 읽힌다."""
+        r = self._migrate()
+        self.assertIn("부모가 닫히지 않은 채 이어진 사이클", r.stderr)
+
+
 class TestMigrateVerdictHonesty(GilFixture):
     """이주는 없는 성공을 날조하지 않는다 (이슈 #50).
 

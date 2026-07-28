@@ -471,11 +471,25 @@ func cmdMigrate(args []string) {
 		}
 		migrateChainRoot(v3chain, chain, chainPurposeText)
 
-		closedInChain := map[string]bool{}
+		// migratedInChain — 이 체인에서 이미 이주된 사이클(위상정렬이 부모 먼저를 보장한다).
+		// 옛 코드는 "닫힌 부모"만 계보로 인정해, v2 에서 pending 으로 남은 부모의 계보를 통째로
+		// 버렸다(이슈 #61: 우리 경우 16건). v2 가 기록한 parent 는 "여기서 이어 열었다"는
+		// 사실이지 "부모가 닫혔다"는 주장이 아니다 — 사실을 버리지 않는다.
+		migratedInChain := map[string]bool{}
+		openParents := map[string]string{} // 자식 → pending 으로 끝난 부모(보고용)
 		for _, c := range sorted {
-			migrateCycle(v3chain, c, closedInChain)
-			closedInChain[v2ToV3ID(c.id)] = true
+			migrateCycle(v3chain, c, migratedInChain, openParents)
+			migratedInChain[v2ToV3ID(c.id)] = true
 			migrated++
+		}
+		// 부모가 닫히지 않은 채 이어진 사이클을 그 자리에서 알린다(이슈 #61 제안 3). 조용하면
+		// 이주본을 "계보 보존됨"으로 읽게 된다 — 실제로 그렇게 읽혔다.
+		if len(openParents) > 0 {
+			stderr("  ⚠ 체인 " + chain + ": 부모가 닫히지 않은 채 이어진 사이클 " + itoa(len(openParents)) + "건 —")
+			stderr("    v2 에서 그렇게 열렸다는 사실 그대로 계보를 심는다(v3 의 '닫힌 끝에서만' 규칙과는 다르다).")
+			for k, v := range openParents {
+				stderr("      " + k + " ← " + v + " (부모 종결=pending)")
+			}
 		}
 	}
 
@@ -536,18 +550,48 @@ func migrateChainRoot(v3chain, v2chain, purpose string) {
 //
 // 압축 매핑: hypothesis+design→define(s1, open이 새김), verification→verify(s2),
 // analysis+report+verdict→종결 스텝(success/fail/pending, s3). 그 뒤 close(fail·pending 제외).
-func migrateCycle(v3chain string, c v2cycle, closedInChain map[string]bool) {
+// migrateClosedCycle — 이미 이주된 사이클이 close 로 봉인됐나. pending 종결(사람 대기)로
+// 끝난 v2 사이클은 닫히지 않는다 — 그 위에 이어 연 자식을 "닫힌 끝에서의 계승"이라 부를 수
+// 없어, 사실대로 보고만 하고 계보는 심는다(이슈 #61 제안 2).
+func migrateClosedCycle(v3chain, v3cyc string) bool {
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep + trailer("Gil-Kind") + sep
+	out := gitlog("--format="+fmtStr, "refs/heads/"+cycleBranch(v3chain, v3cyc))
+	for _, rec := range strings.Split(out, sep) {
+		ch, rest, _ := cut(rec, fsep)
+		cy, kind, _ := cut(rest, fsep)
+		if strings.TrimSpace(ch) == v3chain && strings.TrimSpace(cy) == v3cyc &&
+			strings.TrimSpace(kind) == "close" {
+			return true
+		}
+	}
+	return false
+}
+
+func migrateCycle(v3chain string, c v2cycle, migratedInChain map[string]bool, openParents map[string]string) {
 	v3cyc := v2ToV3ID(c.id)
 	cb := cycleBranch(v3chain, v3cyc)
 
 	// s1 define — v2 hypothesis(+design 흡수). open 대신 직접 커밋(가드 우회: 이주는 v2 순서를
 	// 이미 위상정렬로 보장한다). 하지만 부모 사이클 닫힘·목적 등 v3 의미는 트레일러로 싣는다.
 	// 부모(들): 같은 체인에서 이미 이주·닫힌 부모만 Gil-Cycle-Parent 로 기록(머지=여러 부모).
+	// 부모(들): 이 체인에서 이미 이주된 부모를 모두 계보로 남긴다(이슈 #61). 닫힘 여부로
+	// 거르지 않는다 — v2 의 parent 는 "여기서 이어 열었다"는 사실이고, 그 사실을 버리면
+	// 남는 건 "같은 체인에 속한 N개 사이클"이라는 집합뿐이라 어느 결론이 어느 결론 위에
+	// 서 있는지를 잃는다. 이주 범위 밖(--only/--exclude)이라 없는 부모만 빠진다.
 	var v3parents []string
+	var missing []string
 	for _, p := range c.parents {
-		if closedInChain[v2ToV3ID(p)] {
-			v3parents = append(v3parents, v2ToV3ID(p))
+		pv3 := v2ToV3ID(p)
+		if migratedInChain[pv3] {
+			v3parents = append(v3parents, pv3)
+		} else if strings.TrimSpace(p) != "" {
+			missing = append(missing, pv3)
 		}
+	}
+	if len(missing) > 0 {
+		// 조용히 빠지면 "계보 보존됨"으로 읽힌다(이슈 #61 제안 3).
+		stderr("    ⚠ " + v2ToV3ID(c.id) + ": 부모 " + strings.Join(missing, ",") +
+			" 가 이주 범위 밖이라 계보를 못 심는다(--only/--exclude 확인).")
 	}
 	author := orDefault(c.author, "migrate")
 	purpose := orDefault(c.title, "(v2 "+c.id+" 이주 — 목적 미기재)")
@@ -567,8 +611,23 @@ func migrateCycle(v3chain string, c v2cycle, closedInChain map[string]bool) {
 	for _, ln := range c.lineage {
 		dtr = append(dtr, [2]string{"Gil-Cycle-Lineage", ln}) // 교훈계승(다른 체인)
 	}
-	// 사이클 = 체인 안 git 가지. 체인 팁(또는 닫힌 부모 사이클 끝)에서 분기.
-	commitOn(cb, v3chain, defineSubj, defineBody, dtr, true)
+	// 사이클 = 체인 안 git 가지. **부모 사이클의 끝에서** 분기한다(이슈 #61).
+	//
+	// 옛 코드는 언제나 체인 루트에서 팠다. 그래서 트레일러에 부모를 적어도 커밋 그래프에서는
+	// 모든 사이클이 체인 루트의 형제였고 — 실사용 실측: 인접쌍 37개 전부 독립, merge-base 가
+	// 예외 없이 체인 루트 — 계보를 위상에서 읽는 뷰어·#53 판정에는 통째로 안 보였다.
+	// #53 이 "없던 이어받음이 생긴다"였다면 이건 그 짝인 "있던 이어받음이 사라진다"다.
+	from := v3chain
+	if len(v3parents) > 0 {
+		// 여러 부모(v2 머지)면 첫 부모 위에 얹고 나머지는 Gil-Cycle-Parent 트레일러로 남는다.
+		if tip := cycleBranch(v3chain, v3parents[0]); gitOK("rev-parse", "--verify", "-q", "refs/heads/"+tip) {
+			from = tip
+			if openParents != nil && !migrateClosedCycle(v3chain, v3parents[0]) {
+				openParents[v3cyc] = v3parents[0]
+			}
+		}
+	}
+	commitOn(cb, from, defineSubj, defineBody, dtr, true)
 
 	// s2 verify — v2 verification.
 	verifySubj := "gil " + v3chain + "/" + v3cyc + "/s2 verify: 검증 [migrate]"
