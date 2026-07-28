@@ -4063,3 +4063,46 @@ class TestMigratePartialIsAnnounced(GilFixture):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("아무것도 만들지 않았다", r.stdout + r.stderr)
         self.assertNotIn("이주가 중간에 멈췄다", r.stdout + r.stderr)
+
+
+class TestChainDepthCountsAllCycles(GilFixture):
+    """--depth chain 이 사이클을 빠뜨리지 않는다 (이슈 #63, 상현님 실사용).
+
+    옛 집계는 **체인 브랜치 팁에서 도달 가능한 커밋**만 셌다. 그런데 사이클은 각자
+    <chain>-<cycle> 브랜치에 살고 체인 팁으로 병합되지 않는다 — 그래서 병합 안 된 사이클이
+    통째로 빠졌다(실측: 총 61개 중 28개 유실, 네 체인은 사이클이 있는데 [사이클 0]).
+
+    한 바이너리 안에서 세 경로가 서로 다른 답을 냈다: --depth chain(2) vs --depth cycle(10)
+    vs handoff(10) vs 뷰어(10). --depth chain 은 계보를 조망하는 **첫 화면**이라, 여기서 빈
+    껍데기로 보이면 이미 있는 작업을 못 보고 새로 판다 — 그래프를 보게 만든 이유(#55) 자체가
+    무너진다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init")
+        self.gil("chain", "design-v3", "--purpose", "P")
+        for c in ("fold", "effect", "flow"):
+            self.gil("open", f"design-v3/{c}", "--author", "clew", "--purpose", c,
+                     "--body", f"정의 {c}")
+            self.gil("step", f"design-v3/{c}", "--kind", "hypothesis", "--title", "H",
+                     "--falsify", "F", "--falsify-to", "s1")
+            self.gil("step", f"design-v3/{c}", "--kind", "verify", "--title", "V",
+                     "--verdict", "supported", "--body", "B")
+            self.gil("step", f"design-v3/{c}", "--kind", "analyze", "--title", "A", "--body", "B")
+            self.gil("step", f"design-v3/{c}", "--kind", "success", "--title", "S", "--body", "B")
+            self.gil("close", f"design-v3/{c}")
+
+    def test_chain_depth_counts_unmerged_cycle_branches(self):
+        out = self.gil("log", "--depth", "chain").stdout
+        self.assertIn("[사이클 3]", out)
+        self.assertNotIn("[사이클 0]", out)
+
+    def test_three_paths_agree(self):
+        """--depth chain · --depth cycle · handoff 가 같은 수를 말한다."""
+        chain_view = self.gil("log", "--depth", "chain").stdout
+        cycle_view = self.gil("log", "design-v3", "--depth", "cycle").stdout
+        self.assertIn("[사이클 3]", chain_view)
+        self.assertEqual(cycle_view.count("◆"), 3)
+        # handoff 의 누적 신호도 같은 집계원을 본다.
+        self.assertIn("3", self.gil("handoff").stdout + self.gil("handoff").stderr)

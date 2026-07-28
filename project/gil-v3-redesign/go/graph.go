@@ -532,13 +532,19 @@ func chainsFromGraph() (map[string]chainAgg, []string) {
 		if chainName == "" || root == nil {
 			continue
 		}
-		brShas := map[string]bool{}
-		for _, s := range shas {
-			brShas[s] = true
-		}
+		// 사이클 수는 **그래프 전체**에서 센다(이슈 #63, 상현님 실사용).
+		//
+		// 옛 코드는 이 체인 브랜치 팁에서 도달 가능한 커밋(brShas)만 셌다. 그런데 사이클은
+		// 각자 <chain>-<cycle> 브랜치에 살고 체인 팁으로 병합되지 않는다 — 그래서 병합 안 된
+		// 사이클이 통째로 빠졌다(실측: 총 61개 중 28개 유실, 4개 체인은 실제로 사이클이 있는데
+		// [사이클 0] 으로 나왔다). 한 바이너리 안에서 --depth chain 만 handoff·--depth cycle·
+		// 뷰어와 다른 답을 냈다.
+		//
+		// --depth chain 은 계보를 조망하는 첫 화면이라, 여기서 "빈 껍데기"로 보이면 이미 있는
+		// 작업을 못 보고 새로 판다 — 그래프를 보게 만든 이유(#55) 자체가 무너진다.
 		cyc := map[string]bool{}
 		for _, n := range allNodes {
-			if n.chain == chainName && n.cycle != "" && brShas[n.sha] {
+			if n.chain == chainName && n.cycle != "" {
 				cyc[n.cycle] = true
 			}
 		}
