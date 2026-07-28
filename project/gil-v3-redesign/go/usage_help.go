@@ -59,6 +59,8 @@ var helpTable = map[string]helpEntry{
 		"gil step <chain>/<cycle> --kind <K> [옵션]\n" +
 			"  스텝(커밋 노드) 하나. --kind: define|hypothesis|verify|analyze | success|fail|pending\n" +
 			"  --to <define>  (fail·backtrack 되돌아갈 곳 / hypothesis 형제 가지 뿌리)\n" +
+			"    형식은 **짧은 스텝 이름**이다 — 예: --to s1 (경로형 <chain>/<cycle>/s1 이나 커밋\n" +
+			"    해시도 받아 정규화한다. --falsify-to 도 같다.)\n" +
 			"  --title <요약>  --body <본문> | --body-file <경로>(마크다운·이미지, 뷰어 렌더)\n" +
 			"    --body-file - 이면 stdin 에서 읽는다 — 임시 .md 파일 없이 heredoc·파이프로 바로 넘겨 잉여 파일을 안 남긴다.\n" +
 			"  --merge <산잎 스텝id>...  (한 사이클 안 산 잎들 합류)\n" +

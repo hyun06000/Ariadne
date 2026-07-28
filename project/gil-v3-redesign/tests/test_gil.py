@@ -3034,5 +3034,69 @@ class TestMCPRepoMismatch(GilFixture):
         self.assertNotIn("기록이 쌓이는 곳과", t)
 
 
+class TestRefusalsGiveNextMove(GilFixture):
+    """모든 거부는 '다음 올바른 한 수'를 준다 (이슈 #47).
+
+    관통 원칙: gil 은 강제(거부)는 잘 하나 그 다음 행동으로 안내하는 레일이 약했다. 거부가
+    "하지 마"까지만 하면, 전진 편향이 있는 사용자(특히 LLM)는 막힌 곳을 **우회**하려 들지
+    도구가 원하는 길로 가지 않는다. 거부 메시지는 LLM 이 읽는 프롬프트다.
+    """
+
+    def _ready_cycle(self):
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "clew", "--purpose", "P", "--body", "B")
+
+    def test_unknown_kind_lists_valid_kinds_and_guesses(self):
+        """G2 — 유효 목록 + 오타 근접 제안 + 지금 어디쯤인지."""
+        self._ready_cycle()
+        self._no_autofill = True
+        r = self.gil("step", "c/c001", "--kind", "hypthesis", "--title", "H", "--body", "B")
+        out = r.stdout + r.stderr
+        self.assertIn("쓸 수 있는 kind", out)
+        self.assertIn("hypothesis", out)
+        self.assertIn("혹시", out)          # 근접 제안
+
+    def test_unknown_flag_suggests_and_lists(self):
+        """G3 — 붙여 쓴 오입력(--title-body)은 편집거리가 멀어도 뜻이 명백하다."""
+        self._ready_cycle()
+        r = self.gil("step", "c/c001", "--kind", "verify", "--title-body", "X")
+        out = r.stdout + r.stderr
+        self.assertIn("혹시 --title", out)
+        self.assertIn("이 명령이 받는 플래그", out)
+
+    def test_falsify_to_accepts_path_form(self):
+        """G1 — 경로형(chain/cycle/s1)을 받아 정규화한다. 형식 때문에 3회 헤매지 않게."""
+        self._ready_cycle()
+        r = self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "H", "--body", "B",
+                     "--falsify", "F", "--falsify-to", "c/c001/s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_bad_falsify_to_shows_format_and_candidates(self):
+        """G1 — 틀렸으면 정답 형식과 **실제 후보**를 그 자리에 편다."""
+        self._ready_cycle()
+        r = self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "H", "--body", "B",
+                     "--falsify", "F", "--falsify-to", "s9")
+        out = r.stdout + r.stderr
+        self.assertIn("짧은 스텝 이름", out)
+        self.assertIn("이 사이클의 define: s1", out)
+
+    def test_chain_close_says_how_to_close_each_cycle(self):
+        """G7 — 사이클 이름만 나열하면 사용자는 gil close 를 시도했다 또 거부당한다."""
+        self._ready_cycle()
+        self.gil("step", "c/c001", "--kind", "hypothesis", "--title", "H", "--body", "B",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "c/c001", "--kind", "verify", "--verdict", "refuted",
+                 "--title", "V", "--body", "B")
+        self.gil("step", "c/c001", "--kind", "analyze", "--title", "A", "--body", "B")
+        self.gil("step", "c/c001", "--kind", "fail", "--title", "F", "--body", "B", "--to", "s1")
+        self._no_retro_autofill = True
+        r = self.gil("chain-close", "c")
+        out = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("fail 잎만 있다", out)          # 왜 못 닫는지
+        self.assertIn("--kind hypothesis --to s1", out)  # 다음 한 수 (재분기)
+        self.assertIn("--abandon", out)                  # 다른 정직한 길
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

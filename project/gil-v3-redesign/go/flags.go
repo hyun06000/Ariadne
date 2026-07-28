@@ -5,7 +5,10 @@
 // 재현하려고 얇은 파서를 둔다: --key value 형태만 받고, 나머지는 위치인자.
 package main
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 type flagSet struct {
 	prog  string
@@ -81,5 +84,49 @@ func (f *flagSet) assign(name, val string) {
 		*p = append(*p, val)
 		return
 	}
-	die("거부: " + f.prog + " — 알 수 없는 플래그 --" + name)
+	msg := "거부: " + f.prog + " — 알 수 없는 플래그 --" + name
+	if g := f.nearestFlag(name); g != "" {
+		msg += "\n  혹시 --" + g + " 인가?"
+	}
+	msg += "\n  이 명령이 받는 플래그: " + strings.Join(f.knownFlags(), " ") +
+		"\n  전체 사용법: " + f.prog + " --help"
+	die(msg)
+}
+
+// knownFlags — 이 명령이 실제로 받는 플래그들(정렬). 거부가 "뭘 쓸 수 있는지"를 그 자리에서
+// 알려주면 사람도 LLM 도 help 를 따로 찾아 헤매지 않는다(이슈 #47 G3).
+func (f *flagSet) knownFlags() []string {
+	var out []string
+	for k := range f.strs {
+		out = append(out, "--"+k)
+	}
+	for k := range f.lists {
+		out = append(out, "--"+k)
+	}
+	for k := range f.bools {
+		out = append(out, "--"+k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// nearestFlag — 오타에 가장 가까운 플래그 하나(편집거리 2 이내). "--title-body"→"--title".
+func (f *flagSet) nearestFlag(bad string) string {
+	lb := strings.ToLower(bad)
+	// 접두/포함 일치를 먼저 본다 — "--title-body" 처럼 **붙여 쓴** 오입력은 편집거리가 멀지만
+	// 뜻은 명백하다(실측: --title-body 를 추측해 씀). 이게 단순 오타보다 흔하다.
+	for _, k := range f.knownFlags() {
+		k = strings.TrimPrefix(k, "--")
+		if k != lb && (strings.HasPrefix(lb, k) || strings.HasPrefix(k, lb)) {
+			return k
+		}
+	}
+	best, bestD := "", 3
+	for _, k := range f.knownFlags() {
+		k = strings.TrimPrefix(k, "--")
+		if d := editDistance(lb, k); d < bestD {
+			best, bestD = k, d
+		}
+	}
+	return best
 }

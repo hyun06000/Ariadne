@@ -486,7 +486,16 @@ func cmdStep(args []string) {
 		die("거부: " + ref + " 없음 (먼저 gil open)")
 	}
 	if !kinds[*kind] {
-		die("거부: 알 수 없는 kind \"" + *kind + "\"")
+		msg := "거부: 알 수 없는 kind \"" + *kind + "\"\n" +
+			"  쓸 수 있는 kind: " + strings.Join(sortedIDs(kinds), " · ")
+		if g := nearestKind(*kind); g != "" {
+			msg += "\n  혹시 --kind " + g + " 인가?"
+		}
+		if len(steps) > 0 {
+			msg += "\n  지금 팁은 [" + steps[len(steps)-1].step + " " + steps[len(steps)-1].kind +
+				"] 이다 — 순서(define→hypothesis→verify→analyze→종결)에 비추어 다음을 골라라."
+		}
+		die(msg)
 	}
 	// define 은 사이클의 뿌리 하나뿐 — open 이 만드는 s1 이 유일한 문제 정의다(상현님).
 	// 첫 define 이 못 다룬 부분은 새 define 을 또 만드는 게 아니라, 다른 스텝(hypothesis 등)
@@ -676,8 +685,16 @@ func cmdStep(args []string) {
 			die("거부: hypothesis 는 --falsify-to <조상 define> 필요 — 반증되면 되돌아갈 곳. " +
 				"이걸 미리 심어야 verify 반증이 자동으로 backtrack 경로를 갖는다(AIL #1).")
 		}
+		// 관대한 입력(이슈 #47 G1): 사람도 LLM 도 "chain/cycle/s1" 이나 커밋 해시를 먼저
+		// 시도한다(실측 3회 시행착오). 뜻이 명백하면 받아 정규화한다 — 형식을 못 맞춰서
+		// 거부당하는 건 사고의 문제가 아니라 표기의 문제다.
+		*falsifyTo = normalizeStepRef(*falsifyTo, chain, cycle, steps)
 		if !defineIDs[*falsifyTo] {
-			die("거부: --falsify-to " + *falsifyTo + "는 이 사이클의 조상 define이어야 함")
+			die("거부: --falsify-to \"" + *falsifyTo + "\" 는 이 사이클의 조상 define 이 아니다.\n" +
+				"  형식은 **짧은 스텝 이름**이다(예: s1). 경로형(" + chain + "/" + cycle +
+				"/s1)이나 커밋 해시도 받아 정규화한다.\n" +
+				"  이 사이클의 define: " + strings.Join(sortedIDs(defineIDs), " ") + "\n" +
+				"  그중 하나를 골라라 — 이 가설이 반증되면 되돌아갈 자리다.")
 		}
 		// 제안 A (AIL #1) — 복합가설 열거 거부. 한 hypothesis 는 한 주장이어야 한다: verdict 는
 		// 하나뿐이라, H1·H2·H3 를 한 가설에 담으면 H1만 반증돼도 정직하게 표현할 수 없다(반증
@@ -1284,8 +1301,14 @@ func cmdChainClose(args []string) {
 		}
 	}
 	if len(open) > 0 {
-		die("거부: 아직 닫히지 않은 사이클이 남음 — 먼저 gil close 로 닫아라: " +
-			strings.Join(open, " ") + ". (완결의 정의: 모든 사이클이 닫혀야 체인을 닫는다.)")
+		// 사이클마다 **왜 못 닫히는지와 갈 길**을 짚는다(이슈 #47 G7). 이름만 나열하면
+		// 사용자는 gil close 를 시도했다가 또 거부당하고, 거부가 거부로 이어지면 우회하려 든다.
+		msg := "거부: 아직 닫히지 않은 사이클이 " + itoa(len(open)) + "개 남았다 — 체인은 모든 " +
+			"사이클이 닫혀야 닫힌다(완결의 정의).\n"
+		for _, id := range open {
+			msg += cycleCloseHint(chain, id) + "\n"
+		}
+		die(strings.TrimRight(msg, "\n"))
 	}
 	// 회고 강제(이슈 #33) — 단, **기준이 있는 체인에서만**. 사람이 인터뷰로 세운 기준이 있는
 	// 체인은 그 기준 대비 달성도를 남기지 않고 닫을 수 없다. 기준 없이 닫히던 옛 체인까지
@@ -1573,4 +1596,139 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// ── 거부를 "다음 한 수"로 바꾸는 작은 도구들 (이슈 #47) ──
+//
+// gil 의 거부 메시지는 LLM 이 읽는 프롬프트다. "하지 마"까지만 하고 "대신 이걸 해"를 안 주면,
+// 전진 편향이 있는 사용자는 막힌 곳을 **우회**하려 들지 도구가 원하는 길로 가지 않는다.
+// 그래서 모든 거부는 (a) 정답 형식 (b) 지금 고를 수 있는 실제 후보 (c) 다음 명령을 담는다.
+
+// sortedIDs — map 의 키를 정렬해 낸다. 거부 메시지의 후보 목록이 호출마다 순서가 바뀌면
+// 사람도 LLM 도 "다른 답이 왔다"고 오해한다.
+func sortedIDs(m map[string]bool) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// normalizeStepRef — 스텝을 가리키는 여러 표기를 짧은 이름(s1)으로 모은다(이슈 #47 G1).
+// 받아주는 형태: s1 · <chain>/<cycle>/s1 · 커밋 해시(그 사이클 안의 스텝이면).
+// 뜻이 명백한데 표기가 다르다는 이유로 거부하는 건 사고가 아니라 형식의 문제다.
+func normalizeStepRef(ref, chain, cycle string, steps []node) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ref
+	}
+	// 경로형: 앞의 chain/cycle 을 떼고 마지막 조각만 쓴다.
+	if strings.Contains(ref, "/") {
+		parts := strings.Split(ref, "/")
+		ref = parts[len(parts)-1]
+	}
+	// 해시형: 이 사이클 안의 스텝 커밋을 가리키면 그 스텝 이름으로 바꾼다.
+	for _, n := range steps {
+		if n.sha == ref || strings.HasPrefix(n.sha, ref) && len(ref) >= 4 {
+			return n.step
+		}
+	}
+	return ref
+}
+
+// nearestKind — 오타에 가장 가까운 유효 kind 하나(편집거리 2 이내). "hypthesis"→"hypothesis".
+func nearestKind(bad string) string {
+	best, bestD := "", 3
+	for _, k := range sortedIDs(kinds) {
+		if d := editDistance(strings.ToLower(bad), k); d < bestD {
+			best, bestD = k, d
+		}
+	}
+	return best
+}
+
+// editDistance — 레벤슈타인. 근접 제안 하나 띄우려는 용도라 단순 구현으로 충분하다.
+func editDistance(a, b string) int {
+	la, lb := len(a), len(b)
+	prev := make([]int, lb+1)
+	cur := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		cur[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = minInt(minInt(cur[j-1]+1, prev[j]+1), prev[j-1]+cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[lb]
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// cycleCloseHint — 이 사이클이 왜 못 닫히는지와 **다음 올바른 한 수**(이슈 #47 G7).
+//
+// chain-close 가 "c001 이 안 닫혔다"고만 하면, 사용자는 gil close 를 시도했다가 또 거부당한다
+// (fail 잎만 있으면 close 도 거부한다). 거부가 거부로 이어지면 사람은 우회하려 든다 —
+// 막힌 이유마다 갈 길이 다르니, 그 사이클을 실제로 들여다보고 갈 길을 짚어준다.
+func cycleCloseHint(chain, cycle string) string {
+	nodes := collectNodes("--branches")
+	hasChild := map[string]bool{}
+	var mine []node
+	for _, n := range nodes {
+		if n.chain != chain || n.cycle != cycle {
+			continue
+		}
+		mine = append(mine, n)
+		if n.parent != "" && n.parent != "null" {
+			hasChild[n.parent] = true
+		}
+	}
+	if len(mine) == 0 {
+		return "  → 이 사이클의 스텝을 못 찾았다. gil log " + chain + " 로 상태를 먼저 확인하라."
+	}
+	var live, dead, pending, unfinished int
+	for _, n := range mine {
+		if hasChild[n.step] {
+			continue // 잎이 아니다
+		}
+		switch {
+		case n.kind == "pending":
+			pending++
+		case isLiveLeaf(n):
+			live++
+		case isDeadLeaf(n):
+			dead++
+		default:
+			unfinished++
+		}
+	}
+	t := chain + "/" + cycle
+	switch {
+	case pending > 0:
+		return "  → [" + t + "] 사람의 승인을 기다리는 중이다(pending). 사람이 판단해야 넘어간다:\n" +
+			"      gil approve " + t + "   또는   gil reject " + t + " --to s1"
+	case unfinished > 0:
+		return "  → [" + t + "] 아직 마감되지 않은 잎이 있다(진행 중). 그 가지를 끝까지 끌고 가라:\n" +
+			"      verify 까지 갔으면 → gil step " + t + " --kind analyze  → 그다음 success/fail"
+	case live > 0:
+		return "  → [" + t + "] 산 잎이 있다 — 바로 닫을 수 있다:  gil close " + t
+	case dead > 0:
+		return "  → [" + t + "] fail 잎만 있다 = 아직 답을 못 찾았다. 두 정직한 길:\n" +
+			"      (1) 재분기 — gil step " + t + " --kind hypothesis --to s1 --inherit <죽은 가지의 교훈>\n" +
+			"      (2) 포기   — gil close " + t + " --abandon  (막다른 길로 확인됐을 때만)"
+	default:
+		return "  → [" + t + "] gil log " + chain + " 로 상태를 확인하라."
+	}
 }
