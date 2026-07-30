@@ -474,7 +474,7 @@ func renderHTML(g graphView, static bool) string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gil 그래프 뷰어</title>
 <style>` + css + `</style></head><body>
-<header><h1>gil 그래프 뷰어 — 체인 그래프</h1>
+<header><h1>gil — 사고의 지도</h1>
 <button id="gohere" class="gohere" title="현재위치(HEAD)로 — 작업중이면 그 자리로">▼ 현재위치로</button>
 <span class="meta">체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
 		itoa(g.tipCount) + `개 · ` + liveIndicator(static) + workBadge(g, static) + `</span></header>
@@ -500,19 +500,87 @@ func renderHTML(g graphView, static bool) string {
 	if len(g.chains) == 0 {
 		b.WriteString(`<p class="empty">아직 gil 체인이 없다. 체인을 만들면 여기 노드로 나타난다.</p>`)
 	} else {
-		// 탭 없이 세로로 다 펼친다: 전체맵(맨 위) → 체인 그래프 → 사이클 → 스텝 → 디테일.
+		// ── 이 화면 읽는 법(필드테스트) ────────────────────────────────────────────
+		// 노드가 무엇을 뜻하는지 모르는 사람이 너무 많았다. 관전 도구는 관전자를 가르치지
+		// 않으면 그림일 뿐이다. 맨 위에 접이식 안내를 두되, **처음 온 사람에게는 펼쳐** 둔다
+		// (한 번 닫으면 그 브라우저에선 계속 닫힌 채 — localStorage).
+		b.WriteString(`<section class="pane" id="pane-guide"><details id="guide"><summary class="panehead">` +
+			`이 화면 읽는 법 — 체인 · 사이클 · 스텝 <span class="gtoggle">(펼치기/접기)</span></summary>` +
+			`<div class="guide">` +
+			`<p><b>gil 은 AI 가 문제를 푼 <i>생각의 과정</i>을 git 커밋으로 남긴 것입니다.</b> ` +
+			`이 화면의 점 하나하나가 실제 커밋이고, 선은 “무엇에서 무엇이 나왔나”입니다.</p>` +
+			`<ul>` +
+			`<li><b>체인</b> — 가장 큰 줄기(한 덩어리의 목적). 예: “전기요금이 왜 두 배가 됐나”. 체인마다 사람이 세운 <b>기준 문서</b>가 붙습니다.</li>` +
+			`<li><b>사이클</b> — 그 목적을 쪼갠 <b>하나의 작은 문제</b>. 문제 정의 → 가설 → 검증 → 분석 → 종결로 한 바퀴 돕니다.</li>` +
+			`<li><b>스텝</b> — 그 한 바퀴 안의 <b>한 걸음</b>(점 하나 = 커밋 하나). 점을 누르면 그 걸음의 보고서가 아래에 열립니다.</li>` +
+			`</ul>` +
+			// 글만으로는 한눈에 안 들어온다(상현님) — 실제 그래프와 **같은 색·모양**의 그림 하나.
+			// 여기 쓰인 파랑/초록/빨강/주황은 아래 진짜 그래프의 그 색 그대로다.
+			`<svg class="gdiagram" viewBox="0 0 700 250" role="img" ` +
+			`aria-label="체인 안에 사이클, 사이클 안에 스텝이 있는 구조 그림">` +
+			`<rect x="8" y="34" width="684" height="150" rx="12" class="gd-chain"/>` +
+			`<text x="18" y="26" class="gd-lbl gd-lbl-chain">체인 — 하나의 큰 목적 “전기요금이 왜 두 배가 됐나”</text>` +
+			`<rect x="24" y="52" width="404" height="116" rx="9" class="gd-cyc"/>` +
+			`<text x="34" y="70" class="gd-lbl">사이클 1 — 작은 문제 “언제 늘었나”</text>` +
+			`<line x1="60" y1="104" x2="140" y2="104" class="gd-edge"/>` +
+			`<line x1="140" y1="104" x2="220" y2="104" class="gd-edge"/>` +
+			`<line x1="220" y1="104" x2="300" y2="104" class="gd-edge"/>` +
+			`<line x1="300" y1="104" x2="380" y2="104" class="gd-edge"/>` +
+			`<line x1="60" y1="104" x2="140" y2="148" class="gd-edge gd-dead"/>` +
+			`<circle cx="60" cy="104" r="11" class="gd-n"/>` +
+			`<circle cx="140" cy="104" r="11" class="gd-n"/>` +
+			`<circle cx="220" cy="104" r="11" class="gd-n"/>` +
+			`<circle cx="300" cy="104" r="11" class="gd-n"/>` +
+			`<circle cx="380" cy="104" r="11" class="gd-n gd-alive"/>` +
+			`<circle cx="140" cy="148" r="11" class="gd-n gd-deadn"/>` +
+			`<text x="60" y="128" class="gd-k">문제정의</text>` +
+			`<text x="140" y="128" class="gd-k">가설</text>` +
+			`<text x="220" y="128" class="gd-k">검증</text>` +
+			`<text x="300" y="128" class="gd-k">분석</text>` +
+			`<text x="380" y="128" class="gd-k">성공</text>` +
+			`<text x="176" y="153" class="gd-k gd-kdead">막다른 길 — 지우지 않고 남긴다</text>` +
+			`<rect x="444" y="52" width="236" height="116" rx="9" class="gd-cyc"/>` +
+			`<text x="454" y="70" class="gd-lbl">사이클 2 — “어느 기기인가”</text>` +
+			`<line x1="480" y1="104" x2="560" y2="104" class="gd-edge"/>` +
+			`<line x1="560" y1="104" x2="640" y2="104" class="gd-edge"/>` +
+			`<circle cx="480" cy="104" r="11" class="gd-n"/>` +
+			`<circle cx="560" cy="104" r="11" class="gd-n"/>` +
+			`<circle cx="640" cy="104" r="11" class="gd-n gd-here"/>` +
+			`<path d="M 640 78 l -7 -11 l 14 0 z" class="gd-arrow"/>` +
+			`<text x="640" y="64" class="gd-k gd-khere">지금 여기</text>` +
+			`<text x="480" y="128" class="gd-k">문제정의</text>` +
+			`<text x="560" y="128" class="gd-k">가설</text>` +
+			`<text x="640" y="128" class="gd-k">검증 중</text>` +
+			`<text x="18" y="207" class="gd-cap">점 하나 = git 커밋 하나 = 한 걸음. 점을 누르면 그 걸음의 보고서가 열립니다.</text>` +
+			`<text x="18" y="230" class="gd-cap">사이클이 끝나면 다음 사이클로 — 그렇게 큰 목적(체인)을 작은 문제로 정복합니다.</text>` +
+			`</svg>` +
+			`<p class="glegend"><b>점의 색과 표식</b> — ` +
+			`<span class="lg-alive">초록</span>=성공으로 끝난 가지 · ` +
+			`<span class="lg-dead">빨강</span>=막다른 길(지우지 않고 <b>벽의 지도</b>로 남깁니다) · ` +
+			`<span class="lg-cross">주황 ▼</span>=지금 작업 중인 자리 · ` +
+			`🚀=여기서 배포됨 · ⟲정정=앞 걸음을 다시 쓴 것 · <span class="gdim">흐린 점</span>=정정으로 대체된 옛 가지(이력엔 남습니다).</p>` +
+			`<p class="glegend"><b>막다른 길이 남아 있는 건 고장이 아닙니다.</b> ` +
+			`무엇을 시도했다가 왜 접었는지가 남아야 같은 길을 두 번 걷지 않습니다 — gil 이 남기려는 것이 바로 그것입니다.</p>` +
+			`<p class="glegend"><b>어디부터 보나</b> — 아래 <b>전체맵</b>이 전체 흐름입니다(왼→오른쪽). ` +
+			`거기서 점을 누르면 <b>스텝 그래프</b>와 <b>스텝 디테일</b>이 그 자리로 갑니다. ` +
+			`위쪽 <b>▼ 현재위치로</b> 버튼은 언제나 지금 작업 중인 자리로 데려갑니다. ` +
+			`체인·사이클 단위로 크게 보고 싶으면 아래 접힌 <b>체인 그래프</b>·<b>사이클 그래프</b>를 펼치세요.</p>` +
+			`</div></details></section>`)
+		// 탭 없이 세로로: 안내 → 전체맵 → (접힘)체인 → (접힘)사이클 → 스텝 → 디테일.
+		// 기본 열림은 **전체맵·스텝 그래프·스텝 디테일** 셋이다(필드테스트: 처음 온 사람은
+		// 체인/사이클 그래프보다 "지금 무슨 걸음을 밟고 있나"를 먼저 봐야 한다).
 		b.WriteString(`<section class="pane"><h2 class="panehead">전체맵 <span id="depthseg" class="depthseg">` +
 			`<button data-depth="chain" title="체인 단위 — 국면 계보만">체인</button>` +
 			`<button data-depth="cycle" title="사이클 단위 — 각 사이클 상태·분기(⚡)">사이클</button>` +
 			`<button data-depth="step" class="on" title="스텝 단위 — 모든 스텝 커밋 DAG">스텝</button>` +
 			`</span></h2><div id="view-map"></div></section>`)
-		b.WriteString(`<section class="pane"><h2 class="panehead">체인 그래프</h2><div id="view-chain">`)
+		b.WriteString(`<section class="pane"><details id="det-chain"><summary class="panehead">체인 그래프 <span class="gtoggle">(펼치기)</span></summary><div id="view-chain">`)
 		b.WriteString(fmt.Sprintf(
 			`<svg id="graph" viewBox="0 0 %d %d" width="%d" height="%d"><g id="edges">%s</g><g id="nodes">%s</g></svg>`,
 			w, h, w, h, edges.String(), nodes.String()))
 		b.WriteString(`<p class="hint">동그라미 = 체인(숫자는 사이클 수), 선 = 계보(부모→자식). ▼ = 현재위치(HEAD). <b>노드 클릭 → 아래 사이클 그래프.</b></p>`)
-		b.WriteString(`</div></section>`)
-		b.WriteString(`<section class="pane" id="pane-card" hidden><h2 class="panehead">사이클 그래프</h2><div id="card"></div></section>`)
+		b.WriteString(`</div></details></section>`)
+		b.WriteString(`<section class="pane" id="pane-card" hidden><details id="det-cycle"><summary class="panehead">사이클 그래프 <span class="gtoggle">(펼치기)</span></summary><div id="card"></div></details></section>`)
 		b.WriteString(`<section class="pane" id="pane-step" hidden><h2 class="panehead">스텝 그래프</h2><div id="stepcard"></div></section>`)
 		b.WriteString(`<section class="pane" id="pane-report" hidden><h2 class="panehead">스텝 디테일</h2><div id="reportcard"></div></section>`)
 		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g, static) + `</script>`)
@@ -1198,6 +1266,38 @@ svg.dag{display:block}
 .dag .dnode.agg .agglabel{font-size:10px;font-weight:600;fill:var(--fg);text-anchor:middle}
 .dag .dnode .forkmark{font-size:9px;text-anchor:middle;pointer-events:none}
 .dag .dnode:hover circle{stroke:var(--fg);stroke-width:2}
+/* 이 화면 읽는 법 — 관전자 온보딩(필드테스트: 노드가 뭘 뜻하는지 모르는 사람이 많았다) */
+#pane-guide summary{cursor:pointer;list-style:none}
+#pane-guide summary::-webkit-details-marker{display:none}
+#pane-guide summary::before{content:"▸ ";color:var(--dim)}
+#pane-guide details[open] summary::before,#guide[open] summary::before{content:"▾ "}
+.gtoggle{font-weight:400;color:var(--dim);font-size:11px}
+.guide{font-size:13px;line-height:1.7;margin-top:8px}
+.guide ul{margin:8px 0;padding-left:20px}
+.guide li{margin:3px 0}
+.glegend{color:var(--dim);margin:8px 0 0}
+/* 구조 그림 — 아래 진짜 그래프와 같은 색·모양을 쓴다(다르면 두 번 배워야 한다). */
+.gdiagram{display:block;width:100%;max-width:720px;height:auto;margin:12px 0 4px}
+.gd-chain{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:6 4}
+.gd-cyc{fill:var(--card);stroke:var(--line);stroke-width:1}
+.gd-edge{stroke:var(--edge);stroke-width:2}
+.gd-edge.gd-dead{stroke:#ff6b6b;stroke-dasharray:5 4}
+.gd-n{fill:var(--node)}
+.gd-alive{fill:#3ddc84}
+.gd-deadn{fill:#ff6b6b}
+.gd-here{fill:none;stroke:var(--here);stroke-width:2.5;stroke-dasharray:5 4}
+.gd-arrow{fill:var(--here)}
+.gd-lbl{font-size:12px;font-weight:700;fill:var(--dim)}
+.gd-lbl-chain{fill:var(--fg)}
+.gd-k{font-size:11px;fill:var(--dim);text-anchor:middle}
+.gd-kdead{fill:#ff6b6b;text-anchor:start}
+.gd-khere{fill:var(--here);font-weight:700}
+.gd-cap{font-size:12px;fill:var(--dim)}
+.gdim{opacity:.45}
+details#det-chain>summary,details#det-cycle>summary{cursor:pointer;list-style:none}
+details#det-chain>summary::-webkit-details-marker,details#det-cycle>summary::-webkit-details-marker{display:none}
+details#det-chain>summary::before,details#det-cycle>summary::before{content:"▸ ";color:var(--dim)}
+details#det-chain[open]>summary::before,details#det-cycle[open]>summary::before{content:"▾ "}
 .hint .lg-branch{color:#ff6b6b}.hint .lg-dead{color:#ff6b6b}.hint .lg-alive{color:#3ddc84}.hint .lg-cross{color:var(--here)}
 .headarrow{fill:var(--here)}  /* HEAD ▼ — 모든 그래프 공통 */
 .report{margin:10px 16px 16px;padding:14px 16px;background:var(--bg);border:1px solid var(--line);
@@ -2364,7 +2464,10 @@ document.addEventListener('click',e=>{
 // 폴링 리로드 후 열려 있던 카드를 복원(피드백 1) — reload를 유지하되 상태 보존.
 function restoreSel(){
   const sel=loadSel();
-  if(!sel||!DATA[sel.chain])return;
+  // 저장된 선택이 없으면(첫 방문) **현재위치를 스스로 연다** — 스텝 그래프와 스텝 디테일이
+  // 처음부터 채워져 있어야 한다(필드테스트: 뭘 눌러야 할지 몰라 빈 화면에서 멈췄다).
+  // 스크롤·플래시는 하지 않는다 — 사람이 누른 것이 아니라 기본 상태일 뿐이니까.
+  if(!sel||!DATA[sel.chain]){ openDefaultView(); return; }
   selectChain(sel.chain);
   if(!sel.cycle)return;
   const cyc=DATA[sel.chain].cycles.find(c=>c.name===sel.cycle);
@@ -2376,6 +2479,45 @@ function restoreSel(){
   const n=(cyc.nodes||[]).find(x=>x.id===sel.step);
   if(n)openReport(sel.chain,sel.cycle,n);
 }
+// openDefaultView — 첫 화면의 기본 열림 상태(상현님): 전체맵 · 스텝 그래프 · 스텝 디테일.
+// 체인/사이클 그래프는 접힌 채 둔다(필요할 때 펼친다). 열 자리는 **현재위치**가 우선이고,
+// 없으면 가장 최근 사이클의 마지막 스텝 — 어느 쪽이든 "지금 무슨 걸음인가"가 먼저 보인다.
+function openDefaultView(){
+  let chain=null, cyc=null, step=null;
+  const here=DAG.find(d=>d.here && d.chain && d.cycle);
+  if(WORK&&WORK.dirty&&WORK.chain&&DATA[WORK.chain]){
+    chain=WORK.chain;
+    cyc=DATA[chain].cycles.find(c=>c.name===WORK.cycle)||DATA[chain].cycles.slice(-1)[0];
+  } else if(here&&DATA[here.chain]){
+    chain=here.chain;
+    cyc=DATA[chain].cycles.find(c=>c.name===here.cycle);
+    step=here.step;
+  }
+  if(!chain){
+    const names=Object.keys(DATA);
+    if(!names.length)return;
+    chain=names[names.length-1];
+    cyc=(DATA[chain].cycles||[]).slice(-1)[0];
+  }
+  if(!cyc)return;
+  selectChain(chain);
+  openStepCard(chain,cyc);
+  const nodes=cyc.nodes||[];
+  const n=(step&&nodes.find(x=>x.id===step))||nodes[nodes.length-1];
+  if(n)openReport(chain,cyc.name,n);
+}
+// 안내는 **처음 온 사람에게 펼쳐** 둔다. 한 번 접으면 그 브라우저에선 접힌 채 기억한다 —
+// 매번 같은 설명을 다시 펼쳐 보이면 그건 안내가 아니라 방해다(#85 의 교훈).
+(function initGuide(){
+  const g=document.getElementById('guide');
+  if(!g)return;
+  let closed=false;
+  try{ closed=localStorage.getItem('gil-guide-closed')==='1'; }catch(e){}
+  g.open=!closed;
+  g.addEventListener('toggle',()=>{
+    try{ localStorage.setItem('gil-guide-closed', g.open?'0':'1'); }catch(e){}
+  });
+})();
 // ── 인터뷰 폼(이슈 #33) — LLM 이 심은 질문을 사람이 폼으로 답하고 제출하면 레퍼런스가 커밋된다 ──
 // 삭제 승인 카드(상현님) — 비가역이라 사람 손에서만 눌린다.
 const PRUNES=JSON.parse(document.getElementById('prunedata')?.textContent||'[]');

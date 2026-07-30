@@ -1454,6 +1454,60 @@ class TestInterviewArrival(GilFixture):
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
 
 
+class TestReadmeAiRunnable(unittest.TestCase):
+    """README.ai.md 의 '복붙 가능, 실제로 도는 시퀀스' 블록이 **정말 도는가**.
+
+    윈도우 필드테스트에서 하이쿠가 이 문서를 그대로 따르다 두 번째 줄에서 거부당했다
+    (기준 문서 없이는 open 이 안 된다 — 문서엔 인터뷰가 한 글자도 없었다). 문서는 정문이고,
+    정문의 복붙 블록이 안 도는 것은 문서 오류가 아니라 **제품 결함**이다. 그러니 실행한다.
+    """
+
+    def _block(self, after):
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        with open(os.path.join(root, "README.ai.md"), encoding="utf-8") as f:
+            doc = f.read()
+        i = doc.index(after)
+        m = re.search(r"```bash\n(.*?)\n```", doc[i:], re.S)
+        self.assertIsNotNone(m, "복붙 블록을 못 찾았다: " + after)
+        return m.group(1)
+
+    def test_step_c_block_runs_end_to_end(self):
+        blk = self._block("### 관용 예제 — 묻고")
+        # 문서가 intake 를 먼저 가르치는가 — 목적을 에이전트가 창작하는 옛 고리로 돌아가지 않게.
+        self.assertIn("gil intake", blk)
+        self.assertIn("--from-intake", blk)
+        self.assertLess(blk.index("gil intake"), blk.index("gil chain"),
+                        "intake 는 체인보다 먼저 나와야 한다(이슈 #90)")
+        d = tempfile.mkdtemp()
+        try:
+            binp = os.path.join(d, "bin")
+            os.makedirs(binp)
+            os.symlink(os.path.abspath(GIL_BIN), os.path.join(binp, "gil"))
+            work = os.path.join(d, "work")
+            os.makedirs(work)
+            env = dict(os.environ, GIL_NO_VIEWER="1",
+                       PATH=binp + os.pathsep + os.environ.get("PATH", ""))
+            init = subprocess.run(["gil", "init"], cwd=work, env=env,
+                                  capture_output=True, text=True)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            sh = os.path.join(d, "block.sh")
+            with open(sh, "w", encoding="utf-8") as f:
+                f.write(blk)
+            r = subprocess.run(["sh", "-e", sh], cwd=work, env=env,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0,
+                             "README.ai.md 의 복붙 블록이 도중에 죽었다:\n" + r.stdout[-3000:] + r.stderr[-3000:])
+            g = subprocess.run(["gil", "log", "--depth", "step"], cwd=work, env=env,
+                               capture_output=True, text=True)
+            for kind in ("define", "hypothesis", "verify", "analyze", "success"):
+                self.assertIn(kind, g.stdout)
+            f = subprocess.run(["gil", "fsck"], cwd=work, env=env,
+                               capture_output=True, text=True)
+            self.assertNotIn("스텝순환:", f.stdout)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class TestOnboardingInstall(GilFixture):
     """gil 이 온보딩을 저장소에 설치한다 (이슈 #73).
 
