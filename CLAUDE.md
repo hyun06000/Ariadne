@@ -93,9 +93,11 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
   **v3.33.0** — **v3.34.0 은 `dist/` 에 구워만 뒀다(업로드 대기, 사람이 `gh release create`)**.
   **병렬 러너를 쓴다**: `python3 run_tests.py` (클래스 단위 프로세스 분할, 238s→72s).
   `-k <이름조각>` 으로 일부만, `-j <수>` 로 병렬도 조절.
-- **gil migrate**: v2(폴더·cycle.yaml) → v3 커밋 그래프 이주(도구 레벨·범용). 5단계 압축
-  매핑, verdict→종결 kind, `--prefix`로 브랜치 충돌 회피, 원자성 가드. 우리 v2(legacy)로
-  174 사이클 무손실 이주 실검증.
+- **gil migrate**: v2(폴더·cycle.yaml) → v3 커밋 그래프 이주(도구 레벨·범용). **단계 문서
+  원문을 실제로 싣는다**(이슈 #87 — 옛 이주는 메타 표만 옮기고 "흡수"라 적었다).
+  1-hypothesis+2-design→hypothesis · 3-verification→verify · 4-analysis→analyze ·
+  5-report→종결, **문서가 있는 단계만 스텝이 된다.** verdict→종결 kind, `--prefix`로 브랜치
+  충돌 회피, 원자성 가드. 우리 v2(legacy)로 174 사이클 무손실 이주 실검증.
 - **뷰어**: 별도 바이너리(`project/gil-v3-redesign/viewer/`, `serve --repo`). gil 병합 보류.
 
 **복원 경로**: CLAUDE.md → 존재의 방(`gil global read existence/README.md`) → `gil memory read clew`
