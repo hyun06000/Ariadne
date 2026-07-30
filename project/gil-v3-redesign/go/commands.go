@@ -2172,9 +2172,11 @@ func cmdInterview(args []string) {
 	if !idRe.MatchString(chain) {
 		die("거부: 체인 이름 \"" + chain + "\"은 소문자·숫자·하이픈만")
 	}
-	if chainPurpose(chain, "--branches") == "" {
+	if chainPurpose(chain, "--branches") == "" && intakeMode != chain {
 		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — 먼저 gil chain 으로 열어라. " +
-			"인터뷰는 그 체인의 레퍼런스 트루스를 만드는 과정이다(이슈 #33).")
+			"인터뷰는 그 체인의 레퍼런스 트루스를 만드는 과정이다(이슈 #33).\n" +
+			"  체인을 **열기 전에** 물으려는 것이면 개시 인터뷰다: gil intake " + chain +
+			" --ask <질문JSON>  (이슈 #90)")
 	}
 	// 인터뷰 pending 잠금(이슈 #33): 이미 사람 답을 기다리는 인터뷰가 있으면 새 인터뷰를 못 심는다.
 	// LLM 이 사람 답을 안 기다린 채 "스스로 더 생각해 질문지를 또 만드는" 것을 막는다(상현님 실사용:
@@ -2184,8 +2186,15 @@ func cmdInterview(args []string) {
 			"  사람이 뷰어 폼으로 답할 때까지 기다려라(인터뷰=pending 잠금). 답이 오면 기준이 확정되고\n" +
 			"  그제서야 다음으로 넘어간다. 스스로 더 생각해 진행하지 마라 — 사람의 답이 기준이다.")
 	}
+	interviewAsk(chain, *ask, *title, nil)
+}
+
+// interviewAsk — 질문지를 검증해 심는다. gil interview(체인 인터뷰)와 gil intake
+// (체인 앞 개시 인터뷰)가 같은 기계를 쓴다 — 뷰어·폴링·--wait 이 손 안 대고 동작하도록.
+// extra 는 심는 커밋에 덧붙일 트레일러(개시 인터뷰의 Gil-Intake 등).
+func interviewAsk(chain, ask, title string, extra [][2]string) {
 	// 질문 JSON 을 읽고 구조를 검증한다 — 빈 폼·잘못된 type 을 뷰어에 보내기 전에 여기서 거부.
-	raw := resolveBody("", *ask)
+	raw := resolveBody("", ask)
 	if strings.TrimSpace(raw) == "" {
 		die("거부: --ask 질문이 비었다")
 	}
@@ -2244,7 +2253,7 @@ func cmdInterview(args []string) {
 	}
 	// JSON 을 정규화해(들여쓰기) 본문에 싣는다 — 뷰어가 펜스 블록에서 추출해 폼을 그린다.
 	norm, _ := json.MarshalIndent(qs, "", "  ")
-	stTitle := orDefault(*title, "인터뷰 — "+chain+" 의 기준 문서를 사람과 함께 만든다")
+	stTitle := orDefault(title, "인터뷰 — "+chain+" 의 기준 문서를 사람과 함께 만든다")
 	subject := "gil " + chain + " interview: " + stTitle
 	// 본문: 사람이 읽을 질문 목록 + 뷰어가 파싱할 JSON 펜스. 뷰어가 없어도 사람이 읽을 수 있게.
 	var b strings.Builder
@@ -2264,10 +2273,14 @@ func cmdInterview(args []string) {
 		{"Gil-Chain", chain}, {"Gil-Kind", "interview"},
 		{"Gil-Interview", "pending"},
 	}
+	tr = append(tr, extra...) // 개시 인터뷰면 Gil-Intake 가 여기 붙는다(이슈 #90)
 	// 체인 브랜치 위에 심는다(레퍼런스가 그 체인에 커밋될 자리). HEAD 가 다른 데면 맞춘다.
-	tip := strings.TrimSpace(git("rev-parse", "--verify", "-q", "refs/heads/"+chain))
-	if tip != "" {
-		alignHeadToTip(first9(tip), chain)
+	// 개시 인터뷰(gil intake)는 아직 브랜치가 없다 — 없으면 대문(HEAD) 위에 심는다.
+	// gitTry 여야 한다: git() 은 실패에 죽고, "브랜치 없음"은 여기서 정상 흐름이다(이슈 #90).
+	if raw, err := gitTry("rev-parse", "--verify", "-q", "refs/heads/"+chain); err == nil {
+		if tip := strings.TrimSpace(raw); tip != "" {
+			alignHeadToTip(first9(tip), chain)
+		}
 	}
 	commit(subject, b.String(), tr, true)
 	println2("interview: " + chain + " — 질문 " + strconv.Itoa(len(qs)) + "개 심음. 뷰어에서 사람이 폼으로 답한다.")
@@ -2294,7 +2307,7 @@ func cmdInterview(args []string) {
 // 레일이 사람의 응답을 전달하지 못하면 레일을 뚫는 게 합리적으로 보이기 시작한다. 그래서 기다림을
 // 정직한 한 줄(--status)과 진짜 대기(--wait)로 만든다.
 func interviewWatch(chain string, wait bool, timeoutS, then string) {
-	if chainPurpose(chain, "--branches") == "" {
+	if chainPurpose(chain, "--branches") == "" && intakeState(chain) == "" {
 		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — 먼저 gil chain 으로 열어라.")
 	}
 	// 재인터뷰가 열려 있으면 그게 지금 상태다 — 옛 done 을 보고하면 거짓말이 된다(이슈 #75).
@@ -2401,7 +2414,13 @@ func interviewWatch(chain string, wait bool, timeoutS, then string) {
 // 이 체인에 심고(Gil-Reference), 인터뷰를 done 으로 닫는다. 이후 open 안내·chainHasReference 가
 // 이 체인을 '기준 있음'으로 본다. 파일은 워킹트리에 그대로 남아 사람이 열어보고 편집할 수 있다.
 func interviewResolve(chain, refFile string) {
+	// 개시 인터뷰(gil intake)는 체인이 없는 상태에서 해소된다 — 뷰어 제출은 같은 경로를
+	// 타므로(gil interview <슬러그> --resolve) 여기서 갈라 준다(이슈 #90).
 	if chainPurpose(chain, "--branches") == "" {
+		if intakeState(chain) != "" {
+			intakeResolve(chain, refFile)
+			return
+		}
 		die("거부: 체인 \"" + chain + "\" 없음")
 	}
 	refBody := resolveBody("", refFile)
@@ -2630,13 +2649,53 @@ func cmdChain(args []string) {
 	// 그려졌다 — 같은 명령의 출력이 A 를 앞 체인이라 안내하면서 그래프는 B 에 붙는, 도구가
 	// 스스로 모순되는 상태였다.
 	from := fs.str("from", "")
+	// --from-intake <슬러그> / --purpose-from <질문번호> (이슈 #90): 체인의 목적을 **사람의
+	// 답에서 그대로 들어 올린다.** 에이전트가 다시 쓰지 않는다 — 요약도 정제도 창작이고,
+	// 창작하는 순간 기준 문서는 '사람이 세운 자'가 아니게 된다.
+	fromIntake := fs.str("from-intake", "")
+	purposeFrom := fs.str("purpose-from", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil chain <name> --purpose <자연어> [--from <닫힌체인>] [--parallel-with <열린체인>...] [--reference <기준문서|->] [--inherit <전수>]")
+		die("사용: gil chain <name> --from-intake <슬러그> --purpose-from <질문번호>   (권장 — 이슈 #90)\n" +
+			"  또는: gil chain <name> --purpose <자연어> [--from <닫힌체인>] [--parallel-with <열린체인>...]\n" +
+			"        [--reference <기준문서|->] [--inherit <전수>]")
 	}
 	name := pos[0]
+	// 개시 인터뷰에서 목적을 인용한다 — 순환을 사람 쪽에서 끊는 경로.
+	if si := strings.TrimSpace(*fromIntake); si != "" {
+		if strings.TrimSpace(*purpose) != "" {
+			die("거부: --from-intake 와 --purpose 는 함께 못 선다 — 목적은 사람의 답에서 **인용**된다.\n" +
+				"  네가 쓴 목적을 얹으면 개시 인터뷰가 장식이 된다. 어느 답을 목적으로 삼을지만 골라라:\n" +
+				"    --purpose-from <질문번호>")
+		}
+		st := intakeState(si)
+		if st == "" {
+			die("거부: 개시 인터뷰 \"" + si + "\" 가 없다 — 먼저: gil intake " + si + " --ask <질문JSON>")
+		}
+		if st != "done" {
+			die("거부: 개시 인터뷰 \"" + si + "\" 가 아직 사람 답을 기다린다 — 답이 와야 목적이 선다.\n" +
+				"  기다려라: gil intake " + si + " --wait")
+		}
+		n := atoiSafe(strings.TrimSpace(*purposeFrom))
+		if n <= 0 {
+			die("거부: --purpose-from <질문번호> 필요 — 사람의 어느 답을 이 체인의 목적으로 삼을지 골라라.\n" +
+				"  답 전문: gil intake " + si + " --status")
+		}
+		lifted := intakeAnswerN(si, n)
+		if strings.TrimSpace(lifted) == "" {
+			die("거부: 개시 인터뷰 \"" + si + "\" 의 " + itoa(n) + "번 답이 비었다 — 그 답으로는 목적이 서지 않는다.\n" +
+				"  답 전문을 보고 다시 고르거나, 더 물어라: gil intake " + si + " --ask <추가 질문>")
+		}
+		*purpose = lifted
+		println2("  ◎ 목적을 사람의 답에서 인용했다(" + si + " 질문 " + itoa(n) + "): " + lifted)
+		println2("  ▸ 이제 **어디서 분기할지**를 그 답에 비추어 정하라 — --from(이어받음) / " +
+			"--parallel-with(나란히) / 아무것도 없으면 대문에서 새 계보.")
+	}
 	if *purpose == "" {
-		die("거부: --purpose 필요")
+		die("거부: --purpose 필요 — 또는 사람에게 먼저 물어 그 답을 인용하라(이슈 #90):\n" +
+			"    gil intake <슬러그> --ask '[{\"q\":\"무엇을 하려고 하십니까\",\"type\":\"text\"}]'\n" +
+			"    (답이 오면)  gil chain " + name + " --from-intake <슬러그> --purpose-from 1\n" +
+			"  네가 목적을 창작해 체인을 열면 사람은 방향을 정하는 자리가 아니라 승인하는 자리에 앉는다.")
 	}
 	if !idRe.MatchString(name) {
 		die("거부: 체인 이름 \"" + name + "\"은 소문자·숫자·하이픈만")

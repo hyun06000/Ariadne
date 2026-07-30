@@ -3208,6 +3208,70 @@ class TestVerifyAnswersFalsify(GilFixture):
         self.assertIn("3회 평균 +0.4%", out)
 
 
+class TestIntakeBeforeChain(GilFixture):
+    """체인보다 먼저 사람에게 묻는다 (이슈 #90, 상현님).
+
+    옛 정문에는 순환이 있었다: 체인은 --purpose 가 필수인데 인터뷰는 체인이 있어야 열린다.
+    지금까지는 **에이전트의 추측으로** 끊었다 — 목적을 창작해 체인을 열고 그 다음에 물었다.
+    그리고 상현님이 짚은 더 실질적인 손해: 어디서 분기할지는 사람의 답을 보고 정해야 하는데,
+    분기를 쳐 버리고 물으면 그 답이 갈 곳이 없다."""
+
+    QS = [{"q": "무엇을 하려고 하십니까", "type": "text"},
+          {"q": "어디서 이어가나요", "type": "text"}]
+    ANS = ("# 기준 문서\n\n## 1. 무엇을 하려고 하십니까\n\n"
+           "그게 없는게 자율이야. 스스로 도구를 만들면서 진화할거야.\n\n"
+           "## 2. 어디서 이어가나요\n\n데모는 짧게 끝내고 루트에서 새로 시작하고 싶어.\n")
+
+    def _run(self, *args, input=None):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
+                              capture_output=True, text=True, env=env, input=input)
+
+    def _ask(self):
+        return self._run("intake", "nx-topic", "--ask", "-", input=json.dumps(self.QS))
+
+    def _answer(self):
+        p = os.path.join(self.repo, "ans.md")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(self.ANS)
+        r = self._run("intake", "nx-topic", "--resolve", "ans.md")
+        os.remove(p)
+        return r
+
+    def test_intake_opens_without_a_chain(self):
+        """체인이 없어도 열린다 — 이게 순환을 끊는 지점이다."""
+        r = self._ask()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("체인보다 먼저", r.stdout)
+
+    def test_chain_refuses_before_the_human_answers(self):
+        self._ask()
+        r = self._run("chain", "nx", "--from-intake", "nx-topic", "--purpose-from", "1")
+        self.assertNotEqual(r.returncode, 0, "사람 답 전에 체인이 열렸다")
+        self.assertIn("아직 사람 답을 기다린다", r.stderr)
+
+    def test_purpose_is_lifted_verbatim(self):
+        """목적은 사람의 문장 **그대로**여야 한다 — 요약도 정제도 창작이다."""
+        self._ask(); self._answer()
+        r = self._run("chain", "nx", "--from-intake", "nx-topic", "--purpose-from", "1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("nx", "Gil-Chain-Purpose"),
+                         "그게 없는게 자율이야. 스스로 도구를 만들면서 진화할거야.")
+
+    def test_agent_cannot_author_the_purpose_alongside(self):
+        self._ask(); self._answer()
+        r = self._run("chain", "nx", "--from-intake", "nx-topic",
+                      "--purpose", "내가 정한 목적")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("함께 못 선다", r.stderr)
+
+    def test_plain_chain_points_at_intake(self):
+        """--purpose 없이 열려 하면 개시 인터뷰 경로를 알려준다 — 거부에는 길이 붙는다."""
+        r = self._run("chain", "nx")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("gil intake", r.stderr)
+
+
 class TestInterviewOpensOpen(GilFixture):
     """인터뷰의 첫 질문은 열린 질문이어야 한다 (이슈 #90, 실사용 보고).
 

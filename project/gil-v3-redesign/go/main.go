@@ -103,6 +103,8 @@ func main() {
 		cmdChainClose(rest)
 	case "deploy":
 		cmdDeploy(rest)
+	case "intake":
+		cmdIntake(rest)
 	case "interview":
 		cmdInterview(rest)
 	case "approve":
