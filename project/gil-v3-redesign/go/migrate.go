@@ -33,6 +33,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // ── v2 cycle.yaml 파싱 (의존성 0: Go 표준만, 최소 YAML 리더) ──
@@ -61,9 +62,11 @@ type v2cycle struct {
 // 라고 적었다. 흡수하지 않았다. 실사용 실측 — 한 사이클 산문 11,163 바이트가 1,990 바이트의
 // 표로 대체됐고 옮겨진 산문은 0 이었다. 조용한 손실보다 나쁜 건 **옮겼다고 믿게 만든 것**이다.
 type v2doc struct {
-	stage string // hypothesis | design | verification | analysis | report | other
-	path  string // 저장소 상대 경로 (출처 각인용 — 원본을 찾아갈 수 있어야 한다)
-	text  string
+	stage  string // hypothesis | design | verification | analysis | report | other
+	path   string // 저장소 상대 경로 (출처 각인용 — 원본을 찾아갈 수 있어야 한다)
+	text   string
+	binary bool   // 본문에 실을 수 없는 것(NUL 포함 등) — 존재만 기록한다
+	size   int    // 원본 바이트(바이너리·절단분의 사실을 적기 위해)
 }
 
 // v2StageOf — 파일명에서 v2 5단계를 알아낸다. 번호 접두(1-…)와 이름 둘 다 본다:
@@ -352,6 +355,11 @@ func collectV2Cycles(ref, roomFilter string) []v2cycle {
 // (조용한 절단은 조용한 손실이다 — 이 이슈가 바로 그 병이었다).
 const v2DocMaxBytes = 200 * 1024
 
+// v2CycleMaxBytes — 한 사이클이 본문으로 지고 갈 산문의 총량 상한. v2 의 3-verification/ 은
+// 스크립트·데이터가 수십 개씩 들어 있어(실데이터: 174 사이클에 1001개) 전부 실으면 커밋이
+// 비대해진다. 넘으면 **싣지 않은 것을 이름으로 남긴다** — 조용한 절단은 조용한 손실이다.
+const v2CycleMaxBytes = 512 * 1024
+
 // collectV2Docs — cycle.yaml 이 있는 폴더의 단계 문서들을 실제로 읽는다.
 func collectV2Docs(ref, yamlPath string, folderFiles map[string][]string) []v2doc {
 	folder := yamlPath[:strings.LastIndex(yamlPath, "/")]
@@ -367,11 +375,19 @@ func collectV2Docs(ref, yamlPath string, folderFiles map[string][]string) []v2do
 		if err != nil {
 			continue // 트리에 있는데 못 읽는 것(서브모듈 등)은 건너뛴다
 		}
-		if len(blob) > v2DocMaxBytes {
+		size := len(blob)
+		// **바이너리는 싣지 않는다.** git 커밋 메시지는 NUL 을 못 담는다 — 실데이터 이주에서
+		// 3-verification/ 의 바이너리 하나가 커밋을 죽여 이주가 통째로 중간에 멈췄다
+		// (fixture 엔 텍스트만 있어 안 걸렸다). 존재와 경로는 남긴다: 원본은 v2 ref 에 있다.
+		if strings.IndexByte(blob, 0) >= 0 || !utf8.ValidString(blob) {
+			docs = append(docs, v2doc{stage: v2StageOf(rel), path: p, binary: true, size: size})
+			continue
+		}
+		if size > v2DocMaxBytes {
 			blob = blob[:v2DocMaxBytes] + "\n\n…(원문이 " + itoa(v2DocMaxBytes/1024) +
 				"KB 를 넘어 여기서 잘렸다 — 전문은 원본 경로에서)\n"
 		}
-		docs = append(docs, v2doc{stage: v2StageOf(rel), path: p, text: blob})
+		docs = append(docs, v2doc{stage: v2StageOf(rel), path: p, text: blob, size: size})
 	}
 	sort.SliceStable(docs, func(i, j int) bool { return docs[i].path < docs[j].path })
 	return docs
@@ -933,11 +949,30 @@ func migrateDocSection(docs []v2doc, folder, what string) string {
 			"cycle.yaml 메타만 이주됐다.\n> 원본 위치: `" + folder + "/`\n"
 	}
 	var b strings.Builder
+	budget := v2CycleMaxBytes
+	var omitted []string
 	for _, d := range docs {
+		if d.binary {
+			omitted = append(omitted, "`"+d.path+"` ("+itoa(d.size)+" 바이트, 바이너리)")
+			continue
+		}
+		if len(d.text) > budget {
+			omitted = append(omitted, "`"+d.path+"` ("+itoa(d.size)+" 바이트, 사이클 본문 한도 초과)")
+			continue
+		}
+		budget -= len(d.text)
 		b.WriteString("\n---\n\n")
-		b.WriteString("> 원본: `" + d.path + "` (" + itoa(len(d.text)) + " 바이트, v2 이주)\n\n")
+		b.WriteString("> 원본: `" + d.path + "` (" + itoa(d.size) + " 바이트, v2 이주)\n\n")
 		b.WriteString(strings.TrimRight(d.text, "\n"))
 		b.WriteString("\n")
+	}
+	if len(omitted) > 0 {
+		// 안 실은 것은 **반드시 이름으로** 남긴다. 이 이슈(#87)의 병이 바로 "옮기지 않고
+		// 옮겼다고 적은 것"이었다 — 같은 실수를 절단에서 반복하지 않는다.
+		b.WriteString("\n---\n\n> ⚠ 본문에 싣지 않은 원본 " + itoa(len(omitted)) + "개 — v2 ref 에 그대로 있다:\n")
+		for _, o := range omitted {
+			b.WriteString("> - " + o + "\n")
+		}
 	}
 	return b.String()
 }

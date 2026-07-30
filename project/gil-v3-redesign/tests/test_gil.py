@@ -4416,6 +4416,32 @@ class TestMigrateBodyTransport(GilFixture):
         self.assertIn("v2 원문 없음", verify_body)
         self.assertIn(self.FOLDER, verify_body)  # 원본을 찾아갈 수 있어야 한다
 
+    def test_binary_stage_file_does_not_kill_migration(self):
+        """바이너리는 본문에 못 싣는다 — 실으면 git 이 커밋을 거부해 이주가 통째로 멈춘다.
+
+        실데이터(174 사이클) 검증에서 잡혔다: 3-verification/ 의 png 하나가
+        'a NUL byte in commit log message not allowed' 로 이주를 23개 브랜치 만에
+        중단시켰다. fixture 엔 텍스트만 있어 안 걸렸던 결함이다."""
+        self._write("CLAUDE.md", "# 대문\n")
+        self._write(f"{self.FOLDER}/cycle.yaml",
+                    "id: C006-eval\nchain: dash\nauthor: clew\n"
+                    "status: closed\nverdict: supported\ntitle: 평가 신뢰도\n")
+        self._write(f"{self.FOLDER}/1-hypothesis.md", "# 가설\n산문이 여기 있다.\n")
+        vdir = os.path.join(self.repo, self.FOLDER, "3-verification")
+        os.makedirs(vdir, exist_ok=True)
+        with open(os.path.join(vdir, "shot.png"), "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n\x00\x00binary\x00data")
+        self._git("add", "-A"); self._git("commit", "-q", "-m", "v2 seed")
+        v2root = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("checkout", "-q", "-b", "v3-mig")
+        r = self.gil("migrate", "--from", v2root)
+        self.assertEqual(r.returncode, 0, "바이너리 하나가 이주를 죽였다:\n" + r.stderr)
+        joined = "\n".join(b for _, _, b in self._bodies())
+        self.assertIn("산문이 여기 있다.", joined)             # 텍스트는 실린다
+        self.assertIn("본문에 싣지 않은 원본", joined)          # 안 실은 것은 이름으로 남는다
+        self.assertIn("shot.png", joined)
+        self.assertIn("바이너리", joined)
+
     def test_dry_run_reports_prose_bytes(self):
         """이주 **전에** 실어 갈 산문의 양을 밝힌다 — 0 이면 그 자리에서 알아야 한다."""
         v2root = self._seed()
