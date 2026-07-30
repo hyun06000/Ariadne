@@ -63,8 +63,12 @@ func cmdHandoff(args []string) {
 	for _, c := range arrivedInterviews() {
 		markInterviewSeen(c)
 	}
+	directive := viewerDirective()
 	println2(report)
-	println2(viewerDirective())
+	println2(directive)
+	// 끝 표식은 **진짜 마지막**이어야 한다 — 뷰어 지시문 뒤에 온다. 중간에 두면 그 아래가
+	// 잘려도 표식이 보여, 표식이 거짓 안심을 준다(이슈 #88).
+	println2(strings.Join(handoffEndMarker(strings.Split(report+"\n"+directive, "\n")), "\n"))
 }
 
 // viewerDirective — "그래프를 지금 띄워라"는 지시. 선택이 아니라 규범으로 쓴다(이슈 #55).
@@ -385,10 +389,40 @@ func gateChecklist() []string {
 	return L
 }
 
+// handoffEndMarker — **이 출력이 끝까지 왔다**는 증거를 마지막 줄에 남긴다 (이슈 #88).
+//
+// 왜. handoff 는 세션의 첫 명령이고, 실사용에서 타임아웃에 잘려 **빈 파일**로 읽힌 적이
+// 있다. 그러면 이어받는 자는 "열린 체인이 없다"고 결론 내린다 — 실제로는 있는데. 조용한
+// 오독이고, #73·#74 와 같은 계열이다.
+//
+// gil 은 자기 출력이 잘리는 걸 막을 수 없다(자르는 건 부르는 쪽이다). 하지만 **잘렸음을
+// 알아볼 수 있게** 만들 수는 있다: 끝 표식이 없으면 끝까지 오지 않은 것이다. 그리고 그
+// 자리에서 무엇을 결론 내리면 안 되는지까지 적는다 — 표식만 두면 읽는 자가 그 뜻을 모른다.
+//
+// 요약 수치를 함께 싣는 것도 같은 이유다. "열린 체인 0" 이라고 **명시적으로 적힌 것**과
+// 출력이 잘려 아무것도 없는 것은 다른 사실인데, 표식이 없으면 둘이 같아 보인다.
+func handoffEndMarker(body []string) []string {
+	open, waiting := 0, 0
+	for _, ln := range body {
+		if strings.HasPrefix(ln, "▶ 열린 체인:") {
+			open++
+		}
+		if strings.Contains(ln, "· [인터뷰]") || strings.Contains(ln, "[pending]") {
+			waiting++
+		}
+	}
+	return []string{
+		"",
+		"═══ gil handoff 끝 — 열린 체인 " + itoa(open) + " · 사람 답 대기 " + itoa(waiting) +
+			" · 이 출력 " + itoa(len(body)+3) + "줄 ═══",
+		"이 끝 줄이 안 보이면 출력이 **잘린 것**이다 — 잘린 handoff 를 '없음'으로 읽지 마라. 다시 불러라.",
+	}
+}
+
 // handoffReport — 세션 부활 정보를 문자열로. 참조: _handoff_report.
 func handoffReport() string {
 	var L []string
-	L = append(L, "═══ gil handoff — 세션 부활 정보 ═══", "")
+	L = append(L, "═══ gil handoff — 세션 부활 정보 (시작) ═══", "")
 	L = append(L, currencyBanner()...)
 	L = append(L, gatePointerBanner()...)
 	L = append(L, plainTipBanner()...)

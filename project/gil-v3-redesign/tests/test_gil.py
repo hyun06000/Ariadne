@@ -3207,6 +3207,43 @@ class TestVerifyAnswersFalsify(GilFixture):
         self.assertIn("3회 평균 +0.4%", out)
 
 
+class TestHandoffEndMarker(GilFixture):
+    """잘린 handoff 를 '없음'으로 읽지 않게 한다 (이슈 #88 이 남긴 위험).
+
+    handoff 는 세션의 첫 명령인데, 실사용에서 타임아웃에 잘려 **빈 파일**로 읽힌 적이 있다.
+    그러면 이어받는 자는 "열린 체인이 없다"고 결론 내린다 — 실제로는 있는데. gil 은 자기
+    출력이 잘리는 걸 막을 수 없지만, **잘렸음을 알아볼 수 있게** 만들 수는 있다."""
+
+    def setUp(self):
+        super().setUp()
+        # 격리 fixture 의 빈 저장소에는 커밋이 없어 handoff 가 HEAD 를 못 읽는다 — 체인 하나로
+        # 대문을 세워 실제 세션과 같은 상태로 만든다.
+        self.gil("chain", "hm", "--purpose", "P")
+
+    def test_marker_is_the_last_line(self):
+        """끝 표식은 진짜 마지막이어야 한다 — 중간에 있으면 거짓 안심을 준다."""
+        out = self.gil("handoff").stdout.rstrip("\n").split("\n")
+        self.assertIn("잘린 handoff 를 '없음'으로 읽지 마라", out[-1])
+        self.assertIn("gil handoff 끝", out[-2])
+
+    def test_count_matches_the_body(self):
+        """'열린 체인 N' 이 본문과 맞아야 한다 — 틀린 수치는 표식이 없는 것보다 나쁘다.
+
+        ('열린 체인 0' 이라고 **적힌 것**과, 잘려서 아무것도 없는 것은 다른 사실이다.
+        그 구별이 이 표식의 존재 이유다.)"""
+        out = self.gil("handoff").stdout
+        body = sum(1 for ln in out.split("\n") if ln.startswith("▶ 열린 체인:"))
+        m = re.search(r"열린 체인 (\d+) ·", out)
+        self.assertIsNotNone(m, out[-300:])
+        self.assertEqual(int(m.group(1)), body)
+
+    def test_start_and_end_markers_pair(self):
+        """시작 표식만 있고 끝 표식이 없으면 잘린 것 — 둘이 짝이어야 판정이 선다."""
+        out = self.gil("handoff").stdout
+        self.assertIn("세션 부활 정보 (시작)", out)
+        self.assertIn("gil handoff 끝", out)
+
+
 class TestSealedIsReadOnly(GilFixture):
     """봉인된 것은 자라지 않는다 (상현님 규칙 12·15·16).
 
