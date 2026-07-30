@@ -1471,18 +1471,20 @@ func cmdStep(args []string) {
 	if len(*refines) > 0 {
 		guideRefines(*refines)
 	}
-	if *kind == "hypothesis" || *kind == "success" || *kind == "fail" {
-		// 체인 목적을 이 자리에서 다시 각인한다 — 사이클 안의 성패만 보면 목적이 사라진다.
-		if cp := chainPurpose(chain, "--branches"); cp != "" {
-			stderr("  ◎ 체인 [" + chain + "] 목적: " + cp)
+	// 위치 카드 — 어디에 서 있고, 무슨 근거로, 실패하면 어디로 물러설 수 있나(상현님).
+	// 옛 "◎ 체인 목적 / ◎ 다가서려는 몫" 되풀이를 **흡수한다**(순증이 아니라 재배치).
+	if cp := chainPurpose(chain, "--branches"); cp != "" {
+		stderr("  ◎ 체인 [" + chain + "] 목적: " + cp)
+	}
+	if tipNode, ok := justCommitted(chain, cycle, sid); ok {
+		for _, ln := range whereCard(chain, cycle, tipNode) {
+			stderr(ln)
 		}
-		if *kind == "success" || *kind == "fail" {
-			stderr("  ◎ 이 종결이 남긴 회고 — 목적에 다가선 정도: " + strings.TrimSpace(*toward))
-			stderr("  ◎ 다음 설계(다음 세대가 물려받는다): " + strings.TrimSpace(*nextDesign))
-			stderr("    누적 컨텍스트 전체는: gil context " + ref)
-		} else {
-			stderr("  ◎ 이 가설이 목적에 다가서려는 몫: " + strings.TrimSpace(*advances))
-		}
+	}
+	if *kind == "success" || *kind == "fail" {
+		stderr("  ◎ 이 종결이 남긴 회고 — 목적에 다가선 정도: " + strings.TrimSpace(*toward))
+		stderr("  ◎ 다음 설계(다음 세대가 물려받는다): " + strings.TrimSpace(*nextDesign))
+		stderr("    누적 컨텍스트 전체는: gil context " + ref)
 	}
 	if b := strings.TrimSpace(*planBroke); b != "" {
 		// 깨진 설계는 실패가 아니라 신호다 — 그 신호가 가리키는 자리를 그 자리에서 말한다(이슈 #76).

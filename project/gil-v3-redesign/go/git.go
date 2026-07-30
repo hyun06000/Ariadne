@@ -253,6 +253,10 @@ func gitTry(args ...string) (string, error) {
 
 // gitInput 은 stdin으로 msg를 넣고 git을 실행한다(commit/hash-object/mktree/commit-tree).
 func gitInput(msg string, args ...string) string {
+	// 여기는 **쓰기 통로**다(commit-tree·hash-object·mktree). 읽기 캐시를 안 버리면 방금
+	// 만든 노드가 안 보인다 — 실제로 위치 카드가 자기 스텝을 못 찾았다. 캐시는 쓰기를
+	// 놓치는 순간 거짓말이 된다.
+	gitReadCache = map[string]gitCached{}
 	cmd := gitCommand(args...)
 	cmd.Stdin = strings.NewReader(msg)
 	var out, errOut strings.Builder
@@ -317,6 +321,7 @@ type node struct {
 	advances     string   // hypothesis: 이 가설이 **체인 목적**에 얼마나·어떻게 다가서게 하나 (상현님)
 	toward       string   // success/fail: 그래서 체인 목적에 얼마나 가까워졌나 (회고)
 	nextDesign   string   // success/fail: 목적을 이루기 위한 **다음 설계**는 무엇인가
+	falsifyTo    string   // hypothesis: 반증되면 되돌아갈 조상 define|analyze (퇴로)
 }
 
 // collectNodes — 커밋 그래프를 훑어 Gil-Step 트레일러를 가진 커밋을 스텝 노드로 수집.
@@ -347,6 +352,7 @@ func collectNodes(revRange string) []node {
 		trailer("Gil-Advances"),
 		trailer("Gil-Toward"),
 		trailer("Gil-Next-Design"),
+		trailer("Gil-Falsify-To"), // 반증 시 되돌아갈 자리 — 위치 카드의 '퇴로' 칸(상현님)
 	}, fsep) + sep
 	// revRange 뒤 "--" 로 revision 확정 — 체인/브랜치명이 디렉토리명과 겹치면(예: viewer)
 	// git 이 revision/path ambiguity 로 exit 128 로 죽는다(실사용 발견, viewer 실작업).
@@ -358,7 +364,7 @@ func collectNodes(revRange string) []node {
 			continue
 		}
 		f := strings.Split(rec, fsep)
-		if len(f) < 25 {
+		if len(f) < 26 {
 			continue
 		}
 		step := strings.TrimSpace(f[4])
@@ -391,6 +397,7 @@ func collectNodes(revRange string) []node {
 			advances:     strings.TrimSpace(f[22]),
 			toward:       strings.TrimSpace(f[23]),
 			nextDesign:   strings.TrimSpace(f[24]),
+			falsifyTo:    strings.TrimSpace(f[25]),
 		})
 	}
 	return nodes
