@@ -6420,3 +6420,48 @@ class TestClosureVocabulary(GilFixture):
         self.gil("chain", "old", "--purpose", "옛 결론")
         r = self.gil("chain-close", "old", "--superseded-by", "nowhere")
         self.assertNotEqual(r.returncode, 0)
+
+
+class TestHereAndWorkNode(GilFixture):
+    """현재위치는 손이 움직이는 자리다 (상현님).
+
+    작업중(미커밋) 노드가 전체맵에만 있어서, 정작 일이 벌어지는 화면(사이클 카드)에서는
+    '지금 어디서 손대고 있나'가 안 보였다. 그리고 현재위치 표식은 커밋된 마지막 스텝에
+    붙어 있었는데, 미커밋 작업이 있으면 진짜 현재위치는 그 다음 자리다."""
+
+    def _repo_with_work(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--falsify", "F",
+                 "--falsify-to", "s1", "--title", "H")
+        with open(os.path.join(self.repo, "work.py"), "w") as f:
+            f.write("작업중\n")
+        self._git("add", "work.py")
+
+    def _build(self):
+        out = os.path.join(self.repo, "v.html")
+        r = self.gil("viewer", "build", "--out", out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(out, encoding="utf-8") as f:
+            return f.read()
+
+    def test_step_card_draws_the_work_node(self):
+        self._repo_with_work()
+        html = self._build()
+        self.assertIn("snode working", html)      # 스텝 그래프의 작업중 노드
+        self.assertIn("stepedge work", html)      # 앵커에서 그 자리로 잇는 점선
+
+    def test_head_marker_moves_to_the_work_node(self):
+        """현재위치는 하나여야 한다 — 둘이면 어느 쪽인지 모른다."""
+        self._repo_with_work()
+        html = self._build()
+        self.assertIn("현재위치는 여기다", html)   # 의도가 코드에 남아 있다
+        self.assertIn("wg.classList.add('here')", html)
+
+    def test_go_here_button_exists(self):
+        self._repo_with_work()
+        html = self._build()
+        self.assertIn('id="gohere"', html)
+        self.assertIn("현재위치로", html)
+        self.assertIn("function goHere()", html)

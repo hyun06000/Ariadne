@@ -822,7 +822,21 @@ type chainAgg struct {
 // 순서 보존을 위해 (map, 순서 슬라이스)를 함께 반환한다(Go map은 무순서, Python dict는 삽입순).
 func chainsFromGraph() (map[string]chainAgg, []string) {
 	idx := commitIndex()
-	allNodes := collectNodes("--branches")
+	allNodes := graphNodes()
+	// 봉인 집합은 **한 번만** 만든다. 브랜치마다 chainClosed 를 부르면 브랜치 수만큼 전체
+	// 그래프를 다시 훑는다 — 130개 브랜치짜리 실사용 저장소에서 130번, 테스트가 3분에서
+	// 14분으로 늘어 발각됐다(내가 #85 를 고치며 넣은 회귀). 판정은 하나여야 하지만,
+	// 그 하나를 매번 다시 계산할 이유는 없다.
+	closedSet := map[string]bool{}
+	{
+		fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Kind") + sep
+		for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+			c, k, _ := cut(strings.TrimSpace(rec), fsep)
+			if strings.TrimSpace(k) == "chain-close" {
+				closedSet[strings.TrimSpace(c)] = true
+			}
+		}
+	}
 	chains := map[string]chainAgg{}
 	var order []string
 	for _, br := range branches() {
@@ -890,7 +904,7 @@ func chainsFromGraph() (map[string]chainAgg, []string) {
 		status := "open"
 		if root.status == "init" {
 			status = "init"
-		} else if closed || chainClosed(chainName, "--branches") {
+		} else if closed || closedSet[chainName] {
 			status = "closed"
 		}
 		if _, seen := chains[chainName]; !seen {
@@ -954,7 +968,7 @@ func cyclesOf(chain string) (map[string]*cycleAgg, []string) {
 	// 다르거나 브랜치가 아직 없으면(격리 저장소·orphan) git log가 실패해 사이클을 통째로
 	// 놓친다(handoff가 pending을 못 띄우던 결함). 전체 그래프(--branches)에서 chain으로
 	// 필터링해 ref 존재에 의존하지 않는다.
-	nodes := collectNodes("--branches")
+	nodes := graphNodes()
 	for i := len(nodes) - 1; i >= 0; i-- { // old→new
 		n := nodes[i]
 		if n.chain != chain || n.cycle == "" {

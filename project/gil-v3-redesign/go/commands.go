@@ -116,7 +116,8 @@ func commitOn(branch, createFrom, subject, body string, trailers [][2]string, al
 			git("checkout", "-q", branch)
 		}
 	}
-	defer anchorHead() // 새긴 커밋을 브랜치 없는 자리에 두지 않는다(이슈 #83)
+	defer anchorHead()            // 새긴 커밋을 브랜치 없는 자리에 두지 않는다(이슈 #83)
+	defer invalidateGraphNodes() // 커밋했으니 읽어 둔 그래프는 낡았다(캐시 무효화)
 	msg := subject + "\n\n" + strings.TrimRight(body, "\n \t") + "\n\n"
 	var trs []string
 	for _, t := range trailers {
@@ -1842,6 +1843,7 @@ func strandedCycles(chain string) []string {
 // 반환: 사이클 id → 지금 서 있는 자리(스텝 id·kind).
 func inFlightCycles(chain string) ([]string, map[string]node) {
 	closed := closedCycles("--branches")
+	_ = graphNodes() // 아래 cyclesOf 와 같은 그래프를 쓰도록 캐시를 데운다
 	cyc, order := cyclesOf(chain)
 	var out []string
 	tips := map[string]node{}

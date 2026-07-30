@@ -441,6 +441,7 @@ func renderHTML(g graphView, static bool) string {
 <title>gil 그래프 뷰어</title>
 <style>` + css + `</style></head><body>
 <header><h1>gil 그래프 뷰어 — 체인 그래프</h1>
+<button id="gohere" class="gohere" title="현재위치(HEAD)로 — 작업중이면 그 자리로">▼ 현재위치로</button>
 <span class="meta">체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
 		itoa(g.tipCount) + `개 · ` + liveIndicator(static) + workBadge(g, static) + `</span></header>
 <main>`)
@@ -1108,6 +1109,14 @@ svg.dag{display:block}
 .dag .dnode.deployed circle{stroke:#2dd4bf;stroke-width:2.5}
 .cardwarn{margin:10px 16px;padding:8px 12px;border:1px solid #f59e0b;border-radius:8px;color:#f59e0b;font-size:12px;white-space:pre-wrap}
 .cardwarn.err{border-color:#e0574a;color:#e0574a}
+.gohere{margin-left:auto;font:inherit;font-size:12px;padding:4px 12px;border-radius:7px;cursor:pointer;
+ border:1px solid var(--here);background:transparent;color:var(--here)}
+.gohere:hover{background:var(--here);color:var(--bg)}
+.snode.working circle{fill:none;stroke:var(--here);stroke-dasharray:5 4;stroke-width:2.5}
+.snode.working .sid,.snode.working .skind{fill:var(--here)}
+.stepedge.work{stroke:var(--here);stroke-dasharray:5 4;stroke-width:2}
+.snode.flash circle{animation:gilflash 1.4s ease-out}
+@keyframes gilflash{0%{stroke-width:2.5}30%{stroke-width:7}100%{stroke-width:2.5}}
 .planbadge{font-size:10px;font-weight:700;fill:var(--dim);text-anchor:middle;pointer-events:none}
 .planbadge.broke{fill:#f59e0b}
 .dag .dnode .dagdeploy{font-size:10px;font-weight:800;fill:#2dd4bf;text-anchor:middle;pointer-events:none}
@@ -1436,6 +1445,40 @@ function openStepCard(chain,cyc){
     });
     svg.appendChild(g);
   });
+  // 작업중(미커밋) 노드를 **스텝 그래프에도** 그린다(상현님). 전체맵에만 있으면, 정작
+  // 일이 벌어지는 화면(사이클 카드)에서는 "지금 어디서 손대고 있나"가 안 보인다.
+  // 그리고 그 자리가 진짜 현재위치다 — 커밋된 마지막 스텝이 아니라, 그 다음에서 손이 움직인다.
+  if(WORK&&WORK.dirty){
+    const inThis=(WORK.chain===chain&&WORK.cycle===cyc.name);
+    const anchor=inThis?(steps.find(n=>n.sha===WORK.sha)||steps.find(n=>n.id===WORK.step)||
+      steps.slice().sort((a,b)=>stepNumJS(b.id)-stepNumJS(a.id))[0]):null;
+    if(anchor){
+      const wx=X(anchor.sha)+colGap, wy=Y(anchor.sha);
+      svg.appendChild(svgEl('path',{class:'stepedge work',fill:'none',
+        d:'M '+(X(anchor.sha)+r)+' '+Y(anchor.sha)+' L '+(wx-r)+' '+wy}));
+      const wg=svgEl('g',{class:'snode working',transform:'translate('+wx+','+wy+')'});
+      wg.appendChild(svgEl('title',{},'✎ 작업중(미커밋) — '+WORK.summary+
+        (WORK.branch?'\n브랜치: '+WORK.branch:'')+
+        (WORK.ahead?'\n앵커 이후 평범한 커밋 '+WORK.ahead+'개':'')+
+        (WORK.files&&WORK.files.length?'\n'+WORK.files.join('\n'):'')+
+        '\n커밋하면 이 자리에 진짜 스텝이 선다.'));
+      wg.appendChild(svgEl('circle',{r:r}));
+      wg.appendChild(svgEl('text',{class:'sid',dy:3},'✎'));
+      wg.appendChild(svgEl('text',{class:'skind',dy:r+16},'작업중'));
+      // 현재위치는 여기다 — 커밋된 잎이 아니라 손이 움직이는 자리(상현님).
+      wg.appendChild(svgEl('text',{class:'headlbl',dy:-r-14},'HEAD'));
+      wg.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
+      wg.classList.add('here');
+      // 앵커 스텝의 ▼HEAD 는 지운다 — 현재위치는 하나여야 한다(둘이면 어느 쪽인지 모른다).
+      svg.querySelectorAll('.snode.here .headlbl, .snode.here .headarrow').forEach(el=>{
+        if(!wg.contains(el))el.remove();
+      });
+      svg.appendChild(wg);
+      // 카드가 한 칸 넓어졌으니 그만큼 뷰박스를 늘린다(안 늘리면 잘린다).
+      const nw=Math.max(w, wx+r+padX);
+      svg.setAttribute('width',nw); svg.setAttribute('viewBox','0 0 '+nw+' '+h);
+    }
+  }
   const wrap=document.createElement('div');
   wrap.className='cygraph-wrap'; wrap.appendChild(svg);
   sc.appendChild(wrap);
@@ -1526,6 +1569,36 @@ function jumpToNode(d){
   document.getElementById('pane-report')?.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 // jumpToAgg — 집계 노드(사이클/체인) 클릭 → 그 사이클(또는 체인 첫 사이클)의 첫 스텝으로 내려간다.
+// goHere — 현재위치로 데려간다(상현님). 미커밋 작업이 있으면 **그 자리**가 현재위치다:
+// 그 사이클 카드를 열고, 작업중 노드가 그려진 스텝 그래프로 스크롤한다. 없으면 HEAD 스텝으로.
+function goHere(){
+  let target=null;
+  if(WORK&&WORK.dirty&&WORK.chain){
+    const cy=DATA[WORK.chain]?.cycles.find(c=>c.name===WORK.cycle)||DATA[WORK.chain]?.cycles.slice(-1)[0];
+    if(cy){
+      selectChain(WORK.chain);
+      openStepCard(WORK.chain,cy);
+      const w=document.querySelector('#stepcard .snode.working');
+      (w||document.getElementById('pane-step'))?.scrollIntoView({behavior:'smooth',block:'center'});
+      flashHere();
+      return;
+    }
+  }
+  target=DAG.find(d=>d.here);
+  if(target){ jumpToNode(target); flashHere(); return; }
+  // 현재위치가 그래프 밖이면(대문·빈 저장소) 그 사실을 말한다 — 조용히 아무 일도 안 하면
+  // 버튼이 고장 난 것으로 읽힌다.
+  const b=document.getElementById('gohere');
+  if(b){ const t=b.textContent; b.textContent='현재위치가 그래프에 없다'; setTimeout(()=>b.textContent=t,2000); }
+}
+function flashHere(){
+  setTimeout(()=>{
+    document.querySelectorAll('.snode.here,.snode.working').forEach(el=>{
+      el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'),1400);
+    });
+  },350);
+}
+document.getElementById('gohere')?.addEventListener('click',goHere);
 function jumpToAgg(n){
   selectChain(n.chain);
   const cy=DATA[n.chain]?.cycles||[];
@@ -2012,6 +2085,14 @@ function buildStepMap(){
       wg.appendChild(svgEl('title',{},tip));
       wg.appendChild(svgEl('circle',{r:agg?r+2:r}));
       const lb=svgEl('text',{class:'worklbl',x:0,y:-(r+6)}); lb.textContent='✎ 작업중'; wg.appendChild(lb);
+      // 현재위치는 손이 움직이는 자리다(상현님) — 커밋된 마지막 스텝이 아니라 이 자리.
+      // 전체맵과 스텝 그래프가 같은 말을 하게 한다(둘이 다르면 어느 쪽이 참인지 모른다).
+      if(anchor.here){
+        svg.querySelectorAll('.dnode .headlbl, .dnode .headarrow').forEach(el=>el.remove());
+        const hl=svgEl('text',{class:'headlbl',x:0,y:-(r+20)}); hl.textContent='HEAD'; wg.appendChild(hl);
+        wg.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-(r+15))+' l -5 -8 l 10 0 z'}));
+        wg.classList.add('here');
+      }
       svg.appendChild(wg);
       maxColUsed=true;
     }

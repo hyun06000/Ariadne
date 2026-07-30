@@ -19,8 +19,29 @@ import (
 // cycleAncestry — 이 사이클의 조상 사이클들을 오래된 것부터 나열한다(자기 자신 제외).
 // Gil-Cycle-Parent(사이클 계보 간선)를 거슬러 올라간다. 순환·중복은 접는다.
 func cycleAncestry(chain, cycle string) []string {
+	return cycleAncestryFrom(graphNodes(), chain, cycle)
+}
+
+// graphNodes — 이 프로세스에서 그래프를 **한 번만** 읽는다(성능). gil 은 한 번 실행에 한 가지
+// 일만 하므로 캐시가 낡을 여지가 없다. 안 하면 계보 브리핑 한 번이 조상 수만큼 전체 그래프를
+// 다시 훑는다 — 테스트가 3분에서 14분으로 늘어 발각됐다.
+var graphNodesCache []node
+
+// invalidateGraphNodes — 커밋 뒤에는 캐시를 버린다. 안 그러면 방금 만든 노드가 안 보인다 —
+// 실제로 계보 브리핑이 "조상 사이클 없음"이라 답했다(테스트가 잡았다). 성능을 위해 캐시를
+// 두되, **쓰는 순간 버린다**는 규칙이 함께 있어야 캐시가 거짓말을 안 한다.
+func invalidateGraphNodes() { graphNodesCache = nil }
+
+func graphNodes() []node {
+	if graphNodesCache == nil {
+		graphNodesCache = collectNodes("--branches")
+	}
+	return graphNodesCache
+}
+
+func cycleAncestryFrom(all []node, chain, cycle string) []string {
 	parents := map[string][]string{}
-	for _, n := range collectNodes("--branches") {
+	for _, n := range all {
 		if n.chain != chain || n.cycle == "" || len(n.cycleParents) == 0 {
 			continue
 		}
@@ -68,7 +89,7 @@ func cycleAncestry(chain, cycle string) []string {
 // cycleKnowledge — 한 사이클이 남긴 지식 줄들(전수·설계·회고). 없으면 빈 슬라이스.
 func cycleKnowledge(chain, cycle string, indent string) []string {
 	var steps []node
-	for _, n := range collectNodes("--branches") {
+	for _, n := range graphNodes() {
 		if n.chain == chain && n.cycle == cycle {
 			steps = append(steps, n)
 		}
@@ -149,8 +170,9 @@ func lineageBrief(chain, cycle string) []string {
 // 회고를 요구하면서 앞선 회고를 안 보여주면, 매번 처음부터 다시 판단하게 된다.
 func lineageTowardLines(chain, cycle string) string {
 	var rows []string
-	for _, a := range append(cycleAncestry(chain, cycle), cycle) {
-		for _, n := range collectNodes("--branches") {
+	all := graphNodes()
+	for _, a := range append(cycleAncestryFrom(all, chain, cycle), cycle) {
+		for _, n := range all {
 			if n.chain == chain && n.cycle == a && n.toward != "" {
 				rows = append(rows, "    · "+a+"/"+n.step+": "+n.toward)
 			}
