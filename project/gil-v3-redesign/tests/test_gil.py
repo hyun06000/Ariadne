@@ -3068,6 +3068,69 @@ class TestBacktrackInherit(GilFixture):
         self.assertEqual(self.trailer("HEAD", "Gil-Inherit"), "H1 은 X 때문에 죽음")
 
 
+class TestBacktrackAccumulation(GilFixture):
+    """backtrack 에서 **배운 것이 누적**된다(상현님).
+
+    --inherit 한 줄은 에이전트가 쓴 요약이고, 요약은 성실함에 걸려 있다. 정작 "무엇을
+    세웠고 무엇으로 깨졌나"는 그래프에 정확히 적혀 있는데 브리핑이 싣지 않았다. 이제
+    접힌 시도를 **인용해서** 싣고, 되돌아올 때마다 그 목록이 쌓이며, 새 가지에는
+    묻지 않아도 도착한다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "d", "--purpose", "빌드를 빠르게")
+        self.gil("open", "d/m", "--author", "x", "--purpose", "P", "--body", "정의")
+        self._attempt("가설 A: 캐시", "측정: 개선 0%", "해석: 병목은 I/O")
+
+    def _attempt(self, hyp, ver, ana, to="s1", inherit=None):
+        """한 시도를 세우고 반증하고 접는다(hypothesis→verify refuted→analyze backtrack)."""
+        args = ["step", "d/m", "--kind", "hypothesis", "--title", hyp,
+                "--falsify", "F", "--falsify-to", "s1"]
+        if inherit is not None:
+            args += ["--to", to, "--inherit", inherit]
+        self.gil(*args)
+        self.gil("step", "d/m", "--kind", "verify", "--title", ver, "--verdict", "refuted")
+        return self.gil("step", "d/m", "--kind", "analyze", "--title", ana,
+                        "--outcome", "backtrack", "--to", to)
+
+    def test_context_quotes_dead_attempt(self):
+        """gil context 가 접힌 시도를 인용한다 — 무엇을 세웠나·무엇으로 깨졌나·어떻게 해석했나."""
+        out = self.gil("context", "d/m").stdout
+        self.assertIn("접힌 시도", out)
+        self.assertIn("가설 A: 캐시", out)      # 무엇을 세웠나
+        self.assertIn("측정: 개선 0%", out)      # 무엇으로 깨졌나 (refuted verify)
+        self.assertIn("해석: 병목은 I/O", out)   # 어떻게 해석했나 (analyze)
+
+    def test_new_branch_gets_briefing_unasked(self):
+        """되돌아와 판 새 가지에 계보 브리핑이 **묻지 않아도** 도착한다(open 과 같은 자리)."""
+        r = self.gil("step", "d/m", "--kind", "hypothesis", "--title", "가설 B", "--to", "s1",
+                     "--falsify", "F2", "--falsify-to", "s1", "--inherit", "캐시는 헛다리")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("계보 브리핑", r.stderr)
+        self.assertIn("가설 A: 캐시", r.stderr)
+
+    def test_walls_accumulate_across_backtracks(self):
+        """두 번째로 되돌아온 가지는 **첫 번째 벽도 함께** 본다 — 마지막 하나로 덮이지 않는다."""
+        self._attempt("가설 B: I/O 배치", "측정: 3%", "해석: 링커가 직렬",
+                      inherit="캐시는 헛다리")
+        r = self.gil("step", "d/m", "--kind", "hypothesis", "--title", "가설 C", "--to", "s1",
+                     "--falsify", "F3", "--falsify-to", "s1", "--inherit", "캐시·I/O 둘 다 아님")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("가설 A: 캐시", r.stderr)
+        self.assertIn("가설 B: I/O 배치", r.stderr)
+
+    def test_inherit_refusal_shows_prior_walls(self):
+        """전수를 요구하면서 앞선 벽을 함께 준다 — 안 주면 매번 마지막 벽 하나만 적힌다."""
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        r = subprocess.run([*GIL_CMD, "step", "d/m", "--kind", "hypothesis", "--title", "H2",
+                            "--to", "s1", "--falsify", "F2", "--falsify-to", "s1"],
+                           cwd=self.repo, capture_output=True, text=True, env=env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("쌓아라", r.stderr)
+        self.assertIn("가설 A: 캐시", r.stderr)
+
+
 class TestOrderingChain(GilFixture):
     """순서 체인 강제(AIL #41) — define→hypothesis→verify→analyze→종결. 각 kind 는 다음
     kind 가 정해져 있고 건너뛰면 거부. self._raw_step 으로 자동보정을 우회해 직접 검증한다."""

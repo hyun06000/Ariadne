@@ -937,8 +937,16 @@ func cmdStep(args []string) {
 	// backtrack 은 계보가 갈라지는 자리(머지·refutes 와 동급 간선)인데 지금껏 전수가 면제돼,
 	// 죽은 가지의 교훈이 새 가지로 안 흘렀다. 판정 축이 은밀히 전환되던 근본(맥락 단절)을 친다.
 	if *kind == "hypothesis" && *to != "" && strings.TrimSpace(*inherit) == "" {
-		die("거부: backtrack(hypothesis --to " + *to + ")은 --inherit <전수> 필요 — 되돌아오게 만든 " +
-			"죽은 가지에서 무엇을 배웠나(그 벽의 교훈)를 새 가지에 지고 가라. 맥락이 끊기면 같은 벽을 다시 민다(AIL #13).")
+		// 전수를 요구하면서 **앞선 전수를 안 보여주면** 매번 마지막 벽 하나만 적히고 앞의
+		// 벽들은 사라진다(회고 거부문이 앞선 회고를 함께 주는 것과 같은 이유). 지금까지 민
+		// 벽 전부를 거부문에 붙여, 새 --inherit 이 그 위에 **쌓이게** 한다.
+		msg := "거부: backtrack(hypothesis --to " + *to + ")은 --inherit <전수> 필요 — 되돌아오게 만든 " +
+			"죽은 가지에서 무엇을 배웠나(그 벽의 교훈)를 새 가지에 지고 가라. 맥락이 끊기면 같은 벽을 다시 민다(AIL #13)."
+		if walls := deadAttempts(chain, cycle, "    "); len(walls) > 0 {
+			msg += "\n  지금까지 이 사이클에서 민 벽 — 새 전수는 여기에 **쌓아라**(마지막 하나로 덮지 말고):\n" +
+				strings.Join(walls, "\n")
+		}
+		die(msg)
 	}
 
 	tip := growingTip(steps)
@@ -1451,6 +1459,16 @@ func cmdStep(args []string) {
 		stderr("    이건 실패가 아니라 신호다 — 다음 analyze 에서 **왜 설계가 깨졌나**를 먼저 해석하라.")
 		stderr("    설계가 깨진 자리가 곧 되돌아갈 자리다: 그 결정이 선 analyze/define 으로 --to 를 잡아라.")
 		stderr("    다음 가설에서는 다시 **몇 개일지 추정하지 말고 몇 개로 만들지 정하라**(--plan).")
+	}
+	// 되돌아와 새로 판 가지에는 **묻지 않아도** 지금까지 민 벽 전부가 도착해야 한다.
+	// 계보가 갈라지는 자리는 셋(open·backtrack·merge)인데 자동 브리핑은 open 에만 있었다 —
+	// 실측으로 확인한 구멍이다. backtrack 은 정의상 "앞선 시도가 실패해서 여기 왔다"는
+	// 자리라, 앞선 시도가 안 보이면 그 자리에 선 이유 자체가 안 보인다. 그리고 이 목록은
+	// 되돌아올 때마다 쌓인다 — 세 번째 가지는 첫째·둘째 벽을 함께 본다.
+	if *kind == "hypothesis" && *to != "" {
+		for _, ln := range lineageBrief(chain, cycle) {
+			stderr(ln)
+		}
 	}
 	reportGuide(*kind, bodyThin(stBody))
 	guideNext(*kind) // 다음 강제 스텝을 무조건 각인 (AIL #41)

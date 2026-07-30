@@ -86,6 +86,86 @@ func cycleAncestryFrom(all []node, chain, cycle string) []string {
 	return chainUp
 }
 
+// stepHeadline — 스텝 커밋 subject 에서 사람이 쓴 제목만 뽑는다.
+// subject 는 "gil <chain>/<cycle>/<step> <kind>: <제목>" 꼴이라 앞머리를 잘라낸다.
+func stepHeadline(n node) string {
+	s := n.subject
+	if i := strings.Index(s, ": "); i >= 0 && strings.HasPrefix(s, "gil ") {
+		s = s[i+2:]
+	}
+	return strings.TrimSpace(s)
+}
+
+// deadAttempts — 이 사이클에서 **접힌 시도**들을 오래된 것부터, 그래프가 이미 아는 사실만으로.
+//
+// 왜: backtrack 은 `--inherit` 한 줄을 강제해 교훈을 지고 가게 한다. 하지만 그 한 줄은
+// 에이전트가 손으로 쓴 **요약**이고, 요약은 쓰는 자의 성실함에 걸려 있다. 정작 "무엇을
+// 세웠고 무엇으로 깨졌나"는 그래프에 정확히 적혀 있는데(hypothesis 제목 · verify 의
+// refuted · analyze 의 해석) 브리핑이 그걸 싣지 않았다 — 실측으로 확인했다. 기록은
+// 있는데 전파가 없으면 없는 지식이다. 그래서 **인용한다, 요약하지 않고.**
+//
+// 그리고 이 목록은 backtrack 마다 **쌓인다**. 두 번째 되돌아온 가지는 첫 번째 벽도 함께
+// 본다 — 누적되지 않으면 세 번째 시도가 첫 번째 벽을 다시 민다.
+func deadAttempts(chain, cycle string, indent string) []string {
+	var steps []node
+	byID := map[string]node{} // Gil-Parent 는 sha 가 아니라 **스텝 id** 다
+	for _, n := range graphNodes() {
+		if n.chain == chain && n.cycle == cycle {
+			steps = append(steps, n)
+			byID[n.step] = n
+		}
+	}
+	sort.Slice(steps, func(i, j int) bool { return stepNum(steps[i].step) < stepNum(steps[j].step) })
+
+	var L []string
+	for _, end := range steps {
+		// 접힌 자리 = 되돌아간 analyze(backtrack) 또는 벽으로 못박은 fail.
+		if !(end.outcome == "backtrack" || end.kind == "fail") {
+			continue
+		}
+		// 그 가지를 조상 쪽으로 거슬러 올라가 무엇을 세웠고(hypothesis) 무엇으로 깨졌는지
+		// (verify)를 줍는다. 분기점(define)에 닿으면 멈춘다 — 그 위는 형제와 공유하는 몸통이다.
+		var hyp, ver *node
+		for cur, hops := end, 0; hops < 64; hops++ {
+			p, ok := byID[cur.parent]
+			if !ok {
+				break
+			}
+			if p.kind == "hypothesis" && hyp == nil {
+				h := p
+				hyp = &h
+			}
+			if p.kind == "verify" && ver == nil {
+				v := p
+				ver = &v
+			}
+			if p.kind == "define" {
+				break
+			}
+			cur = p
+		}
+		head := indent + "✖ 접힌 시도 "
+		if hyp != nil {
+			head += hyp.step + " → " + end.step + ": " + stepHeadline(*hyp)
+		} else {
+			head += end.step + ": " + stepHeadline(end)
+		}
+		L = append(L, head)
+		if ver != nil && ver.verdict == "refuted" {
+			L = append(L, indent+"    반증됨("+ver.step+"): "+stepHeadline(*ver))
+		}
+		if end.outcome == "backtrack" {
+			L = append(L, indent+"    해석("+end.step+"): "+stepHeadline(end)+"  → "+end.backtrack+" 로 되돌아감")
+		} else {
+			L = append(L, indent+"    벽("+end.step+"): "+stepHeadline(end))
+		}
+	}
+	if len(L) > 0 {
+		L = append(L, indent+"↺ 위는 이미 민 벽이다 — 같은 벽을 다시 밀지 마라.")
+	}
+	return L
+}
+
 // cycleKnowledge — 한 사이클이 남긴 지식 줄들(전수·설계·회고). 없으면 빈 슬라이스.
 func cycleKnowledge(chain, cycle string, indent string) []string {
 	var steps []node
@@ -102,6 +182,8 @@ func cycleKnowledge(chain, cycle string, indent string) []string {
 	if g := cycleGoal(chain, cycle, "--branches"); g != "" {
 		L = append(L, indent+"목표: "+g)
 	}
+	// 접힌 시도들이 먼저다 — "이미 민 벽"을 알고 나서 살아있는 선을 읽어야 순서가 맞는다.
+	L = append(L, deadAttempts(chain, cycle, indent)...)
 	for _, s := range steps {
 		switch {
 		case s.kind == "define" && s.inherit != "":
