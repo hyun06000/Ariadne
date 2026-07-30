@@ -90,11 +90,14 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 500 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.36.0**
+- **검증**: example 501 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.37.0**
   (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init` 까지 실측 확인).
   v3.34.1 = 윈도우 필드테스트 두 건: 뷰어 자동 새로고침이 인터뷰 답을 지우던 것(초안 저장 +
   쓰는 중 리로드 보류) · 윈도우 **사람**용 설치 경로(`docs/INSTALL.md`)와 "에이전트가 설치를
   거부하면" 정규 분기.
+  v3.37.0 = **기준 없는 체인은 태어나지 못한다** — chain 이 --from-intake(권장) 또는
+  --reference+--criterion 없이는 거부(집행을 사이클에서 체인의 탄생으로 올림) · open 의
+  --fits/--misfit(체인 목적과 대면; 아니면 열지 않고 기억에 남긴다).
   v3.36.0 = 정문(README.ai.md)이 **intake 부터** 가르치게 다시 씀(복붙 블록을 실행 검증하는
   `TestReadmeAiRunnable` 로 박음) · 연습용 데모 사이클 폐지 · 뷰어 온보딩(첫 화면 "이 화면
   읽는 법" **그림** + 기본 열림=전체맵·스텝그래프·스텝디테일, 체인/사이클 그래프는 접힘).
