@@ -10,6 +10,7 @@ gil 명령을 subprocess로 돌리고 결과를 단언한다. 통제된 입력 �
 실행:  python3 -m unittest discover -s project/gil-v3-redesign/tests
    또는  python3 project/gil-v3-redesign/tests/test_gil.py
 """
+import json
 import os
 import re
 import sys
@@ -3205,6 +3206,49 @@ class TestVerifyAnswersFalsify(GilFixture):
         out = self.gil("context", "f/c1").stdout
         self.assertIn("반증조건이 충족됐다", out)
         self.assertIn("3회 평균 +0.4%", out)
+
+
+class TestInterviewOpensOpen(GilFixture):
+    """인터뷰의 첫 질문은 열린 질문이어야 한다 (이슈 #90, 실사용 보고).
+
+    선택지로만 채운 질문지는 **에이전트의 가설 공간 안에서 사람을 고르게 만든다.** 그러면
+    기준 문서는 '사람이 세운 자'가 아니라 '에이전트가 세운 자에 사람이 서명한 것'이 되고,
+    그 뒤의 모든 검증은 형식만 남는다 — 잣대를 재는 자가 잣대를 먼저 깎았으니까.
+
+    실사용에서 사람이 방향을 실제로 뒤집은 유일한 지점이 자유 서술 칸이었다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "iv", "--purpose", "P")
+
+    def _ask(self, payload):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.run([*GIL_CMD, "interview", "iv", "--ask", "-"],
+                              cwd=self.repo, capture_output=True, text=True,
+                              env=env, input=json.dumps(payload))
+
+    def test_choice_first_is_refused(self):
+        r = self._ask([{"q": "range 를 어떻게 할까요?", "type": "radio", "options": ["A", "B"]},
+                       {"q": "자유", "type": "text"}])
+        self.assertNotEqual(r.returncode, 0, "선택지로 시작하는 질문지가 통과했다")
+        self.assertIn("첫 질문은 열린 질문", r.stderr)
+        self.assertIn("range 를 어떻게 할까요?", r.stderr)  # 어느 질문이 문제인지 짚는다
+
+    def test_choice_only_is_refused(self):
+        r = self._ask([{"q": "A?", "type": "radio", "options": ["1", "2"]}])
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_open_first_passes(self):
+        r = self._ask([{"q": "무엇을 하려 하십니까", "type": "text"},
+                       {"q": "그중 어느 쪽", "type": "radio", "options": ["1", "2"]}])
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_choice_heavy_warns(self):
+        """거부까지는 않는다 — 좁혀 묻는 질문 자체가 나쁜 건 아니다. 다만 기울면 말해 준다."""
+        r = self._ask([{"q": "무엇을", "type": "text"}]
+                      + [{"q": f"q{i}", "type": "radio", "options": ["1", "2"]} for i in range(3)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("질문지 자체가 앵커가 된다", r.stderr)
 
 
 class TestHandoffEndMarker(GilFixture):
