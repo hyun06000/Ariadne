@@ -154,6 +154,12 @@ func deadAttempts(chain, cycle string, indent string) []string {
 		if ver != nil && ver.verdict == "refuted" {
 			L = append(L, indent+"    반증됨("+ver.step+"): "+stepHeadline(*ver))
 		}
+		// 접힌 가지의 **결론**을 인용한다(상현님). 지식 누적은 backtrack 을 따라 흐르는데,
+		// 정작 그 가지가 무엇을 밝혔는지(analyze 의 --finding)가 안 실리면 다음 가지는
+		// "여기서 막혔다"만 알고 "왜 막혔는지"는 모른 채 출발한다.
+		if an := lastAnalyzeOf(end, byID); an != nil && an.finding != "" {
+			L = append(L, indent+"    밝힌 것("+an.step+"): "+an.finding)
+		}
 		if end.outcome == "backtrack" {
 			L = append(L, indent+"    해석("+end.step+"): "+stepHeadline(end)+"  → "+end.backtrack+" 로 되돌아감")
 		} else {
@@ -164,6 +170,26 @@ func deadAttempts(chain, cycle string, indent string) []string {
 		L = append(L, indent+"↺ 위는 이미 민 벽이다 — 같은 벽을 다시 밀지 마라.")
 	}
 	return L
+}
+
+// lastAnalyzeOf — 접힌 자리에서 조상 쪽으로 가장 가까운 analyze(그 가지가 밝힌 것).
+// end 자신이 analyze(backtrack)면 그것이다.
+func lastAnalyzeOf(end node, byID map[string]node) *node {
+	if end.kind == "analyze" {
+		e := end
+		return &e
+	}
+	for cur, hops := end, 0; hops < 64; hops++ {
+		p, ok := byID[cur.parent]
+		if !ok || p.kind == "define" {
+			return nil
+		}
+		if p.kind == "analyze" {
+			return &p
+		}
+		cur = p
+	}
+	return nil
 }
 
 // cycleKnowledge — 한 사이클이 남긴 지식 줄들(전수·설계·회고). 없으면 빈 슬라이스.
@@ -188,7 +214,12 @@ func cycleKnowledge(chain, cycle string, indent string) []string {
 		switch {
 		case s.kind == "define" && s.inherit != "":
 			L = append(L, indent+"전수(←부모): "+s.inherit)
+		case s.kind == "analyze" && s.finding != "":
+			L = append(L, indent+s.step+" 분석이 밝힌 것: "+s.finding)
 		case s.kind == "hypothesis":
+			if s.despiteMap != "" {
+				L = append(L, indent+s.step+" 벽의 지도를 벗어난 이유: "+s.despiteMap)
+			}
 			if s.advances != "" {
 				L = append(L, indent+s.step+" 가설이 목적에 다가서려던 몫: "+s.advances)
 			}

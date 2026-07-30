@@ -82,6 +82,18 @@ class GilFixture(unittest.TestCase):
         # verify 는 --plan-held/--plan-broke 로 답해야 한다. 대부분 테스트는 설계 고정 자체가
         # 아니라 그 뒤 위상을 검증하므로 기본값을 자동 주입한다(강제 자체를 검증하는 테스트는
         # 명시 호출로 우회 — 플래그 흔적이 있으면 안 붙인다).
+        # 상현님 실사용: analyze 가 결론 없이 지나가고 곧장 define 으로 되돌아갔다 → --finding 필수.
+        # 강제 자체를 검증하는 테스트는 명시 호출(플래그 흔적)로 우회한다.
+        if args and args[0] == "step" and "--kind" in args and "analyze" in args and \
+           not any(a == "--finding" or a.startswith("--finding=") for a in args):
+            args += ["--finding", "(테스트 결론: 이 분석이 밝힌 것)"]
+        # 상현님 실사용: 벽이 가리킨 자리와 다른 곳에서 갈라져도 도구가 침묵했다 → --despite 필요.
+        # 많은 기존 테스트가 s1 로 되돌아가는 위상을 검증하므로, 벽의 지도와 어긋나면 이유를
+        # 자동 주입한다(테스트 의도 보존). 그 강제 자체를 검증하는 테스트는 명시 호출로 우회.
+        if args and args[0] == "step" and "--kind" in args and "hypothesis" in args and \
+           "--to" in args and not getattr(self, "_no_despite_autofill", False) and \
+           not any(a == "--despite" or a.startswith("--despite=") for a in args):
+            args += ["--despite", "(테스트: 벽의 지도와 다른 자리에서 갈라진다)"]
         if args and args[0] == "step" and "--kind" in args and "hypothesis" in args and \
            not any(a == "--plan" or a.startswith("--plan=") for a in args):
             args += ["--plan", "(테스트 설계 고정: 신규 실행경로 1개)"]
@@ -223,6 +235,9 @@ class GilFixture(unittest.TestCase):
                 # 규칙 17: 가설이 심은 --falsify 에도 답해야 한다. supported 이므로 unmet.
                 extra = ["--verdict", "supported", "--plan-held",
                          "--falsify-unmet", "(테스트 관측: 반증조건 미달)"]
+            elif nxt == "analyze":
+                # 상현님: analyze 는 결론(--finding) 없이 서지 못한다.
+                extra = ["--finding", "(순서 자동: 이 분석이 밝힌 것)"]
             rr = subprocess.run([*GIL_CMD, "step", ref, "--kind", nxt, "--title",
                                  "(순서 자동:" + nxt + ")", *extra],
                                 cwd=self.repo, capture_output=True, text=True, env=env)
@@ -1477,6 +1492,94 @@ class TestInterviewArrival(GilFixture):
         # 차선(다음 턴의 첫 명령)도 여전히 적히되, 이제 백그라운드 --wait 뒤에 온다(이슈 #82).
         self.assertIn("다음 턴의 **첫 명령**", out)
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
+
+
+class TestFindingAndWallMap(GilFixture):
+    """분석의 결론과 벽의 지도 (상현님 실사용 관측 둘).
+
+    (1) 분석에서 **결론 없이** define 으로 백트랙하는 현상.
+    (2) 실패 노드에서 analyze 로 백트랙했는데 **define 에서** 새 가설을 만드는 현상.
+    둘 다 지식 누적을 끊는다 — 누적은 backtrack 을 따라 흐르는데, 결론이 비면 실을 것이
+    없고, 지도를 벗어나면 흐를 물길이 끊긴다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "원인 규명")
+        self.gil("open", "c/cy", "--author", "x", "--purpose", "문제", "--body", "정의")
+        self.gil("step", "c/cy", "--kind", "hypothesis", "--title", "h1",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "c/cy", "--kind", "verify", "--title", "v1", "--verdict", "refuted",
+                 "--falsify-met", "관측됨")
+
+    def test_analyze_requires_a_finding(self):
+        """결론 없는 분석은 서지 못한다 — 다음 판단이 딛을 문장이 없다."""
+        r = self._raw_step("c/cy", "--kind", "analyze", "--title", "분석", "--body", "본문")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--finding", r.stderr)
+
+    def _wall_at_s4(self):
+        self.gil("step", "c/cy", "--kind", "analyze", "--title", "분석", "--body", "본문",
+                 "--finding", "가설은 맞았고 측정 방법이 틀렸다")
+        self.gil("step", "c/cy", "--kind", "fail", "--to", "s4", "--title", "벽", "--body", "막혔다")
+
+    def test_rebranch_off_the_wall_map_is_refused(self):
+        """벽이 s4 를 가리켰는데 s1 에서 갈라지면 거부 — 기록과 행동이 어긋나면 말한다."""
+        self._wall_at_s4()
+        self._no_despite_autofill = True
+        try:
+            r = self.gil("step", "c/cy", "--kind", "hypothesis", "--to", "s1",
+                         "--inherit", "교훈", "--title", "h2", "--falsify", "F2", "--falsify-to", "s1")
+        finally:
+            self._no_despite_autofill = False
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("벽의 지도", r.stderr)
+        self.assertIn("--despite", r.stderr)
+
+    def test_following_the_wall_map_needs_no_excuse(self):
+        """지도를 따르면 아무것도 더 요구하지 않는다 — 규율은 마찰이 아니라 방향이다."""
+        self._wall_at_s4()
+        self._no_despite_autofill = True
+        try:
+            r = self.gil("step", "c/cy", "--kind", "hypothesis", "--to", "s4",
+                         "--inherit", "계측 해상도가 벽이었다", "--title", "h2",
+                         "--falsify", "F2", "--falsify-to", "s4")
+        finally:
+            self._no_despite_autofill = False
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_deviation_is_allowed_but_recorded(self):
+        """지도를 고치는 것도 정당하다 — 다만 그 판단이 그래프에 남는다."""
+        self._wall_at_s4()
+        r = self.gil("step", "c/cy", "--kind", "hypothesis", "--to", "s1",
+                     "--despite", "계측 없이는 어떤 가설도 못 선다", "--inherit", "교훈",
+                     "--title", "h2", "--falsify", "F2", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("계측 없이는", self.trailer("HEAD", "Gil-Despite-Map"))
+
+    def test_finding_flows_into_the_accumulated_knowledge(self):
+        """결론은 **인용되어** 다음 가지에 도착한다 — 요약이 아니라 그 문장 그대로."""
+        self._wall_at_s4()
+        r = self.gil("context", "c/cy")
+        self.assertIn("가설은 맞았고 측정 방법이 틀렸다", r.stdout + r.stderr)
+
+    def test_handoff_carries_the_walls_without_being_asked(self):
+        """세션 부활의 정문에도 벽이 온다 — 능동 조회에 기대면 그건 전파가 아니다."""
+        self._wall_at_s4()
+        r = self.gil("handoff")
+        out = r.stdout + r.stderr
+        self.assertIn("접힌 시도", out)
+        self.assertIn("가설은 맞았고 측정 방법이 틀렸다", out)
+
+    def test_every_step_commit_nudges_about_the_walls(self):
+        """매 커밋마다 전문을 뿌리면 화면을 덮는다 — 대신 한 줄로 존재를 알린다."""
+        self._wall_at_s4()
+        self.gil("step", "c/cy", "--kind", "hypothesis", "--to", "s4",
+                 "--inherit", "교훈", "--title", "h2", "--falsify", "F2", "--falsify-to", "s4")
+        r = self.gil("step", "c/cy", "--kind", "verify", "--title", "v2",
+                     "--verdict", "supported", "--falsify-unmet", "미관측")
+        self.assertIn("이미 민 벽", r.stdout + r.stderr)
+        self.assertIn("gil context", r.stdout + r.stderr)
 
 
 class TestReadmeAiRunnable(unittest.TestCase):
@@ -3701,7 +3804,7 @@ class TestOrderingChain(GilFixture):
     def test_hypothesis_next_must_be_verify(self):
         self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
                         "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
-        r = self._raw_step("c/c1", "--kind", "analyze", "--title", "a")
+        r = self._raw_step("c/c1", "--kind", "analyze", "--title", "a", "--finding", "(밝힌 것)")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("verify", r.stderr)
 
@@ -3720,7 +3823,7 @@ class TestOrderingChain(GilFixture):
                         "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
                        "--plan-held", "--falsify-unmet", "(관측: 반증조건 미달)")
-        self._raw_step("c/c1", "--kind", "analyze", "--title", "a")
+        self._raw_step("c/c1", "--kind", "analyze", "--title", "a", "--finding", "(밝힌 것)")
         r = self._raw_step("c/c1", "--kind", "success", "--title", "ok",
                            "--toward", "(회고)", "--next-design", "(다음 설계)")
         self.assertEqual(r.returncode, 0, r.stderr)

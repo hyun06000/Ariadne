@@ -400,7 +400,11 @@ gil step power/c001 --kind verify --title "시간대 분해" --verdict supported
 MD
 
 # 8) 분석 — 결과가 무엇을 뜻하는지 해석(그다음이 종결).
-gil step power/c001 --kind analyze --title "해석" --body-file - <<'MD'
+#    --finding 필수: 이 분석이 **밝힌 것** 한 줄. 결론 없는 분석은 다음 판단의 근거가 되지
+#    못한다 — 뒤이은 재분기·종결이 딛는 문장이 바로 이것이고, 지식 누적에도 이 문장이 실린다.
+gil step power/c001 --kind analyze --title "해석" \
+  --finding "증가분의 출처는 야간 냉방이고, 남은 29%는 시간대만으로는 가릴 수 없다" \
+  --body-file - <<'MD'
 # 분석
 야간 냉방이 주원인. 한계(기기 식별은 간접추정)와 다음 사이클로 넘길 교훈을 적는다.
 MD
@@ -443,7 +447,10 @@ gil step power/c001 --kind fail --to s1 --title "야간 가설은 벽" \
   --toward "증가분의 출처를 좁히지 못했다" --next-design "기기별 계측을 먼저 세우는 사이클" \
   --body "왜 벽인지·무엇을 배웠는지."
 # s1(define) 에서 새 형제 가설 — 죽은 가지의 교훈을 --inherit 로 물려받아 지고 간다.
+# 벽이 가리킨 자리와 **다른 곳**에서 갈라지려면 --despite "<왜 여기가 아닌가>" 가 필요하다.
+# 벽의 지도는 막혔을 때의 네가 남긴 것이다 — 말없이 어기면 그 기록은 빈 칸이 된다.
 gil step power/c001 --kind hypothesis --to s1 \
+  --despite "계측 없이는 어떤 가설도 못 선다는 것이 분석의 결론이라 s1 로 완전 회귀한다" \
   --inherit "시간대만으로는 기기를 못 가른다 — 계측 없이는 분해가 안 된다" \
   --title "온수기 가설" --falsify "온수기 증가분이 20% 미만이면 거짓" --falsify-to s1 \
   --plan "콘센트 계측 로그 1종" --advances "남은 증가분의 출처를 좁힌다" \

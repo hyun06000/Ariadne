@@ -958,6 +958,13 @@ func cmdStep(args []string) {
 	// 보존. 뷰어가 옛 스텝에 "⤳정정됨"을 붙인다. --refutes 가 verdict 를 supersede 하지 않고
 	// forward 간선으로 남기는 것과 동형(정정이 은폐 아니라 이력에 남는다, 이번 세션 #8 교훈).
 	supersede := fs.str("supersede", "")
+	// analyze 의 **결론**(상현님 실사용): 분석이 결론 없이 지나가고 곧장 define 으로 되돌아가는
+	// 일이 실제로 났다. 해석 없는 해석 노드는 다음 판단의 근거가 되지 못한다 — 그 자리에서
+	// 밝힌 것을 한 줄로 못박게 한다. 뒤이은 재분기가 딛는 것이 바로 이 문장이다.
+	finding := fs.str("finding", "")
+	// 벽의 지도를 벗어날 때의 이유(상현님 실사용): 죽은 잎이 "여기로 돌아가라"고 s4 를
+	// 가리켰는데 새 가설은 s1 에서 갈라졌다. 기록과 행동이 어긋나도 도구가 몰랐다.
+	despite := fs.str("despite", "")
 
 	pos := fs.parse(args)
 	if len(pos) < 1 {
@@ -1051,6 +1058,18 @@ func cmdStep(args []string) {
 				"  (fail 의 --to 만 예외다 — 그건 자리가 아니라 '되돌아갈 곳'의 기록이다.)")
 		}
 	}
+	// ── analyze 는 결론을 남긴다 (상현님 실사용) ────────────────────────────────
+	// "분석에서 결론 없이 define 으로 백트랙하는 현상"이 실제로 관측됐다. analyze 는 순수
+	// 분석이지만 **아무것도 밝히지 않은 분석**은 다음 스텝의 근거가 되지 못한다 — 그 위에 선
+	// 재분기는 사실상 근거 없이 되돌아가는 것이고, 그러면 같은 벽을 다시 만난다.
+	// 본문(보고서)은 얇아도 경고에 그쳤으니, **한 줄 결론만은 문법으로** 받는다.
+	if *kind == "analyze" && strings.TrimSpace(*finding) == "" {
+		die("거부: analyze 는 --finding <이 분석이 밝힌 것> 필요 — 결론 없는 분석은 다음 판단의 " +
+			"근거가 되지 못한다.\n" +
+			"  한 줄로 못박아라: 무엇이 원인인가 · 무엇이 이 가설을 막았나 · 그래서 어디로 돌아가야 하나.\n" +
+			"  (본문은 근거 전문, --finding 은 그 전문에서 뽑은 결론이다. 뒤이은 재분기·종결이\n" +
+			"   딛는 것이 바로 이 문장이고, 벽의 지도가 가리킬 자리도 여기서 정해진다.)")
+	}
 	// analyze 는 순수 분석 — 종결(성공/실패/대기)은 별도 스텝(success/fail/pending)으로(상현님).
 	// 하위호환: analyze --outcome 도 여전히 허용(옛 데이터·간단 사용).
 	if *kind == "analyze" && *outcome != "" && !outcomes[*outcome] {
@@ -1086,6 +1105,35 @@ func cmdStep(args []string) {
 		die("거부: 계보 간선(--merge/--refutes/--refines)이 있으면 --inherit <전수> 필요 — 이 갈래에서 " +
 			"무엇을 물려받았나(머지), 무엇을 뒤집고 무엇은 계승하나(refutes), 앞 해석의 어디까지가 " +
 			"맞았나(refines)를 명시하라(AIL #3).")
+	}
+	// ── 벽의 지도를 따르라 (상현님 실사용) ──────────────────────────────────────
+	// "실패 노드에서 분석 노드로 백트랙했는데 define 에서 새 가설을 만드는 현상"이 관측됐다.
+	// 죽은 잎은 --to 로 **되돌아갈 자리**를 기록한다(벽의 지도). 그런데 그 다음 재분기가 그
+	// 자리를 무시하고 다른 앵커에서 갈라져도 gil 이 몰랐다 — 기록과 행동이 어긋나는데 도구가
+	// 침묵하면, 그 기록은 이내 빈 칸 채우기가 된다(#76 이 관찰 중인 형해화의 실제 사례).
+	//
+	// 규칙: 이 사이클에 아직 회수되지 않은 죽은 잎이 있고, 그 잎이 가리킨 자리와 다른 곳에서
+	// 갈라지려 하면 거부한다. 벽의 지도가 틀렸을 수도 있으니 길은 연다 — --despite <이유>.
+	// (지도를 고치는 것도 정당하다. 다만 말없이 어기는 것은 아니다.)
+	if *kind == "hypothesis" && strings.TrimSpace(*to) != "" {
+		var wall *node
+		for i := range steps {
+			if isDeadLeaf(steps[i]) && strings.TrimSpace(steps[i].backtrack) != "" {
+				wall = &steps[i] // steps 는 old→new — 가장 최근 벽이 남는다
+			}
+		}
+		if wall != nil && wall.backtrack != *to {
+			if strings.TrimSpace(*despite) == "" {
+				die("거부: 벽의 지도와 다른 자리에서 갈라진다 — " + wall.step + " [" + wall.kind +
+					"] 는 **" + wall.backtrack + " 로 돌아가라**고 적었는데, 지금 --to " + *to + " 다.\n" +
+					"  그 한 줄은 막혔을 때의 너 자신이 남긴 지도다. 말없이 어기면 그 기록은 빈 칸이 된다.\n" +
+					"    ▸ 지도를 따른다  → --to " + wall.backtrack + "\n" +
+					"    ▸ 지도가 틀렸다  → --despite \"<왜 " + wall.backtrack + " 가 아니라 " + *to + " 인가>\"\n" +
+					"       (지도를 고치는 것도 정당하다 — 다만 그 판단이 기록에 남아야 한다.)")
+			}
+			stderr("  ⚠ 벽의 지도(" + wall.step + " → " + wall.backtrack + ")를 벗어나 " + *to + " 에서 갈라진다.")
+			stderr("    이유: " + strings.TrimSpace(*despite))
+		}
 	}
 	// backtrack 전수 강제 (AIL #13, 요구 5) — 조상 define 으로 되돌아가 새 형제 가지를 팔 때
 	// (hypothesis --to <define>), 죽은 가지에서 얻은 "누적된 반성"을 --inherit 으로 잇게 한다.
@@ -1617,6 +1665,13 @@ func cmdStep(args []string) {
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
 	}
+	if strings.TrimSpace(*finding) != "" {
+		tr = append(tr, [2]string{"Gil-Finding", strings.TrimSpace(*finding)}) // analyze 의 결론
+	}
+	if strings.TrimSpace(*despite) != "" {
+		// 벽의 지도를 벗어난 재분기 — 그 판단을 그래프에 남긴다(어긴 것이 아니라 고친 것이다).
+		tr = append(tr, [2]string{"Gil-Despite-Map", strings.TrimSpace(*despite)})
+	}
 	if strings.TrimSpace(*supersede) != "" {
 		tr = append(tr, [2]string{"Gil-Supersedes", *supersede}) // 스텝 정정 간선(AIL #12)
 	}
@@ -1692,9 +1747,25 @@ func cmdStep(args []string) {
 	// 실측으로 확인한 구멍이다. backtrack 은 정의상 "앞선 시도가 실패해서 여기 왔다"는
 	// 자리라, 앞선 시도가 안 보이면 그 자리에 선 이유 자체가 안 보인다. 그리고 이 목록은
 	// 되돌아올 때마다 쌓인다 — 세 번째 가지는 첫째·둘째 벽을 함께 본다.
-	if *kind == "hypothesis" && *to != "" {
+	if *kind == "hypothesis" {
+		// **가설을 세우는 자리에는 무조건 전문이 온다**(선형이든 재분기든, 상현님). 새 가설은
+		// 정확히 "이미 민 벽"을 알아야 하는 자리다 — 여기서 안 보여주면 다음 가지가 같은 벽을
+		// 다시 민다. 옛 코드는 재분기(--to)에만 줬다.
 		for _, ln := range lineageBrief(chain, cycle) {
 			stderr(ln)
+		}
+	} else if walls := deadAttempts(chain, cycle, ""); len(walls) > 0 {
+		// 그 외 스텝에는 **한 줄 넛지**만. 매 커밋마다 벽 전문을 뿌리면 화면을 덮고, 덮으면
+		// 읽히지 않는다(#85 의 교훈: 영구 패널이 지금 살아 있는 국면을 가린다). 그러나 침묵도
+		// 답이 아니다 — 있다는 사실과 펼치는 법은 언제나 그 자리에 있어야 한다.
+		n := 0
+		for _, w := range walls {
+			if strings.Contains(w, "✖ 접힌 시도") {
+				n++
+			}
+		}
+		if n > 0 {
+			stderr("  ↺ 이 사이클에서 이미 민 벽 " + itoa(n) + "개 — 펼쳐라: gil context " + ref)
 		}
 	}
 	reportGuide(*kind, bodyThin(stBody))

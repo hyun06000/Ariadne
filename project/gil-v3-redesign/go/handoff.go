@@ -509,6 +509,8 @@ func handoffReport() string {
 				L = append(L, "        · 아직이면 갈래를 더 내라: gil step "+cname+"/"+cid+
 					" --kind hypothesis --to <조상 define|analyze> --inherit <여기까지의 교훈>")
 				L = append(L, "        · 언제 닫는지는 이 체인의 기준 문서가 정한다 — 위 📌 기준을 먼저 읽어라.")
+				// 잎이 다 접힌 사이클일수록 벽이 많다 — 여기서 안 보여주면 다음 가지가 같은 벽을 민다.
+				L = append(L, deadAttempts(cname, cid, "        ")...)
 				continue
 			}
 			tip := c.liveTip()
@@ -526,6 +528,14 @@ func handoffReport() string {
 			L = append(L, coordLines(ds, sj, "        ")...)
 			L = append(L, "        팁: "+tip.step+" ["+tip.kind+oc+"]")
 			L = append(L, "        다음 허용: "+nxt)
+			// 이미 민 벽은 **묻지 않아도** 도착해야 한다(상현님). 지식 누적은 backtrack 을 따라
+			// 흐르는데, 그 흐름이 닿는 자리는 지금껏 셋뿐이었다 — open·backtrack·gil context.
+			// 정작 **세션 부활의 정문**인 handoff 에는 없었다: 이어받은 존재가 능동적으로
+			// gil context 를 부르지 않으면, 앞 세션이 민 벽을 모른 채 같은 벽을 다시 민다.
+			// (자기규율에 기대는 순간 그건 전파가 아니다 — 이 레포가 반복해서 값을 치른 자리.)
+			for _, ln := range deadAttempts(cname, cid, "        ") {
+				L = append(L, ln)
+			}
 			if tip.kind == "pending" {
 				L = append(L, "        ⏳ PENDING — 재개 시 먼저 사람 답을 받아야 한다.")
 			}
