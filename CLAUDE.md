@@ -90,8 +90,8 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 492 테스트(`project/gil-v3-redesign/tests/`). 업로드된 최신 릴리스는
-  **v3.33.0** — **v3.34.0 은 `dist/` 에 구워만 뒀다(업로드 대기, 사람이 `gh release create`)**.
+- **검증**: example 492 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.34.0**
+  (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·발견성까지 실측 확인).
   **병렬 러너를 쓴다**: `python3 run_tests.py` — 클래스 단위 프로세스 분할 + LPT(긴 것부터,
   지난 소요를 `.test-timings.json` 에 학습) + 워커 1.5×코어. 실측 151s·병렬 효율 100%
   (실행 끝에 효율·CPU 합계·꼬리를 스스로 출력한다).
