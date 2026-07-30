@@ -3265,6 +3265,24 @@ class TestIntakeBeforeChain(GilFixture):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("함께 못 선다", r.stderr)
 
+    def test_viewer_renders_the_form_with_no_chain_yet(self):
+        """체인 0 + 인터뷰 1 — 이게 intake 의 **정상 상태**이고, 옛 뷰어는 여기서 죽었다.
+
+        buildStepMap() 이 없는 컨테이너에 replaceChildren 을 불러 예외를 냈고, 그 뒤
+        buildInterviews() 가 영영 실행되지 않아 **폼이 아예 안 떴다** — 사람이 답할
+        유일한 수단이 사라진 것이다. 브라우저로 실제 확인하다 발견했다(이슈 #90 검증)."""
+        self._ask()
+        out = os.path.join(self.repo, "v.html")
+        r = self.gil("viewer", "build", "--out", out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding="utf-8") as f:
+            html = f.read()
+        # 정적 build 는 인터뷰 폼을 싣지 않는다(제출할 서버가 없다) — 여기서 보증할 수 있는
+        # 것은 **크래시 가드가 실제로 실려 나갔는가**다. 폼이 뜨는 것 자체는 브라우저로
+        # 확인했다(뷰어 폼 제출 → intake done → 인용된 목적으로 체인).
+        self.assertIn("if(!host)return;", html)         # 전체맵이 없어도 죽지 않는다
+        self.assertIn("step('인터뷰 폼'", html)          # 앞 단계가 죽어도 폼은 그린다
+
     def test_plain_chain_points_at_intake(self):
         """--purpose 없이 열려 하면 개시 인터뷰 경로를 알려준다 — 거부에는 길이 붙는다."""
         r = self._run("chain", "nx")

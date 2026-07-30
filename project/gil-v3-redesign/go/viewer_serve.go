@@ -1912,6 +1912,11 @@ function aggregateDAG(depth){
 
 function buildStepMap(){
   const host=document.getElementById('view-map');
+  // 체인이 하나도 없으면 서버가 전체맵 컨테이너를 안 낸다 — 개시 인터뷰(gil intake)의
+  // **정상 상태**가 정확히 그 모양이다(인터뷰는 있고 체인은 아직 없다). 옛 코드는 여기서
+  // null 에 replaceChildren 을 불러 죽었고, 그 뒤 buildInterviews() 가 영영 실행되지
+  // 않아 **폼이 아예 안 떴다** — 사람이 답할 수단이 사라진 것이다(이슈 #90 검증에서 발견).
+  if(!host)return;
   host.replaceChildren();
   const folded=aggregateDAG(MAP_DEPTH);
   const ALLCHAINS=[...new Set(folded.map(n=>n.chain).filter(Boolean))].sort();
@@ -2457,8 +2462,20 @@ function buildInterviews(){
 }
 function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
 document.querySelectorAll('#depthseg button').forEach(b=>b.addEventListener('click',()=>setMapDepth(b.dataset.depth))); // 뎁스 토글(AIL #6)
-buildStepMap();  // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
-enableChainGraphZoom(); // 체인 그래프도 줌·팬·미니맵(이슈 #79)
-buildInterviews(); // 사람 답 대기 인터뷰 폼(이슈 #33)
-restoreSel();
+// 한 조각이 죽어도 나머지는 그린다 — 특히 **인터뷰 폼**은 사람이 답할 유일한 수단이라
+// 앞 단계의 예외에 같이 묻히면 안 된다. 그리고 죽었다는 사실을 **화면에 띄운다**:
+// 관전 도구의 침묵은 '이상 없음'과 구분되지 않는다(이슈 #84·#90).
+function step(name, fn){
+  try{ fn(); }catch(e){
+    console.error('[gil viewer] '+name+' 실패:', e);
+    const b=document.createElement('div');
+    b.style.cssText='margin:8px 12px;padding:8px 12px;border:1px solid #c33;border-radius:6px;color:#c33;font:12px ui-monospace,monospace';
+    b.textContent='⚠ 뷰어의 일부('+name+')를 그리지 못했다: '+(e&&e.message||e)+'  — 나머지는 그대로 보인다.';
+    document.body.insertBefore(b, document.body.firstChild);
+  }
+}
+step('전체맵', buildStepMap);          // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
+step('체인그래프 줌', enableChainGraphZoom); // 이슈 #79
+step('인터뷰 폼', buildInterviews);     // 사람 답 대기 인터뷰 폼(이슈 #33)
+step('선택 복원', restoreSel);
 `
