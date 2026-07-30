@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -102,7 +103,7 @@ func serve(args []string) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(renderHTML(buildGraph(), false)))
+		w.Write([]byte(servePage()))
 	})
 	// /whoami — 이 뷰어가 **어느 저장소**를 보고 있는지 밝힌다(온보딩 실측).
 	// 포트가 열려 있다는 것만으로 "그 뷰어가 내 저장소를 본다"고 말할 수 없다. 실제로
@@ -251,6 +252,39 @@ func serve(args []string) {
 		fmt.Fprintln(os.Stderr, "거부: 서버 실패 —", err)
 		os.Exit(1)
 	}
+}
+
+// ── 단일 비행 — 뷰어는 한 번에 하나의 스캔만 돈다 (이슈 #89) ──
+//
+// 실사용 사고: 뷰어를 띄운 채 27사이클을 연속으로 닫았더니 **같은 git log 자식이 437개**까지
+// 쌓여 10코어 머신의 로드가 512 가 됐다. 뷰어는 자기가 만든 포크 폭풍에 막혀 자기 HTTP
+// 요청에도 180초 동안 응답하지 못했고, 같은 저장소를 쓰는 gil 명령들이 전부 I/O 대기에
+// 갇혔다(그게 #88 의 진짜 원인이었다 — 나는 고아 커밋 스캔을 의심했고 틀렸다).
+//
+// 병의 이름은 "겹침이 가속되는 양의 피드백"이다: 갱신 트리거마다 새로 fork 하고 앞선 것이
+// 끝났는지 보지 않으면, 스캔이 느려질수록 더 많이 겹치고 겹칠수록 더 느려진다.
+//
+// 처방 셋. (1) **한 번에 하나** — 뮤텍스가 스캔을 직렬화하고, 기다린 요청은 방금 끝난
+// 결과를 함께 쓴다. (2) **ref 서명이 같으면 아예 안 돈다** — 바뀌지 않은 그래프를 다시
+// 그리는 건 순수한 낭비다. (3) **자식 수 상한** — 어떤 경로로도 저장소에 동시에 달라붙는
+// git 이 정해진 수를 못 넘게 한다.
+var (
+	pageMu    sync.Mutex
+	pageCache string
+	pageSig   string
+)
+
+func servePage() string {
+	sig := tipSignature()
+	pageMu.Lock()
+	defer pageMu.Unlock()
+	// 기다리는 동안 앞선 스캔이 같은 서명으로 이미 그려 뒀다면 그걸 쓴다(단일 비행의 핵심).
+	if pageCache != "" && pageSig == sig {
+		return pageCache
+	}
+	pageCache = renderHTML(buildGraph(), false)
+	pageSig = sig
+	return pageCache
 }
 
 func tipSignature() string {
@@ -1149,17 +1183,36 @@ svg.dag{display:block}
 // jsPoll — 자동 새로고침 폴링. serve 모드에만 붙인다(정적 build 엔 서버가 없어 뺀다).
 const jsPoll = `
 window.__gilPollUrl='/poll';   // 살아있음 확인용 주소(서브 모드에서만 심긴다)
-let sig=null;
+// 폴링 규율 (이슈 #89). 옛 코드는 1.5초 고정이었고, 서명이 바뀌면 **즉시** location.reload()
+// 했다. 커밋이 연달아 나는 구간(사이클 27개 결산 배치)에서는 매 틱마다 바뀌므로 매 틱마다
+// 전체 페이지를 다시 그리게 되고, 그 렌더가 저장소 전체 스캔이라 서로 겹쳐 쌓인다.
+// 셋을 고친다: 겹치지 않게(in-flight 가드) · 조용하면 뜸하게(백오프) · 바뀌는 중엔 잠깐
+// 기다렸다가(디바운스 — 폭주가 끝난 뒤 한 번만 다시 그린다).
+let sig=null, busy=false, tick=1500, pendingSig=null;
+const MIN=1500, MAX=10000;
 async function poll(){
+  if(busy) return;              // 앞선 요청이 아직 안 끝났다 — 겹쳐 부르지 않는다
+  busy=true;
   try{
     const r=await fetch('/poll',{cache:'no-store'});
     const t=await r.text();
-    if(sig===null){sig=t;}
-    else if(t!==sig){location.reload();}
+    if(sig===null){ sig=t; tick=MIN; }
+    else if(t!==sig){
+      // 변화를 봤다. 곧바로 다시 그리지 않고 **한 틱 더** 같은 값인지 본다 — 커밋 폭주
+      // 중이면 아직 계속 바뀌는 중이고, 그때 그리면 그리는 족족 낡는다.
+      if(pendingSig===t){ location.reload(); }
+      else { pendingSig=t; tick=MIN; }
+    } else {
+      pendingSig=null;
+      tick=Math.min(MAX, Math.round(tick*1.5));   // 조용하면 점점 뜸하게
+    }
     const l=document.getElementById('live'); if(l)l.classList.remove('stale');
-  }catch(e){const l=document.getElementById('live'); if(l)l.classList.add('stale');}
+  }catch(e){
+    tick=Math.min(MAX, Math.round(tick*2));       // 서버가 막혔으면 더 물러선다
+    const l=document.getElementById('live'); if(l)l.classList.add('stale');
+  }finally{ busy=false; setTimeout(poll, tick); }
 }
-poll();setInterval(poll,1500);
+poll();
 `
 
 const js = `

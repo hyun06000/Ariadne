@@ -21,6 +21,9 @@ import (
 
 var viewerRepoDir = "." // --repo 로 지정. git 을 이 레포에서 실행.
 
+// viewerSem — 뷰어가 동시에 띄울 수 있는 git 자식의 상한. 실사용에서 437개가 떴다(#89).
+var viewerSem = make(chan struct{}, 4)
+
 func viewerGit(args ...string) ([]byte, error) {
 	// --no-optional-locks (이슈 #64①): 뷰어는 **관전자**다 — 저장소를 읽기만 해야 한다.
 	// 그런데 폴링이 1.5초마다 도는 git status 는 인덱스를 갱신하며 .git/index.lock 을 잡는다.
@@ -28,6 +31,10 @@ func viewerGit(args ...string) ([]byte, error) {
 	// 락 경합으로 exit 128 로 죽는다 — 매번 다른 지점에서, 원인을 가리키지 않는 메시지로.
 	// 뷰어는 온보딩·handoff 가 "띄우라"고 지시하는 것이라, 지시대로 띄운 사람이 정확히 이
 	// 함정을 밟았다. git 에는 이걸 위한 스위치가 있다: 선택적 락을 아예 잡지 않는다.
+	// 자식 수 상한(이슈 #89). 어떤 경로로 불리든 저장소에 동시에 달라붙는 git 은 이 수를
+	// 넘지 않는다 — 상한이 없으면 느려질수록 더 겹치고, 겹칠수록 더 느려진다.
+	viewerSem <- struct{}{}
+	defer func() { <-viewerSem }()
 	full := append([]string{"--no-optional-locks", "-C", viewerRepoDir}, args...)
 	// gitCommand 로 콘솔 숨김(윈도우). 뷰어 폴링이 1.5초마다 이걸 부르므로, 이게 없으면
 	// 콘솔 없는 부모에서 cmd 창이 깜빡임을 반복한다(실사용 피드백, 결함 A).
