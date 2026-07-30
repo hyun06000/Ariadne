@@ -553,6 +553,10 @@ func cmdOpen(args []string) {
 	// 기록되는 판단이 되게.
 	parallel := fs.strList("parallel")
 	inherit := fs.str("inherit", "") // 물려받은 지식·전제·교훈(AIL #3): 계보 간선 생기면 필수
+	// 이 사이클이 이 체인의 것인가 — 여는 자리에서 체인 목적과 대면시킨다(상현님).
+	// --fits: 그렇다(어떻게 기여하는가) · --misfit: 아니다(왜 여기가 아닌가 → 기억에 남기고 안 연다).
+	fits := fs.str("fits", "")
+	misfit := fs.str("misfit", "")
 	// 측정의 좌표(이슈 #79·#81): --dataset = 어디서 쟀나, --subject = 무엇을 쟀나.
 	// 산문이 아니라 필드라야 기계가 대조한다. 여러 축이면 여러 번.
 	datasets := fs.strList("dataset")
@@ -639,12 +643,58 @@ func cmdOpen(args []string) {
 	// 도구가 레일을 깔아야 신뢰가능하게 교정된다). 첫 스텝은 반드시 gil interview 여야 한다.
 	if !chainReferenceApproved(chain, "--branches") {
 		die("거부: \"" + chain + "\" 에 사람이 승인한 기준 문서(레퍼런스 트루스)가 없다 — 작업 사이클을\n" +
-			"  열기 전에 인터뷰가 먼저다(이슈 #33, 상현님). 체인을 열면 인터뷰 사이클이 필수로 돈다.\n" +
-			"  '됐다'는 판단이 LLM 자기확신이 아니라 사람이 세운 기준에 비추어 내려지도록 — 네가 기준을\n" +
-			"  스스로 쓰지 말고 사람에게 물어라:\n" +
+			"  열기 전에 인터뷰가 먼저다(이슈 #33, 상현님).\n" +
+			"  (v3.37.0 부터 기준 없는 체인은 **애초에 만들어지지 않는다** — 이 체인은 그 전에\n" +
+			"   만들어진 것이다. 지금 채우려면:)\n" +
 			"    1) 인터뷰 질문을 짜서 심어라: gil interview " + chain + " --ask <질문JSON|->\n" +
 			"    2) 사람이 뷰어 폼으로 답하고 제출하면 기준이 확정된다.\n" +
 			"    3) 그제서야 gil open " + ref + " 로 작업 사이클을 연다.")
+	}
+	// ── 이 체인에 열 사이클이 맞나 (상현님) ─────────────────────────────────────
+	// 체인의 목적을 **그 자리에서 다시 읽히고**, 이 사이클이 거기 속하는지 한 번 대면시킨다.
+	// 옛 흐름은 목적을 화면에 뿌리기만 했다 — 뿌린 글은 읽히지 않아도 통과된다. 답을 문법으로
+	// 요구하면 최소한 한 번은 비추어 본다. 아니라고 판단했으면 그건 실패가 아니다:
+	// --misfit 로 그 판단을 **기억에 남기고** 제 자리(다음 체인)로 간다.
+	if mf := strings.TrimSpace(*misfit); mf != "" {
+		crit := strings.TrimSpace(chainTrailer(chain, "Gil-Chain-Criterion"))
+		knot := "\n## 열지 않은 사이클 — " + ref + "\n\n" +
+			"체인 [" + chain + "] 의 목적에 비추어 보니 이 사이클은 여기 속하지 않는다고 판단했다.\n\n" +
+			"- 체인 목적: " + chainPurpose(chain, "--branches") + "\n"
+		if crit != "" {
+			knot += "- 체인 기준: " + crit + "\n"
+		}
+		knot += "- 열려던 사이클: " + ref + "\n" +
+			"- 왜 여기가 아닌가: " + mf + "\n\n" +
+			"이 문제는 사라진 것이 아니라 **제 자리를 기다린다**. 다음에 그 자리를 열 때 여기서 꺼내라.\n"
+		who := strings.TrimSpace(*author)
+		if who == "" {
+			who = "clew"
+		}
+		memoryAppendKnot(who, knot)
+		println2("")
+		println2("열지 않았다 — 이 사이클은 " + chain + " 의 목적에 속하지 않는다고 판단했다.")
+		println2("  그 판단을 기억에 남겼다(existence/" + who + "/memory.md) — 잊혀서 사라지지 않는다.")
+		println2("  ▸ 이제 **제 자리를 만들어라.** 그 문제의 주인이 될 체인부터 사람에게 묻는다:")
+		println2("      gil intake <슬러그> --ask '[{\"q\":\"무엇을 하려고 하십니까\",\"type\":\"text\"}]'")
+		println2("      gil chain <새체인> --from-intake <슬러그> --purpose-from 1 --criterion-from 2")
+		println2("  ▸ 다시 꺼내 볼 때: gil memory read " + who)
+		return
+	}
+	if strings.TrimSpace(*fits) == "" {
+		crit := strings.TrimSpace(chainTrailer(chain, "Gil-Chain-Criterion"))
+		msg := "거부: 이 사이클이 **이 체인의 것인지** 먼저 답하라 — --fits <한 줄>\n\n" +
+			"  체인 [" + chain + "] 의 목적:\n    " + chainPurpose(chain, "--branches") + "\n"
+		if crit != "" {
+			msg += "  이 체인이 풀렸다고 할 기준:\n    " + crit + "\n"
+		}
+		msg += "\n  열려는 사이클: " + ref + "\n" +
+			"    목적: " + strings.TrimSpace(*purpose) + "\n\n" +
+			"  진짜로 이 체인에 열 사이클인가?\n" +
+			"    ▸ 그렇다  → gil open " + ref + " … --fits \"<이 사이클이 위 목적에 어떻게 기여하는가>\"\n" +
+			"    ▸ 아니다  → gil open " + ref + " … --misfit \"<왜 여기가 아닌가>\"\n" +
+			"       (열지 않고 그 판단을 기억에 남긴다. 그런 뒤 제 자리가 될 체인을 연다.)\n\n" +
+			"  체인은 아무 사이클이나 담는 바구니가 아니다 — 목적 하나에서 뻗은 나무다."
+		die(msg)
 	}
 	// 부모 사이클은 반드시 닫혀 있어야 한다 (상현님 실사용: 열린 사이클이 부모가 되면
 	// 배포 계보가 꼬인다). 원칙 — 사이클은 닫힌 사이클의 끝에서만 생성된다. --parent 로
@@ -762,6 +812,9 @@ func cmdOpen(args []string) {
 	if g := strings.TrimSpace(*goal); g != "" {
 		tr = append(tr, [2]string{"Gil-Cycle-Goal", g}) // 달성 판정 기준(이슈 #62)
 	}
+	// 이 사이클이 체인 목적에 어떻게 기여하는가(상현님) — 여는 자리에서 답한 그 문장을 남긴다.
+	// 남아야 나중에 "이 체인에 왜 이게 있나"를 되짚을 수 있고, 형해화도 눈에 보인다.
+	tr = append(tr, [2]string{"Gil-Fits", strings.TrimSpace(*fits)})
 	for _, d := range *datasets {
 		tr = append(tr, [2]string{"Gil-Dataset", d}) // 어디서 쟀나 — 판정의 분모(이슈 #79)
 	}
@@ -2412,6 +2465,19 @@ func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored 
 // 정직한 한 줄(--status)과 진짜 대기(--wait)로 만든다.
 func interviewWatch(chain string, wait bool, timeoutS, then string) {
 	if chainPurpose(chain, "--branches") == "" && intakeState(chain) == "" {
+		// 개시 인터뷰(gil intake)는 **체인보다 먼저** 서는 자리다 — 아직 아무것도 안 물은
+		// 슬러그에 "체인이 없다"고 답하면, 정작 해야 할 다음 수(--ask)를 가린다.
+		if intakeMode == chain {
+			if wait {
+				// 기다릴 것이 없는데 기다리게 두지 않는다 — 먼저 물어야 한다.
+				die("거부: 개시 인터뷰 \"" + chain + "\" 에 아직 아무 질문도 없다 — 기다릴 것이 없다.\n" +
+					"  먼저 물어라: gil intake " + chain + " --ask '[{\"q\":\"무엇을 하려고 하십니까\",\"type\":\"text\"}]'")
+			}
+			println2("intake: " + chain + " — none (아직 아무것도 묻지 않았다)")
+			println2("  ▸ 첫 물음을 심어라(첫 질문은 열린 질문이어야 한다):")
+			println2("      gil intake " + chain + " --ask '[{\"q\":\"무엇을 하려고 하십니까\",\"type\":\"text\"}]'")
+			return
+		}
 		die("거부: 체인 \"" + chain + "\" 선언된 적 없음 — 먼저 gil chain 으로 열어라.")
 	}
 	// 재인터뷰가 열려 있으면 그게 지금 상태다 — 옛 done 을 보고하면 거짓말이 된다(이슈 #75).
@@ -2803,6 +2869,9 @@ func cmdChain(args []string) {
 	// 심층 인터뷰의 나머지 두 산출(상현님): **풀었다/못 풀었다를 가르는 기준**과
 	// **사이클 단위로 분할된 문제들**. 둘 다 사람의 답에서 인용한다.
 	criterionFrom := fs.str("criterion-from", "")
+	// --criterion: 개시 인터뷰 없이(사람이 기준 문서를 직접 준 경우) 판정 문장을 받는 자리.
+	// --reference 와 짝이다 — 전문(문서)과 판정 문장(한 줄)이 함께 있어야 기준이 산다.
+	criterion := fs.str("criterion", "")
 	cyclesFrom := fs.str("cycles-from", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
@@ -2876,6 +2945,36 @@ func cmdChain(args []string) {
 			"    (답이 오면)  gil chain " + name + " --from-intake <슬러그> --purpose-from 1\n" +
 			"  네가 목적을 창작해 체인을 열면 사람은 방향을 정하는 자리가 아니라 승인하는 자리에 앉는다.")
 	}
+	// ── 목적과 기준은 **쌍으로만 태어난다** (상현님) ──────────────────────────────
+	// 옛 게이트는 기준 없는 체인을 만들게 두고 **사이클을 열 때** 막았다. 그 사이에 체인이
+	// 이미 존재하니, 실사용에서는 늘 "체인부터 만들고 → 거부당하고 → 그제서야 인터뷰"가 됐다.
+	// 순서가 뒤집힌 채로 굳은 것이다. 막을 자리는 사이클이 아니라 **체인의 탄생**이다:
+	// 기준 없는 체인이 아예 존재하지 못하면, 인터뷰를 먼저 하는 것 말고 다른 길이 없다.
+	// **한 번만 읽는다** — --reference - (stdin) 은 두 번 읽으면 두 번째가 빈 값이다.
+	refGiven := resolveBody("", *reference)
+	if strings.TrimSpace(chainCriterion) == "" {
+		if strings.TrimSpace(refGiven) == "" {
+			die("거부: 기준 문서 없이 체인을 열 수 없다 — 목적과 기준은 쌍으로만 태어난다.\n" +
+				"  '됐다'를 무엇에 비추어 판정할지가 없으면, 체인을 닫을 때 그 판단은 다시 네 자기확신이 된다.\n" +
+				"  두 길 중 하나로 열어라:\n" +
+				"    (1) 사람에게 먼저 묻는다 — 권장(이슈 #90):\n" +
+				"        gil intake <슬러그> --ask '[{\"q\":\"무엇을 하려고 하십니까\",\"type\":\"text\"}]'\n" +
+				"        gil intake <슬러그> --ask '[{\"q\":\"무엇이 관측되면 풀린 것입니까\",\"type\":\"text\"}]'\n" +
+				"        gil chain " + name + " --from-intake <슬러그> --purpose-from 1 --criterion-from 2\n" +
+				"    (2) 사람이 기준 문서를 이미 줬다면 그 문서와 한 줄 기준을 함께:\n" +
+				"        gil chain " + name + " --purpose <목적> --reference <기준문서|-> --criterion <무엇이 관측되면 풀린 것인가>\n" +
+				"  네가 기준을 창작해 넣지 마라 — 그건 스스로 채점표를 쓰는 일이다.")
+		}
+		if strings.TrimSpace(*criterion) == "" {
+			die("거부: --reference 를 줬으면 --criterion <무엇이 관측되면 풀린 것인가> 도 필요하다.\n" +
+				"  기준 문서는 근거 전문이고, --criterion 은 그 문서에서 뽑은 **판정 문장**이다 —\n" +
+				"  chain-close 가 이 문장을 되읽어 \"여기에 답하라\"고 요구한다. 전문만 있고 판정 문장이\n" +
+				"  없으면 아무도 그 문서를 잣대로 쓰지 않는다(형해화).")
+		}
+		chainCriterion = strings.TrimSpace(*criterion)
+	} else if strings.TrimSpace(*criterion) != "" {
+		die("거부: --criterion 과 --criterion-from 은 함께 못 선다 — 기준은 인용이지 작문이 아니다.")
+	}
 	if !idRe.MatchString(name) {
 		die("거부: 체인 이름 \"" + name + "\"은 소문자·숫자·하이픈만")
 	}
@@ -2926,7 +3025,7 @@ func cmdChain(args []string) {
 		"이 목적은 이후 사이클·스텝 시작 때 떠올라, 그 작업이 이 체인에 정합하는지 판단하는 근거가 된다."
 	// 기준 문서를 chain-root 커밋 본문에 통째로 담는다(뷰어가 마크다운으로 렌더). 트레일러엔
 	// '기준 있음' 표식만 — 전문은 본문에, 참조는 트레일러로.
-	refBody := resolveBody("", *reference)
+	refBody := refGiven
 	if strings.TrimSpace(refBody) == "" && strings.TrimSpace(chainIntakeRef) != "" {
 		refBody = chainIntakeRef // 개시 인터뷰의 답이 이 체인의 기준 문서다(이슈 #90)
 	}
@@ -2954,8 +3053,11 @@ func cmdChain(args []string) {
 	if *requireSubject {
 		tr = append(tr, [2]string{"Gil-Require-Subject", "true"}) // 사이클마다 측정 대상 선언 필수(#81)
 	}
-	if strings.TrimSpace(refBody) != "" {
-		tr = append(tr, [2]string{"Gil-Reference", "true"}) // 기준 문서 있음(본문에 전문)
+	if strings.TrimSpace(refBody) != "" && strings.TrimSpace(chainIntakeRef) == "" {
+		// 기준 문서 있음(본문에 전문). **집행은 체인의 탄생 한 곳에서만** 한다 — 여기까지 왔다는
+		// 것은 기준이 쌍으로 갖춰졌다는 뜻이므로, open 이 다시 인터뷰를 요구하지 않는다.
+		// (판정이 두 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다 — 이 레포가 값을 치른 교훈.)
+		tr = append(tr, [2]string{"Gil-Reference", "true"}, [2]string{"Gil-Interview", "done"})
 	}
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)

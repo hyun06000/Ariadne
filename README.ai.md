@@ -367,7 +367,11 @@ gil intake power --status
 gil chain power --from-intake power --purpose-from 1 --criterion-from 2
 
 # 5) 작업 사이클 — open 이 s1(define)을 만든다. 본문이 곧 문제 정의 보고서다.
+# 5-a) --fits 필수: gil 이 체인 목적을 다시 읽어주고 "진짜 이 체인에 열 사이클인가"를 묻는다.
+#      아니면 열지 마라 — --misfit "<왜 여기가 아닌가>" 로 그 판단을 **기억에 남기고** 열지 않는다.
+#      (문제는 사라지지 않는다. 제 자리가 될 체인을 연 뒤 거기서 꺼낸다.)
 gil open power/c001 --author clew --purpose "7월 사용량을 기기별·시간대별로 쪼갠다" \
+  --fits "증가분의 출처를 기기별로 가르는 첫 걸음 — 기준(90% 설명)의 분모를 만든다" \
   --body-file - <<'MD'
 # 문제 정의
 7월 전력 사용량을 기기별·시간대별로 분해한다.

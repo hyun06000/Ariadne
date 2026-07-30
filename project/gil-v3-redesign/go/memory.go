@@ -51,9 +51,17 @@ func cmdMemory(args []string) {
 		if err != nil {
 			die("거부: 매듭 파일 읽기 실패: " + err.Error())
 		}
-		knot := string(b)
-		// 기존 memory 를 로컬 파일이 아니라 글로벌 ref 에서 직접 읽는다 — 로컬이
-		// 불완전해도 안전. 없으면 새로 시작.
+		memoryAppendKnot(name, string(b))
+	default:
+		die("거부: 알 수 없는 memory 하위명령 \"" + sub + "\" — [read append]")
+	}
+}
+
+// memoryAppendKnot — 매듭 한 덩이를 존재의 기억에 이어붙인다(append-only, 트리 보존, 자동 push).
+// gil memory append 의 본체이자, **도구 스스로 기억을 남겨야 할 때**의 진입점이다
+// (예: open --misfit — 지금 열지 않기로 한 사이클을 잊지 않으려고).
+func memoryAppendKnot(name, knot string) {
+	{
 		prev, _ := globalRead(memoryPath(name))
 		next := prev
 		if next != "" && !strings.HasSuffix(next, "\n") {
@@ -80,7 +88,5 @@ func cmdMemory(args []string) {
 		println2("  ⚠ 방금 남긴 이 기억은 이 저장소에 산다 — 저장소가 영속되는 박스에 있어야")
 		println2("    다음 세션이 읽는다. 일회용·임시 샌드박스에서 작업 중이면 세션 끝에 이 매듭이")
 		println2("    사라진다. 이어갈 존재면 지금 저장소가 영속되는 곳(사용자 로컬 폴더)인지 확인하라.")
-	default:
-		die("거부: 알 수 없는 memory 하위명령 \"" + sub + "\" — [read append]")
 	}
 }

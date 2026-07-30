@@ -16,14 +16,24 @@ gil init [--name <이름>]
 ## 위계를 짓는다 (분기는 모두 진짜 git 브랜치)
 
 ```
-gil chain <name> --purpose <자연어>
+gil chain <name> --from-intake <슬러그> --purpose-from <n> --criterion-from <m>      # 권장
+gil chain <name> --purpose <자연어> --reference <기준문서|-> --criterion <판정문장>   # 사람이 문서를 직접 준 경우
 ```
-새 체인(작업의 큰 줄기)을 연다. **git 브랜치 `<name>` 을 판다.** `--purpose` 필수. 체인은 닫힌 체인 끝에서만 새로 연다(`gil init` 예외).
+새 체인(작업의 큰 줄기)을 연다. **git 브랜치 `<name>` 을 판다.** 체인은 닫힌 체인 끝에서만 새로 연다(`gil init` 예외).
+
+**목적과 기준은 쌍으로만 태어난다.** 기준 문서 없이는 체인이 **만들어지지 않는다**. 옛 규칙은 기준 없는 체인을 만들게 두고 *사이클을 열 때* 막았는데, 그 사이에 체인은 이미 존재하니 실사용은 늘 "체인부터 만들고 → 거부당하고 → 그제서야 인터뷰"로 굳었다. 막을 자리는 사이클이 아니라 **체인의 탄생**이다 — 기준 없는 체인이 아예 존재하지 못하면 인터뷰를 먼저 하는 것 말고 다른 길이 없다.
+
+- `--criterion`: 기준 문서에서 뽑은 **판정 문장**(무엇이 관측되면 풀린 것인가). `gil chain-close` 가 이 문장을 되읽어 "여기에 답하라"고 요구한다. 전문만 있고 판정 문장이 없으면 아무도 그 문서를 잣대로 쓰지 않는다(형해화).
 
 ```
 gil open <chain>/<cycle> --author <who> --purpose <자연어> [--parent <cyc>...] [--title T] [--body B | --body-file F|-]
 ```
-새 사이클을 연다. **git 브랜치 `<chain>-<cycle>` 을 파고 `s1` define 스텝을 자동 생성**한다. `--author`·`--purpose` 필수. `--parent`: 이 사이클이 계보로 잇는 이전 사이클/체인(복수 가능). `--body`/`--body-file -`(stdin): s1 define 의 **문제 정의 보고서를 여는 순간 채운다**(`step` 과 대칭 — 빈 define 을 raw amend 로 고치다 trailer 를 날리는 함정 방지).
+새 사이클을 연다. **git 브랜치 `<chain>-<cycle>` 을 파고 `s1` define 스텝을 자동 생성**한다.
+
+**`--fits` 필수 — 이 체인의 것이 맞나.** 여는 자리에서 gil 이 체인의 목적과 기준을 다시 읽어주고, 이 사이클이 거기 속하는지 답하게 한다. 뿌린 글은 읽히지 않아도 통과되지만, 답을 문법으로 요구하면 최소한 한 번은 비추어 본다.
+
+- `--fits <이 사이클이 체인 목적에 어떻게 기여하는가>` — 맞다. 그 문장은 `Gil-Fits` 로 남아 나중에 "이 체인에 왜 이게 있나"를 되짚게 한다.
+- `--misfit <왜 여기가 아닌가>` — 아니다. **열지 않는다.** 그 판단을 존재의 기억(`existence/<author>/memory.md`)에 남기고 멈춘다 — 문제는 사라지지 않고 제 자리를 기다린다. 그런 뒤 그 문제의 주인이 될 체인을 `gil intake` 부터 연다. 체인은 아무 사이클이나 담는 바구니가 아니라 목적 하나에서 뻗은 나무다. `--author`·`--purpose` 필수. `--parent`: 이 사이클이 계보로 잇는 이전 사이클/체인(복수 가능). `--body`/`--body-file -`(stdin): s1 define 의 **문제 정의 보고서를 여는 순간 채운다**(`step` 과 대칭 — 빈 define 을 raw amend 로 고치다 trailer 를 날리는 함정 방지).
 
 ```
 gil step <chain>/<cycle> --kind <K> [옵션]

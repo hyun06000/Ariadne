@@ -31,6 +31,11 @@ if not os.path.exists(GIL_BIN):
         "먼저 빌드하라: (cd project/gil-v3-redesign/go && go build -o gil .)")
 GIL_CMD = [GIL_BIN]
 
+# 테스트용 기준 문서(사람이 준 것으로 간주) — 목적과 기준은 쌍으로만 태어난다(상현님).
+CRIT_FILE = os.path.join(tempfile.gettempdir(), "gil-test-criterion.md")
+with open(CRIT_FILE, "w", encoding="utf-8") as _f:
+    _f.write("# 기준 문서(테스트)\n사람이 세운 기준으로 간주한다.\n")
+
 
 class GilFixture(unittest.TestCase):
     """각 테스트마다 깨끗한 임시 git 저장소를 fixture로 만든다."""
@@ -120,6 +125,25 @@ class GilFixture(unittest.TestCase):
             with open(rf, "w", encoding="utf-8") as f:
                 f.write("# 테스트 회고\n기준 대비 달성도(자동 주입)\n")
             args += ["--retro", ".test-retro.md"]
+        # 상현님: 목적과 기준은 **쌍으로만** 태어난다 — 기준 없는 체인은 생성 자체가 거부된다.
+        # 대부분 테스트는 그 게이트가 아니라 그 뒤 흐름을 검증하므로, --from-intake 도 --reference
+        # 도 없으면 기준 문서와 판정 문장을 자동 주입한다(테스트 의도 보존). 게이트 자체를
+        # 검증하는 테스트는 self._no_criterion_autofill 로 우회한다.
+        if args and args[0] == "chain" and not getattr(self, "_no_criterion_autofill", False) \
+           and not any(a.startswith("--from-intake") for a in args) \
+           and not any(a.startswith("--reference") for a in args) \
+           and not any(a.startswith("--criterion") for a in args):
+            cf = os.path.join(tempfile.gettempdir(), "gil-test-criterion.md")
+            with open(cf, "w", encoding="utf-8") as f:
+                f.write("# 기준 문서(테스트 자동 주입)\n사람이 세운 기준으로 간주한다.\n")
+            args += ["--reference", cf,
+                     "--criterion", "(테스트 기준: 무엇이 관측되면 풀린 것인가)"]
+        # 상현님: 사이클을 열 때 "이 체인의 것이 맞나"를 문법으로 대면시킨다(--fits).
+        # 게이트 자체를 검증하는 테스트는 self._no_fits_autofill 로 우회한다.
+        if args and args[0] == "open" and not getattr(self, "_no_fits_autofill", False) \
+           and not any(a.startswith("--fits") for a in args) \
+           and not any(a.startswith("--misfit") for a in args):
+            args += ["--fits", "(테스트: 이 체인 목적에 기여한다)"]
         env = dict(os.environ, GIL_NO_VIEWER="1")
         # AIL #41: 순서 체인 강제(define→hypothesis→verify→analyze→종결). 많은 기존 테스트가
         # 중간 kind 를 건너뛰고 종결/verify 를 찍으므로, 선형(--to/--merge/backtrack 아님) step
@@ -270,7 +294,8 @@ class TestCycleAndStep(GilFixture):
         """AIL #12: open 은 문제 정의 본문이 필수 — 빈 사이클로 여는 걸 문법으로 거부한다.
         (self.gil 의 자동주입을 피해 --body 없이 직접 호출해 거부를 확인한다.)"""
         env = dict(os.environ, GIL_NO_VIEWER="1")
-        r = subprocess.run([*GIL_CMD, "open", "c/c001", "--author", "clew", "--purpose", "P"],
+        r = subprocess.run([*GIL_CMD, "open", "c/c001", "--author", "clew", "--purpose", "P",
+                            "--fits", "(테스트)"],
                            cwd=self.repo, capture_output=True, text=True, env=env)
         self.assertNotEqual(r.returncode, 0, "본문 없는 open 이 거부되지 않음")
         self.assertIn("본문", r.stderr)
@@ -281,7 +306,7 @@ class TestCycleAndStep(GilFixture):
         """--title 도 본문으로 인정된다(한 줄 문제 정의)."""
         env = dict(os.environ, GIL_NO_VIEWER="1")
         r = subprocess.run([*GIL_CMD, "open", "c/c001", "--author", "clew",
-                            "--purpose", "P", "--title", "한 줄 정의"],
+                            "--purpose", "P", "--title", "한 줄 정의", "--fits", "(테스트)"],
                            cwd=self.repo, capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -2225,7 +2250,8 @@ class TestViewer(GilFixture):
             g = lambda *a: subprocess.run([*GIL_CMD, *a], cwd=work, env=env,
                                           capture_output=True, text=True)
             g("init", "--name", "clew")
-            g("chain", "demo", "--purpose", "P")
+            g("chain", "demo", "--purpose", "P", "--reference", CRIT_FILE,
+              "--criterion", "무엇이 관측되면 풀린 것")
             # #33: open 게이트(사람 승인 기준) 충족 — 인터뷰 심고 즉시 해소.
             subprocess.run([*GIL_CMD, "interview", "demo", "--ask", "-"], cwd=work, env=env,
                            capture_output=True, text=True, input='[{"q":"q","type":"text"}]')
@@ -2233,7 +2259,8 @@ class TestViewer(GilFixture):
                 f.write("# 기준")
             g("interview", "demo", "--resolve", "reference-demo.md")
             os.remove(os.path.join(work, "reference-demo.md"))
-            g("open", "demo/c001", "--author", "clew", "--purpose", "Q", "--body", "문제 정의")
+            g("open", "demo/c001", "--author", "clew", "--purpose", "Q", "--body", "문제 정의",
+              "--fits", "(테스트: 체인 목적에 기여)")
             g("step", "demo/c001", "--kind", "hypothesis", "--title", "H", "--body", "b", "--falsify", "F", "--falsify-to", "s1")
             subprocess.run(["git", "-C", work, "push", "-q", "--all", "origin"], check=True)
             # 2) 신선한 clone — 로컬 브랜치는 기본 하나뿐, 그래프는 원격에만.
@@ -3494,7 +3521,8 @@ class TestDeepIntake(GilFixture):
         self._three_rounds()
         self._run("chain", "ail", "--from-intake", "dp", "--purpose-from", "1",
                   "--criterion-from", "2", "--cycles-from", "3")
-        r = self._run("open", "ail/c1", "--author", "x", "--from-plan", "2", "--body", "정의")
+        r = self._run("open", "ail/c1", "--author", "x", "--from-plan", "2", "--body", "정의",
+                      "--fits", "사람이 나눈 두 번째 분할을 그대로 집는다")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("이름을 배정한다", r.stdout)
 
@@ -3936,40 +3964,62 @@ class TestReference(GilFixture):
         """--reference 는 Gil-Reference 트레일러를 달고 전문을 chain-root 본문에 담는다."""
         self._init()
         r = self.gil("chain", "audit", "--purpose", "감사",
-                     "--reference", "-", input="# 기준\n성공: 30% 절감\n실패: 정확도 하락")
+                     "--reference", "-", "--criterion", "30% 절감이 관측되면 풀린 것",
+                     input="# 기준\n성공: 30% 절감\n실패: 정확도 하락")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("audit", "Gil-Reference"), "true")
         body = self._git("log", "-1", "audit", "--format=%b").stdout
         self.assertIn("30% 절감", body)  # 기준 전문이 본문에 있다
 
-    def test_chain_without_reference_still_ok(self):
-        """--reference 는 강제 아님(최소 형태) — 없어도 체인은 열린다."""
+    def test_chain_without_criterion_is_refused(self):
+        """목적과 기준은 **쌍으로만** 태어난다(상현님) — 기준 없는 체인은 생성 자체가 거부된다.
+
+        옛 규칙은 기준 없는 체인을 만들게 두고 사이클을 열 때 막았다. 그 사이에 체인이 이미
+        존재하니 실사용에서는 늘 '체인부터 만들고 → 거부당하고 → 그제서야 인터뷰'가 됐다."""
         self._init()
-        r = self.gil("chain", "plain", "--purpose", "그냥")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.trailer("plain", "Gil-Reference"), "")
+        self._no_criterion_autofill = True
+        try:
+            r = self.gil("chain", "plain", "--purpose", "그냥")
+        finally:
+            self._no_criterion_autofill = False
+        self.assertNotEqual(r.returncode, 0, "기준 없는 체인이 만들어졌다")
+        self.assertIn("쌍으로만", r.stderr)
+
+    def test_reference_without_criterion_is_refused(self):
+        """전문만 있고 판정 문장이 없으면 아무도 그 문서를 잣대로 쓰지 않는다(형해화)."""
+        self._init()
+        self._no_criterion_autofill = True
+        try:
+            r = self.gil("chain", "audit", "--purpose", "감사",
+                         "--reference", "-", input="# 기준 전문")
+        finally:
+            self._no_criterion_autofill = False
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--criterion", r.stderr)
 
     def test_open_surfaces_reference_when_present(self):
         """기준 있는 체인에서 사이클을 열면 '기준을 읽으라' 안내가 뜬다."""
         self._init()
         self.gil("chain", "audit", "--purpose", "감사",
-                 "--reference", "-", input="# 기준 문서 전문")
+                 "--reference", "-", "--criterion", "무엇이 관측되면 풀린 것",
+                 input="# 기준 문서 전문")
         r = self.gil("open", "audit/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("기준 문서", r.stdout + r.stderr)
 
-    def test_open_blocked_without_approved_reference(self):
-        """사람 승인 기준(인터뷰 done)이 없으면 작업 사이클 open 이 거부된다(#33 게이트).
-        (자동 인터뷰 보정을 끄고 게이트 자체를 검증한다.)"""
+    def test_paired_reference_opens_without_second_interview(self):
+        """집행은 **체인의 탄생 한 곳**에서만 — 쌍을 갖춰 태어난 체인은 open 이 또 묻지 않는다.
+
+        판정이 두 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다(이 레포가 값을 치른 교훈)."""
         self._init()
-        self.gil("chain", "plain", "--purpose", "그냥")
+        self.gil("chain", "audit", "--purpose", "감사",
+                 "--reference", "-", "--criterion", "30% 절감", input="# 기준 전문")
         self._no_interview_autofill = True
         try:
-            r = self.gil("open", "plain/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+            r = self.gil("open", "audit/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
         finally:
             self._no_interview_autofill = False
-        self.assertNotEqual(r.returncode, 0, "기준 없는 open 이 거부되지 않음")
-        self.assertIn("인터뷰", r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 0, r.stderr)
 
 
 class TestInterviewGate(GilFixture):
@@ -3994,11 +4044,19 @@ class TestInterviewGate(GilFixture):
             f.write("# 기준 문서\n성공: RMSE 하한")
         return self.gil("interview", "sb", "--resolve", "reference-sb.md")
 
-    def test_open_blocked_without_interview(self):
-        """기준(인터뷰 done) 없이 작업 사이클 open 거부 — 인터뷰가 먼저."""
-        r = self.gil("open", "sb/c1", "--author", "clew", "--purpose", "측정", "--body", "정의")
+    def test_chain_blocked_without_criterion(self):
+        """집행이 **체인의 탄생**으로 올라갔다(상현님).
+
+        옛 게이트는 기준 없는 체인을 만들게 두고 사이클에서 막았다 — 그래서 실사용은 늘
+        '체인부터 만들고 → 거부당하고 → 그제서야 인터뷰'로 굳었다. 이제 그 체인이 아예
+        태어나지 못하므로, 인터뷰를 먼저 하는 것 말고 다른 순서가 없다."""
+        self._no_criterion_autofill = True
+        try:
+            r = self.gil("chain", "nocrit", "--purpose", "기준 없이")
+        finally:
+            self._no_criterion_autofill = False
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("인터뷰", r.stdout + r.stderr)
+        self.assertIn("쌍으로만", r.stderr)
 
     def test_open_blocked_while_interview_pending(self):
         """인터뷰가 사람 답 대기(pending) 중이면 open 거부 — pending 잠금."""
@@ -4122,9 +4180,11 @@ class TestInterviewWait(GilFixture):
         return self.gil("interview", "sb", "--resolve", "reference-sb.md")
 
     def test_status_none_before_ask(self):
-        """심어둔 인터뷰가 없으면 none — 그리고 무엇을 해야 하는지 한 수를 준다."""
-        r = self.gil("interview", "sb", "--status")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        """심어둔 인터뷰가 없으면 none — 그리고 무엇을 해야 하는지 한 수를 준다.
+
+        체인은 이제 **태어날 때 기준을 갖는다**(목적과 기준은 쌍) — 그래서 '아직 아무것도
+        묻지 않은' 상태가 남아 있는 자리는 개시 인터뷰(체인보다 먼저)의 슬러그다."""
+        r = self.gil("intake", "unasked", "--status")
         out = r.stdout + r.stderr
         self.assertIn("none", out)
         self.assertIn("--ask", out)
@@ -4179,7 +4239,7 @@ class TestInterviewWait(GilFixture):
 
     def test_wait_refuses_when_nothing_to_wait_for(self):
         """기다릴 인터뷰가 없는데 기다리게 두지 않는다 — 먼저 질문을 심어라."""
-        r = self.gil("interview", "sb", "--wait", "--timeout", "3")
+        r = self.gil("intake", "unasked", "--wait", "--timeout", "3")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--ask", r.stdout + r.stderr)
 
@@ -4275,7 +4335,7 @@ class TestMCPServe(GilFixture):
         die() 가 os.Exit 이던 시절이면 첫 거부에서 서버가 죽어 이후 호출이 전부 사라진다.
         거부야말로 gil 의 본체(HEAAL)라, 거부 뒤에도 대화가 이어져야 한다."""
         r = self._rpc([
-            ("gil_chain", {"name": "probe", "purpose": "MCP 경로"}),
+            ("gil_chain", {"name": "probe", "purpose": "MCP 경로", "criterion": "무엇이 관측되면 풀린 것", "reference": CRIT_FILE}),
             ("gil_open", {"target": "probe/c001", "author": "clew", "purpose": "인터뷰 없이"}),
             ("gil_log", {}),
         ])
@@ -4286,7 +4346,7 @@ class TestMCPServe(GilFixture):
     def test_interview_elicitation_makes_reference(self):
         """인터뷰 = 호스트 네이티브 폼 한 번. 사람 답이 그대로 기준 문서가 되고 게이트가 열린다."""
         r = self._rpc([
-            ("gil_chain", {"name": "probe", "purpose": "MCP 인터뷰"}),
+            ("gil_chain", {"name": "probe", "purpose": "MCP 인터뷰", "criterion": "무엇이 관측되면 풀린 것", "reference": CRIT_FILE}),
             ("gil_interview", {"chain": "probe", "questions": [
                 {"q": "무엇을 풀려는가", "type": "text"},
                 {"q": "성공 기준", "type": "radio", "options": ["속도", "정확도"]},
@@ -4321,7 +4381,7 @@ class TestMCPServe(GilFixture):
             read()
             send({"jsonrpc": "2.0", "method": "notifications/initialized"})
             send({"jsonrpc": "2.0", "id": 10, "method": "tools/call",
-                  "params": {"name": "gil_chain", "arguments": {"name": "probe", "purpose": "P"}}})
+                  "params": {"name": "gil_chain", "arguments": {"name": "probe", "purpose": "P", "criterion": "기준", "reference": CRIT_FILE}}})
             read()
             send({"jsonrpc": "2.0", "id": 11, "method": "tools/call",
                   "params": {"name": "gil_interview",
@@ -4352,7 +4412,7 @@ class TestMCPServe(GilFixture):
     def test_interview_falls_back_to_viewer_form(self):
         """호스트가 폼(Elicitation)을 못 띄우면 옛 뷰어 경로로 물러난다 — 물음은 사라지지 않는다."""
         r = self._rpc([
-            ("gil_chain", {"name": "probe", "purpose": "P"}),
+            ("gil_chain", {"name": "probe", "purpose": "P", "criterion": "기준", "reference": CRIT_FILE}),
             ("gil_interview", {"chain": "probe",
                                "questions": [{"q": "무엇을 풀려는가", "type": "text"}]}),
         ])
@@ -4495,12 +4555,16 @@ class TestChainRetro(GilFixture):
         # 기계용 트레일러가 사람 읽을 자리에 섞이지 않는다.
         self.assertNotIn("Gil-Kind:", r.stderr)
 
-    def test_chain_without_reference_closes_freely(self):
-        """기준 없는 체인까지 소급해 막지는 않는다 — 없는 잣대에 성적표를 요구하지 않는다."""
-        self.gil("chain", "legacy", "--purpose", "기준 없이 열린 옛 체인")
+    def test_every_chain_now_has_a_criterion_so_retro_is_always_required(self):
+        """기준과 목적이 쌍으로만 태어나므로(상현님) **모든 체인이** 회고 대상이다.
+
+        옛 규칙엔 '기준 없는 체인'이 있어 회고 없이 닫혔다. 이제 그런 체인은 태어나지 못하니
+        그 예외도 사라졌다 — 잣대 없이 열린 체인이 없으면 성적표 없이 닫는 체인도 없다."""
+        self.gil("chain", "fresh", "--purpose", "새 체인")
         self._no_retro_autofill = True
-        r = self.gil("chain-close", "legacy")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.gil("chain-close", "fresh")
+        self.assertNotEqual(r.returncode, 0, "기준이 있는데 회고 없이 닫혔다")
+        self.assertIn("회고", r.stderr)
 
     def test_empty_retro_is_rejected(self):
         """빈 회고는 회고가 아니다 — 형식만 채우는 파일을 게이트가 받지 않는다."""
@@ -4547,10 +4611,15 @@ class TestChainRetro(GilFixture):
         self._write("retro.md", "# 회고\n달성.\n")
         self._write("seed.md", "# 시드\n다음 물음.\n")
         self.gil("chain-close", "alpha", "--retro", "retro.md", "--seed", "seed.md")
-        self.gil("chain", "beta", "--purpose", "다음 국면")
-        self._no_interview_autofill = True
-        r = self.gil("open", "beta/c001", "--author", "clew", "--purpose", "P", "--body", "B")
-        self.assertNotEqual(r.returncode, 0, "시드는 인터뷰를 대신하지 못한다")
+        # 시드가 있어도 다음 체인은 **제 기준을 스스로** 갖춰야 한다 — 앞 체인의 시드는
+        # 물음을 물려줄 뿐 잣대가 되지 못한다. 이제 그 강제는 체인의 탄생에서 걸린다.
+        self._no_criterion_autofill = True
+        try:
+            r = self.gil("chain", "beta", "--purpose", "다음 국면")
+        finally:
+            self._no_criterion_autofill = False
+        self.assertNotEqual(r.returncode, 0, "시드는 기준을 대신하지 못한다")
+        self.assertIn("쌍으로만", r.stderr)
 
 
 class TestQuietByDefault(GilFixture):
@@ -6789,9 +6858,14 @@ class TestInterviewSubmitIsVisible(GilFixture):
         self.assertIn('id="pane-reference"', html)
         self.assertIn("추론 비용을 절반으로", html)
 
-    def test_nothing_rendered_before_submit(self):
+    def test_pending_round_is_not_rendered_as_confirmed(self):
+        """사람이 아직 답하지 않은 차수는 '확정된 기준'으로 그려지지 않는다.
+
+        (체인은 태어날 때 기준을 갖는다 — 그러니 '확정 전'이라는 상태는 **추가 차수**의 것이다.
+        그 차수의 질문 본문이 확정본인 양 화면에 서면, 사람은 자기가 답하지 않은 문장을
+        자기 기준으로 읽게 된다.)"""
         self._seed()
-        self.assertNotIn('id="pane-reference"', self._build())
+        self.assertNotIn("추론 비용을 절반으로", self._build())
 
     def test_reference_panel_is_collapsed_and_dismissable(self):
         """확정된 기준은 **끝난 것**이다 — 화면을 계속 차지하면 지금 살아 있는 국면을 덮는다.

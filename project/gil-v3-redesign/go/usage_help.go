@@ -21,15 +21,23 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/existence.md · docs/gil/index.md",
 	},
 	"chain": {
-		"gil chain <name> --purpose <자연어> [--parallel-with <열린체인>...] [--reference <기준문서|->] [--inherit <전수>]\n" +
-			"          [--require-dataset] [--require-subject]\n" +
-			"  새 체인(작업 큰 줄기)을 연다 — git 브랜치 <name> 을 판다. --purpose 필수.\n" +
+		"gil chain <name> --from-intake <슬러그> --purpose-from <n> --criterion-from <m>   (권장)\n" +
+			"gil chain <name> --purpose <자연어> --reference <기준문서|-> --criterion <판정문장>\n" +
+			"          [--parallel-with <열린체인>...] [--inherit <전수>] [--require-dataset] [--require-subject]\n" +
+			"  새 체인(작업 큰 줄기)을 연다 — git 브랜치 <name> 을 판다.\n" +
+			"  **목적과 기준은 쌍으로만 태어난다**(상현님): 기준 문서 없이는 체인이 만들어지지 않는다.\n" +
+			"    옛 규칙은 기준 없는 체인을 만들게 두고 *사이클을 열 때* 막았고, 그래서 실사용은 늘\n" +
+			"    '체인부터 만들고 → 거부당하고 → 그제서야 인터뷰'로 굳었다. 막을 자리는 체인의 탄생이다.\n" +
+			"    ▸ 권장: gil intake 로 **체인보다 먼저** 사람에게 묻고 그 답을 인용한다(이슈 #90).\n" +
+			"    ▸ 사람이 기준 문서를 이미 줬으면 --reference(전문) + --criterion(판정 문장) 을 함께.\n" +
 			"  닫힌 체인 끝에서만(대문/이전 닫힌 체인 이어받음, orphan 아님) — 그래야 '이어받음'이\n" +
 			"  사실이 된다. 열린 체인이 있는데 **동시에** 굴리는 트랙이면 --parallel-with <그 체인>\n" +
 			"  으로 선언하라(이슈 #54): 선언 없이는 거부하고, 선언하면 계승으로 그리지 않는다.\n" +
-			"  --reference: 이 체인의 기준 문서(레퍼런스 트루스, 이슈 #33) — 사람과의 인터뷰로\n" +
-			"    문제를 명확히 한 산출물. chain-root 본문에 전문이 담기고, 이후 사이클의 define·\n" +
-			"    가설·성패판정이 무엇에 비추어 합당한지의 잣대가 된다. 아직 강제 아님(존재·참조만).\n" +
+			"  --reference: 이 체인의 기준 문서 전문(레퍼런스 트루스, 이슈 #33) — chain-root 본문에\n" +
+			"    담기고, 이후 사이클의 define·가설·성패판정이 무엇에 비추어 합당한지의 잣대가 된다.\n" +
+			"  --criterion: 그 문서에서 뽑은 **판정 문장**(무엇이 관측되면 풀린 것인가). chain-close 가\n" +
+			"    이 문장을 되읽어 \"여기에 답하라\"고 요구한다 — 전문만 있고 판정 문장이 없으면 아무도\n" +
+			"    그 문서를 잣대로 쓰지 않는다(형해화).\n" +
 			"  --require-dataset / --require-subject: 이 체인의 사이클은 열 때 측정 좌표를 선언해야 한다\n" +
 			"    (이슈 #79·#81). 측정 체인이 스스로 합격선을 올리는 문법 — 선언 없으면 open 이 거부된다.",
 		"docs/gil/concepts.md · docs/gil/deployment.md",
@@ -56,9 +64,16 @@ var helpTable = map[string]helpEntry{
 			"           [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...]\n" +
 			"           [--inherit <전수>]\n" +
 			"  새 사이클을 연다(s1 define 자동) — git 브랜치 <chain>-<cycle> 을 판다.\n" +
-			"  ⚠ 기준 필수(이슈 #33): 체인을 열면 인터뷰가 먼저다. 사람이 승인한 기준 문서(gil interview\n" +
-			"    제출)가 없으면 거부한다 — LLM 이 스스로 기준을 정하지 말고 사람에게 물어라. 인터뷰가\n" +
-			"    사람 답 대기(pending)면 답이 올 때까지 못 연다.\n" +
+			"  ⚠ 기준 필수(이슈 #33): 기준은 이제 **체인이 태어날 때** 갖춰진다(gil chain 참조).\n" +
+			"    그 체인에 새 인터뷰가 사람 답 대기(pending)면 답이 올 때까지 못 연다.\n" +
+			"  ⚠ --fits 필수(상현님): 여는 자리에서 **체인의 목적을 다시 읽히고** 이 사이클이 거기\n" +
+			"    속하는지 답하게 한다. 뿌린 글은 읽히지 않아도 통과되지만, 답을 문법으로 요구하면\n" +
+			"    최소한 한 번은 비추어 본다. 남는 문장이라 나중에 '이 체인에 왜 이게 있나'를 되짚을 수 있다.\n" +
+			"      --fits <이 사이클이 체인 목적에 어떻게 기여하는가>\n" +
+			"      --misfit <왜 여기가 아닌가>   ← 아니라고 판단했으면 **열지 않는다.** 그 판단을\n" +
+			"        존재의 기억(existence/<author>/memory.md)에 남기고 멈춘다 — 문제는 사라지지 않고\n" +
+			"        제 자리를 기다린다. 그런 뒤 그 문제의 주인이 될 체인을 intake 부터 연다.\n" +
+			"        (체인은 아무 사이클이나 담는 바구니가 아니라 목적 하나에서 뻗은 나무다.)\n" +
 			"  본문 필수: --body/--body-file -(stdin)/--title 중 하나로 s1 define 의 문제 정의를 여는 순간 채운다.\n" +
 			"    (빈 채로 열 수 없다 — raw git amend 로 채우던 우회를 문법으로 막는다. AIL #12)\n" +
 			"  --dataset  이 측정이 **어디서** 서는가 — 평가셋 파일과 그 sha256(이슈 #79). 이름만으로는\n" +

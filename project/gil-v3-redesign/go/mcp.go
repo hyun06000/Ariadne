@@ -223,10 +223,14 @@ func repoBanner() string {
 // 필드 설명(jsonschema 태그)은 LLM 이 읽는 유일한 사용법이다 — CLI 도움말과 같은 말을 한다.
 
 type inChain struct {
-	Name      string `json:"name" jsonschema:"체인 이름(소문자·숫자·하이픈)"`
-	Purpose   string `json:"purpose" jsonschema:"이 체인이 무엇을 풀려는지 자연어로"`
-	Inherit   string `json:"inherit,omitempty" jsonschema:"앞 체인에서 물려받은 전제·교훈"`
-	Reference string `json:"reference,omitempty" jsonschema:"기준 문서 파일 경로. 보통 비워 두고 gil_interview 로 사람에게 물어 만든다"`
+	Name          string `json:"name" jsonschema:"체인 이름(소문자·숫자·하이픈)"`
+	Purpose       string `json:"purpose" jsonschema:"이 체인이 무엇을 풀려는지 자연어로"`
+	Inherit       string `json:"inherit,omitempty" jsonschema:"앞 체인에서 물려받은 전제·교훈"`
+	Reference     string `json:"reference,omitempty" jsonschema:"사람이 준 기준 문서 파일 경로. criterion 과 짝이다 — 보통은 비워 두고 gil_intake 로 체인보다 먼저 사람에게 물어 그 답을 인용한다"`
+	Criterion     string `json:"criterion,omitempty" jsonschema:"무엇이 관측되면 이 체인이 풀린 것인가 — 판정 문장. 기준 없이는 체인이 만들어지지 않는다(목적과 기준은 쌍)"`
+	FromIntake    string `json:"from_intake,omitempty" jsonschema:"개시 인터뷰 슬러그 — 그 답에서 목적·기준을 인용한다(권장)"`
+	PurposeFrom   string `json:"purpose_from,omitempty" jsonschema:"개시 인터뷰의 몇 번째 답을 목적으로 삼을지(누적 번호)"`
+	CriterionFrom string `json:"criterion_from,omitempty" jsonschema:"개시 인터뷰의 몇 번째 답을 성패 기준으로 삼을지(누적 번호)"`
 	// 이슈 #54: 열린 체인이 있는데 동시에 굴리는 트랙이면 선언해야 통과한다. 툴 표면에
 	// 없으면 거부만 당하고 따를 수단이 없다 — 그건 레일이 아니라 벽이다(#57 과 같은 실패).
 	ParallelWith []string `json:"parallel_with,omitempty" jsonschema:"열린 체인과 동시에 굴리는 트랙이면 그 체인 이름들. 선언 없이는 새 체인이 거부된다"`
@@ -234,6 +238,8 @@ type inChain struct {
 
 type inOpen struct {
 	Target  string   `json:"target" jsonschema:"chain/cycle"`
+	Fits    string   `json:"fits,omitempty" jsonschema:"이 사이클이 체인 목적에 어떻게 기여하는가 — 필수. 여는 자리에서 체인 목적과 대면한다"`
+	Misfit  string   `json:"misfit,omitempty" jsonschema:"이 체인의 것이 아니라고 판단했으면 그 이유. 열지 않고 기억에 남긴다"`
 	Author  string   `json:"author" jsonschema:"이 사이클을 여는 존재의 이름"`
 	Purpose string   `json:"purpose" jsonschema:"이 사이클이 풀려는 문제"`
 	Inherit string   `json:"inherit,omitempty" jsonschema:"앞 사이클에서 물려받은 지식·전제·교훈"`
@@ -334,6 +340,10 @@ func registerGilTools(s *mcp.Server) {
 			a = addFlag(a, "purpose", in.Purpose)
 			a = addFlag(a, "inherit", in.Inherit)
 			a = addList(a, "parallel-with", in.ParallelWith)
+			a = addFlag(a, "criterion", in.Criterion)
+			a = addFlag(a, "from-intake", in.FromIntake)
+			a = addFlag(a, "purpose-from", in.PurposeFrom)
+			a = addFlag(a, "criterion-from", in.CriterionFrom)
 			return addFlag(a, "reference", in.Reference)
 		}, cmdChain)
 
@@ -342,6 +352,8 @@ func registerGilTools(s *mcp.Server) {
 			a := []string{in.Target}
 			a = addFlag(a, "author", in.Author)
 			a = addFlag(a, "purpose", in.Purpose)
+			a = addFlag(a, "fits", in.Fits)
+			a = addFlag(a, "misfit", in.Misfit)
 			a = addFlag(a, "inherit", in.Inherit)
 			a = addList(a, "parent", in.Parent)
 			a = addList(a, "refutes", in.Refutes)
