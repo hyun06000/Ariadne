@@ -113,6 +113,13 @@ func arrivedInterviews() []string {
 // noticeArrivedInterviews — 어떤 명령을 부르든 맨 앞에 한 줄. 이게 이 이슈의 핵심이다:
 // 통지가 아니라 **다음 접촉 때의 강제 고지**.
 func noticeArrivedInterviews() {
+	// 저장소 밖에서는 고지할 것이 없다 — 그리고 **죽으면 안 된다**. 이 고지는 친절이지
+	// 관문이 아닌데, git 저장소가 아닌 폴더에서 gil init 을 부르면 여기서 먼저 죽어
+	// "gil init 이 git init 을 안 해준다"로 보였다(상현님 실사용). init 은 무에서 세우는
+	// 명령이다 — 그 앞에 저장소를 요구하는 것이 서 있으면 안 된다.
+	if !gitOK("rev-parse", "--git-dir") {
+		return
+	}
 	chains := arrivedInterviews()
 	if len(chains) == 0 {
 		return

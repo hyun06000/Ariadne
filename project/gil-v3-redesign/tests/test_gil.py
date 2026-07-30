@@ -612,6 +612,26 @@ class TestInit(GilFixture):
         self.assertIn("existence/aria/relations.md", files)
         self.assertIn("gil-init-spec.md", files)
 
+    def test_init_in_non_git_folder_runs_git_init(self):
+        """git 저장소가 아닌 빈 폴더에서도 gil init 이 선다 — 무에서 세우는 명령이니까.
+
+        실사용에서 여기서 죽었다(상현님): 인터뷰 도착 고지가 init 보다 먼저 돌면서
+        'not a git repository' 로 넘어졌고, 'gil init 이 git init 을 안 해준다'로 보였다.
+        고지는 친절이지 관문이 아니다."""
+        d = tempfile.mkdtemp()
+        try:
+            env = dict(os.environ, GIL_NO_VIEWER="1")
+            r = subprocess.run(GIL_CMD + ["init", "--name", "aria"], cwd=d,
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(os.path.isdir(os.path.join(d, ".git")))
+            self.assertTrue(os.path.exists(os.path.join(d, "CLAUDE.md")))
+            g = subprocess.run(["git", "rev-parse", "--verify", "-q", "refs/gil/global"],
+                               cwd=d, capture_output=True, text=True)
+            self.assertEqual(g.returncode, 0, "refs/gil/global 이 서야 한다")
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_init_makes_gateway_root_commit(self):
         """빈 저장소면 CLAUDE.md 부트스트랩 루트 커밋을 만든다."""
         self.gil("init", "--name", "aria")
