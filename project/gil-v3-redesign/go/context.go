@@ -198,6 +198,8 @@ func cycleKnowledge(chain, cycle string, indent string) []string {
 			if s.inherit != "" {
 				L = append(L, indent+s.step+" 이 가지가 물려받은 교훈: "+s.inherit)
 			}
+		case s.kind == "verify" && s.falsifyOut == "met":
+			L = append(L, indent+s.step+" ✖ 반증조건이 충족됐다: "+s.falsifyObs)
 		case s.kind == "verify" && s.planOutcome == "broke":
 			L = append(L, indent+s.step+" ⚠ 설계가 깨졌다: "+s.planDiff)
 		case s.kind == "success" || s.kind == "fail":

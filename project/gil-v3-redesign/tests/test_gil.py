@@ -82,6 +82,15 @@ class GilFixture(unittest.TestCase):
         if args and args[0] == "step" and "--kind" in args and "verify" in args and \
            not any(a in ("--plan-held", "--plan-broke") or a.startswith("--plan-broke=") for a in args):
             args += ["--plan-held"]
+        # 규칙 17: verify 는 가설이 심은 --falsify 에도 답해야 한다. 판정과 모순되지 않도록
+        # verdict 에 맞춰 기본값을 고른다(refuted→met, 그 외→unmet). 강제 자체를 검증하는
+        # 테스트는 명시 호출·_raw_step 으로 우회한다.
+        if args and args[0] == "step" and "--kind" in args and "verify" in args and \
+           not any(a.startswith("--falsify-met") or a.startswith("--falsify-unmet") for a in args):
+            if "refuted" in args:
+                args += ["--falsify-met", "(테스트 관측: 반증조건이 관측됐다)"]
+            else:
+                args += ["--falsify-unmet", "(테스트 관측: 반증조건 미달)"]
         # 상현님(2026-07-28): 가설은 체인 목적에 다가서는 몫을(--advances), 종결은 회고를
         # (--toward/--next-design) 문법으로 요구한다. 대부분 테스트는 그 위상이 아니라 뒤 흐름을
         # 보므로 기본값을 자동 주입한다(강제 자체를 검증하는 테스트는 _raw_step 으로 우회).
@@ -186,7 +195,9 @@ class GilFixture(unittest.TestCase):
                 extra = ["--falsify", "F", "--falsify-to", "s1", "--plan", "(테스트 설계 고정)",
                          "--advances", "(테스트: 체인 목적에 한 칸)"]
             elif nxt == "verify":
-                extra = ["--verdict", "supported", "--plan-held"]
+                # 규칙 17: 가설이 심은 --falsify 에도 답해야 한다. supported 이므로 unmet.
+                extra = ["--verdict", "supported", "--plan-held",
+                         "--falsify-unmet", "(테스트 관측: 반증조건 미달)"]
             rr = subprocess.run([*GIL_CMD, "step", ref, "--kind", nxt, "--title",
                                  "(순서 자동:" + nxt + ")", *extra],
                                 cwd=self.repo, capture_output=True, text=True, env=env)
@@ -3132,6 +3143,70 @@ class TestBacktrackAccumulation(GilFixture):
         self.assertIn("가설 A: 캐시", r.stderr)
 
 
+class TestVerifyAnswersFalsify(GilFixture):
+    """verify 는 가설이 심은 반증조건에 답한다 (규칙 17, 상현님).
+
+    AIL #1 이 --falsify 를 필수화한 이유가 여기서 샜다: verify 가 --verdict 만 받고 그
+    조건과 **대조하지 않으면** supported/refuted 는 결국 자의적이다. 판정 축이 조용히
+    바뀌는 자리가 정확히 여기다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "f", "--purpose", "P")
+        self.gil("open", "f/c1", "--author", "x", "--purpose", "P", "--body", "정의")
+        self._raw_step("f/c1", "--kind", "hypothesis", "--title", "H",
+                       "--falsify", "3회 평균 개선 없으면 기각", "--falsify-to", "s1",
+                       "--plan", "P1", "--advances", "A")
+
+    def test_verify_must_answer_falsify(self):
+        r = self._raw_step("f/c1", "--kind", "verify", "--title", "v",
+                           "--verdict", "refuted", "--plan-held")
+        self.assertNotEqual(r.returncode, 0, "반증조건에 답하지 않고 통과했다")
+        self.assertIn("falsify-met", r.stderr)
+        self.assertIn("3회 평균 개선 없으면 기각", r.stderr)  # 조건을 눈앞에 준다
+
+    def test_met_with_supported_is_refused(self):
+        """반증조건이 충족됐는데 supported — 판정 축을 바꾸는 동작이라 거부한다."""
+        r = self._raw_step("f/c1", "--kind", "verify", "--title", "v",
+                           "--verdict", "supported", "--plan-held",
+                           "--falsify-met", "3회 평균 +0.4%")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("판정 축", r.stderr)
+
+    def test_met_with_refuted_is_recorded(self):
+        r = self._raw_step("f/c1", "--kind", "verify", "--title", "v",
+                           "--verdict", "refuted", "--plan-held",
+                           "--falsify-met", "3회 평균 +0.4%")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Falsify-Outcome"), "met")
+        self.assertEqual(self.trailer("HEAD", "Gil-Falsify-Observed"), "3회 평균 +0.4%")
+
+    def test_unmet_with_refuted_warns_not_refuses(self):
+        """반증조건이 아닌 이유로 기각 — 막지 않는다. 조건이 틀렸다는 **정보**다."""
+        r = self._raw_step("f/c1", "--kind", "verify", "--title", "v",
+                           "--verdict", "refuted", "--plan-held",
+                           "--falsify-unmet", "조건은 미달인데 메모리가 터졌다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("내가 정한 조건이 아닌 이유로", r.stderr)
+        self.assertIn("소급해 고치지는 마라", r.stderr)
+
+    def test_both_flags_refused(self):
+        r = self._raw_step("f/c1", "--kind", "verify", "--title", "v",
+                           "--verdict", "refuted", "--plan-held",
+                           "--falsify-met", "a", "--falsify-unmet", "b")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("함께 못 선다", r.stderr)
+
+    def test_briefing_carries_the_observation(self):
+        """충족된 반증조건은 계보 브리핑에 실린다 — 다음 세대가 왜 깨졌는지 안다."""
+        self._raw_step("f/c1", "--kind", "verify", "--title", "v",
+                       "--verdict", "refuted", "--plan-held",
+                       "--falsify-met", "3회 평균 +0.4%")
+        out = self.gil("context", "f/c1").stdout
+        self.assertIn("반증조건이 충족됐다", out)
+        self.assertIn("3회 평균 +0.4%", out)
+
+
 class TestSealedIsReadOnly(GilFixture):
     """봉인된 것은 자라지 않는다 (상현님 규칙 12·15·16).
 
@@ -3211,7 +3286,7 @@ class TestOrderingChain(GilFixture):
         self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
                         "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
-                       "--plan-held")
+                       "--plan-held", "--falsify-unmet", "(관측: 반증조건 미달)")
         r = self._raw_step("c/c1", "--kind", "success", "--title", "ok",
                            "--toward", "(회고)", "--next-design", "(다음 설계)")
         self.assertNotEqual(r.returncode, 0)
@@ -3221,7 +3296,7 @@ class TestOrderingChain(GilFixture):
         self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F", "--falsify-to", "s1",
                         "--plan", "(설계 고정)", "--advances", "(목적에 한 칸)")
         self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
-                       "--plan-held")
+                       "--plan-held", "--falsify-unmet", "(관측: 반증조건 미달)")
         self._raw_step("c/c1", "--kind", "analyze", "--title", "a")
         r = self._raw_step("c/c1", "--kind", "success", "--title", "ok",
                            "--toward", "(회고)", "--next-design", "(다음 설계)")
@@ -6091,7 +6166,8 @@ class TestPlanBeforeHypothesis(GilFixture):
         self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F",
                        "--falsify-to", "s1", "--plan", "신규 실행경로 1개", "--advances", "A")
         r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported", "--title", "v",
-                           "--plan-broke", "신규 실행경로 3개 — fs 쪽이 안 묶였다")
+                           "--plan-broke", "신규 실행경로 3개 — fs 쪽이 안 묶였다",
+                           "--falsify-unmet", "(관측: 반증조건 미달)")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Plan-Outcome"), "broke")
         self.assertIn("되돌아갈 자리", r.stdout + r.stderr)
@@ -6107,7 +6183,8 @@ class TestPlanBeforeHypothesis(GilFixture):
         self._raw_step("c/c1", "--kind", "hypothesis", "--title", "H", "--falsify", "F",
                        "--falsify-to", "s1", "--plan", "P1", "--advances", "A")
         r = self._raw_step("c/c1", "--kind", "verify", "--verdict", "supported",
-                           "--title", "v", "--plan-held", "--plan", "X")
+                           "--title", "v", "--plan-held", "--plan", "X",
+                           "--falsify-unmet", "(관측: 반증조건 미달)")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("hypothesis 전용", r.stdout + r.stderr)
 

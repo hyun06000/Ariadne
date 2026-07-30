@@ -51,6 +51,16 @@ func whereCard(chain, cycle string, tip node) []string {
 		}
 	}
 
+	// 이 가지에서 이미 나온 반증 판정이 있으면 그것도 카드에 — 판정은 재기 전에도 재고 나서도
+	// 눈앞에 있어야 한다.
+	if v, ok := nearestKindUp(byID, tip, "verify"); ok && v.falsifyOut != "" {
+		mark := "충족되지 않았다"
+		if v.falsifyOut == "met" {
+			mark = "충족됐다(가설이 틀렸다)"
+		}
+		L = append(L, "│        "+v.step+" 관측: "+clip(v.falsifyObs, 70)+"  → 반증조건 "+mark)
+	}
+
 	// 퇴로 — 심어둔 자리와, 그 밖에 실제로 갈 수 있는 자리들. 문장이 아니라 붙여넣을 한 줄로.
 	L = append(L, retreatLines(chain, cycle, all, byID, tip)...)
 

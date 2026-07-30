@@ -322,6 +322,8 @@ type node struct {
 	toward       string   // success/fail: 그래서 체인 목적에 얼마나 가까워졌나 (회고)
 	nextDesign   string   // success/fail: 목적을 이루기 위한 **다음 설계**는 무엇인가
 	falsifyTo    string   // hypothesis: 반증되면 되돌아갈 조상 define|analyze (퇴로)
+	falsifyOut   string   // verify: 반증조건이 충족됐나 — met|unmet (규칙 17)
+	falsifyObs   string   // verify: 그 판단의 근거가 된 관측
 }
 
 // collectNodes — 커밋 그래프를 훑어 Gil-Step 트레일러를 가진 커밋을 스텝 노드로 수집.
@@ -352,7 +354,9 @@ func collectNodes(revRange string) []node {
 		trailer("Gil-Advances"),
 		trailer("Gil-Toward"),
 		trailer("Gil-Next-Design"),
-		trailer("Gil-Falsify-To"), // 반증 시 되돌아갈 자리 — 위치 카드의 '퇴로' 칸(상현님)
+		trailer("Gil-Falsify-To"),       // 반증 시 되돌아갈 자리 — 위치 카드의 '퇴로' 칸(상현님)
+		trailer("Gil-Falsify-Outcome"),  // verify: 반증조건이 충족됐나 met|unmet (규칙 17)
+		trailer("Gil-Falsify-Observed"), // verify: 그래서 무엇을 관측했나
 	}, fsep) + sep
 	// revRange 뒤 "--" 로 revision 확정 — 체인/브랜치명이 디렉토리명과 겹치면(예: viewer)
 	// git 이 revision/path ambiguity 로 exit 128 로 죽는다(실사용 발견, viewer 실작업).
@@ -364,7 +368,7 @@ func collectNodes(revRange string) []node {
 			continue
 		}
 		f := strings.Split(rec, fsep)
-		if len(f) < 26 {
+		if len(f) < 28 {
 			continue
 		}
 		step := strings.TrimSpace(f[4])
@@ -398,6 +402,8 @@ func collectNodes(revRange string) []node {
 			toward:       strings.TrimSpace(f[23]),
 			nextDesign:   strings.TrimSpace(f[24]),
 			falsifyTo:    strings.TrimSpace(f[25]),
+			falsifyOut:   strings.TrimSpace(f[26]),
+			falsifyObs:   strings.TrimSpace(f[27]),
 		})
 	}
 	return nodes

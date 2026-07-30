@@ -851,6 +851,15 @@ func cmdStep(args []string) {
 	advances := fs.str("advances", "")       // hypothesis 필수: 체인 목적에 어떻게·얼마나 다가서나
 	toward := fs.str("toward", "")           // success/fail 필수: 그래서 얼마나 가까워졌나(회고)
 	nextDesign := fs.str("next-design", "")  // success/fail 필수: 목적을 위한 다음 설계
+	// verify 전용: **가설이 심어둔 반증조건에 답한다**(규칙 17, 상현님).
+	//
+	// 왜. 지금까지 verify 는 --verdict 만 받고 가설의 --falsify 와 **대조하지 않았다**.
+	// AIL #1 이 falsify 를 필수화한 이유가 바로 여기서 샜다: 반증조건을 적게 만들어도
+	// 판정이 그 조건을 안 보면, supported/refuted 는 결국 자의적이다. 판정 축이 조용히
+	// 바뀌는 자리가 여기다 — --plan-held/--plan-broke 가 설계에 답하게 한 것과 같은 모양으로,
+	// 반증조건에도 답하게 한다.
+	falsifyMet := fs.str("falsify-met", "")   // 반증조건이 충족됐다(=가설이 틀렸다) + 무엇을 관측했나
+	falsifyUnmet := fs.str("falsify-unmet", "") // 충족되지 않았다 + 무엇을 관측했나
 	planHeld := fs.boolFlag("plan-held")  // verify 전용: 고정한 설계가 그대로 유지됐다
 	planBroke := fs.str("plan-broke", "") // verify 전용: 깨졌다 + 무엇이 달랐나
 	// 제안 1 (AIL #1): verify 는 판정을 문법으로 요구한다. supported=가설 지지, refuted=반증.
@@ -1088,6 +1097,38 @@ func cmdStep(args []string) {
 					"  · 달라졌으면 → --plan-broke '신규 실행경로 3개(예상 1) — fs 쪽이 공용 함수로 안 묶였다'\n" +
 					"  깨진 설계는 실패가 아니라 신호다: 되돌아갈 자리를 가장 잘 가리킨다.")
 			}
+		}
+	}
+	// 반증조건에 답하게 한다(규칙 17). 그리고 **모순은 거부한다**: 반증조건이 충족됐는데
+	// verdict=supported 는 성립하지 않는다 — 그게 판정 축을 은밀히 바꾸는 정확한 동작이다.
+	if *kind == "verify" && tip != nil {
+		met, unmet := strings.TrimSpace(*falsifyMet), strings.TrimSpace(*falsifyUnmet)
+		if met != "" && unmet != "" {
+			die("거부: --falsify-met 과 --falsify-unmet 은 함께 못 선다 — 충족됐거나 아니거나 하나다.")
+		}
+		for _, st := range currentAttempt(steps, tip.step) {
+			if st.kind != "hypothesis" || strings.TrimSpace(st.falsify) == "" {
+				continue
+			}
+			if met == "" && unmet == "" {
+				die("거부: verify 는 --falsify-met 또는 --falsify-unmet <무엇을 관측했나> 필요 — " +
+					st.step + " 이 심은 반증조건에 답하라(규칙 17).\n" +
+					"  반증조건: " + st.falsify + "\n" +
+					"  · 그 조건이 관측됐다면 → --falsify-met '3회 평균 +0.4% — 개선 없음' (그러면 verdict 는 refuted)\n" +
+					"  · 관측되지 않았다면 → --falsify-unmet '3회 평균 -31% — 조건 미달'\n" +
+					"  반증조건을 안 보고 내리는 supported/refuted 는 결국 자의적이다 — 판정 축은 " +
+					"가설을 세울 때 정한 그 조건이어야 한다(AIL #1).")
+			}
+			if met != "" && *verdict == "supported" {
+				die("거부: 반증조건이 충족됐는데 verdict=supported 는 성립하지 않는다 — 판정 축을 바꾸는 것이다.\n" +
+					"  " + st.step + " 의 반증조건: " + st.falsify + "\n" +
+					"  관측: " + met + "\n" +
+					"  · 이 가설은 틀렸다 → --verdict refuted (그리고 다음은 analyze → backtrack/fail)\n" +
+					"  · 관측이 그 조건에 해당하지 않는다면 → --falsify-unmet 으로 적어라.\n" +
+					"  · 조건 자체가 틀렸다고 판단되면 그건 verify 가 아니라 새 가설의 몫이다 — " +
+					"지금 조건을 고쳐 쓰면 그래프가 사후에 유리해진다.")
+			}
+			break
 		}
 	}
 	// 종결은 회고다(상현님). success/fail 은 이 가지의 끝이자 **다음 세대가 읽을 유일한 요약**이다.
@@ -1414,6 +1455,13 @@ func cmdStep(args []string) {
 	}
 	if *kind == "verify" {
 		tr = append(tr, [2]string{"Gil-Verdict", *verdict}) // supported|refuted (제안 1)
+		if m := strings.TrimSpace(*falsifyMet); m != "" {
+			tr = append(tr, [2]string{"Gil-Falsify-Outcome", "met"})
+			tr = append(tr, [2]string{"Gil-Falsify-Observed", m})
+		} else if u := strings.TrimSpace(*falsifyUnmet); u != "" {
+			tr = append(tr, [2]string{"Gil-Falsify-Outcome", "unmet"})
+			tr = append(tr, [2]string{"Gil-Falsify-Observed", u})
+		}
 		if *planHeld {
 			tr = append(tr, [2]string{"Gil-Plan-Outcome", "held"})
 		} else if b := strings.TrimSpace(*planBroke); b != "" {
@@ -1485,6 +1533,13 @@ func cmdStep(args []string) {
 		stderr("  ◎ 이 종결이 남긴 회고 — 목적에 다가선 정도: " + strings.TrimSpace(*toward))
 		stderr("  ◎ 다음 설계(다음 세대가 물려받는다): " + strings.TrimSpace(*nextDesign))
 		stderr("    누적 컨텍스트 전체는: gil context " + ref)
+	}
+	// 반증조건이 아닌 이유로 기각됐다 — 거부하지 않는다. 이건 **정보**다: 내가 정한 반증조건이
+	// 틀렸다는 뜻이라, 다음 가설의 --falsify 를 고쳐야 한다는 신호다. 막으면 이 사실이 사라진다.
+	if u := strings.TrimSpace(*falsifyUnmet); u != "" && *verdict == "refuted" {
+		stderr("  ⚠ 반증조건은 충족되지 않았는데 refuted 다 — 이 가설은 **내가 정한 조건이 아닌 이유로** 틀렸다.")
+		stderr("    그건 반증조건 자체가 잘못 잡혔다는 뜻이다. 다음 가설의 --falsify 를 그 실제 이유로 고쳐라.")
+		stderr("    (이번 조건을 소급해 고치지는 마라 — 그러면 그래프가 사후에 유리해진다.)")
 	}
 	if b := strings.TrimSpace(*planBroke); b != "" {
 		// 깨진 설계는 실패가 아니라 신호다 — 그 신호가 가리키는 자리를 그 자리에서 말한다(이슈 #76).
