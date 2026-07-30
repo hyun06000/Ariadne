@@ -90,11 +90,15 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 492 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.34.1**
-  (업로드 완료 — 릴리스 URL 에서 darwin/windows 자산을 내려받아 sha·버전 실측 확인).
+- **검증**: example 499 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.35.0**
+  (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init` 까지 실측 확인).
   v3.34.1 = 윈도우 필드테스트 두 건: 뷰어 자동 새로고침이 인터뷰 답을 지우던 것(초안 저장 +
   쓰는 중 리로드 보류) · 윈도우 **사람**용 설치 경로(`docs/INSTALL.md`)와 "에이전트가 설치를
   거부하면" 정규 분기.
+  v3.35.0 = **정정은 분기다** — `step --supersede` 가 대상의 부모 자리에서 새 브랜치로
+  갈라지고(옛 가지+자손 통째 보존), `--inherit` 필수, 모든 kind 대상(define·종결 포함,
+  같은-kind 규칙이 판정 뒤집기를 막는다), 뷰어에 ⟲/⤳ 표식 · `gil init` 이 빈 폴더에서
+  죽던 것(인터뷰 고지가 관문처럼 서 있었다).
   **병렬 러너를 쓴다**: `python3 run_tests.py` — 클래스 단위 프로세스 분할 + LPT(긴 것부터,
   지난 소요를 `.test-timings.json` 에 학습) + 워커 1.5×코어. 실측 151s·병렬 효율 100%
   (실행 끝에 효율·CPU 합계·꼬리를 스스로 출력한다).
