@@ -66,6 +66,19 @@ func chainPurpose(chain, revRange string) string {
 	return ""
 }
 
+// chainTrailer — 이 체인의 chain-root 에 실린 임의 트레일러 값(없으면 "").
+func chainTrailer(chain, key string) string {
+	fmt := trailer("Gil-Chain") + fsep + trailer(key) + sep
+	out := gitlog("--format="+fmt, "--branches")
+	for _, rec := range strings.Split(out, sep) {
+		c, v, _ := cut(rec, fsep)
+		if strings.TrimSpace(c) == chain && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 // chainHasReference — 이 체인의 chain-root 에 기준 문서(Gil-Reference)가 심겨 있나(이슈 #33).
 // 사이클을 열 때 "이 체인엔 기준이 있으니 읽고 그에 비추어 정의·판정하라"를 안내하는 데 쓴다.
 func chainHasReference(chain, revRange string) bool {

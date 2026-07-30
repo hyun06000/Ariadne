@@ -3217,10 +3217,10 @@ class TestIntakeBeforeChain(GilFixture):
     분기를 쳐 버리고 물으면 그 답이 갈 곳이 없다."""
 
     QS = [{"q": "무엇을 하려고 하십니까", "type": "text"},
-          {"q": "어디서 이어가나요", "type": "text"}]
+          {"q": "무엇이 관측되면 풀린 것입니까", "type": "text"}]
     ANS = ("# 기준 문서\n\n## 1. 무엇을 하려고 하십니까\n\n"
            "그게 없는게 자율이야. 스스로 도구를 만들면서 진화할거야.\n\n"
-           "## 2. 어디서 이어가나요\n\n데모는 짧게 끝내고 루트에서 새로 시작하고 싶어.\n")
+           "## 2. 무엇이 관측되면 풀린 것입니까\n\n도구를 스스로 축적하면 풀린 것이다.\n")
 
     def _run(self, *args, input=None):
         env = dict(os.environ, GIL_NO_VIEWER="1")
@@ -3253,7 +3253,8 @@ class TestIntakeBeforeChain(GilFixture):
     def test_purpose_is_lifted_verbatim(self):
         """목적은 사람의 문장 **그대로**여야 한다 — 요약도 정제도 창작이다."""
         self._ask(); self._answer()
-        r = self._run("chain", "nx", "--from-intake", "nx-topic", "--purpose-from", "1")
+        r = self._run("chain", "nx", "--from-intake", "nx-topic", "--purpose-from", "1",
+                      "--criterion-from", "2")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("nx", "Gil-Chain-Purpose"),
                          "그게 없는게 자율이야. 스스로 도구를 만들면서 진화할거야.")
@@ -3288,6 +3289,96 @@ class TestIntakeBeforeChain(GilFixture):
         r = self._run("chain", "nx")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("gil intake", r.stderr)
+
+
+class TestDeepIntake(GilFixture):
+    """심층 인터뷰가 셋을 낳는다 (상현님): ① 체인 단위 문제 ② 풀었다/못 풀었다의 기준
+    ③ 사이클 단위로 분할된 문제. 그리고 '어디서 분기할지'는 **마지막에** 묻되 후보를
+    그래프가 계산한다 — 분기를 먼저 쳐 버리면 그 답이 갈 곳이 없기 때문이다."""
+
+    def _run(self, *a, input=None):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.run([*GIL_CMD, *a], cwd=self.repo, capture_output=True,
+                              text=True, env=env, input=input)
+
+    def _round(self, q, answer):
+        self._run("intake", "dp", "--ask", "-", input=json.dumps([{"q": q, "type": "text"}]))
+        p = os.path.join(self.repo, "a.md")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(f"# 답\n\n## 1. {q}\n\n{answer}\n")
+        r = self._run("intake", "dp", "--resolve", "a.md")
+        os.remove(p)
+        return r
+
+    def _three_rounds(self):
+        self._round("무엇을 하려고 하십니까", "스스로 도구를 만드는 언어를 만든다.")
+        self._round("무엇이 관측되면 풀린 것입니까", "후반 토큰이 30% 이상 줄면 풀린 것이다.")
+        self._round("사이클 단위로 나눈다면", "1. 문법을 고정한다\n2. 이름을 배정한다\n3. 능력을 얹는다")
+
+    def test_rounds_accumulate(self):
+        """차수를 쌓는다 — 새 답이 앞 답을 덮으면 1차에 사람이 말한 것이 사라진다."""
+        self._three_rounds()
+        out = self._run("intake", "dp", "--status").stdout
+        self.assertIn("스스로 도구를 만드는 언어", out)   # 1차가 살아 있고
+        self.assertIn("후반 토큰이 30%", out)              # 2차도
+        self.assertIn("능력을 얹는다", out)                # 3차도
+
+    def test_status_numbers_the_answers(self):
+        """차수마다 번호가 1부터 다시 시작하므로, 누적 순서로 다시 매겨 보여줘야 지목할 수 있다."""
+        self._three_rounds()
+        out = self._run("intake", "dp", "--status").stdout
+        self.assertIn("인용 가능한 답", out)
+        self.assertRegex(out, r"1\).*무엇을 하려고")
+        self.assertRegex(out, r"3\).*사이클 단위로")
+
+    def test_chain_requires_the_criterion(self):
+        """목적만 있고 기준이 없으면 '됐다'가 다시 자기확신이 된다."""
+        self._three_rounds()
+        r = self._run("chain", "ail", "--from-intake", "dp", "--purpose-from", "1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("criterion-from", r.stderr)
+
+    def test_three_artifacts_are_quoted_into_the_chain(self):
+        self._three_rounds()
+        r = self._run("chain", "ail", "--from-intake", "dp", "--purpose-from", "1",
+                      "--criterion-from", "2", "--cycles-from", "3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("ail", "Gil-Chain-Purpose"),
+                         "스스로 도구를 만드는 언어를 만든다.")
+        self.assertIn("후반 토큰이 30%", self.trailer("ail", "Gil-Chain-Criterion"))
+        self.assertIn("이름을 배정한다", self.trailer("ail", "Gil-Chain-Plan"))
+
+    def test_cycle_is_lifted_from_the_human_breakdown(self):
+        """사이클 목적도 인용이다 — 사람이 나눈 작은 문제로 사이클을 정복한다."""
+        self._three_rounds()
+        self._run("chain", "ail", "--from-intake", "dp", "--purpose-from", "1",
+                  "--criterion-from", "2", "--cycles-from", "3")
+        r = self._run("open", "ail/c1", "--author", "x", "--from-plan", "2", "--body", "정의")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("이름을 배정한다", r.stdout)
+
+    def test_from_plan_out_of_range_lists_the_choices(self):
+        """거부에는 나갈 길이 붙는다 — 무엇을 고를 수 있는지 그 자리에서 보여준다."""
+        self._three_rounds()
+        self._run("chain", "ail", "--from-intake", "dp", "--purpose-from", "1",
+                  "--criterion-from", "2", "--cycles-from", "3")
+        r = self._run("open", "ail/c9", "--author", "x", "--from-plan", "7", "--body", "정의")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("3개뿐이다", r.stderr)
+        self.assertIn("능력을 얹는다", r.stderr)
+
+    def test_root_question_is_authored_by_the_tool(self):
+        """후보는 그래프에 실재하는 자리들이다 — 에이전트가 지어낸 선택지가 아니다.
+        그리고 아직 체인이 아닌 intake 슬러그 자신은 후보가 될 수 없다."""
+        self.gil("chain", "old", "--purpose", "옛 국면")
+        self.gil("chain-close", "old", "--verdict", "supported")
+        self._round("무엇을 하려고 하십니까", "새 언어를 만든다.")
+        r = self._run("intake", "dp", "--ask-root")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        body = self._git("log", "--branches", "-1", "--format=%b").stdout
+        self.assertIn("[old] 를 이어받는다", body)
+        self.assertIn("대문에서 새로 시작한다", body)
+        self.assertNotIn("[dp] 와 나란히", body)   # 슬러그 자신은 후보가 아니다
 
 
 class TestInterviewOpensOpen(GilFixture):

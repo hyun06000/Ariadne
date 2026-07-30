@@ -533,6 +533,10 @@ func cmdOpen(args []string) {
 	author := fs.str("author", "")
 	title := fs.str("title", "")
 	purpose := fs.str("purpose", "")
+	// --from-plan <n>: 심층 인터뷰가 낳은 **사이클 분할**에서 n번째 문제를 이 사이클의
+	// 목적으로 들어 올린다(상현님). 사람이 나눈 작은 문제들로 사이클을 정복하게 하는 자리 —
+	// 여기서도 인용이지 창작이 아니다.
+	fromPlan := fs.str("from-plan", "")
 	bodyF := fs.str("body", "")
 	bodyFile := fs.str("body-file", "")
 	parents := fs.strList("parent")
@@ -561,14 +565,35 @@ func cmdOpen(args []string) {
 	if *author == "" {
 		die("거부: --author 필요")
 	}
-	if *purpose == "" {
-		die("거부: --purpose 필요")
-	}
 	ref := pos[0]
 	if !strings.Contains(ref, "/") {
 		die("거부: <chain>/<cycle> 꼴이어야 함")
 	}
 	chain, cycle, _ := cut(ref, "/")
+	if fp := atoiSafe(strings.TrimSpace(*fromPlan)); fp > 0 {
+		items := chainPlanItems(chain)
+		if len(items) == 0 {
+			die("거부: 체인 \"" + chain + "\" 에 사이클 분할이 없다 — --from-plan 으로 고를 것이 없다.\n" +
+				"  분할은 개시 인터뷰에서 사람이 나눈다:\n" +
+				"    gil intake <슬러그> --ask '[{\"q\":\"이 문제를 사이클 단위 작은 문제로 나눈다면 어떻게 나누시겠습니까? 한 줄에 하나씩 적어 주세요\",\"type\":\"text\"}]'\n" +
+				"    gil chain " + chain + " --from-intake <슬러그> … --cycles-from <질문번호>")
+		}
+		if fp > len(items) {
+			msg := "거부: --from-plan " + itoa(fp) + " — 이 체인의 분할은 " + itoa(len(items)) + "개뿐이다.\n"
+			for i, it := range items {
+				msg += "  " + itoa(i+1) + ") " + clip(it, 90) + "\n"
+			}
+			die(strings.TrimRight(msg, "\n"))
+		}
+		if strings.TrimSpace(*purpose) != "" {
+			die("거부: --from-plan 과 --purpose 는 함께 못 선다 — 목적은 사람이 나눈 문제에서 인용된다.")
+		}
+		*purpose = items[fp-1]
+		println2("  ◎ 사이클 목적을 사람의 분할에서 인용했다(" + itoa(fp) + "/" + itoa(len(items)) + "): " + *purpose)
+	}
+	if *purpose == "" {
+		die("거부: --purpose 필요")
+	}
 	for _, kv := range [][2]string{{"chain", chain}, {"cycle", cycle}} {
 		if !idRe.MatchString(kv[1]) {
 			die("거부: " + kv[0] + " id \"" + kv[1] + "\"는 소문자·숫자·하이픈만")
@@ -2193,8 +2218,23 @@ func cmdInterview(args []string) {
 // (체인 앞 개시 인터뷰)가 같은 기계를 쓴다 — 뷰어·폴링·--wait 이 손 안 대고 동작하도록.
 // extra 는 심는 커밋에 덧붙일 트레일러(개시 인터뷰의 Gil-Intake 등).
 func interviewAsk(chain, ask, title string, extra [][2]string) {
-	// 질문 JSON 을 읽고 구조를 검증한다 — 빈 폼·잘못된 type 을 뷰어에 보내기 전에 여기서 거부.
-	raw := resolveBody("", ask)
+	interviewAskOpt(chain, ask, title, extra, false)
+}
+
+// interviewAskOpt — toolAuthored 면 '첫 질문은 열린 질문' 규칙을 면제한다. gil 이 직접 만든
+// 마지막 차수(뿌리 후보 선택)만 해당한다 — 후보가 그래프에서 나온 사실이라 앵커가 아니다.
+func interviewAskOpt(chain, ask, title string, extra [][2]string, toolAuthored bool) {
+	interviewAskCore(chain, resolveBody("", ask), title, extra, toolAuthored)
+}
+
+// interviewAskInline — 질문 JSON 을 **문자열 그대로** 받는다(파일 경로가 아니다).
+// gil 이 직접 조립한 질문지를 심을 때 쓴다.
+func interviewAskInline(chain, questionsJSON, title string, extra [][2]string, toolAuthored bool) {
+	interviewAskCore(chain, questionsJSON, title, extra, toolAuthored)
+}
+
+func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored bool) {
+	// 질문 JSON 구조를 검증한다 — 빈 폼·잘못된 type 을 뷰어에 보내기 전에 여기서 거부.
 	if strings.TrimSpace(raw) == "" {
 		die("거부: --ask 질문이 비었다")
 	}
@@ -2236,7 +2276,7 @@ func interviewAsk(chain, ask, title string, extra [][2]string) {
 			openN++
 		}
 	}
-	if openN == 0 || qs[0].Type != "text" {
+	if (openN == 0 || qs[0].Type != "text") && !toolAuthored {
 		die("거부: 인터뷰의 **첫 질문은 열린 질문(text)** 이어야 한다 — 선택지부터 내밀면 " +
 			"사람은 네 가설 공간 안에서만 고르게 된다(이슈 #90).\n" +
 			"  지금 첫 질문: " + qs[0].Q + "  (" + qs[0].Type + ")\n" +
@@ -2245,7 +2285,7 @@ func interviewAsk(chain, ask, title string, extra [][2]string) {
 			"  기준 문서는 '사람이 세운 자'여야 한다. 네가 세운 자에 사람이 서명한 것이 되면 " +
 			"그 뒤의 판정은 전부 형식만 남는다.")
 	}
-	if openN*2 < len(qs) && len(qs) >= 4 {
+	if openN*2 < len(qs) && len(qs) >= 4 && !toolAuthored {
 		// 거부까지는 하지 않는다 — 좁혀 묻는 질문 자체가 나쁜 게 아니다. 다만 비율이 기울면
 		// 질문지가 앵커로 작동하기 시작하므로 그 자리에서 말해 준다.
 		stderr("  ⚠ 열린 질문이 " + itoa(openN) + "/" + itoa(len(qs)) + " 다 — 선택지가 과반이면 " +
@@ -2620,6 +2660,38 @@ func cmdChainClose(args []string) {
 	println2("     이전 체인의 교훈(gil memory read)을 새 체인 목적·첫 가설에 이어받아라.")
 }
 
+// chainCriterion·chainPlan — --from-intake 가 사람의 답에서 들어 올린 두 산출.
+// 함수 지역이 아니라 여기 두는 건 트레일러 조립 지점이 멀리 있어서다.
+var chainCriterion, chainPlan, chainIntakeRef string
+
+// chainPlanItems — 체인에 각인된 사이클 분할을 항목으로 쪼갠다. 사람이 어떻게 적든
+// (줄바꿈·번호·불릿·가운뎃점) 읽어낸다 — 형식을 사람에게 강요하지 않는다.
+func chainPlanItems(chain string) []string {
+	raw := chainTrailer(chain, "Gil-Chain-Plan")
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	seps := func(r rune) bool { return r == '\n' || r == '·' || r == ';' }
+	var out []string
+	for _, p := range strings.FieldsFunc(raw, seps) {
+		t := strings.TrimSpace(p)
+		// "1." "1)" "-" "*" 같은 머리표를 떼되 내용은 그대로 둔다.
+		t = strings.TrimLeft(t, "-*• \t")
+		for i, r := range t {
+			if r < '0' || r > '9' {
+				if i > 0 && (r == '.' || r == ')') {
+					t = strings.TrimSpace(t[i+1:])
+				}
+				break
+			}
+		}
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // ── gil chain ──
 func cmdChain(args []string) {
 	fs := newFlags("gil chain")
@@ -2654,6 +2726,10 @@ func cmdChain(args []string) {
 	// 창작하는 순간 기준 문서는 '사람이 세운 자'가 아니게 된다.
 	fromIntake := fs.str("from-intake", "")
 	purposeFrom := fs.str("purpose-from", "")
+	// 심층 인터뷰의 나머지 두 산출(상현님): **풀었다/못 풀었다를 가르는 기준**과
+	// **사이클 단위로 분할된 문제들**. 둘 다 사람의 답에서 인용한다.
+	criterionFrom := fs.str("criterion-from", "")
+	cyclesFrom := fs.str("cycles-from", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil chain <name> --from-intake <슬러그> --purpose-from <질문번호>   (권장 — 이슈 #90)\n" +
@@ -2688,6 +2764,35 @@ func cmdChain(args []string) {
 		}
 		*purpose = lifted
 		println2("  ◎ 목적을 사람의 답에서 인용했다(" + si + " 질문 " + itoa(n) + "): " + lifted)
+		// 성패 기준 — 체인을 **닫을 때 무엇에 비추어 판정하나**. 목적만 있고 기준이 없으면
+		// '됐다'가 다시 자기확신이 된다(#33 이 기준 문서를 요구한 이유가 체인 층에도 선다).
+		cn := atoiSafe(strings.TrimSpace(*criterionFrom))
+		if cn <= 0 {
+			die("거부: --criterion-from <질문번호> 필요 — **무엇이 관측되면 이 체인이 풀린 것인가**를\n" +
+				"  사람의 답에서 인용하라. 목적만 있고 기준이 없으면 '됐다'가 다시 자기확신이 된다.\n" +
+				"  아직 안 물었으면 차수를 더해라:\n" +
+				"    gil intake " + si + " --ask '[{\"q\":\"무엇이 관측되면 이 문제가 풀린 것입니까? 풀리지 않았다고 판단할 조건도 함께 적어 주세요\",\"type\":\"text\"}]'\n" +
+				"  답 전문: gil intake " + si + " --status")
+		}
+		crit := intakeAnswerN(si, cn)
+		if strings.TrimSpace(crit) == "" {
+			die("거부: " + si + " 의 " + itoa(cn) + "번 답이 비었다 — 그 답으로는 성패 기준이 서지 않는다.")
+		}
+		chainCriterion = crit
+		// **개시 인터뷰가 곧 이 체인의 인터뷰다.** 사람이 이미 답했는데 체인을 열자마자
+		// 또 물으라고 하면(#33 게이트) 같은 사람에게 같은 것을 두 번 묻는 꼴이고, 실제로
+		// 사이클을 못 열었다. 그 답을 이 체인의 기준 문서로 그대로 얹는다.
+		chainIntakeRef = stripTrailers(intakeAnswers(si))
+		println2("  ◎ 성패 기준을 인용했다(질문 " + itoa(cn) + "): " + crit)
+		// 사이클 분할 — 있으면 지고 간다. 없으면 강제하지 않는다: 분할은 문제를 충분히 본
+		// 뒤에야 나오고, 처음부터 요구하면 빈 칸 채우기가 된다(#76 이 관찰 중인 위험).
+		if k := atoiSafe(strings.TrimSpace(*cyclesFrom)); k > 0 {
+			if plan := intakeAnswerN(si, k); strings.TrimSpace(plan) != "" {
+				chainPlan = plan
+				println2("  ◎ 사이클 분할을 인용했다(질문 " + itoa(k) + "): " + clip(plan, 100))
+				println2("    ▸ 사이클을 열 때 이 목록에서 골라라: gil open <chain>/<cycle> --from-plan <번호>")
+			}
+		}
 		println2("  ▸ 이제 **어디서 분기할지**를 그 답에 비추어 정하라 — --from(이어받음) / " +
 			"--parallel-with(나란히) / 아무것도 없으면 대문에서 새 계보.")
 	}
@@ -2748,12 +2853,26 @@ func cmdChain(args []string) {
 	// 기준 문서를 chain-root 커밋 본문에 통째로 담는다(뷰어가 마크다운으로 렌더). 트레일러엔
 	// '기준 있음' 표식만 — 전문은 본문에, 참조는 트레일러로.
 	refBody := resolveBody("", *reference)
+	if strings.TrimSpace(refBody) == "" && strings.TrimSpace(chainIntakeRef) != "" {
+		refBody = chainIntakeRef // 개시 인터뷰의 답이 이 체인의 기준 문서다(이슈 #90)
+	}
 	if strings.TrimSpace(refBody) != "" {
 		body += "\n\n── 기준 문서(레퍼런스 트루스, 이슈 #33) ──\n\n" + refBody
 	}
 	tr := [][2]string{
 		{"Gil-Chain", name}, {"Gil-Kind", "chain-root"},
 		{"Gil-Chain-Purpose", *purpose},
+	}
+	// 심층 인터뷰가 낳은 두 산출을 체인에 각인한다(상현님). 인용이지 창작이 아니다.
+	if strings.TrimSpace(chainIntakeRef) != "" {
+		// 사람이 승인한 기준(Gil-Interview: done) — 개시 인터뷰의 답이 그 자격을 갖는다.
+		tr = append(tr, [2]string{"Gil-Reference", "true"}, [2]string{"Gil-Interview", "done"})
+	}
+	if strings.TrimSpace(chainCriterion) != "" {
+		tr = append(tr, [2]string{"Gil-Chain-Criterion", chainCriterion}) // 풀었다/못 풀었다의 기준
+	}
+	if strings.TrimSpace(chainPlan) != "" {
+		tr = append(tr, [2]string{"Gil-Chain-Plan", chainPlan}) // 사이클 단위로 분할된 문제들
 	}
 	if *requireDataset {
 		tr = append(tr, [2]string{"Gil-Require-Dataset", "true"}) // 사이클마다 평가셋 선언 필수(#79)

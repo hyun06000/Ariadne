@@ -21,9 +21,33 @@
 package main
 
 import (
+	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 )
+
+// jsonQuote — 문자열을 JSON 리터럴로. 도구가 질문지를 조립할 때 쓴다.
+func jsonQuote(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return "\"\""
+	}
+	return string(b)
+}
+
+// intakePlant — gil 이 직접 만든 질문지를 심는다(열린 질문 규칙 면제).
+func intakePlant(slug, questionsJSON, title string) {
+	intakeMode = slug
+	interviewAskInline(slug, questionsJSON, title, [][2]string{{"Gil-Intake", slug}}, true)
+}
+
+// isIntakeSlug — 이 이름이 개시 인터뷰 슬러그인가. intake 커밋은 뷰어가 폼을 그리도록
+// Gil-Chain 을 함께 달기 때문에, 걸러 주지 않으면 **아직 체인이 아닌 것이 체인 목록에**
+// 섞인다(뿌리 후보에 자기 자신이 뜨는 것을 실측으로 잡았다).
+func isIntakeSlug(name string) bool {
+	return intakeState(name) != "" && chainPurpose(name, "--branches") == ""
+}
 
 // atoiSafe — 실패하면 0. 질문 번호처럼 "없으면 없는 것"인 자리에 쓴다.
 func atoiSafe(s string) int {
@@ -77,40 +101,66 @@ func intakeAnswers(slug string) string {
 	return ""
 }
 
-// intakeAnswerN — 기준 문서에서 **n번 질문의 답을 그대로** 떼어 온다.
+// intakeAnswerN — 누적 문서에서 **n번째 답**을 그대로 떼어 온다(1부터).
+//
+// 왜 '몇 번째 답'인가. 심층 인터뷰는 차수를 쌓으므로 각 차수의 질문 번호가 1부터 다시
+// 시작한다 — 그대로 지목하면 2차의 1번과 1차의 1번이 구분되지 않는다. 그래서 **등장 순서**로
+// 센다. gil intake --status 가 이 번호를 그대로 보여준다.
 //
 // 왜 인용인가. 목적을 에이전트가 다시 쓰면 그 순간 "사람이 세운 자"가 아니게 된다 — 요약도
-// 정제도 창작이다. 도구는 진위를 못 재지만 **출처가 사람의 문장 그 자체인지**는 보증할 수
-// 있다. 그래서 --purpose 를 받지 않고 --purpose-from <n> 으로 사람의 답을 들어 올린다.
+// 정제도 창작이다. 도구는 진위를 못 재지만 **출처가 사람의 문장 그 자체인지**는 보증한다.
 func intakeAnswerN(slug string, n int) string {
-	body := intakeAnswers(slug)
-	if body == "" {
+	secs := intakeSections(slug)
+	if n < 1 || n > len(secs) {
 		return ""
 	}
-	// 기준 문서는 "## <n>. <질문>" 절로 조립된다(뷰어 assembleReference).
-	head := "## " + itoa(n) + ". "
-	i := strings.Index(body, head)
-	if i < 0 {
-		return ""
+	return secs[n-1].answer
+}
+
+type intakeSec struct{ q, answer string }
+
+// intakeSections — 누적 문서를 (질문, 답) 목록으로. 트레일러·구분선은 걷어낸다.
+func intakeSections(slug string) []intakeSec {
+	body := stripTrailers(intakeAnswers(slug))
+	var out []intakeSec
+	var curQ string
+	var buf []string
+	flush := func() {
+		if curQ == "" {
+			return
+		}
+		var parts []string
+		for _, ln := range buf {
+			t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ln), "- "))
+			if t == "" || t == "_(답 없음)_" || t == "---" || strings.HasPrefix(t, "\u2500\u2500 ") {
+				continue
+			}
+			parts = append(parts, t)
+		}
+		out = append(out, intakeSec{q: curQ, answer: strings.Join(parts, " \u00b7 ")})
+		buf = nil
 	}
-	rest := body[i+len(head):]
-	// 질문 줄 다음부터 다음 "## " 앞까지가 답이다.
-	if j := strings.Index(rest, "\n"); j >= 0 {
-		rest = rest[j+1:]
-	}
-	if j := strings.Index(rest, "\n## "); j >= 0 {
-		rest = rest[:j]
-	}
-	// 리스트 답(- a / - b)은 한 줄로 잇는다 — 목적은 한 문장 자리다.
-	var parts []string
-	for _, ln := range strings.Split(rest, "\n") {
-		t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ln), "- "))
-		if t == "" || t == "_(답 없음)_" {
+	for _, ln := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(ln)
+		if strings.HasPrefix(t, "## ") {
+			flush()
+			q := strings.TrimSpace(strings.TrimPrefix(t, "## "))
+			if i := strings.Index(q, ". "); i > 0 && i <= 3 {
+				q = strings.TrimSpace(q[i+2:])
+			}
+			if strings.HasPrefix(q, "\uc778\ud130\ubdf0 ") && strings.Contains(q, "\ucc28") {
+				curQ = "" // 차수 구분 제목은 질문이 아니다
+				continue
+			}
+			curQ = q
 			continue
 		}
-		parts = append(parts, t)
+		if curQ != "" {
+			buf = append(buf, ln)
+		}
 	}
-	return strings.Join(parts, " · ")
+	flush()
+	return out
 }
 
 // cmdIntake — gil intake <슬러그> --ask|--status|--wait|--resolve.
@@ -122,6 +172,7 @@ func cmdIntake(args []string) {
 	ask := fs.str("ask", "")
 	title := fs.str("title", "")
 	resolve := fs.str("resolve", "")
+	askRoot := fs.boolFlag("ask-root") // 마지막 차수 — 질문을 gil 이 만든다(후보=그래프의 사실)
 	status := fs.boolFlag("status")
 	wait := fs.boolFlag("wait")
 	timeout := fs.str("timeout", "")
@@ -151,10 +202,27 @@ func cmdIntake(args []string) {
 	}
 	if *status || *wait {
 		interviewWatch(slug, *wait, *timeout, *then)
+		// 어느 답을 인용할지 고르려면 **번호가 보여야 한다.** 차수마다 1부터 다시 시작하는
+		// 원문 번호로는 지목할 수 없으니, 누적 순서로 다시 매겨 함께 낸다.
+		if secs := intakeSections(slug); len(secs) > 0 {
+			println2("")
+			println2("── 인용 가능한 답 (--purpose-from / --criterion-from / --cycles-from 에 이 번호를) ──")
+			for i, sc := range secs {
+				println2("  " + itoa(i+1) + ") " + clip(sc.q, 60))
+				println2("       → " + clip(sc.answer, 100))
+			}
+		}
+		return
+	}
+	if *askRoot {
+		if intakeState(slug) == "pending" {
+			die("거부: \"" + slug + "\" 가 이미 사람 답을 기다린다 — 앞 차수의 답부터 받아라.")
+		}
+		intakeAskRoot(slug)
 		return
 	}
 	if *ask == "" {
-		die("사용: gil intake " + slug + " --ask <질문JSON|->  (또는 --resolve <파일>)")
+		die("사용: gil intake " + slug + " --ask <질문JSON|->  (또는 --ask-root / --resolve <파일>)")
 	}
 	if st := intakeState(slug); st == "pending" {
 		die("거부: \"" + slug + "\" 개시 인터뷰가 이미 사람 답을 기다린다 — 새 질문지를 또 만들지 마라.\n" +
@@ -167,6 +235,63 @@ func cmdIntake(args []string) {
 	println2("  ▸ 그리고 **어디서 분기할지**를 그 답을 읽고 정하라 — 뿌리를 먼저 박으면 답이 갈 곳이 없다.")
 }
 
+// rootCandidates — **어디서 분기할지**의 후보를 그래프에서 계산한다(상현님).
+//
+// 왜 도구가 만드나. 이 질문만은 선택지가 정당하다 — 후보가 에이전트의 가설 공간이 아니라
+// **그래프에 실재하는 사실**이기 때문이다. 닫힌 체인·열린 체인·대문은 gil 이 이미 안다.
+// 사람은 사실 위에서 고른다. 열린 질문으로 열고 **닫힌 선택으로 닫는** 것이 심층 인터뷰의
+// 모양이다(첫 질문 열린 질문 강제와 부딪히지 않는다 — 이건 마지막 차수다).
+//
+// 그리고 순서가 중요하다: 후보를 **문제를 정의한 뒤에** 보여야 사람이 판단할 수 있다.
+// 분기를 먼저 쳐 버리면 이 답이 갈 곳이 없다.
+func rootCandidates() []string {
+	var out []string
+	closed, open := []string{}, []string{}
+	for c := range declaredChains("--branches") {
+		if c == "" || isIntakeSlug(c) {
+			continue // 개시 인터뷰 슬러그는 아직 체인이 아니다 — 후보가 될 수 없다
+		}
+		if chainClosed(c, "--branches") {
+			closed = append(closed, c)
+		} else {
+			open = append(open, c)
+		}
+	}
+	sort.Strings(closed)
+	sort.Strings(open)
+	for _, c := range closed {
+		out = append(out, "["+c+"] 를 이어받는다 — 닫힌 체인의 끝에서 (그 교훈을 물려받는다)")
+	}
+	for _, c := range open {
+		out = append(out, "["+c+"] 와 나란히 간다 — 병렬 트랙 (이어받는 것이 아니다)")
+	}
+	out = append(out, "대문에서 새로 시작한다 — 앞의 어느 것도 이어받지 않는 새 계보")
+	return out
+}
+
+// intakeAskRoot — 마지막 차수: 뿌리 자리를 묻는다. 질문은 **gil 이 만든다.**
+func intakeAskRoot(slug string) {
+	if intakeState(slug) == "" {
+		die("거부: 개시 인터뷰 \"" + slug + "\" 가 없다 — 먼저 무엇을 풀지부터 물어라:\n" +
+			"    gil intake " + slug + " --ask '[{\"q\":\"무엇을 하려고 하십니까\",\"type\":\"text\"}]'")
+	}
+	cands := rootCandidates()
+	var b strings.Builder
+	b.WriteString(`[{"q":"이 일을 어디서 시작할까요? (아래는 지금 그래프에 실재하는 자리들입니다)","type":"radio","options":[`)
+	for i, c := range cands {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(jsonQuote(c))
+	}
+	b.WriteString(`]},{"q":"그렇게 고른 이유가 있으면 적어 주세요 (없으면 비워 두세요)","type":"text"}]`)
+	// 질문 검증은 '첫 질문 열린 질문' 규칙을 건다 — 이 차수는 도구가 만든 마지막 선택이라
+	// 그 규칙의 예외다(앵커 방지는 앞 차수들이 이미 했다). interviewAsk 를 우회해 직접 심는다.
+	intakePlant(slug, b.String(), "어디서 시작할까 — 후보는 그래프가 계산했다")
+	println2("  ▸ 후보 " + itoa(len(cands)) + "개를 그래프에서 계산해 물었다 — 네가 지어낸 선택지가 아니다.")
+	println2("  ▸ 사람이 고르면 그 자리로 체인을 연다: --from / --parallel-with / (없으면 대문).")
+}
+
 // intakeResolve — 개시 인터뷰의 답을 확정한다. 체인이 아직 없으므로 기준 문서는 대문 위에
 // 슬러그로 심긴다. 그 답이 곧 다음에 열릴 체인의 목적이자 뿌리를 정하는 근거가 된다.
 func intakeResolve(slug, refFile string) {
@@ -177,18 +302,44 @@ func intakeResolve(slug, refFile string) {
 	if intakeState(slug) == "" {
 		die("거부: 개시 인터뷰 \"" + slug + "\" 가 없다 — 먼저 gil intake " + slug + " --ask <질문JSON>")
 	}
+	// **차수를 쌓는다.** 심층 인터뷰는 한 번으로 끝나지 않는다(상현님) — 무엇을 풀지,
+	// 무엇이 관측되면 풀린 것인지, 어떤 작은 문제들로 나눌지를 차례로 묻는다. 새 답이 앞
+	// 답을 덮으면 1차에 사람이 말한 것이 사라진다. 기준은 사람의 답이므로 지워지면 안 된다.
+	// 앞 차수 본문을 그대로 이어 붙이면 그 커밋의 트레일러(Gil-…)까지 산문에 섞인다 —
+	// 실측으로 답 안에 "Gil-Intake: deep · Gil-Chain: …" 이 딸려 들어왔다.
+	prev := stripTrailers(intakeAnswers(slug))
+	round := 1
+	if strings.TrimSpace(prev) != "" {
+		round = strings.Count(prev, "## 인터뷰 ") + 2
+	}
+	combined := body
+	if strings.TrimSpace(prev) != "" {
+		pb := prev
+		if i := strings.Index(pb, "── 개시 인터뷰 답(사람이 세운 자) ──"); i >= 0 {
+			pb = strings.TrimSpace(pb[i+len("── 개시 인터뷰 답(사람이 세운 자) ──"):])
+		}
+		combined = pb + "\n\n---\n\n## 인터뷰 " + itoa(round) + "차 (심층)\n\n" + body
+	}
 	subject := "gil intake " + slug + ": 개시 인터뷰로 방향 확정"
+	if round > 1 {
+		subject = "gil intake " + slug + ": 심층 인터뷰 " + itoa(round) + "차"
+	}
 	full := "체인을 열기 **전에** 사람에게 물어 받은 답이다(이슈 #90).\n" +
-		"이 답이 다음에 열릴 체인의 목적이 되고, **어디서 분기할지**의 근거가 된다.\n" +
-		"목적은 여기서 그대로 인용된다 — 에이전트가 다시 쓰지 않는다.\n\n" +
-		"── 개시 인터뷰 답(사람이 세운 자) ──\n\n" + body
+		"이 답이 다음에 열릴 체인의 목적·성패 기준·사이클 분할이 되고, **어디서 분기할지**의\n" +
+		"근거가 된다. 전부 여기서 그대로 인용된다 — 에이전트가 다시 쓰지 않는다.\n" +
+		"심층 인터뷰는 차수를 더할 수 있고, 앞 차수의 답은 지워지지 않고 아래에 쌓인다.\n\n" +
+		"── 개시 인터뷰 답(사람이 세운 자) ──\n\n" + combined
 	tr := [][2]string{
 		{"Gil-Intake", slug}, {"Gil-Chain", slug}, {"Gil-Kind", "intake-reference"},
 		{"Gil-Reference", "true"}, {"Gil-Interview", "done"},
 	}
 	commit(subject, full, tr, true)
-	println2("intake: " + slug + " — 사람의 답이 확정됐다.")
-	println2("  ▸ 이제 그 답으로 체인을 연다(목적은 인용된다):")
-	println2("      gil chain <이름> --from-intake " + slug + " --purpose-from <질문번호>")
+	println2("intake: " + slug + " — 사람의 답이 확정됐다(" + itoa(round) + "차).")
+	println2("  ▸ 더 물을 것이 남았으면 차수를 더해라 — 앞 답은 지워지지 않고 쌓인다:")
+	println2("      gil intake " + slug + " --ask <질문JSON>")
+	println2("  ▸ **어디서 분기할지**는 마지막에 묻는다(후보는 그래프가 계산한다):")
+	println2("      gil intake " + slug + " --ask-root")
+	println2("  ▸ 준비되면 그 답으로 체인을 연다(전부 인용된다):")
+	println2("      gil chain <이름> --from-intake " + slug + " --purpose-from <n> --criterion-from <m>")
 	println2("  ▸ 답 전문: gil intake " + slug + " --status")
 }
