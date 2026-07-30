@@ -1281,6 +1281,10 @@ function openCard(chain){
   head.appendChild(title); head.appendChild(close);
   card.appendChild(head);
 
+  // 이 체인의 기준 문서 — 사이클을 보기 전에 잣대를 먼저 본다(상현님).
+  const rb=refBlock(chain);
+  if(rb)card.appendChild(rb);
+
   // 이 카드가 선 측정 좌표(이슈 #79·#81) — 사이클마다 다를 수 있으니 카드에 붙인다.
   const coordCy=cy.filter(c=>(c.dataset&&c.dataset.length)||(c.subject&&c.subject.length));
   if(coordCy.length){
@@ -2331,6 +2335,34 @@ function buildPrunes(){
 buildPrunes();
 // 확정된 기준 문서(상현님) — 제출은 결과가 남아야 제출이다.
 const REFERENCES=JSON.parse(document.getElementById('referencedata')?.textContent||'[]');
+// refFor — 이 체인의 확정된 기준 문서 하나(없으면 null).
+function refFor(chain){
+  for(const r of REFERENCES){ if(r.chain===chain) return r; }
+  return null;
+}
+
+// refBlock — 체인 카드 안에 붙일 기준 문서 블록(상현님).
+//
+// 왜 여기인가. 확정된 기준은 **그 체인의 것**이다. 상단에 모든 체인 것을 쌓아 두면 첫
+// 화면이 그래프가 아니라 남의 체인 문서가 되고(실측: 전체맵까지 스크롤 두 번), 정작
+// "지금 보는 체인의 잣대가 무엇인가"는 눈에 안 들어온다. 체인을 누른 자리에서 그 하나만.
+//
+// 그리고 **마크다운으로 렌더한다.** 기준 문서는 사람이 쓴 산문인데 raw 텍스트로 뿌리면
+// 제목·목록이 뭉개져 읽히지 않는다 — 스텝 보고서는 이미 renderMarkdown 을 쓰고 있었다.
+function refBlock(chain){
+  const r=refFor(chain);
+  if(!r)return null;
+  const det=document.createElement('details'); det.className='refcard';
+  const sum=document.createElement('summary'); sum.className='refsum';
+  const state=r.waiting?'⏳ 에이전트가 기다리는 중':(r.seen?'✓ 에이전트가 읽었습니다':'· 아직 안 읽음');
+  sum.textContent='📌 이 체인의 기준 문서 — 판단은 여기에 비추어라 ('+r.sha+') · '+state;
+  det.appendChild(sum);
+  const body=document.createElement('div'); body.className='refbody';
+  body.innerHTML=renderMarkdown(r.text||'(본문 없음)');
+  det.appendChild(body);
+  return det;
+}
+
 function buildReferences(){
   const host=document.getElementById('references');
   if(!host||!REFERENCES.length)return;
@@ -2342,9 +2374,12 @@ function buildReferences(){
     // 확정된 기준은 **끝난 것**이다 — 화면을 계속 차지하면 지금 살아 있는 국면을 덮는다
     // (이슈 #85 의 교훈을 이 패널이 먼저 어겼다). 기본은 한 줄, 필요할 때만 펼친다.
     // 한 번 닫으면 그 확정본은 다시 안 뜬다(sha 로 기억 — 새 차수가 오면 다시 뜬다).
+    // 확정본은 이제 **체인 카드 안**이 제자리다(상현님). 상단에는 방금 제출한 것만 잠깐
+    // 남긴다 — 제출 직후의 "내 답이 도착했나"는 그 자리에서 보여야 하니까(#82).
+    if(just!==r.chain)return;
     let dismissed=false;
     try{ dismissed=localStorage.getItem('gil-ref-seen-'+r.chain)===r.sha; }catch(e){}
-    if(dismissed&&just!==r.chain)return;
+    if(dismissed)return;
     shown++;
     const card=document.createElement('div'); card.className='refcard';
     const det=document.createElement('details');
@@ -2354,7 +2389,8 @@ function buildReferences(){
     sum.textContent=(just===r.chain?'✓ 방금 제출한 답이 기준 문서로 확정됐습니다 — ':'')+
       '체인 '+r.chain+' 기준 문서 ('+r.sha+') · '+state;
     det.appendChild(sum);
-    const body=document.createElement('div'); body.className='refbody'; body.textContent=r.text||'(본문 없음)';
+    const body=document.createElement('div'); body.className='refbody';
+    body.innerHTML=renderMarkdown(r.text||'(본문 없음)');
     det.appendChild(body);
     card.appendChild(det);
     const x=document.createElement('button'); x.className='card-close refx'; x.textContent='✕';
