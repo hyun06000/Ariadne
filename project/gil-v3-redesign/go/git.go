@@ -9,7 +9,10 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
@@ -33,11 +36,204 @@ func git(args ...string) string {
 func gitCommand(args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	hideConsole(cmd)
+	traceGit(cmd, args)
 	return cmd
+}
+
+// ── GIL_TRACE — "느리다"를 "여기서 느리다"로 바꾼다 (이슈 #88) ──
+//
+// 실사용 보고: fsck 7분·handoff 5분인데 CPU 누적은 0.12초. 계산이 아니라 **기다림**인데,
+// 사용자가 말할 수 있는 건 "느리다"뿐이었다. 관전 도구의 침묵과 같은 병이다(#84·#87) —
+// 도구가 자기 시간을 못 보여주면 원인 규명이 통째로 사람 몫이 된다.
+//
+// GIL_TRACE=1 → 종료 시 요약(호출 수·총 시간·가장 느린 호출 10개).
+// GIL_TRACE=all → 호출마다 한 줄씩(폭주하는 호출 패턴을 눈으로 본다).
+var (
+	traceOn    = os.Getenv("GIL_TRACE")
+	traceStart = time.Now()
+	traceCalls []traceRec
+	traceMu    sync.Mutex
+)
+
+type traceRec struct {
+	args []string
+	dur  time.Duration
+}
+
+// traceGit — 자식 프로세스의 실제 소요를 재도록 Cmd 를 감싼다. exec.Cmd 에는 훅이 없어
+// Wait 를 가로챌 수 없으므로, 시작 시각을 기록해 두고 종료 시각을 Cancel/Wait 대신
+// **호출자 쪽 래퍼**(gitTry/gitOK/gitInput)가 아니라 여기서 프로세스 상태로 잡는다.
+func traceGit(cmd *exec.Cmd, args []string) {
+	if traceOn == "" {
+		return
+	}
+	traceMu.Lock()
+	traceCalls = append(traceCalls, traceRec{args: args})
+	traceIndex[cmd] = traceEntry{idx: len(traceCalls) - 1, start: time.Now()}
+	traceMu.Unlock()
+}
+
+type traceEntry struct {
+	idx   int
+	start time.Time
+}
+
+var traceIndex = map[*exec.Cmd]traceEntry{}
+
+// traceDone — git 자식이 끝난 직후 호출. 소요를 채우고 GIL_TRACE=all 이면 한 줄 찍는다.
+func traceDone(cmd *exec.Cmd) {
+	if traceOn == "" {
+		return
+	}
+	traceMu.Lock()
+	e, ok := traceIndex[cmd]
+	if !ok {
+		traceMu.Unlock()
+		return
+	}
+	delete(traceIndex, cmd)
+	d := time.Since(e.start)
+	traceCalls[e.idx].dur = d
+	rec := traceCalls[e.idx]
+	traceMu.Unlock()
+	if traceOn == "all" {
+		stderr("  [trace] " + d.Round(time.Millisecond).String() + "  git " + traceArgs(rec.args))
+	}
+}
+
+func traceArgs(args []string) string {
+	s := strings.Join(args, " ")
+	if len(s) > 120 {
+		s = s[:120] + "…"
+	}
+	return s
+}
+
+// traceSummary — 종료 직전 요약. 호출 수가 폭주하는지, 한 호출이 오래 잡는지를 가른다.
+func traceSummary() {
+	if traceOn == "" {
+		return
+	}
+	traceMu.Lock()
+	recs := append([]traceRec(nil), traceCalls...)
+	traceMu.Unlock()
+	var total time.Duration
+	for _, r := range recs {
+		total += r.dur
+	}
+	wall := time.Since(traceStart)
+	stderr("")
+	stderr("── GIL_TRACE 요약 ──")
+	stderr("  벽시계 " + wall.Round(time.Millisecond).String() +
+		"  ·  git 호출 " + itoa(len(recs)) + "회, 합계 " + total.Round(time.Millisecond).String() +
+		"  ·  git 밖 " + (wall - total).Round(time.Millisecond).String())
+	if wall-total > wall/2 && wall > time.Second {
+		stderr("  ⚠ 시간의 절반 이상이 git 밖에 있다 — 계산도 자식 프로세스도 아닌 기다림이다.")
+	}
+	// 같은 스캔을 몇 번 반복하는가 — 한 호출이 느린 것과 같은 걸 백 번 부르는 것은 처방이
+	// 다르다. 큰 저장소에서 무너지는 쪽은 대개 후자다(전체 스캔 하나가 수 초면 71회는 몇 분).
+	type agg struct {
+		n   int
+		sum time.Duration
+	}
+	byArgs := map[string]*agg{}
+	for _, r := range recs {
+		k := traceArgs(r.args)
+		a := byArgs[k]
+		if a == nil {
+			a = &agg{}
+			byArgs[k] = a
+		}
+		a.n++
+		a.sum += r.dur
+	}
+	var keys []string
+	for k, a := range byArgs {
+		if a.n > 1 {
+			keys = append(keys, k)
+		}
+	}
+	sort.SliceStable(keys, func(i, j int) bool { return byArgs[keys[i]].sum > byArgs[keys[j]].sum })
+	if len(keys) > 0 {
+		stderr("  반복된 스캔(같은 인자) — 여기가 큰 저장소에서 몇 분이 되는 자리다:")
+		for i, k := range keys {
+			if i >= 5 {
+				break
+			}
+			stderr("    ×" + itoa(byArgs[k].n) + "  " + byArgs[k].sum.Round(time.Millisecond).String() + "  git " + k)
+		}
+	}
+	sort.SliceStable(recs, func(i, j int) bool { return recs[i].dur > recs[j].dur })
+	n := 10
+	if len(recs) < n {
+		n = len(recs)
+	}
+	stderr("  가장 느린 호출:")
+	for i := 0; i < n; i++ {
+		stderr("    " + recs[i].dur.Round(time.Millisecond).String() + "  git " + traceArgs(recs[i].args))
+	}
+}
+
+// ── 읽기 캐시 — 같은 스캔을 두 번 돌지 않는다 (이슈 #88) ──
+//
+// 실측: handoff 한 번에 git 호출 71회, 그중 24회가 **인자까지 똑같은 전체 브랜치 스캔**이다.
+// 작은 저장소에선 스캔 하나가 20ms 라 안 보이지만, 브랜치 97개·오펀 커밋 1295개인 실사용
+// 저장소에선 스캔 하나가 수 초다 — 그러면 24번의 중복이 곧 몇 분이 된다. gil 프로세스의
+// CPU 가 0.12초인데 벽시계가 5분인 모양이 정확히 이것이다: 일은 전부 git 자식이 한다.
+//
+// gil 한 번의 실행은 한 가지 일만 하므로 프로세스 수명 동안 읽기 결과는 안 변한다 — 단
+// **쓰기가 한 번이라도 일어나면 통째로 버린다**(캐시가 거짓말하지 않게 하는 유일한 규칙).
+var gitReadCache = map[string]gitCached{}
+
+// gitCacheOn — **짧게 살다 죽는 CLI 명령에서만** 캐시가 참이다. 오래 사는 프로세스
+// (viewer serve · mcp serve · --wait 폴링)에서는 저장소가 밖에서 바뀌므로 캐시가 곧
+// 거짓말이 된다 — 실제로 --wait 이 첫 응답에 얼어붙었다(테스트가 잡았다). 그런 경로는
+// 시작할 때 stopGitCache() 로 끈다.
+var gitCacheOn = true
+
+// stopGitCache — 오래 사는 모드로 들어간다. 이후 모든 읽기는 매번 git 에 되묻는다.
+func stopGitCache() {
+	gitCacheOn = false
+	gitReadCache = map[string]gitCached{}
+}
+
+type gitCached struct {
+	out string
+	err error
+}
+
+// gitReadOnly — 저장소를 바꾸지 않는 명령인가. 보수적으로 **확실한 읽기만** 넣는다.
+func gitReadOnly(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "log", "for-each-ref", "rev-list", "ls-tree", "cat-file", "merge-base", "show":
+		return true
+	case "rev-parse", "symbolic-ref":
+		// --abbrev-ref/--verify 등 조회형만. 쓰기 옵션이 섞이면 캐시하지 않는다.
+		for _, a := range args {
+			if a == "--" || strings.HasPrefix(a, "--git-path") {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // gitTry 는 git을 실행하고 (stdout, err). 호출자가 실패를 흡수할 수 있게 한다.
 func gitTry(args ...string) (string, error) {
+	key := ""
+	if gitCacheOn && gitReadOnly(args) {
+		key = strings.Join(args, nul)
+		if c, ok := gitReadCache[key]; ok {
+			return c.out, c.err
+		}
+	} else {
+		// 쓰기(commit·branch·checkout·update-ref…)가 지나갔다 — 읽기 캐시는 여기서 죽는다.
+		gitReadCache = map[string]gitCached{}
+	}
 	cmd := gitCommand(args...)
 	var out, errOut strings.Builder
 	cmd.Stdout = &out
@@ -45,8 +241,12 @@ func gitTry(args ...string) (string, error) {
 	// 좁힐 수 없다 — 실사용에서 뷰어와의 index.lock 경합을 찾는 데 그 한 줄이 없어 오래 걸렸다.
 	cmd.Stderr = &errOut
 	err := cmd.Run()
+	traceDone(cmd)
 	if err != nil && strings.TrimSpace(errOut.String()) != "" {
 		err = errors.New(err.Error() + " — " + strings.TrimSpace(errOut.String()))
+	}
+	if key != "" {
+		gitReadCache[key] = gitCached{out: out.String(), err: err}
 	}
 	return out.String(), err
 }
@@ -69,7 +269,14 @@ func gitInput(msg string, args ...string) string {
 
 // gitOK 는 git을 실행하고 성공 여부만 준다(merge-base --is-ancestor 등 판정용).
 func gitOK(args ...string) bool {
-	err := gitCommand(args...).Run()
+	if gitCacheOn && gitReadOnly(args) {
+		_, err := gitTry(args...) // 캐시 경유 — 같은 존재 판정을 수십 번 되묻는다
+		return err == nil
+	}
+	gitReadCache = map[string]gitCached{}
+	cmd := gitCommand(args...)
+	err := cmd.Run()
+	traceDone(cmd)
 	return err == nil
 }
 
@@ -290,6 +497,7 @@ func die(msg string) {
 		panic(gilAbort{msg: msg, code: 1})
 	}
 	os.Stderr.WriteString(msg + "\n")
+	traceSummary() // 거부로 끝나도 시간은 밝힌다 — 느린 거부가 제일 답답하다(이슈 #88)
 	runDieHooks() // 원인을 먼저, 뒷정리 안내는 그 다음(이슈 #64②)
 	os.Exit(1)
 }
@@ -299,5 +507,6 @@ func gilExit(code int) {
 	if mcpMode {
 		panic(gilAbort{code: code})
 	}
+	traceSummary() // os.Exit 는 defer 를 건너뛴다 — 여기서도 시간을 밝힌다(이슈 #88)
 	os.Exit(code)
 }

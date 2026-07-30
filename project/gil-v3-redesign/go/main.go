@@ -42,6 +42,7 @@ func requireGit() {
 }
 
 func main() {
+	defer traceSummary() // GIL_TRACE 요약(이슈 #88) — 정상 종료 경로
 	// 인자 없이 호출되면 사용법을 낸다 — 출력은 LLM 에게 들어가는 프롬프트이므로,
 	// "무엇을 할 수 있는지"를 알려주는 게 침묵보다 낫다(상현님).
 	if len(os.Args) <= 1 {

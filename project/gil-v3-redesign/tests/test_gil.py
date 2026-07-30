@@ -3132,6 +3132,59 @@ class TestBacktrackAccumulation(GilFixture):
         self.assertIn("가설 A: 캐시", r.stderr)
 
 
+class TestSealedIsReadOnly(GilFixture):
+    """봉인된 것은 자라지 않는다 (상현님 규칙 12·15·16).
+
+    실측으로 확인한 집행 격차: close 로 봉인한 사이클에 --to 형제 가지가 그냥 들어갔다.
+    fsck 는 그 가지가 미종결일 때만 짚으니, 제대로 끝내면 아무도 모른다 — 봉인된 사이클이
+    봉인 뒤에 조용히 자란다. #85·#86 과 같은 병(집행이 두 자리에서 갈리면 느슨한 쪽이
+    실질 규칙)."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("chain", "s", "--purpose", "P")
+        self.gil("open", "s/c1", "--author", "x", "--purpose", "P", "--body", "정의")
+        self.gil("step", "s/c1", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "s/c1", "--kind", "verify", "--title", "V", "--verdict", "supported")
+        self.gil("step", "s/c1", "--kind", "analyze", "--title", "A")
+        self.gil("step", "s/c1", "--kind", "success", "--title", "OK",
+                 "--toward", "T", "--next-design", "ND")
+        r = self.gil("close", "s/c1", "--verdict", "supported")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _step(self, *args):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.run([*GIL_CMD, "step", "s/c1", *args],
+                              cwd=self.repo, capture_output=True, text=True, env=env)
+
+    def test_sealed_cycle_refuses_sibling_branch(self):
+        """봉인 뒤 형제 가지 — 옛 gil 은 통과시켰다."""
+        r = self._step("--kind", "hypothesis", "--to", "s1", "--title", "몰래",
+                       "--falsify", "F", "--falsify-to", "s1", "--inherit", "x")
+        self.assertNotEqual(r.returncode, 0, "봉인된 사이클이 자랐다")
+        self.assertIn("봉인된 사이클", r.stderr)
+        self.assertIn("gil open", r.stderr)  # 거부에는 나갈 길이 붙어야 한다
+
+    def test_sealed_cycle_refuses_at(self):
+        """--at 으로 봉인선을 넘지 못한다."""
+        r = self._step("--kind", "fail", "--at", "s3", "--to", "s1", "--title", "몰래",
+                       "--toward", "T", "--next-design", "ND")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("봉인된 사이클", r.stderr)
+
+    def test_closed_chain_refuses_steps(self):
+        """체인을 닫은 뒤에도 붙일 수 없다.
+
+        (체인이 닫히려면 그 안의 사이클이 모두 닫혀 있어야 하므로, 실제로는 사이클 봉인이
+        먼저 걸린다 — 체인 검사는 그 위의 두 번째 자물쇠다.)"""
+        self.gil("chain-close", "s", "--summary", "끝")
+        r = self._step("--kind", "hypothesis", "--to", "s1", "--title", "몰래",
+                       "--falsify", "F", "--falsify-to", "s1", "--inherit", "x")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("봉인", r.stderr)
+
+
 class TestOrderingChain(GilFixture):
     """순서 체인 강제(AIL #41) — define→hypothesis→verify→analyze→종결. 각 kind 는 다음
     kind 가 정해져 있고 건너뛰면 거부. self._raw_step 으로 자동보정을 우회해 직접 검증한다."""

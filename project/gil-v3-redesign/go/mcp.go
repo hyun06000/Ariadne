@@ -133,6 +133,7 @@ func cmdMCP(args []string) {
 	}
 	requireGit()
 	mcpMode = true
+	stopGitCache() // 한 프로세스가 여러 툴 호출을 처리한다 — 캐시는 두 번째 호출부터 거짓말이다
 
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "gil",

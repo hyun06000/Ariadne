@@ -892,6 +892,8 @@ func buildGraph() graphView {
 // cmdViewer — gil viewer <serve|build|text> 디스패치. gil main.go 의 case "viewer" 에서 불린다.
 // 뷰어는 격리 유지를 위해 gil flags 대신 자체 수동 파서를 쓴다(의존성 0).
 func cmdViewer(args []string) {
+	// 관전 서버는 오래 산다 — 저장소가 밖에서 바뀌므로 읽기 캐시를 쓰면 화면이 얼어붙는다.
+	stopGitCache()
 	sub := ""
 	out := ""
 	port := "8790"

@@ -780,6 +780,36 @@ func cmdOpen(args []string) {
 	guideNext("define") // 다음은 반드시 hypothesis (AIL #41)
 }
 
+// sealGuard — **봉인된 것은 자라지 않는다.** 닫힌 사이클·닫힌 체인에 스텝을 붙이는 걸 막는다.
+//
+// 왜. 실측으로 확인한 집행 격차다: close 로 봉인한 사이클에 `--to` 형제 가지가 그냥 들어갔다.
+// fsck 는 그 가지가 미종결일 때만 짚으니, verify→analyze→fail 로 **제대로 끝내면 아무도
+// 모른다** — 봉인된 사이클이 봉인 뒤에 조용히 자란다. #85·#86 과 같은 병이다: 집행이 두
+// 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다.
+//
+// append-only 는 "무엇이든 덧붙일 수 있다"가 아니라 "덮어쓸 수 없다"다. 봉인된 영역은
+// 읽기전용이고, 정정은 새 사이클 + --refutes/--supersede 라는 **간선**으로만 한다 —
+// 그래야 "언제 무엇이 뒤집혔나"가 이력에 남는다.
+//
+// 예외 둘: 사람의 답(approve/reject — pending 은 봉인 뒤에도 사람을 기다릴 수 있다)과
+// 배포 마커(gil deploy — 봉인된 결과물이 세상에 나간 기록). 둘 다 이 함수를 안 부른다.
+func sealGuard(chain, cycle string) {
+	if chainClosed(chain, "--branches") {
+		die("거부: 체인 \"" + chain + "\" 은 닫혔다 — 봉인된 체인엔 스텝을 붙일 수 없다.\n" +
+			"  이어갈 것이 있으면 닫힌 끝에서 새 체인을 연다:  gil chain <새체인> --parent " + chain + " --inherit <전수>")
+	}
+	if !closedCycles("--branches")[chain+"\x01"+cycle] {
+		return
+	}
+	die("거부: " + chain + "/" + cycle + " 은 봉인된 사이클이다 — 봉인된 것은 자라지 않는다.\n" +
+		"  append-only 는 '무엇이든 덧붙일 수 있다'가 아니라 '덮어쓸 수 없다'다.\n" +
+		"  · 이어서 팔 것이 있으면 → 새 사이클:  gil open " + chain + "/<새사이클> --parent " + cycle +
+		" --inherit <여기서 물려받는 것>\n" +
+		"  · 이 사이클의 판정을 뒤집는 것이면 → 새 사이클에서 소급 반증:  gil open … --refutes " +
+		chain + "/" + cycle + "/<verify 스텝>\n" +
+		"  정정을 봉인 안에 밀어넣으면 '언제 무엇이 뒤집혔나'가 사라진다 — 간선으로 남겨라.")
+}
+
 // ── gil step ──
 func cmdStep(args []string) {
 	fs := newFlags("gil step")
@@ -852,6 +882,7 @@ func cmdStep(args []string) {
 	if len(steps) == 0 {
 		die("거부: " + ref + " 없음 (먼저 gil open)")
 	}
+	sealGuard(chain, cycle)
 	if !kinds[*kind] {
 		msg := "거부: 알 수 없는 kind \"" + *kind + "\"\n" +
 			"  쓸 수 있는 kind: " + strings.Join(sortedIDs(kinds), " · ")
@@ -2245,6 +2276,9 @@ func interviewWatch(chain string, wait bool, timeoutS, then string) {
 		}
 		return out
 	}
+	// 폴링 루프는 오래 산다 — 사람의 제출이 밖에서 ref 를 바꾸므로, 캐시된 읽기는
+	// 영원히 "아직 안 왔다"고 답한다(실제로 --wait 이 얼어붙었다).
+	stopGitCache()
 	lastSig := refSig()
 	tick := 2 * time.Second
 	const maxTick = 15 * time.Second
