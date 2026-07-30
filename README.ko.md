@@ -37,6 +37,10 @@ gil은 당신의 **AI 코딩 에이전트**(Claude Code 등)가 운전하는 도
 **macOS·Linux·Windows**(해당 시 Intel/ARM)에서 돕니다 — 에이전트가 플랫폼을 감지해 맞는
 바이너리를 설치하고, Windows에서는 PowerShell로 `gil-windows-amd64.exe`를 받습니다.
 
+**직접 설치하려면** — Windows이거나, 에이전트가 "검증 안 된 제3자 실행파일은 못 돌린다"며
+거부할 때(그 판단은 옳습니다 — 검증은 에이전트가, 실행은 사람이): 체크섬 검증까지 포함해
+복사·붙여넣기 할 블록이 **[docs/INSTALL.md](docs/INSTALL.md)** 에 있습니다.
+
 <sub>내부가 어떻게 도는지 궁금하면 계속 읽으세요. 하지만 쓰는 데는 아래 내용이 전혀 필요 없습니다.</sub>
 
 ---

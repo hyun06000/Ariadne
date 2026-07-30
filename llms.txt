@@ -12,6 +12,7 @@
 ## 시작하기
 
 - [에이전트 자가 온보딩](https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md): 사람이 이 도구를 건넸을 때 처음 읽는다 — 설치→`gil init`→첫 체인, 재방문 "이어서".
+- [직접 설치 (사람용 · Windows/PowerShell)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/INSTALL.md): Windows 이거나 네가 제3자 실행파일 실행을 거부할 때 — 너는 검증만 하고 사람이 붙여넣는다.
 - [무에서 세팅 (gil init)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/index.md): 빈 폴더에서 gil 세계를 세우는 한 줄.
 
 ## 시작은 사람에게 묻는 자리다 (gil intake)

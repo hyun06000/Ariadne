@@ -37,8 +37,9 @@ case "$os" in
 	# Windows 에서 돌리면 엉뚱한 리눅스 ELF 를 받게 된다 — 막고 PowerShell 경로로 안내한다.
 	mingw*|msys*|cygwin*|windows*)
 		echo "✗ 이 설치 스크립트는 macOS/Linux 전용이다 (POSIX)." >&2
-		echo "  Windows 에서는 PowerShell 로 gil-windows-amd64.exe 를 받아라(체크섬 검증 포함):" >&2
-		echo "  https://raw.githubusercontent.com/hyun06000/Ariadne/main/README.ai.md 의 'Windows' 블록 참조." >&2
+		echo "  Windows 에서는 PowerShell 로 gil-windows-amd64.exe 를 받아라(체크섬 검증 포함)." >&2
+		echo "  복사해 붙여넣을 블록이 여기 있다:" >&2
+		echo "  https://github.com/hyun06000/Ariadne/blob/main/docs/INSTALL.md#windows-powershell" >&2
 		exit 2 ;;
 	*) os=linux ;;  # 알 수 없으면 linux 로 가정(가장 흔함)
 esac

@@ -36,6 +36,10 @@ binary and runs on **macOS, Linux, and Windows** (Intel/ARM as applicable) — y
 detects the platform and installs the right one; on Windows it grabs `gil-windows-amd64.exe`
 via PowerShell.
 
+**Installing it yourself** — on Windows, or when your agent declines to run a third-party
+binary (a correct call — it should verify, not execute): copy-paste blocks with the mandatory
+SHA256 check are in **[docs/INSTALL.md](docs/INSTALL.md)**.
+
 <sub>Curious how it works under the hood? Read on. But you don't need any of this to use it.</sub>
 
 ---
