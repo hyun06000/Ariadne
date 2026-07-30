@@ -2964,19 +2964,58 @@ class TestSupersede(GilFixture):
         self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "틀린 가설",
                  "--falsify", "F", "--falsify-to", "s1")  # s2
 
+    def fix2(self, *extra):
+        """s2(가설)를 정정하는 표준 호출 — 정정은 --inherit 필수다."""
+        return self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "고친 가설",
+                        "--falsify", "F2", "--falsify-to", "s1", "--supersede", "s2",
+                        "--inherit", "옛 반증조건이 느슨했다. 설계는 계승.", *extra)
+
     def test_supersede_same_kind_ok(self):
-        r = self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "고친 가설",
-                     "--falsify", "F2", "--falsify-to", "s1", "--supersede", "s2")
+        r = self.fix2()
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Supersedes"), "s2")
 
+    def test_supersede_requires_inherit(self):
+        """정정도 계보 간선이다 — 무엇을 바로잡고 무엇을 계승하는지 없이는 거부(AIL #3 일관 적용)."""
+        r = self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "고친 가설",
+                     "--falsify", "F2", "--falsify-to", "s1", "--supersede", "s2")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--inherit", r.stderr)
+
+    def test_supersede_forks_at_targets_parent(self):
+        """정정은 분기다 — 새 스텝의 부모는 현재 팁이 아니라 **정정 대상의 부모**이고,
+        새 git 브랜치로 갈라진다. 그래야 옛 가지가 통째로 보존된다(상현님)."""
+        self.fix2()
+        self.assertEqual(self.trailer("HEAD", "Gil-Parent"), "s1")  # s2 의 부모
+        cur = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                             cwd=self.repo, capture_output=True, text=True).stdout.strip()
+        self.assertNotEqual(cur, "c-c1")          # 사이클 브랜치를 떠나 갈라졌다
+        self.assertIn("s2b", cur)                  # s2 자리에서 난 가지
+
     def test_supersede_preserves_old_step(self):
         """정정해도 옛 스텝(s2)은 이력에 남는다 — append-only 보존, 은폐 아님."""
-        self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "고친 가설",
-                 "--falsify", "F2", "--falsify-to", "s1", "--supersede", "s2")
+        self.fix2()
         r = self.gil("log", "--depth", "step", "c")
-        self.assertIn("정정됨", r.stdout)  # s2 에 ⤳정정됨 표식
-        self.assertIn("정정 s2", r.stdout)  # s3 에 ⟲정정 s2 표식
+        self.assertIn("정정 s2", r.stdout)  # 새 스텝에 ⟲정정 s2 표식
+        r2 = subprocess.run(["git", "log", "--all", "--format=%s"],
+                            cwd=self.repo, capture_output=True, text=True).stdout
+        self.assertIn("틀린 가설", r2)      # 옛 s2 는 그래프에 그대로 산다
+
+    def test_supersede_old_subtree_not_demanded_at_close(self):
+        """구버전 가지의 잎은 종결을 요구받지 않는다 — 이미 갈아엎은 가지다."""
+        # s2 위에 자손을 만들고(s3 verify), 그 다음 s2 를 정정한다.
+        self.gil("step", "c/c1", "--kind", "verify", "--verdict", "supported",
+                 "--falsify-unmet", "F 미관측")   # s3 — 옛 가지의 잎
+        self.fix2()                                # s4 = s2 의 정정(s1 에서 분기)
+        self.gil("step", "c/c1", "--kind", "verify", "--verdict", "supported",
+                 "--falsify-unmet", "F2 미관측")
+        self.gil("step", "c/c1", "--kind", "analyze", "--title", "해석")
+        self.gil("step", "c/c1", "--kind", "success", "--title", "ok",
+                 "--toward", "다가섬", "--next-design", "다음")
+        r = self.gil("close", "c/c1", "--verdict", "solved", "--goal-met")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        f = self.gil("fsck")
+        self.assertNotIn("미종결 잎", f.stdout)   # 구버전 가지의 잎을 요구하지 않는다
 
     def test_supersede_different_kind_rejected(self):
         r = self.gil("step", "c/c1", "--kind", "verify", "--verdict", "supported",
@@ -2990,14 +3029,42 @@ class TestSupersede(GilFixture):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("없는 스텝", r.stderr)
 
-    def test_supersede_terminal_rejected(self):
-        """종결 스텝(success/fail)은 정정 대상이 아니다 — 판정 번복은 backtrack/refutes 영역.
-        순서 강제(AIL #41)로 verify→analyze→success 라 success 는 s5 다(s3=verify, s4=analyze)."""
-        self.gil("step", "c/c1", "--kind", "success", "--title", "ok")  # 자동보정: s3 verify, s4 analyze, s5 success
+    def test_supersede_terminal_same_kind_ok(self):
+        """종결 스텝도 정정 대상이다(상현님) — 같은 kind 로만 정정되므로 판정은 그대로이고
+        그 판정의 **서술**만 다시 쓴다. 순서 강제(AIL #41)로 success 는 s5 다."""
+        self.gil("step", "c/c1", "--kind", "success", "--title", "ok",
+                 "--toward", "다가섬", "--next-design", "다음")  # s3 verify, s4 analyze, s5 success
         r = self.gil("step", "c/c1", "--kind", "success", "--title", "다시",
-                     "--supersede", "s5")
+                     "--supersede", "s5", "--inherit", "성공 서술이 부정확했다. 판정은 그대로.",
+                     "--toward", "다가섬", "--next-design", "다음")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Supersedes"), "s5")
+
+    def test_supersede_cannot_flip_verdict(self):
+        """판정 뒤집기는 정정이 아니다 — fail 을 success 로 '정정'할 수 없다(같은 kind 규칙)."""
+        self.gil("step", "c/c1", "--kind", "success", "--title", "ok",
+                 "--toward", "다가섬", "--next-design", "다음")  # s5 = success
+        r = self.gil("step", "c/c1", "--kind", "fail", "--to", "s1", "--supersede", "s5",
+                     "--inherit", "뒤집기 시도", "--title", "뒤집기",
+                     "--toward", "못 다가섬", "--next-design", "다음")
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("종결", r.stderr)
+        self.assertIn("같은 kind", r.stderr)
+
+    def test_supersede_define_ok(self):
+        """define(사이클의 뿌리)도 정정된다 — 살아있는 문제 정의는 여전히 하나다."""
+        r = self.gil("step", "c/c1", "--kind", "define", "--supersede", "s1",
+                     "--inherit", "문제를 A 로 봤는데 실은 B 였다. 지표는 계승.",
+                     "--title", "정의 다시", "--body", "바로잡은 문제 정의")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Supersedes"), "s1")
+        f = self.gil("fsck")
+        self.assertNotIn("define 이", f.stdout)   # define 이 둘이라고 보고하지 않는다
+
+    def test_define_without_supersede_still_rejected(self):
+        """정정이 아닌 새 define 은 여전히 거부 — 그리고 정정 문법을 알려준다."""
+        r = self.gil("step", "c/c1", "--kind", "define", "--title", "또 정의", "--body", "b")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--supersede", r.stderr)
 
 
 class TestPolarity(GilFixture):

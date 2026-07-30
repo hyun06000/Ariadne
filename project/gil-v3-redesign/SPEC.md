@@ -159,7 +159,8 @@ pending은 "진행 중, 사람 대기"를 그래프에 남긴다 — 답이 오�
 | `Gil-Goal-Met` | true | close 커밋. 선언한 목표에 답하고 닫았다 |
 | `Gil-Parallel-With` | 사이클 id \| 체인명 (다중) | 사이클 s1: 미해결 사이클을 **알면서** 나란히 연다는 선언(이슈 #45). chain-root: 열린 체인과 동시에 굴리는 트랙이라는 선언(이슈 #54) |
 | `Gil-Refines` | `<chain>/<cycle>/<step>` (다중) | 이 스텝/사이클이 **해석만** 정밀화하는 앞 verify·analyze(이슈 #42). 대상 verdict 불변 |
-| `Gil-Inherit` | 자유텍스트 | 부모에게서 물려받은 지식·전제·교훈(AIL #3). 계보 간선(--parent/--merge/--refutes/--refines)이 있으면 **필수** |
+| `Gil-Inherit` | 자유텍스트 | 부모에게서 물려받은 지식·전제·교훈(AIL #3). 계보 간선(--parent/--merge/--refutes/--refines/**--supersede**)이 있으면 **필수** |
+| `Gil-Supersedes` | 스텝 id | **정정** — 이 스텝이 같은 사이클의 앞선 **같은 kind** 스텝을 대체한다(AIL #12). 정정은 **분기다**: 새 스텝은 대상의 *부모* 자리에서 새 브랜치로 갈라지고, 대상과 그 자손 전부가 구버전 가지로 보존된다. 팁·fsck·close·뷰어는 구버전을 살아있는 것으로 세지 않는다(이력엔 남는다). 모든 kind 대상(define·종결 포함) — 같은 kind 규칙 때문에 **판정 뒤집기는 불가능** |
 
 ### 사이클 루트 스텝(s1)에만
 | 키 | 값 | 뜻 |

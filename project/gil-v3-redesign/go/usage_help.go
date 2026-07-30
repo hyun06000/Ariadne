@@ -111,8 +111,14 @@ var helpTable = map[string]helpEntry{
 			"  --title <요약>  --body <본문> | --body-file <경로>(마크다운·이미지, 뷰어 렌더)\n" +
 			"    --body-file - 이면 stdin 에서 읽는다 — 임시 .md 파일 없이 heredoc·파이프로 바로 넘겨 잉여 파일을 안 남긴다.\n" +
 			"  --merge <산잎 스텝id>...  (한 사이클 안 산 잎들 합류)\n" +
-			"  --supersede <스텝id>  같은 kind 앞선 스텝을 이 스텝이 정정(새 커밋으로 덮되 옛 것은 이력 보존).\n" +
-			"    (raw amend 로 옛 스텝을 지우지 마라 — 정정은 은폐가 아니라 이력에 남는다. 종결 스텝은 대상 아님. AIL #12)\n" +
+			"  --supersede <스텝id>  앞선 **같은 kind** 스텝을 이 스텝이 정정한다. --inherit 필수.\n" +
+			"    **정정은 분기다** — 새 스텝은 정정 대상의 *부모* 자리에서 새 git 브랜치로 갈라진다.\n" +
+			"    그래서 옛 스텝과 그 자손 전부가 손대지 않은 **구버전 가지**로 보존되고(지워지지 않는다),\n" +
+			"    팁·fsck·close·뷰어는 새 가지만 따른다(뷰어는 구버전을 흐리게 + ⤳ 표식).\n" +
+			"    모든 kind 가 대상이다 — define(문제 정의 다시 쓰기)도, 종결(fail/success/pending)도.\n" +
+			"    같은 kind 로만 정정되므로 **판정 뒤집기는 불가능**하다(fail→success 는 정정이 아니라\n" +
+			"    backtrack(hypothesis --to)·소급 반증(--refutes) 영역).\n" +
+			"    (raw amend 로 옛 스텝을 지우지 마라 — 정정은 은폐가 아니라 이력에 남는다. AIL #12)\n" +
 			"  --if-supported goal-met|goal-missed  (hypothesis) 이 가설이 supported 면 사이클 목표가 달성인가 실패인가.\n" +
 			"    기본 goal-met. 부정적 발견(가설 맞음=목표 막힘)이면 goal-missed — 그땐 verify supported 라도 success 거부(fail/backtrack). AIL #13\n" +
 			"  --refines <c>/<cy>/<step>  앞 verify·analyze 의 해석만 정밀화(판정 불변, 이슈 #42). --inherit 필수.\n" +

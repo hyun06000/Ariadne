@@ -39,6 +39,47 @@ func isDeadLeaf(n node) bool {
 		(n.kind == "analyze" && (n.outcome == "backtrack" || n.outcome == "fail"))
 }
 
+// supersededSet — 정정으로 대체된 스텝들의 키. **대상 하나가 아니라 그 자손 전부**다.
+//
+// 왜 자손까지인가(상현님). 정정은 그 자리에서 분기한다 — 정정 대상과 거기서 뻗은 가지는
+// 통째로 "구버전 가지"가 되어 손대지 않은 채 보존된다. 그런데 그 옛 가지의 잎을 도구가
+// 여전히 살아있는 것으로 세면, 사람은 이미 갈아엎은 가지의 잎을 종결하라는 요구를 받는다
+// (그리고 옛 define 은 "define 이 둘"이라는 fsck 위반이 된다). 대체된 것은 대체된 것으로
+// 세지 않는다 — 이력에는 남되, 살아있는 그래프의 계산에서는 빠진다.
+func supersededSet(nodes []node) map[string]bool {
+	tuples := make([][4]string, 0, len(nodes))
+	for _, n := range nodes {
+		tuples = append(tuples, [4]string{n.chain + "\x01" + n.cycle, n.step, n.parent, n.supersedes})
+	}
+	return supersededIDs(tuples)
+}
+
+// supersededIDs — 위 판정의 순수 알고리즘. 입력 = {사이클키, 스텝, 부모, 정정대상} 튜플들,
+// 출력 = 대체된 스텝의 stepKey 집합. 뷰어(다른 노드 타입)와 공유하려고 분리해 둔다 —
+// 판정이 두 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다(이번 세션의 값비싼 교훈).
+func supersededIDs(tuples [][4]string) map[string]bool {
+	key := func(t [4]string) string { return t[0] + "\x01" + t[1] }
+	out := map[string]bool{}
+	for _, t := range tuples {
+		if t[3] != "" {
+			out[t[0]+"\x01"+t[3]] = true
+		}
+	}
+	if len(out) == 0 {
+		return out
+	}
+	// 자손 전파. 스텝 번호는 사이클 안에서 단조 증가하므로, 번호 오름차순으로 한 번 훑으면
+	// 부모의 판정이 자식보다 먼저 정해진다(정정 스텝 자신은 대상의 *부모*에 붙으므로 안 쓸린다).
+	ord := append([][4]string{}, tuples...)
+	sort.SliceStable(ord, func(i, j int) bool { return stepNum(ord[i][1]) < stepNum(ord[j][1]) })
+	for _, t := range ord {
+		if p := t[2]; p != "" && p != "null" && out[t[0]+"\x01"+p] {
+			out[key(t)] = true
+		}
+	}
+	return out
+}
+
 // declaredChains — Gil-Chain 트레일러를 가진 모든 커밋의 체인 이름(루트 포함).
 // 참조: declared_chains. 체인 루트는 Gil-Step이 없어 collectNodes가 안 잡으므로 따로.
 func declaredChains(revRange string) map[string]bool {
@@ -313,6 +354,8 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	}
 	cycles := map[string]string{} // cycle id -> chain
 	stepKeys := map[string]bool{}
+	// 정정으로 대체된 스텝(+그 자손) — 살아있는 그래프의 계산에서 뺀다. 이력에는 남는다.
+	gone := supersededSet(universe)
 	// workingTips — 각 열린 사이클의 살아있는 팁(지금 작업 중인 자리). 매달린 잎 검사에서
 	// 이것만 뺀다 — 진행 중인 팁이 미종결인 건 정상이고, 나머지 미종결 잎은 버려진 것이다.
 	// 판정은 **스텝 번호**로 한다 — 커밋 위상 순서가 아니라. 형제 가지가 나면 git 위상 순서가
@@ -324,6 +367,9 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		for _, n := range universe {
 			if n.cycle == "" || closed[n.chain+"\x01"+n.cycle] || isDeadLeaf(n) {
 				continue
+			}
+			if gone[stepKey(n.chain, n.cycle, n.step)] {
+				continue // 구버전 가지는 작업 중인 팁이 아니다
 			}
 			k := n.chain + "\x01" + n.cycle
 			if b, ok := best[k]; !ok || stepNum(n.step) > stepNum(b.step) {
@@ -346,7 +392,8 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		if n.cycle != "" && n.kind == "define" && (n.parent == "" || n.parent == "null") {
 			cycles[n.cycle] = n.chain
 		}
-		if n.cycle != "" && n.kind == "define" {
+		// 정정된 옛 define 은 세지 않는다 — 살아있는 문제 정의는 여전히 하나다.
+		if n.cycle != "" && n.kind == "define" && !gone[stepKey(n.chain, n.cycle, n.step)] {
 			ck := n.chain + "\x01" + n.cycle
 			defineCount[ck]++
 			defineSteps[ck] = append(defineSteps[ck], n.step)
@@ -406,6 +453,7 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		//     열린 사이클의 잎은 진행 중일 수 있어 검사에서 뺀다.
 		if n.cycle != "" && closed[n.chain+"\x01"+n.cycle] &&
 			!hasChild[stepKey(n.chain, n.cycle, n.step)] &&
+			!gone[stepKey(n.chain, n.cycle, n.step)] &&
 			!isLiveLeaf(n) && !isDeadLeaf(n) && n.kind != "pending" {
 			violations = append(violations, "스텝순환: "+cc+" — 미종결 잎 (kind="+n.kind+
 				"). 닫힌 사이클의 잎은 success/fail/pending 으로 마감돼야 (analyze 로 끝내지 말 것)")
@@ -419,6 +467,7 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		//     = HEAD 가 떠나 매달린 것. (현재 작업 중인 팁 하나는 당연히 미종결이라 제외한다.)
 		if n.cycle != "" && !closed[n.chain+"\x01"+n.cycle] &&
 			!hasChild[stepKey(n.chain, n.cycle, n.step)] &&
+			!gone[stepKey(n.chain, n.cycle, n.step)] &&
 			!isLiveLeaf(n) && !isDeadLeaf(n) && n.kind != "pending" &&
 			!workingTips[stepKey(n.chain, n.cycle, n.step)] {
 			violations = append(violations, "스텝순환: "+cc+" — 매달린 미종결 잎 (kind="+n.kind+
@@ -1010,16 +1059,20 @@ type cycleAgg struct {
 // 아닌 마지막(가장 최근)을 고른다. 살아있는 잎이 없으면(전부 죽음) 마지막 스텝을 반환.
 func (c *cycleAgg) liveTip() node {
 	referenced := map[string]bool{}
-	superseded := map[string]bool{}
 	for _, s := range c.steps {
 		if s.parent != "" && s.parent != "null" {
 			referenced[s.parent] = true
 		}
-		// approve/reject 로 정정된 pending 은 Gil-Supersedes 로 대체되지 부모가 되지 않는다
-		// (AIL #41) — 그래서 childless 로 남아 팁으로 오인되던 결함(이슈 #44). 정정된 스텝은
-		// 팁이 아니다: 대체한 fail/success 가 진짜 종결이다.
-		if s.supersedes != "" {
-			superseded[s.supersedes] = true
+	}
+	// approve/reject 로 정정된 pending 은 Gil-Supersedes 로 대체되지 부모가 되지 않는다
+	// (AIL #41) — 그래서 childless 로 남아 팁으로 오인되던 결함(이슈 #44). 정정된 스텝은
+	// 팁이 아니다: 대체한 fail/success 가 진짜 종결이다.
+	// 그리고 정정은 분기이므로 **구버전 가지 전체**(대상+자손)가 팁 후보에서 빠진다.
+	gone := supersededSet(c.steps)
+	superseded := map[string]bool{}
+	for _, s := range c.steps {
+		if gone[stepKey(s.chain, s.cycle, s.step)] {
+			superseded[s.step] = true
 		}
 	}
 	var best *node

@@ -722,6 +722,19 @@ func cycleJSON(g graphView, static bool) string {
 			ds, sj := cycleCoordOf(ch.name, cy.name)
 			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"dataset":%s,"subject":%s,"nodes":[`,
 				cy.name, len(cy.steps), cy.status(), here, cycPar, jsonStrings(ds), jsonStrings(sj)))
+			// 정정(AIL #12 → 정정은 분기다). 뷰어도 두 사실을 보여야 한다: 이 스텝이 무엇을
+			// 정정했나(⟲), 그리고 이 스텝은 대체됐나(구버전 가지 — 대상뿐 아니라 자손 전부).
+			// 텍스트 그래프에만 있고 뷰어엔 없어서, 정작 사람이 보는 화면에서 두 판본이
+			// 나란히 살아있는 것처럼 보였다.
+			tuples := make([][4]string, 0, len(cy.steps))
+			supBy := map[string]string{}
+			for _, s := range cy.steps {
+				tuples = append(tuples, [4]string{s.chain + "\x01" + s.cycle, s.step, s.parent, s.supersedes})
+				if s.supersedes != "" {
+					supBy[s.supersedes] = s.step
+				}
+			}
+			goneC := supersededIDs(tuples)
 			for k, n := range cy.steps {
 				if k > 0 {
 					sb.WriteString(",")
@@ -734,6 +747,13 @@ func cycleJSON(g graphView, static bool) string {
 				// 있는 노드에만 진출 고스트를 그린다.
 				if ex := exits[ch.name+"/"+cy.name+"/"+n.step]; len(ex) > 0 {
 					sb.WriteString(fmt.Sprintf(`,"exit":%q`, strings.Join(ex, ", ")))
+				}
+				if n.supersedes != "" {
+					sb.WriteString(fmt.Sprintf(`,"supersedes":%q`, n.supersedes))
+				}
+				if goneC[stepKey(n.chain, n.cycle, n.step)] {
+					// 직접 정정된 놈은 누가 대체했는지까지, 그 자손은 "구버전 가지"로만.
+					sb.WriteString(fmt.Sprintf(`,"gone":true,"goneBy":%q`, supBy[n.step]))
 				}
 				// 목적 각인과 회고(상현님) — 카드 툴팁에서 계보가 읽히게.
 				if n.advances != "" {
@@ -795,6 +815,13 @@ func dagJSON(g graphView, static bool) string {
 		}
 		return out
 	}
+	// 정정으로 대체된 구버전 가지 — 전체맵에서도 흐려야 한다. 사이클 카드에서만 흐리면
+	// 첫 화면(전체맵)에는 두 판본이 나란히 살아있는 것처럼 보인다.
+	dagTuples := make([][4]string, 0, len(g.allNodes))
+	for _, n := range g.allNodes {
+		dagTuples = append(dagTuples, [4]string{n.chain + "\x01" + n.cycle, n.step, n.parent, n.supersedes})
+	}
+	dagGone := supersededIDs(dagTuples)
 	var sb strings.Builder
 	sb.WriteString("[")
 	for i, n := range g.allNodes {
@@ -822,6 +849,12 @@ func dagJSON(g graphView, static bool) string {
 			sb.WriteString(fmt.Sprintf("%q", p))
 		}
 		sb.WriteString(fmt.Sprintf(`],"subj":%q`, n.subject))
+		if n.supersedes != "" {
+			sb.WriteString(fmt.Sprintf(`,"supersedes":%q`, n.supersedes))
+		}
+		if dagGone[n.chain+"\x01"+n.cycle+"\x01"+n.step] {
+			sb.WriteString(`,"gone":true`)
+		}
 		if n.deployTag != "" { // 배포 마커(이슈 #34) — 전체맵 DAG 에도 🚀 표시.
 			sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q,"deployTarget":%q`,
 				n.deployTag, n.deployURL, n.deployState, n.deployTarget))
@@ -1153,6 +1186,13 @@ svg.dag{display:block}
 @keyframes gilflash{0%{stroke-width:2.5}30%{stroke-width:7}100%{stroke-width:2.5}}
 .planbadge{font-size:10px;font-weight:700;fill:var(--dim);text-anchor:middle;pointer-events:none}
 .planbadge.broke{fill:#f59e0b}
+/* 정정(AIL #12) — ⟲정정한 스텝은 호박색 표식, 대체된 구버전 가지는 통째로 흐리게.
+   지우는 게 아니라 '살아있지 않다'를 보이는 것이다: 이력은 그대로 남는다. */
+.supbadge{font-size:10px;font-weight:700;fill:#f59e0b;text-anchor:middle;pointer-events:none}
+.supbadge.gone{fill:var(--dim)}
+.snode.gone{opacity:.42}
+.snode.gone circle{stroke-dasharray:3 3}
+.dnode.gone{opacity:.4}
 .dag .dnode .dagdeploy{font-size:10px;font-weight:800;fill:#2dd4bf;text-anchor:middle;pointer-events:none}
 /* 집계 노드(사이클/체인 뎁스, AIL #6) — 이름 라벨 + ⚡분기 표식 */
 .dag .dnode.agg .agglabel{font-size:10px;font-weight:600;fill:var(--fg);text-anchor:middle}
@@ -1485,7 +1525,12 @@ function openStepCard(chain,cyc){
       (n.planOutcome==='held'?'\n⚙ 설계 유지':'')+
       (n.advances?'\n◎ 목적에 다가서려는 몫: '+n.advances:'')+
       (n.toward?'\n◎ 목적에 다가선 정도: '+n.toward:'')+
-      (n.nextDesign?'\n◎ 다음 설계: '+n.nextDesign:''));
+      (n.nextDesign?'\n◎ 다음 설계: '+n.nextDesign:'')+
+      (n.supersedes?'\n⟲ 이 스텝이 '+n.supersedes+' 를 정정한다(그 자리에서 갈라졌다)':'')+
+      (n.gone?'\n⤳ 구버전 — '+(n.goneBy?n.goneBy+' 이 정정했다':'정정된 가지에 속한다')+
+        '\n(지워지지 않았다: 이력에 그대로 남아 있고, 살아있는 계산에서만 빠진다)':''));
+    // 정정된 구버전 가지는 **흐리게** — 두 판본이 나란히 살아있는 것처럼 보이면 안 된다.
+    if(n.gone) g.classList.add('gone');
     g.appendChild(svgEl('circle',{r:r}));
     g.appendChild(t);
     g.appendChild(svgEl('text',{class:'sid',dy:3},n.id));
@@ -1493,6 +1538,14 @@ function openStepCard(chain,cyc){
     if(n.here){ // 현재위치(HEAD) — 색만이 아니라 ▼HEAD 라벨+화살표로 직관화(피드백 5)
       g.appendChild(svgEl('text',{class:'headlbl',dy:-r-14},'HEAD'));
       g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
+    }
+    if(n.supersedes||n.gone){ // 정정 표식 — ⟲정정 / ⤳구버전
+      const b=svgEl('text',{class:'supbadge'+(n.gone?' gone':''),dy:n.here?-r-30:-r-14},
+        n.supersedes?('⟲ 정정 '+n.supersedes):'⤳ 구버전');
+      b.appendChild(svgEl('title',{},n.supersedes
+        ?('이 스텝이 '+n.supersedes+' 를 정정한다 — 옛 가지는 그대로 보존된다')
+        :('정정으로 대체된 가지'+(n.goneBy?' ('+n.goneBy+' 이 정정)':'')+' — 이력엔 남는다')));
+      g.appendChild(b);
     }
     if(n.plan||n.planOutcome){
       const broke=n.planOutcome==='broke';
@@ -2119,8 +2172,9 @@ function buildStepMap(){
   }); });
   // 3) 노드 + HEAD ▼. 스텝 모드=작은 점(글씨 없음). 집계 모드=큰 점+이름 라벨(+⚡분기).
   VIS.forEach(n=>{
-    const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':'')+(agg?' agg':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
-    const tip=agg?(n.subj+(n.here?'  ◀ HEAD':'')):(n.chain+'/'+n.cycle+'/'+n.step+' '+n.kind+(n.here?' ◀ HEAD':'')+'\n'+n.subj);
+    const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':'')+(agg?' agg':'')+(n.gone?' gone':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
+    const tip=agg?(n.subj+(n.here?'  ◀ HEAD':'')):(n.chain+'/'+n.cycle+'/'+n.step+' '+n.kind+(n.here?' ◀ HEAD':'')+
+      (n.supersedes?'  ⟲정정 '+n.supersedes:'')+(n.gone?'  ⤳구버전(정정으로 대체)':'')+'\n'+n.subj);
     g.appendChild(svgEl('title',{},tip));
     g.appendChild(svgEl('circle',{r:agg?r+2:r}));
     if(n.forked){ const s=svgEl('text',{class:'forkmark',x:0,y:3}); s.textContent='⚡'; g.appendChild(s); } // 분기 밟은 solved

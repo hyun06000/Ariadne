@@ -70,6 +70,7 @@ type viewerNode struct {
 	refinedBy                []string // 역인덱스: 이 스텝의 해석을 정밀화한 스텝들(뷰어가 ⤳refined-by 표시)
 	cycleParents             []string // Gil-Cycle-Parent: 사이클 계보 부모(경계 stub 엣지용, AIL #7)
 	inherit                  string   // Gil-Inherit: 부모에게서 물려받은 전수(경계 라벨용, AIL #3·#7)
+	supersedes               string   // Gil-Supersedes: 이 스텝이 정정(대체)하는 앞선 같은-kind 스텝(AIL #12)
 	gitParents               []string // 실제 커밋 부모 SHA(9자) — 진짜 DAG 그래프용(%P).
 	body                     string   // 커밋 본문 전체(%B) — 정적 build 시 스텝 보고서를 인라인 임베드.
 	deployTag                string   // Gil-Deploy: 이 스텝에서 배포된 태그(예 v0.2.0). 이슈 #34.
@@ -142,6 +143,7 @@ func viewerCollectNodes() []viewerNode {
 			refines:      trailerAll(parts[3], "Gil-Refines"), // 정밀화 간선(이슈 #42)
 			cycleParents: trailerAll(parts[3], "Gil-Cycle-Parent"),
 			inherit:      tr["Gil-Inherit"],
+			supersedes:   tr["Gil-Supersedes"], // 정정 간선(AIL #12) — 뷰어가 ⟲/⤳ 로 렌더
 			gitParents:   gp,
 			body:         strings.TrimRight(parts[4], "\n"),
 		})

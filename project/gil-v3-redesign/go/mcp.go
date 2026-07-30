@@ -262,6 +262,7 @@ type inStep struct {
 	Refutes     []string `json:"refutes,omitempty"`
 	Refines     []string `json:"refines,omitempty" jsonschema:"앞 verify·analyze 의 해석만 정밀화(판정 불변). chain/cycle/step"`
 	At          string   `json:"at,omitempty" jsonschema:"종결(success|fail|pending)을 두고 온 잎 자리에 박는다 — HEAD 가 떠난 가지를 닫을 때"`
+	Supersede   string   `json:"supersede,omitempty" jsonschema:"정정 — 앞선 같은 kind 스텝을 이 스텝이 대체한다(inherit 필수). 정정은 분기다: 대상의 부모 자리에서 새 브랜치로 갈라지고 옛 가지는 그대로 보존된다. 같은 kind 로만 되므로 판정 뒤집기는 불가(그건 backtrack/refutes)"`
 	Merge       []string `json:"merge,omitempty"`
 	// CLI 가 요구하는 필수 플래그는 MCP 스키마에도 있어야 한다(이슈 #86 제안 c). 없으면
 	// 에이전트가 흐름 중간에 CLI 로 갈아타야 하고, 그 갈아탐 자체가 실수 표면적을 늘린다.
@@ -365,6 +366,7 @@ func registerGilTools(s *mcp.Server) {
 			a = addFlag(a, "verdict", in.Verdict)
 			a = addList(a, "refutes", in.Refutes)
 			a = addList(a, "refines", in.Refines)
+			a = addFlag(a, "supersede", in.Supersede)
 			a = addFlag(a, "at", in.At)
 			a = addFlag(a, "inherit", in.Inherit)
 			a = addFlag(a, "plan", in.Plan)

@@ -933,32 +933,69 @@ func cmdStep(args []string) {
 	// 첫 define 이 못 다룬 부분은 새 define 을 또 만드는 게 아니라, 다른 스텝(hypothesis 등)
 	// 이나 새 사이클로 이어간다. 그래야 "사이클 = 하나의 문제 정의에서 뻗은 사고 나무"라는
 	// 불변식이 서고, 뷰어에 define 이 둘씩 떠 사람이 "어느 게 진짜 정의?" 하고 헷갈리지 않는다.
-	if *kind == "define" {
+	// 예외 하나: --supersede 로 **앞선 define 을 정정**하는 것은 새 define 이 아니라 같은
+	// 자리를 다시 쓰는 것이다(상현님). 살아있는 define 은 여전히 하나 — 정정된 옛 define 은
+	// 구버전 가지로 접힌다. 문제 정의가 틀렸을 때 유일한 길이 "새 사이클"이면, 사람은
+	// raw amend 로 내려가거나 틀린 정의 위에 계속 쌓는다.
+	if *kind == "define" && strings.TrimSpace(*supersede) == "" {
 		die("거부: define 은 사이클의 뿌리 하나뿐(open 이 만드는 s1). 추가 문제 정의는 step 이 아니라 " +
-			"다른 kind(hypothesis 등)나 새 사이클(gil open <chain>/<새사이클>)로 이어가라.")
+			"다른 kind(hypothesis 등)나 새 사이클(gil open <chain>/<새사이클>)로 이어가라.\n" +
+			"  이미 있는 문제 정의를 **다시 쓰는** 것이면 정정이다:\n" +
+			"    gil step " + ref + " --kind define --supersede <그 define> --inherit <무엇을 바로잡나> --body …")
 	}
 	showPurposeContext(chain, cycle, "")
-	// 스텝 정정 무결성(AIL #12) — --supersede 대상은 (a)이 사이클에 실재하고 (b)이 스텝과 같은
-	// kind 여야 하며 (c)종결 스텝(success/fail/pending)이 아니어야 한다. 종결의 정정은 정정이
-	// 아니라 판정 번복이라 backtrack/refutes 영역이다(반증은 뒤집지 말고 새 간선으로 — #1·#2).
+	// ── 스텝 정정 (AIL #12 → 정정은 분기다, 상현님) ────────────────────────────────
+	// --supersede 대상은 (a)이 사이클에 실재하고 (b)이 스텝과 같은 kind 여야 한다.
+	//
+	// **모든 kind 가 정정 대상이다** — define 도, 종결 스텝(success/fail/pending)도. 옛
+	// 문법은 종결을 뺐는데, 같은-kind 규칙이 이미 있으므로 **판정 뒤집기는 애초에 불가능**하다:
+	// fail 은 fail 로만, success 는 success 로만 정정된다(판정은 그대로, 그 판정의 서술을 다시
+	// 쓴다). 판정 자체를 뒤집는 일은 여전히 backtrack(hypothesis --to)·소급 반증(--refutes)의
+	// 영역이다. 종결을 빼 두면 "fail 의 벽 서술이 틀렸다"를 고칠 길이 raw amend 밖에 없었다.
+	//
+	// 그리고 정정은 **그 자리에서 분기한다** — 새 스텝의 부모는 현재 tip 이 아니라 **정정
+	// 대상의 부모**이고, 새 git 브랜치로 갈라진다. 옛 동작은 정정 커밋을 가지 끝에 매달아,
+	// "s2 를 고쳤다"면서 s5 뒤에 붙었다(자리도 계보도 어긋난다). 분기로 두면 정정 대상과 그
+	// 자손 전부가 **손대지 않은 구버전 가지로 통째 보존**된다(상현님 판단).
+	var supTgt *node
 	if strings.TrimSpace(*supersede) != "" {
-		var tgt *node
 		for i := range steps {
 			if steps[i].step == *supersede {
-				tgt = &steps[i]
+				supTgt = &steps[i]
 				break
 			}
 		}
-		if tgt == nil {
+		if supTgt == nil {
+			// 다른 가지에 있는 스텝도 찾아본다 — 사이클 전체에서 없을 때만 거부한다.
+			all := cycleAnywhere(chain, cycle)
+			for i := range all {
+				if all[i].step == *supersede {
+					supTgt = &all[i]
+					break
+				}
+			}
+		}
+		if supTgt == nil {
 			die("거부: --supersede " + *supersede + " 는 이 사이클에 없는 스텝이다.")
 		}
-		if tgt.kind != *kind {
-			die("거부: --supersede 는 같은 kind 만 정정한다 — " + *supersede + " 는 " + tgt.kind +
-				", 이 스텝은 " + *kind + ". (다른 kind 로 바꾸려면 정정이 아니라 새 스텝/새 가지다.)")
+		if supTgt.kind != *kind {
+			die("거부: --supersede 는 같은 kind 만 정정한다 — " + *supersede + " 는 " + supTgt.kind +
+				", 이 스텝은 " + *kind + ". (다른 kind 로 바꾸려면 정정이 아니라 새 스텝/새 가지다.)\n" +
+				"  판정을 뒤집으려면 정정이 아니다: backtrack(hypothesis --to) 이나 소급 반증(--refutes).")
 		}
-		if tgt.kind == "success" || tgt.kind == "fail" || tgt.kind == "pending" {
-			die("거부: 종결 스텝(" + tgt.kind + ")은 정정 대상이 아니다 — 판정을 뒤집으려면 " +
-				"backtrack(hypothesis --to) 이나 소급 반증(--refutes)으로. 정정은 은폐가 아니라 이력에 남는다.")
+		// 정정도 계보 간선이다 — 간선이 생기면 --inherit 필수(AIL #3 의 일관 적용). 정정이야말로
+		// "무엇을 바로잡고 무엇은 그대로 계승하나"가 남아야 하는 자리다. 없으면 뒤에 오는 존재는
+		// 두 판본을 보고 어느 쪽이 왜 이겼는지 알 길이 없다.
+		if strings.TrimSpace(*inherit) == "" {
+			die("거부: --supersede 는 --inherit <전수> 필요 — 정정은 덮어쓰기가 아니라 분기다.\n" +
+				"  담아라: 옛 " + *supersede + " 의 무엇이 틀렸고, 무엇은 그대로 계승하는가.\n" +
+				"  (옛 " + *supersede + " 와 그 자손은 구버전 가지로 그대로 보존된다 — 지워지지 않는다.)")
+		}
+		// 자리는 정정이 스스로 정한다(=대상의 부모) — 자리를 고르는 다른 플래그와 겹칠 수 없다.
+		// 단 fail 의 --to 는 자리가 아니라 **되돌아갈 곳의 기록**이라 그대로 필요하다(이슈 #59①).
+		if strings.TrimSpace(*at) != "" || len(*merge) > 0 || (strings.TrimSpace(*to) != "" && *kind != "fail") {
+			die("거부: --supersede 는 자리를 스스로 정한다(정정 대상의 부모) — --at/--merge/--to 와 함께 쓸 수 없다.\n" +
+				"  (fail 의 --to 만 예외다 — 그건 자리가 아니라 '되돌아갈 곳'의 기록이다.)")
 		}
 	}
 	// analyze 는 순수 분석 — 종결(성공/실패/대기)은 별도 스텝(success/fail/pending)으로(상현님).
@@ -1102,7 +1139,10 @@ func cmdStep(args []string) {
 	// 형제분기(--kind hypothesis --to <define>) 나 backtrack(--outcome backtrack --to)로만.
 	// "한 사이클 안 회수"를 막는 게 아니라, 회수하더라도 fail 잎이 물리적으로 남게 강제한다.
 	if tip != nil && isDeadLeaf(*tip) {
-		newBranch := (*kind == "hypothesis" && *to != "") || *outcome == "backtrack" || len(*merge) > 0
+		// 정정도 새 가지다 — 팁이 무엇이든 정정은 **대상의 부모** 자리에서 갈라지므로 죽은 잎
+		// 위에 얹히지 않는다. 이 예외가 없으면 "fail 의 서술이 틀렸다"를 고칠 길이 raw amend 뿐이다.
+		newBranch := (*kind == "hypothesis" && *to != "") || *outcome == "backtrack" ||
+			len(*merge) > 0 || supTgt != nil
 		if !newBranch {
 			die("거부: " + ref + " 팁이 죽은 잎(" + tip.step + ", " + tip.kind + ") — 그 위에 선형으로 " +
 				"이을 수 없다. 죽은 잎은 벽의 지도로 남는다. 재가설은 새 가지로: " +
@@ -1324,6 +1364,27 @@ func cmdStep(args []string) {
 		}
 	}
 	switch {
+	case supTgt != nil:
+		// 정정 = 그 자리에서 분기. 부모는 **정정 대상의 부모**이고, git 브랜치를 새로 판다 —
+		// 그래야 옛 가지(대상 + 그 자손 전부)가 손대지 않은 채 남는다.
+		parent = orNull(supTgt.parent)
+		n := 1
+		for gitOK("rev-parse", "--verify", "-q", "refs/heads/"+stepBranch(chain, cycle, supTgt.step, n)) {
+			n++
+		}
+		branch = stepBranch(chain, cycle, supTgt.step, n)
+		// 분기 지점 = 대상의 부모 커밋. 대상이 사이클의 뿌리(define s1)면 그 앞 커밋(사이클이
+		// 열린 자리)에서 가른다 — 그래야 새 define 이 옛 define 의 자손이 되지 않는다.
+		if p := strings.TrimSpace(supTgt.parent); p != "" && p != "null" {
+			createFrom = stepSHA[p]
+		}
+		if createFrom == "" {
+			if root, err := gitTry("rev-parse", "--verify", "-q", supTgt.sha+"^"); err == nil && strings.TrimSpace(root) != "" {
+				createFrom = strings.TrimSpace(root)
+			} else {
+				createFrom = supTgt.sha // 그 앞이 없으면(루트 커밋) 대상 자리에서 가른다
+			}
+		}
 	case len(*merge) > 0:
 		// 스텝 머지: 한 사이클 안 산 잎들을 합류(역순 머지 맨 아래). 완성만 대상.
 		for _, m := range *merge {
@@ -1819,13 +1880,16 @@ func cmdClose(args []string) {
 				hasChild[n.parent] = true
 			}
 		}
+		// 정정으로 대체된 구버전 가지(대상+자손)는 종결 요구 대상이 아니다 — 이미 갈아엎은
+		// 가지의 잎을 닫으라고 요구하면 사람은 뜻 없는 fail 을 박게 된다.
+		goneKeys := supersededSet(all)
 		var hanging []node
 		seenLeaf := map[string]bool{}
 		for _, n := range all {
 			if seenLeaf[n.step] {
 				continue // 번호 중복(옛 그래프) — 같은 번호를 두 번 짚지 않는다
 			}
-			if hasChild[n.step] {
+			if hasChild[n.step] || goneKeys[stepKey(n.chain, n.cycle, n.step)] {
 				continue
 			}
 			switch n.kind {
