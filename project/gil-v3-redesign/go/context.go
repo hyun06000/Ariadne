@@ -225,6 +225,15 @@ func lineageBrief(chain, cycle string) []string {
 	if cp := chainPurpose(chain, "--branches"); cp != "" {
 		L = append(L, "  체인 ["+chain+"] 목적: "+cp)
 	}
+	if c := chainTrailer(chain, "Gil-Chain-Criterion"); strings.TrimSpace(c) != "" {
+		L = append(L, "  체인 성패 기준(사람이 세운 자): "+c)
+	}
+	if plan := chainPlanItems(chain); len(plan) > 0 {
+		L = append(L, "  사람이 나눈 사이클 문제 "+itoa(len(plan))+"개 — gil open <chain>/<cycle> --from-plan <n>:")
+		for i, it := range plan {
+			L = append(L, "    "+itoa(i+1)+") "+clip(it, 80))
+		}
+	}
 	if chainHasReference(chain, "--branches") {
 		L = append(L, "  체인 기준 문서(사람이 승인한 레퍼런스 트루스)가 있다 — 전문: gil log "+chain+" (chain-root 본문)")
 	}

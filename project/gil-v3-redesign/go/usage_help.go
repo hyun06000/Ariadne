@@ -47,7 +47,11 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/deployment.md",
 	},
 	"open": {
-		"gil open <chain>/<cycle> --author <who> --purpose <자연어> (--body B | --body-file F|- | --title T)\n" +
+		"gil open <chain>/<cycle> --author <who> (--purpose <자연어> | --from-plan <n>) (--body B | --body-file F|- | --title T)\n" +
+			"  --from-plan <n>  개시 인터뷰에서 **사람이 나눈 n번째 문제**를 이 사이클의 목적으로\n" +
+			"    인용한다(이슈 #90 후속) — 작은 문제들로 사이클을 정복하는 자리다. 창작이 아니라\n" +
+			"    인용이라 --purpose 와 함께 못 선다. 범위를 벗어나면 고를 수 있는 목록을 그 자리에\n" +
+			"    보여준다. (분할은 gil chain … --cycles-from <질문번호> 로 체인에 각인돼 있어야 한다.)\n" +
 			"           [--dataset <이름>@sha256:<hex>]... [--dataset-note <메모>] [--subject <이름>@rev:<체크포인트>#<옵션>]...\n" +
 			"           [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...]\n" +
 			"           [--inherit <전수>]\n" +
@@ -90,6 +94,12 @@ var helpTable = map[string]helpEntry{
 	"step": {
 		"gil step <chain>/<cycle> --kind <K> [옵션]\n" +
 			"  스텝(커밋 노드) 하나. --kind: define|hypothesis|verify|analyze | success|fail|pending\n" +
+			"  verify 는 **가설이 심은 반증조건에 답해야 한다**(규칙 17):\n" +
+			"        --falsify-met <관측>    그 조건이 관측됐다 → 가설이 틀렸다(verdict 는 refuted)\n" +
+			"        --falsify-unmet <관측>  관측되지 않았다\n" +
+			"    충족됐는데 --verdict supported 는 **거부**된다 — 판정 축을 바꾸는 것이다.\n" +
+			"    반대로 unmet + refuted 는 막지 않는다: '내가 정한 조건이 아닌 이유로 틀렸다'는 오류가\n" +
+			"    아니라 정보다(조건이 잘못 잡혔다는 뜻 — 다음 가설의 --falsify 를 고쳐라).\n" +
 			"  --to  kind 에 따라 뜻이 다르다(이슈 #59①·#76). 둘 다 조상 define 또는 analyze 를 받는다:\n" +
 			"        hypothesis      → **형제 가지의 뿌리**. 부모를 바꾼다(거기서 새로 갈라진다).\n" +
 			"        fail·backtrack  → **되돌아갈 곳의 기록**. 부모는 안 바뀐다(자리는 --at 이 고른다).\n" +
@@ -151,7 +161,20 @@ var helpTable = map[string]helpEntry{
 			"  답이 오면 그 답으로 체인을 연다 — 목적은 **인용**된다:\n" +
 			"      gil chain <이름> --from-intake <슬러그> --purpose-from <질문번호>\n" +
 			"  --from-intake 와 --purpose 는 함께 못 선다: 요약도 정제도 창작이고, 창작하는 순간\n" +
-			"  기준 문서는 '사람이 세운 자'가 아니게 된다.",
+			"  기준 문서는 '사람이 세운 자'가 아니게 된다.\n" +
+			"\n" +
+			"  **심층 인터뷰** — 차수를 더하면 앞 답은 지워지지 않고 쌓인다. 셋을 낳게 물어라:\n" +
+			"    1) 무엇을 풀려는가            → 체인 목적\n" +
+			"    2) 무엇이 관측되면 풀린 것인가 → 성패 기준(chain-close 가 이 문장에 답할 것을 요구한다)\n" +
+			"    3) 사이클 단위로 나눈다면      → 사이클 분할(작은 문제로 사이클을 정복한다)\n" +
+			"  gil intake <슬러그> --ask-root  — **마지막 차수**. 어디서 분기할지를 묻되 질문을 gil 이\n" +
+			"    만든다: 후보가 그래프에 실재하는 자리들(닫힌 체인·열린 체인·대문)이라 네 가설 공간이\n" +
+			"    아니다. 뿌리를 먼저 박으면 사람의 답이 갈 곳이 없다.\n" +
+			"  --status 가 답에 **누적 번호**를 매겨 보여준다 — 차수마다 1부터 다시 시작하므로 그\n" +
+			"    번호로만 지목할 수 있다. 그 번호를 아래 셋에 쓴다:\n" +
+			"      gil chain <이름> --from-intake <슬러그> --purpose-from <n> --criterion-from <m> [--cycles-from <k>]\n" +
+			"    --criterion-from 필수: 목적만 있고 기준이 없으면 '됐다'가 다시 자기확신이 된다.\n" +
+			"    --cycles-from 선택: 그 분할에서 사이클을 연다 → gil open <c>/<cy> --from-plan <n>",
 		"docs/gil/concepts.md",
 	},
 	"interview": {

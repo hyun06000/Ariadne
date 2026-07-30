@@ -42,7 +42,7 @@ func reportGuide(kind string, thin bool) {
 	report := map[string]string{
 		"define":     "이 스텝 본문 = 문제 정의 보고서. 담아라: 무엇을 푸는가·입력/출력·평가 지표·데이터 구조·제약.",
 		"hypothesis": "이 스텝 본문 = 가설 보고서. 담아라: 세운 가설·그 근거(관찰/데이터)·검증 방법·기대 결과. (필수 플래그: --falsify 반증조건, --falsify-to 반증 시 되돌아갈 define, --plan 가설 전에 고정한 설계 — 몇 개일지 추정 말고 몇 개로 만들지 정하라.)",
-		"verify":     "이 스텝 본문 = 검증 보고서. 담아라: 실행한 절차(코드/명령)·측정 수치(표·코드블록)·관찰. (필수 플래그: --verdict supported|refuted — refuted 면 success 불가, fail/backtrack 만. 고정한 설계가 있으면 --plan-held|--plan-broke 로 그것에도 답한다.)",
+		"verify":     "이 스텝 본문 = 검증 보고서. 담아라: 실행한 절차(코드/명령)·측정 수치(표·코드블록)·관찰. (필수 플래그: --verdict supported|refuted — refuted 면 success 불가, fail/backtrack 만. 가설이 심은 반증조건에도 답한다: --falsify-met|--falsify-unmet <무엇을 관측했나> — 충족됐는데 supported 는 거부된다(규칙 17). 고정한 설계가 있으면 --plan-held|--plan-broke 로 그것에도.)",
 		"analyze":    "이 스텝 본문 = 분석 보고서. 담아라: 결과 해석·수치 비교·왜 이 판단인가. 다음은 success/fail/pending 종결 스텝.",
 		"success":    "이 스텝 본문 = ⭐누적 종합 보고서. 담아라: 문제정의(s1)부터 여기까지 밟아온 지식·검증·수치를 하나로 정리 — 이 사이클이 무엇을 어떻게 풀었는지 이 하나로 다 읽히게. 표·이미지(data URI) 권장.",
 		"fail":       "이 스텝 본문 = 벽 보고서(죽은 잎). 담아라: 무엇에 막혔나·왜 실패했나(수치)·되돌아가 무엇을 다르게 할지. 지도로 영원히 남는다.",
@@ -560,7 +560,7 @@ func cmdOpen(args []string) {
 	subjects := fs.strList("subject")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil open <chain>/<cycle> --author <who> --purpose <P> [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
+		die("사용: gil open <chain>/<cycle> --author <who> (--purpose <P> | --from-plan <n>) [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
 	}
 	if *author == "" {
 		die("거부: --author 필요")
@@ -2568,6 +2568,13 @@ func cmdChainClose(args []string) {
 	// 회고 강제(이슈 #33) — 단, **기준이 있는 체인에서만**. 사람이 인터뷰로 세운 기준이 있는
 	// 체인은 그 기준 대비 달성도를 남기지 않고 닫을 수 없다. 기준 없이 닫히던 옛 체인까지
 	// 소급해 막지는 않는다 — 없는 잣대에 대고 성적표를 요구하는 건 형식만 채우게 만든다.
+	// 개시 인터뷰가 낳은 **성패 기준**을 닫는 자리에서 되읽는다(상현님). 필수로 받아놓고
+	// 아무도 안 읽으면 그게 형해화다 — 기준은 닫을 때 쓰라고 세운 것이다.
+	crit := chainTrailer(chain, "Gil-Chain-Criterion")
+	if strings.TrimSpace(crit) != "" {
+		println2("  ◎ 이 체인의 성패 기준(사람이 세운 자): " + crit)
+		println2("    ▸ 회고는 **이 문장에 답해야 한다** — 충족됐나, 아니면 무엇이 모자랐나.")
+	}
 	refText := ""
 	if chainReferenceApproved(chain, "--branches") {
 		refText = chainReferenceText(chain, "--branches")
@@ -2579,6 +2586,9 @@ func cmdChainClose(args []string) {
 				"  회고에 담을 것: 기준의 각 항목을 달성했나·못 했나(정직하게), 무엇이 그렇게 만들었나,\n" +
 				"  **반드시 분기했어야 할 지점**은 어디였나(돌아보면 보이는 갈림길).\n" +
 				"  --seed 는 다음 체인 인터뷰의 재료다 — 남은 물음·새로 생긴 물음을 적어라."
+			if strings.TrimSpace(crit) != "" {
+				msg += "\n\n── 성패 기준(이 문장에 답해라) ──\n  " + crit
+			}
 			if refText != "" {
 				msg += "\n\n── 이 체인의 기준(이것에 비추어 써라) ──\n" + refText
 			}
