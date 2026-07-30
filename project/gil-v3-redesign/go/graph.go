@@ -456,10 +456,76 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	// (번호 중복은 fsckStepIdentity 가 **묶어서** 한 줄로 짚는다 — 쌍마다 한 줄씩 내면
 	//  오염된 저장소에서 수십 줄이 되어 정작 다른 위반을 덮는다. 이슈 #84 에서 실측.)
 	violations = append(violations, fsckChainStacking()...)
+	violations = append(violations, fsckMigratedBodies()...)
 	violations = append(violations, fsckMemoryLayer(nodes)...)
 	violations = append(violations, fsckUnanchoredSteps()...)
 	violations = append(violations, fsckStepIdentity(universe)...)
 	return violations
+}
+
+// fsckMigratedBodies — 이주분 스텝의 **본문이 비었는지**를 짚는다(이슈 #87, 실사용 보고).
+//
+// 왜. fsck 는 형태(계보·위계·잎)를 검사하고 **본문의 존재는 검사하지 않았다.** 그래서
+// 뼈대만 선 이주 그래프가 "위반 0 — 건강"으로 나왔고, 실사용 레포는 그걸 두 세션 동안
+// 정본으로 취급했다. 회고를 쓰려다 그래프에 쓸 게 없어서야 발각됐다. 형태가 건강한 것과
+// 내용이 있는 것은 다른 질문인데, 도구가 하나만 묻고 둘 다 답한 척했다.
+//
+// 범위를 **이주분(Gil-Migrate)** 으로 좁힌다: 손으로 쓴 스텝의 얇은 본문은 커밋 시점에
+// 이미 경고하고 있고(bodyThin), 여기서까지 위반으로 올리면 정작 이 침묵이 묻힌다.
+func fsckMigratedBodies() []string {
+	out := gitlog("--format=%H"+fsep+trailer("Gil-Chain")+fsep+trailer("Gil-Cycle")+fsep+
+		trailer("Gil-Step")+fsep+trailer("Gil-Migrate")+fsep+"%b"+sep, "--branches", "--")
+	var v []string
+	for _, rec := range strings.Split(out, sep) {
+		rec = strings.Trim(rec, "\n")
+		if rec == "" {
+			continue
+		}
+		f := strings.Split(rec, fsep)
+		if len(f) < 6 || strings.TrimSpace(f[4]) != "step" && strings.TrimSpace(f[4]) != "cycle" {
+			continue // 이주 스텝만 본다
+		}
+		if strings.TrimSpace(f[3]) == "" {
+			continue
+		}
+		// 원문이 없다고 **스스로 밝힌** 본문은 위반이 아니다. 위반은 "없는데 있다고 적은 것"
+		// 이다 — 이 이슈의 병은 손실이 아니라 손실을 감춘 문구였다.
+		if strings.Contains(f[5], "v2 원문 없음") {
+			continue
+		}
+		if migratedProse(f[5]) == 0 {
+			v = append(v, "이주본문: "+strings.TrimSpace(f[1])+"/"+strings.TrimSpace(f[2])+"/"+
+				strings.TrimSpace(f[3])+" — 실질 본문 0 (v2 메타 표뿐, 원문이 안 실렸다). "+
+				"원문은 v2 ref 에 남아 있다 — 다시 이주하라(gil migrate --from <v2-ref> --prefix …)")
+		}
+	}
+	return v
+}
+
+// migratedProse — 이주 본문에서 **산문만** 센다: 표(|…)·인용(>)·트레일러·머리말을 걷어낸 뒤
+// 남는 글자 수. 표만 있는 본문은 0 이 된다.
+func migratedProse(body string) int {
+	n := 0
+	for _, ln := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(ln)
+		switch {
+		case t == "" || t == "---":
+		case strings.HasPrefix(t, "|"), strings.HasPrefix(t, ">"), strings.HasPrefix(t, "[migrate]"):
+		case isTrailerLine(t):
+		default:
+			n += len([]rune(t))
+		}
+	}
+	return n
+}
+
+// isTrailerLine — "Gil-Xxx: 값" 꼴인가(본문 끝의 트레일러 블록을 산문으로 세지 않기 위해).
+func isTrailerLine(t string) bool {
+	k, _, ok := cut(t, ":")
+	if !ok || strings.Contains(k, " ") {
+		return false
+	}
+	return strings.HasPrefix(k, "Gil-")
 }
 
 // fsckStepIdentity — 번호 중복과 자기부모를 짚는다(이슈 #84, 상현님).

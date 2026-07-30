@@ -11,6 +11,7 @@ gil 명령을 subprocess로 돌리고 결과를 단언한다. 통제된 입력 �
    또는  python3 project/gil-v3-redesign/tests/test_gil.py
 """
 import os
+import re
 import sys
 import subprocess
 import tempfile
@@ -4071,6 +4072,104 @@ class TestQuietByDefault(GilFixture):
             out, err = p.communicate(timeout=10)
         self.assertIn("뷰어 서버가 떴다", out, out + err)   # 주소는 나온다
         self.assertNotIn("브라우저로 열었다", out)           # 창은 안 뜬다
+
+
+class TestMigrateBodyTransport(GilFixture):
+    """이주가 v2 **본문**을 실제로 옮긴다 (이슈 #87, 실사용 보고).
+
+    옛 migrate 는 cycle.yaml 메타만 옮기고 본문에 "v2 hypothesis+design 흡수"라고 적었다.
+    흡수하지 않았다 — 실측으로 사이클당 산문 11KB 가 메타 표 2KB 로 대체됐고 옮겨진 산문은
+    0 이었다. 손실보다 나쁜 건 옮겼다고 믿게 만든 문구였고, fsck 는 형태만 봐서 침묵했다.
+    """
+
+    FOLDER = "rooms/r/chains/dash/C006-eval"
+
+    def _write(self, relpath, content):
+        full = os.path.join(self.repo, relpath)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as f:
+            f.write(content)
+
+    def _seed(self, stages=("1-hypothesis.md", "2-design.md", "3-verification/run.py",
+                            "4-analysis.md", "5-report.md")):
+        self._write("CLAUDE.md", "# 대문\n")
+        self._write(f"{self.FOLDER}/cycle.yaml",
+                    "id: C006-eval\nchain: dash\nauthor: clew\n"
+                    "status: closed\nverdict: supported\ntitle: 평가 신뢰도\n")
+        for name in stages:
+            self._write(f"{self.FOLDER}/{name}", f"# {name}\n산문 내용 {name} 여기에 있다.\n")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "v2 seed")
+        return self._git("rev-parse", "HEAD").stdout.strip()
+
+    def _bodies(self):
+        """이주된 스텝 커밋들의 (스텝id, kind, 본문) 목록."""
+        out = self._git("log", "--all", "--format=%s\x1f%b\x1e").stdout
+        rows = []
+        for rec in out.split("\x1e"):
+            subj, _, body = rec.strip("\n").partition("\x1f")
+            m = re.search(r"/(s\d+) (\w+):", subj)
+            if m and "[migrate]" in subj:
+                rows.append((m.group(1), m.group(2), body))
+        return rows
+
+    def test_five_stage_docs_become_five_steps(self):
+        """문서가 다 있으면 v3 문법대로 define→hypothesis→verify→analyze→종결 이 선다."""
+        v2root = self._seed()
+        self._git("checkout", "-q", "-b", "v3-mig")
+        r = self.gil("migrate", "--from", v2root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        kinds = [k for _, k, _ in sorted(self._bodies())]
+        self.assertEqual(kinds, ["define", "hypothesis", "verify", "analyze", "success"])
+
+    def test_prose_actually_carried(self):
+        """v2 산문이 v3 본문 안에 **그대로** 들어 있다 — 출처 경로와 함께."""
+        v2root = self._seed()
+        self._git("checkout", "-q", "-b", "v3-mig")
+        self.gil("migrate", "--from", v2root)
+        joined = "\n".join(b for _, _, b in self._bodies())
+        for name in ("1-hypothesis.md", "2-design.md", "4-analysis.md", "5-report.md"):
+            self.assertIn(f"산문 내용 {name} 여기에 있다.", joined, f"{name} 원문이 안 실렸다")
+            self.assertIn(f"{self.FOLDER}/{name}", joined, f"{name} 출처가 안 적혔다")
+
+    def test_missing_stage_says_so(self):
+        """원문이 없는 단계는 없는 스텝이거나, 서더라도 '원문 없음'을 명시한다."""
+        v2root = self._seed(stages=("1-hypothesis.md",))
+        self._git("checkout", "-q", "-b", "v3-mig")
+        self.gil("migrate", "--from", v2root)
+        kinds = [k for _, k, _ in sorted(self._bodies())]
+        self.assertNotIn("analyze", kinds, "원문 없는 analyze 를 만들어 세웠다")
+        verify_body = [b for _, k, b in self._bodies() if k == "verify"][0]
+        self.assertIn("v2 원문 없음", verify_body)
+        self.assertIn(self.FOLDER, verify_body)  # 원본을 찾아갈 수 있어야 한다
+
+    def test_dry_run_reports_prose_bytes(self):
+        """이주 **전에** 실어 갈 산문의 양을 밝힌다 — 0 이면 그 자리에서 알아야 한다."""
+        v2root = self._seed()
+        out = self.gil("migrate", "--from", v2root, "--dry-run")
+        self.assertIn("실어 갈 v2 원문:", out.stderr)
+        self.assertRegex(out.stderr, r"실어 갈 v2 원문: [1-9]\d* 바이트")
+
+    def test_dry_run_warns_when_no_prose(self):
+        """단계 문서가 하나도 없으면 경고한다(옛 이주가 조용히 하던 일)."""
+        v2root = self._seed(stages=())
+        out = self.gil("migrate", "--from", v2root, "--dry-run")
+        self.assertIn("옮길 산문이 0", out.stderr)
+
+    def test_fsck_catches_body_that_lies(self):
+        """메타 표뿐인 이주 본문을 fsck 가 짚는다 — 형태만 보고 '건강'이라 하지 않는다."""
+        self._seed(stages=())
+        self.gil("chain", "dash", "--purpose", "P")
+        # 옛 migrate 가 남기던 모양: 표 + '흡수' 문구, 실질 본문 0.
+        self._git("commit", "-q", "--allow-empty", "-m",
+                  "gil dash/c001/s1 define: 옛이주 [migrate]\n\n"
+                  "[migrate] 문제 정의(v2 hypothesis+design 흡수).\n\n"
+                  "| v2 필드 | 값 |\n|---|---|\n| id | C001 |\n\n"
+                  "Gil-Chain: dash\nGil-Cycle: c001\nGil-Step: s1\n"
+                  "Gil-Kind: define\nGil-Parent: null\nGil-Migrate: step\n")
+        out = self.gil("fsck")
+        self.assertIn("이주본문", out.stdout)
+        self.assertIn("실질 본문 0", out.stdout)
 
 
 class TestMigrateLineageTopology(GilFixture):

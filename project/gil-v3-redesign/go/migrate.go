@@ -11,8 +11,13 @@
 //
 // v2→v3 매핑 (상현님 확정, 실데이터 182 사이클 커버):
 //
-//	5단계 → kind (압축): hypothesis(+design 흡수)→define, verification→verify,
-//	                     analysis+report+verdict→종결 스텝.
+//	5단계 → kind: 1-hypothesis+2-design→hypothesis, 3-verification→verify,
+//	              4-analysis→analyze, 5-report→종결 스텝. define 은 v2 에 없어
+//	              제목·목적에서 세운다. **문서가 있는 단계만 스텝이 된다** — 없는 단계를
+//	              만들어 세우면 그래프가 있지도 않은 사고를 주장한다(이슈 #87).
+//	              단계 문서의 원문은 출처 경로·바이트와 함께 스텝 본문에 그대로 실린다.
+//	              원문이 없으면 본문이 "v2 원문 없음"이라고 밝힌다 — 옛 이주는 옮기지
+//	              않고 "흡수"라고 적어, 두 세션 동안 뼈대만 선 그래프가 정본이 됐다.
 //	verdict → 종결 kind: supported/success→success(산 잎), rejected→fail(죽은 잎),
 //	                     **그 밖의 전부**(partial·inconclusive·verdict 없음·미지의 값)→pending.
 //	                     없는 성공을 날조하지 않는다(이슈 #50) — 결론이 아닌 것을 산 잎으로
@@ -47,6 +52,63 @@ type v2cycle struct {
 	title   string
 	verdict string // supported|success|rejected|partial|null|""
 	superBy string // superseded_by (무효화 후속) 또는 ""
+	docs    []v2doc // 같은 폴더의 단계 문서들(1-hypothesis.md …). 이게 진짜 내용물이다(이슈 #87)
+}
+
+// v2doc — v2 사이클 폴더의 단계 문서 하나. **이주의 내용물은 cycle.yaml 이 아니라 이것들이다.**
+//
+// 이슈 #87: 지금까지 migrate 는 cycle.yaml 의 메타만 옮기고 본문에 "v2 hypothesis+design 흡수"
+// 라고 적었다. 흡수하지 않았다. 실사용 실측 — 한 사이클 산문 11,163 바이트가 1,990 바이트의
+// 표로 대체됐고 옮겨진 산문은 0 이었다. 조용한 손실보다 나쁜 건 **옮겼다고 믿게 만든 것**이다.
+type v2doc struct {
+	stage string // hypothesis | design | verification | analysis | report | other
+	path  string // 저장소 상대 경로 (출처 각인용 — 원본을 찾아갈 수 있어야 한다)
+	text  string
+}
+
+// v2StageOf — 파일명에서 v2 5단계를 알아낸다. 번호 접두(1-…)와 이름 둘 다 본다:
+// 저장소마다 번호가 빠지거나 이름이 조금씩 다르다(실사용 변종).
+func v2StageOf(rel string) string {
+	base := strings.ToLower(rel)
+	if i := strings.Index(base, "/"); i >= 0 {
+		base = base[:i] // 3-verification/run.py → 3-verification
+	}
+	switch {
+	case strings.HasPrefix(base, "1") || strings.Contains(base, "hypothes"):
+		return "hypothesis"
+	case strings.HasPrefix(base, "2") || strings.Contains(base, "design"):
+		return "design"
+	case strings.HasPrefix(base, "3") || strings.Contains(base, "verif"):
+		return "verification"
+	case strings.HasPrefix(base, "4") || strings.Contains(base, "analy"):
+		return "analysis"
+	case strings.HasPrefix(base, "5") || strings.Contains(base, "report"):
+		return "report"
+	}
+	return "other"
+}
+
+// docsOf — 이 사이클의 특정 단계 문서들(순서 보존).
+func (c v2cycle) docsOf(stages ...string) []v2doc {
+	var out []v2doc
+	for _, want := range stages {
+		for _, d := range c.docs {
+			if d.stage == want {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// proseBytes — 이 사이클이 실제로 지고 있는 산문의 양. dry-run 이 이 수를 보여준다 —
+// 0 이면 사람이 그 자리에서 안다(이슈 #87: 두 세션 동안 몰랐다).
+func (c v2cycle) proseBytes() int {
+	n := 0
+	for _, d := range c.docs {
+		n += len(d.text)
+	}
+	return n
 }
 
 // parseV2Cycle — cycle.yaml 본문을 v2cycle 로. 우리가 쓰는 필드만 취한다(나머지 무시).
@@ -237,6 +299,24 @@ func collectV2Cycles(ref, roomFilter string) []v2cycle {
 	if err != nil {
 		die("거부: v2 ref \"" + ref + "\" 를 읽을 수 없다 — " + err.Error())
 	}
+	// 폴더별 파일 목록을 먼저 만든다 — 사이클의 **내용물은 형제 파일**이고, 지금껏 아무도
+	// 읽지 않았다(이슈 #87). ls-tree 는 이미 한 번 돌았으니 추가 비용이 없다.
+	folderFiles := map[string][]string{}
+	for _, p := range strings.Split(out, "\n") {
+		p = strings.TrimSpace(p)
+		if i := strings.LastIndex(p, "/"); i > 0 {
+			// cycle.yaml 의 폴더뿐 아니라 그 하위(3-verification/…)도 잡히도록 조상 폴더 전부에 건다.
+			for rest := p; ; {
+				j := strings.LastIndex(rest, "/")
+				if j <= 0 {
+					break
+				}
+				rest = rest[:j]
+				folderFiles[rest] = append(folderFiles[rest], p)
+			}
+		}
+	}
+
 	var cycles []v2cycle
 	for _, path := range strings.Split(out, "\n") {
 		path = strings.TrimSpace(path)
@@ -262,9 +342,39 @@ func collectV2Cycles(ref, roomFilter string) []v2cycle {
 			migrateExcluded = append(migrateExcluded, path+"  (--exclude "+excluded+")")
 			continue
 		}
+		c.docs = collectV2Docs(ref, path, folderFiles)
 		cycles = append(cycles, c)
 	}
 	return cycles
+}
+
+// v2DocMaxBytes — 문서 하나에서 실어 나르는 상한. 넘으면 자르고 **잘랐다고 적는다**
+// (조용한 절단은 조용한 손실이다 — 이 이슈가 바로 그 병이었다).
+const v2DocMaxBytes = 200 * 1024
+
+// collectV2Docs — cycle.yaml 이 있는 폴더의 단계 문서들을 실제로 읽는다.
+func collectV2Docs(ref, yamlPath string, folderFiles map[string][]string) []v2doc {
+	folder := yamlPath[:strings.LastIndex(yamlPath, "/")]
+	var docs []v2doc
+	seen := map[string]bool{}
+	for _, p := range folderFiles[folder] {
+		if p == yamlPath || seen[p] {
+			continue
+		}
+		seen[p] = true
+		rel := strings.TrimPrefix(p, folder+"/")
+		blob, err := gitTry("show", ref+":"+p)
+		if err != nil {
+			continue // 트리에 있는데 못 읽는 것(서브모듈 등)은 건너뛴다
+		}
+		if len(blob) > v2DocMaxBytes {
+			blob = blob[:v2DocMaxBytes] + "\n\n…(원문이 " + itoa(v2DocMaxBytes/1024) +
+				"KB 를 넘어 여기서 잘렸다 — 전문은 원본 경로에서)\n"
+		}
+		docs = append(docs, v2doc{stage: v2StageOf(rel), path: p, text: blob})
+	}
+	sort.SliceStable(docs, func(i, j int) bool { return docs[i].path < docs[j].path })
+	return docs
 }
 
 // migrateExcluded — --exclude 로 빠진 경로들. dry-run 이 "무엇을 안 가져왔는지"를 밝힌다.
@@ -446,6 +556,7 @@ func cmdMigrate(args []string) {
 			stderr("  (접두 " + *prefix + " → 브랜치 " + *prefix + "<chain>)")
 		}
 		migrateScanReport(cycles)
+		migrateProseReport(cycles)
 		migrateVerdictSummary(byChain)
 		stderr("dry-run: 커밋하지 않음. 실제 이주는 --dry-run 없이.")
 		return
@@ -678,12 +789,22 @@ func migrateCycle(v3chain string, c v2cycle, migratedInChain map[string]bool, op
 	author := orDefault(c.author, "migrate")
 	purpose := orDefault(c.title, "(v2 "+c.id+" 이주 — 목적 미기재)")
 
+	folder := c.path
+	if i := strings.LastIndex(folder, "/"); i > 0 {
+		folder = folder[:i]
+	}
+	// 스텝 번호는 **실재하는 v2 문서만큼** 매긴다 — 없는 단계를 만들어 세우지 않는다.
+	// (빈 hypothesis·analyze 를 세우면 그래프가 있지도 않은 사고를 주장하게 된다.)
+	sn := 0
+	nextStep := func() string { sn++; return "s" + itoa(sn) }
+
 	defineSubj := "gil " + v3chain + "/" + v3cyc + "/s1 define: " + purpose + " [migrate]"
 	defineBody := migrateStepBody("define", c,
-		"문제 정의(v2 hypothesis+design 흡수). v2 사이클 "+c.id+" 의 목적/가설을 이주.")
+		"문제 정의. v2 에는 define 단계가 없다 — 사이클 제목·목적에서 세운다.") +
+		migrateDocSection(c.docsOf("other"), folder, "v2 미분류 문서")
 	dtr := [][2]string{
 		{"Gil-Chain", v3chain}, {"Gil-Cycle", v3cyc},
-		{"Gil-Step", "s1"}, {"Gil-Kind", "define"}, {"Gil-Parent", "null"},
+		{"Gil-Step", nextStep()}, {"Gil-Kind", "define"}, {"Gil-Parent", "null"},
 		{"Gil-Cycle-Author", author}, {"Gil-Cycle-Purpose", purpose},
 		{"Gil-Migrate", "cycle"}, {"Gil-Migrated-From", c.id},
 	}
@@ -710,25 +831,43 @@ func migrateCycle(v3chain string, c v2cycle, migratedInChain map[string]bool, op
 		}
 	}
 	commitOn(cb, from, defineSubj, defineBody, dtr, true)
+	prev := "s1"
 
-	// s2 verify — v2 verification.
-	verifySubj := "gil " + v3chain + "/" + v3cyc + "/s2 verify: 검증 [migrate]"
-	verifyBody := migrateStepBody("verify", c,
-		"검증(v2 verification 이주). v2 사이클 "+c.id+" 의 검증 단계.")
-	vtr := [][2]string{
-		{"Gil-Chain", v3chain}, {"Gil-Cycle", v3cyc},
-		{"Gil-Step", "s2"}, {"Gil-Kind", "verify"}, {"Gil-Parent", "s1"},
-		{"Gil-Migrate", "step"}, {"Gil-Migrated-From", c.id},
+	// 중간 스텝 — v2 문서가 **있을 때만** 세운다. mid() 는 세운 스텝의 id 를 prev 로 잇는다.
+	mid := func(kind, title, note string, docs []v2doc, what string, always bool) {
+		if len(docs) == 0 && !always {
+			return
+		}
+		id := nextStep()
+		subj := "gil " + v3chain + "/" + v3cyc + "/" + id + " " + kind + ": " + title + " [migrate]"
+		body := migrateStepBody(kind, c, note) + migrateDocSection(docs, folder, what)
+		tr := [][2]string{
+			{"Gil-Chain", v3chain}, {"Gil-Cycle", v3cyc},
+			{"Gil-Step", id}, {"Gil-Kind", kind}, {"Gil-Parent", prev},
+			{"Gil-Migrate", "step"}, {"Gil-Migrated-From", c.id},
+		}
+		commitOn(cb, "", subj, body, tr, true)
+		prev = id
 	}
-	commitOn(cb, "", verifySubj, verifyBody, vtr, true)
+	// v2 1-hypothesis + 2-design → hypothesis (설계는 가설과 한 몸이다 — v3 의 --plan 자리).
+	mid("hypothesis", "가설·설계", "가설과 고정한 설계(v2 hypothesis+design 이주).",
+		c.docsOf("hypothesis", "design"), "v2 hypothesis/design", false)
+	// verify 는 언제나 세운다 — v2 의 모든 사이클이 검증 단계를 전제로 돈다.
+	mid("verify", "검증", "검증(v2 verification 이주).",
+		c.docsOf("verification"), "v2 verification", true)
+	// v2 4-analysis → analyze. 이게 없으면 종결의 근거가 그래프에서 사라진다.
+	mid("analyze", "해석", "해석(v2 analysis 이주).",
+		c.docsOf("analysis"), "v2 analysis", false)
 
-	// s3 종결 — verdict → success/fail/pending.
+	// 종결 — verdict → success/fail/pending. v2 5-report 가 여기 실린다.
 	kind := verdictToClosureKind(c)
-	closureSubj := "gil " + v3chain + "/" + v3cyc + "/s3 " + kind + ": 종결 [migrate]"
-	closureBody := migrateStepBody(kind, c, migrateClosureNote(c, kind))
+	closureID := nextStep()
+	closureSubj := "gil " + v3chain + "/" + v3cyc + "/" + closureID + " " + kind + ": 종결 [migrate]"
+	closureBody := migrateStepBody(kind, c, migrateClosureNote(c, kind)) +
+		migrateDocSection(c.docsOf("report"), folder, "v2 report")
 	ctr := [][2]string{
 		{"Gil-Chain", v3chain}, {"Gil-Cycle", v3cyc},
-		{"Gil-Step", "s3"}, {"Gil-Kind", kind}, {"Gil-Parent", "s2"},
+		{"Gil-Step", closureID}, {"Gil-Kind", kind}, {"Gil-Parent", prev},
 		{"Gil-Migrate", "step"}, {"Gil-Migrated-From", c.id},
 	}
 	// 원 verdict 를 **무손실로** 보존한다(이슈 #50). 매핑 정책이 뒤에 바뀌어도 여기서 복구할
@@ -750,7 +889,7 @@ func migrateCycle(v3chain string, c v2cycle, migratedInChain map[string]bool, op
 	if kind == "success" && strings.TrimSpace(c.status) != "open" {
 		verdict := orDefault(c.verdict, "supported")
 		closeSubj := "gil " + v3chain + "/" + v3cyc + " close: " + verdict + " [migrate]"
-		closeBody := "사이클 봉인(v2 이주). 산 잎 [s3]. 판정: " + verdict + ". v2: " + c.id + "."
+		closeBody := "사이클 봉인(v2 이주). 산 잎 [" + closureID + "]. 판정: " + verdict + ". v2: " + c.id + "."
 		cltr := [][2]string{
 			{"Gil-Chain", v3chain}, {"Gil-Cycle", v3cyc},
 			{"Gil-Kind", "close"}, {"Gil-Verdict", verdict},
@@ -783,8 +922,27 @@ func migrateClosureNote(c v2cycle, kind string) string {
 	}
 }
 
-// migrateStepBody — 이주 스텝 본문. v2 메타를 사람이 읽을 보고서 머리말로 싣는다.
-// (v2 단계별 md 원문 전체 이주는 향후 확장; 지금은 cycle.yaml 무손실 + 메타 표.)
+// migrateDocSection — 실어 온 원문을 출처와 함께 본문에 붙인다.
+//
+// 출처(경로·바이트)를 반드시 함께 적는다: 이주분은 원본과 대조될 운명이고, 대조할 수 없는
+// 사본은 사본이 아니라 주장이다. 원문이 하나도 없으면 **없다고 적는다** — 이 이슈의 핵심은
+// 손실이 아니라 "옮겼다고 믿게 만든 문구"였다(#87).
+func migrateDocSection(docs []v2doc, folder, what string) string {
+	if len(docs) == 0 {
+		return "\n> ⚠ v2 원문 없음 — 이 단계(" + what + ")의 문서가 v2 폴더에 없었다. " +
+			"cycle.yaml 메타만 이주됐다.\n> 원본 위치: `" + folder + "/`\n"
+	}
+	var b strings.Builder
+	for _, d := range docs {
+		b.WriteString("\n---\n\n")
+		b.WriteString("> 원본: `" + d.path + "` (" + itoa(len(d.text)) + " 바이트, v2 이주)\n\n")
+		b.WriteString(strings.TrimRight(d.text, "\n"))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// migrateStepBody — 이주 스텝 본문: 머리말 + v2 메타 표 + **원문 그대로**(이슈 #87).
 func migrateStepBody(kind string, c v2cycle, note string) string {
 	var b strings.Builder
 	b.WriteString("[migrate] ")
@@ -807,6 +965,44 @@ func migrateStepBody(kind string, c v2cycle, note string) string {
 	}
 	b.WriteString("\n> **title**: " + orDefault(c.title, "(없음)") + "\n")
 	return b.String()
+}
+
+// migrateProseReport — **얼마나 많은 산문을 실제로 지고 가는지**를 이주 전에 밝힌다(이슈 #87).
+//
+// 이 수가 0 이면 옮길 내용물이 없다는 뜻이고, 사람은 그 사실을 이주 **전에** 알아야 한다.
+// 실사용에선 두 세션 동안 몰랐다 — 뼈대만 선 그래프를 정본으로 취급했고, 회고를 쓰려다
+// 그래프에 쓸 게 없어서야 발각됐다. 수는 커밋 전에 보여야 값이 있다.
+func migrateProseReport(cycles []v2cycle) {
+	total, withDocs := 0, 0
+	stages := map[string]int{}
+	for _, c := range cycles {
+		if n := c.proseBytes(); n > 0 {
+			total += n
+			withDocs++
+		}
+		for _, d := range c.docs {
+			stages[d.stage]++
+		}
+	}
+	stderr("")
+	stderr("실어 갈 v2 원문: " + itoa(total) + " 바이트 · 문서 있는 사이클 " +
+		itoa(withDocs) + "/" + itoa(len(cycles)))
+	if total == 0 {
+		stderr("  ⚠ 옮길 산문이 0 이다 — cycle.yaml 메타만 이주된다. 단계 문서(1-hypothesis.md 등)가")
+		stderr("    사이클 폴더에 있는지 확인하라. 이대로 이주하면 그래프는 뼈대만 선다(이슈 #87).")
+		return
+	}
+	for _, s := range []string{"hypothesis", "design", "verification", "analysis", "report", "other"} {
+		if stages[s] > 0 {
+			stderr("    " + s + ": " + itoa(stages[s]) + "개")
+		}
+	}
+	if stages["hypothesis"]+stages["design"] == 0 {
+		stderr("  ⚠ hypothesis/design 문서가 없다 — 이주분에 hypothesis 스텝이 서지 않는다(없는 걸 세우지 않는다).")
+	}
+	if stages["analysis"] == 0 {
+		stderr("  ⚠ analysis 문서가 없다 — 이주분에 analyze 스텝이 서지 않는다. 종결의 근거가 산문으로 안 남는다.")
+	}
 }
 
 // migrateVerdictSummary — 이주가 결말을 어떻게 접었는지 먼저 밝힌다(이슈 #50).
