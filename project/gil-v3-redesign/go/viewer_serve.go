@@ -1190,6 +1190,23 @@ window.__gilPollUrl='/poll';   // 살아있음 확인용 주소(서브 모드에
 // 기다렸다가(디바운스 — 폭주가 끝난 뒤 한 번만 다시 그린다).
 let sig=null, busy=false, tick=1500, pendingSig=null;
 const MIN=1500, MAX=10000;
+// gilSafeReload — **사람이 쓰고 있는 동안에는 새로고침하지 않는다** (윈도우 필드테스트).
+// 인터뷰 답을 길게 쓰는 중에 폴링이 location.reload() 를 때리면 폼이 통째로 다시 그려져
+// 입력이 사라진다("주기적으로 싹 사라진다"). 그래서: 폼이 더러우면(입력이 있거나 포커스가
+// 안에 있으면) 리로드를 **미루고** 배너로 알린다 — sig 를 갱신하지 않으므로, 사람이 제출해
+// 폼이 깨끗해지는 순간 다음 틱이 알아서 새로고침한다.
+// (그래도 초안은 localStorage 에 저장된다 — 리로드가 어떤 경로로 오든 되살아난다.)
+// 반환값: 새로고침했으면 true, 미뤘으면 false(호출자가 폴링을 늦춘다).
+function gilSafeReload(){
+  try{
+    if(typeof window.__gilIvDirty==='function' && window.__gilIvDirty()){
+      if(typeof window.__gilIvNotifyStale==='function') window.__gilIvNotifyStale();
+      return false;
+    }
+  }catch(e){}
+  location.reload();
+  return true;
+}
 async function poll(){
   if(busy) return;              // 앞선 요청이 아직 안 끝났다 — 겹쳐 부르지 않는다
   busy=true;
@@ -1200,7 +1217,8 @@ async function poll(){
     else if(t!==sig){
       // 변화를 봤다. 곧바로 다시 그리지 않고 **한 틱 더** 같은 값인지 본다 — 커밋 폭주
       // 중이면 아직 계속 바뀌는 중이고, 그때 그리면 그리는 족족 낡는다.
-      if(pendingSig===t){ location.reload(); }
+      // 미뤄졌으면 뜸하게 — 사람이 오래 쓰는 동안 1.5초마다 저장소를 훑을 이유가 없다(#89).
+      if(pendingSig===t){ if(!gilSafeReload()) tick=Math.min(MAX, Math.round(tick*1.5)); }
       else { pendingSig=t; tick=MIN; }
     } else {
       pendingSig=null;
@@ -2407,6 +2425,55 @@ function buildReferences(){
 }
 buildReferences();
 const INTERVIEWS=JSON.parse(document.getElementById('interviewdata')?.textContent||'[]');
+// ── 쓰던 답을 잃지 않는다 (윈도우 필드테스트) ──────────────────────────────────────
+// 증상: 인터뷰를 뷰어에서 쓰는 도중 주기적으로 입력이 싹 사라진다. 원인은 폴링의
+// location.reload() — 커밋이 하나만 나도 페이지가 통째로 다시 그려지고, 폼은 매번 새로
+// 만들어지므로 사람이 쓰던 글이 같이 날아간다. 답을 길게 쓰는 인터뷰일수록 크게 물린다.
+//
+// 두 겹으로 막는다. (1) **초안 저장** — 입력할 때마다 localStorage 에 넣고 폼을 그릴 때
+// 되살린다. 그래서 리로드가 어떤 경로로 오든(수동 F5·서버 재시작 포함) 답은 남는다.
+// (2) **쓰는 중엔 리로드를 미룬다** — 초안이 있거나 포커스가 폼 안이면 폴링이 새로고침을
+// 보류하고 배너로만 알린다(위 gilSafeReload). 제출로 폼이 깨끗해지면 자동으로 풀린다.
+const ivDraftKey=c=>'gil-iv-draft-'+c;
+function ivLoadDraft(chain){
+  try{ return JSON.parse(localStorage.getItem(ivDraftKey(chain))||'{}')||{}; }catch(e){ return {}; }
+}
+function ivSaveDraft(chain,form,questions){
+  const d={};
+  (questions||[]).forEach((q,qi)=>{
+    const nm='q'+qi;
+    if(q.type==='text'){ const el=form.querySelector('[name="'+nm+'"]'); if(el&&el.value)d[nm]=el.value; }
+    else if(q.type==='radio'){ const el=form.querySelector('[name="'+nm+'"]:checked'); if(el)d[nm]=el.value; }
+    else if(q.type==='checkbox'){ const v=[...form.querySelectorAll('[name="'+nm+'"]:checked')].map(e=>e.value); if(v.length)d[nm]=v; }
+  });
+  try{
+    if(Object.keys(d).length) localStorage.setItem(ivDraftKey(chain),JSON.stringify(d));
+    else localStorage.removeItem(ivDraftKey(chain));
+  }catch(e){}
+}
+function ivClearDraft(chain){ try{ localStorage.removeItem(ivDraftKey(chain)); }catch(e){} }
+// 지금 사람이 쓰고 있는가 — 초안이 하나라도 있거나, 포커스가 인터뷰 폼 안에 있으면 참.
+window.__gilIvDirty=function(){
+  const a=document.activeElement;
+  if(a&&a.closest&&a.closest('.ivform'))return true;
+  for(const iv of INTERVIEWS){ if(Object.keys(ivLoadDraft(iv.chain)).length)return true; }
+  return false;
+};
+// 리로드를 미뤘다는 사실을 **말한다** — 관전 도구의 침묵은 '이상 없음'과 구분되지 않는다.
+window.__gilIvNotifyStale=function(){
+  if(document.getElementById('ivstalebar'))return;
+  const bar=document.createElement('div'); bar.id='ivstalebar'; bar.className='ivwait on';
+  bar.style.cssText='margin:8px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+  const t=document.createElement('span');
+  t.textContent='새 기록이 도착했지만, 답을 쓰는 중이라 새로고침을 미뤘습니다 — 쓰던 내용은 그대로 있습니다.';
+  const b=document.createElement('button'); b.className='ivsubmit'; b.textContent='지금 새로고침';
+  b.title='입력하신 내용은 저장돼 있어 새로고침해도 되살아납니다';
+  b.addEventListener('click',()=>location.reload());
+  bar.appendChild(t); bar.appendChild(b);
+  const host=document.getElementById('interviews');
+  if(host&&host.parentNode)host.parentNode.insertBefore(bar,host);
+  else document.body.insertBefore(bar,document.body.firstChild);
+};
 function buildInterviews(){
   const host=document.getElementById('interviews');
   if(!host||!INTERVIEWS.length)return;
@@ -2423,6 +2490,7 @@ function buildInterviews(){
                                :'· 지금은 아무도 기다리고 있지 않습니다. 제출은 저장되고, 에이전트는 다음 접촉 때 읽습니다.';
     card.appendChild(wait);
     const form=document.createElement('form'); form.className='ivform';
+    const draft=ivLoadDraft(iv.chain);            // 앞선 리로드에서 살아남은 초안
     (iv.questions||[]).forEach((q,qi)=>{
       const fld=document.createElement('div'); fld.className='ivfield';
       const label=document.createElement('label'); label.className='ivq';
@@ -2430,6 +2498,7 @@ function buildInterviews(){
       const nm='q'+qi;
       if(q.type==='text'){
         const ta=document.createElement('textarea'); ta.name=nm; ta.rows=3; ta.className='ivinput';
+        if(typeof draft[nm]==='string')ta.value=draft[nm];
         fld.appendChild(ta);
       } else if(q.type==='radio'||q.type==='checkbox'){
         const opts=document.createElement('div'); opts.className='ivopts';
@@ -2437,6 +2506,9 @@ function buildInterviews(){
           const id=nm+'_'+oi;
           const wrap=document.createElement('label'); wrap.className='ivopt';
           const inp=document.createElement('input'); inp.type=q.type; inp.name=nm; inp.value=o; inp.id=id;
+          const dv=draft[nm];
+          if(q.type==='radio'&&dv===o)inp.checked=true;
+          if(q.type==='checkbox'&&Array.isArray(dv)&&dv.indexOf(o)>=0)inp.checked=true;
           const span=document.createElement('span'); span.textContent=o;
           wrap.appendChild(inp); wrap.appendChild(span); opts.appendChild(wrap);
         });
@@ -2449,6 +2521,15 @@ function buildInterviews(){
     const status=document.createElement('span'); status.className='ivstatus';
     foot.appendChild(submit); foot.appendChild(status);
     form.appendChild(foot);
+    // 한 글자 칠 때마다 초안을 남긴다 — 리로드·서버 재시작·탭 닫힘 어느 쪽에도 안 진다.
+    const saveNow=()=>ivSaveDraft(iv.chain,form,iv.questions);
+    form.addEventListener('input',saveNow);
+    form.addEventListener('change',saveNow);
+    if(Object.keys(draft).length){
+      const back=document.createElement('div'); back.className='ivwait';
+      back.textContent='· 쓰시던 내용을 복원했습니다(이 브라우저에만 저장됩니다). 제출하면 지워집니다.';
+      form.insertBefore(back,form.firstChild);
+    }
     form.addEventListener('submit',async ev=>{
       ev.preventDefault();
       // 답변을 {질문, 답} 배열로 조립. 체크박스는 다중값.
@@ -2466,6 +2547,7 @@ function buildInterviews(){
         const txt=await res.text();
         if(res.ok){
           status.textContent=' ✓ 기준 문서로 확정됐습니다 — 화면을 갱신합니다';
+          ivClearDraft(iv.chain);   // 도착한 뒤에만 지운다(제출 실패면 초안은 그대로 남는다)
           try{ sessionStorage.setItem('gil-just-submitted',iv.chain); }catch(e){}
           setTimeout(()=>location.reload(),700);
         }
@@ -2486,7 +2568,7 @@ function buildInterviews(){
           const hint=document.createElement('div');
           hint.className='ivwait';
           hint.innerHTML='답은 아직 제출되지 않았습니다(사라지지도 않았습니다). '+
-            '<b>새로고침한 뒤 다시 제출</b>해 주세요 — 입력한 내용은 새로고침 전에 복사해 두시면 안전합니다.'+
+            '<b>새로고침한 뒤 다시 제출</b>해 주세요 — 입력한 내용은 이 브라우저에 저장돼 있어 새로고침해도 되살아납니다.'+
             '<br>서버가 꺼져 있으면 터미널에서: <code>gil viewer serve</code>';
           form.appendChild(hint);
         }
