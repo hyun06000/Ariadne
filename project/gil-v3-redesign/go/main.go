@@ -167,8 +167,11 @@ func printUsage() {
   gil memory append <이름> <file> 기억에 매듭 이어붙임 (안전, 자동 push)
 
 사고 기록 (체인 > 사이클 > 스텝):
-  gil chain <name> --purpose <p> [--reference <기준문서>]  새 체인 개설 (--reference: 기준 문서, #33)
-  gil interview <chain> --ask <질문JSON>  사람에게 설문 폼(뷰어)을 띄워 기준 문서를 함께 만든다 (#33)
+  gil intake <슬러그> --ask <질문JSON>    **체인보다 먼저** 사람에게 묻는다 — 목적도 분기 자리도
+                                          사람의 답에서 나온다 (#90). 여기서 시작하는 것이 기본이다.
+  gil chain <name> --from-intake <슬러그> --purpose-from <질문번호>  그 답을 **인용**해 체인 개설
+  gil chain <name> --purpose <p> [--reference <기준문서>]  (옛 경로 — 목적을 네가 쓰게 된다)
+  gil interview <chain> --ask <질문JSON>  이미 연 체인의 기준 문서를 사람과 함께 만든다 (#33)
   gil open <chain>/<cycle> --author <a> --purpose <p>   새 사이클
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
   gil close <chain>/<cycle> --verdict <v> [--abandon]   사이클 닫기 (--abandon: fail만인 죽은 사이클도)

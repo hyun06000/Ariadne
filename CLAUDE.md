@@ -84,14 +84,17 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **개발 브랜치**: `main` (승격 완료. 평범 git 커밋으로 gil·뷰어 빌드). 옛 개발선
   `gil-v3-unified`는 main으로 rename됨.
 - **gil**: Go 정적 단일 바이너리(`project/gil-v3-redesign/go/`, `git`만 있으면 됨, CGO 없음).
-  Python 참조는 은퇴(Go 유일). 명령: `init/chain/open/step/close/chain-close/chain-merge/
+  Python 참조는 은퇴(Go 유일). 명령: `init/intake/chain/open/step/close/chain-close/chain-merge/
   approve/reject/goto/context/drift/reconcile/chain-retire/prune/docs/log/fsck/global/memory/handoff/migrate`.
+  (`intake` = 체인보다 **먼저** 사람에게 묻는 개시 인터뷰 — 이슈 #90.)
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
 - **검증**: example 471 테스트(`project/gil-v3-redesign/tests/`). 업로드된 최신 릴리스는
   **v3.33.0** — **v3.34.0 은 `dist/` 에 구워만 뒀다(업로드 대기, 사람이 `gh release create`)**.
-  **병렬 러너를 쓴다**: `python3 run_tests.py` (클래스 단위 프로세스 분할, 238s→72s).
+  **병렬 러너를 쓴다**: `python3 run_tests.py` — 클래스 단위 프로세스 분할 + LPT(긴 것부터,
+  지난 소요를 `.test-timings.json` 에 학습) + 워커 1.5×코어. 실측 151s·병렬 효율 100%
+  (실행 끝에 효율·CPU 합계·꼬리를 스스로 출력한다).
   `-k <이름조각>` 으로 일부만, `-j <수>` 로 병렬도 조절.
 - **gil migrate**: v2(폴더·cycle.yaml) → v3 커밋 그래프 이주(도구 레벨·범용). **단계 문서
   원문을 실제로 싣는다**(이슈 #87 — 옛 이주는 메타 표만 옮기고 "흡수"라 적었다).

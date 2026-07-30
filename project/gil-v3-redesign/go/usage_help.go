@@ -141,6 +141,19 @@ var helpTable = map[string]helpEntry{
 			"  길로 판단해 포기할 때만 --abandon(정직: 없는 성공을 날조하지 않는다).",
 		"docs/gil/lifecycle.md · docs/gil/deployment.md",
 	},
+	"intake": {
+		"gil intake <슬러그> --ask <질문JSON|->   (체인을 열기 **전에** 사람에게 묻는다)\n" +
+			"  gil 정문의 순환을 사람 쪽에서 끊는다(이슈 #90). 체인은 --purpose 가 필수인데\n" +
+			"  인터뷰는 체인이 있어야 열렸다 — 그래서 에이전트가 목적을 창작하고 사람은 승인만 했다.\n" +
+			"  그리고 **어디서 분기할지는 사람의 답을 보고 정해야 하는데**, 분기를 친 뒤에 물으면\n" +
+			"  그 답이 갈 곳이 없다. intake 는 체인 없이 열리는 인터뷰다.\n" +
+			"  gil intake <슬러그> --status | --wait [--timeout <초>] | --resolve <파일>  (인터뷰와 동일)\n" +
+			"  답이 오면 그 답으로 체인을 연다 — 목적은 **인용**된다:\n" +
+			"      gil chain <이름> --from-intake <슬러그> --purpose-from <질문번호>\n" +
+			"  --from-intake 와 --purpose 는 함께 못 선다: 요약도 정제도 창작이고, 창작하는 순간\n" +
+			"  기준 문서는 '사람이 세운 자'가 아니게 된다.",
+		"docs/gil/concepts.md",
+	},
 	"interview": {
 		"gil interview <chain> --ask <질문JSON|->  [--title T]\n" +
 			"  이 체인의 기준 문서(레퍼런스 트루스, 이슈 #33)를 사람과의 인터뷰로 만든다. 질문 세트를\n" +
