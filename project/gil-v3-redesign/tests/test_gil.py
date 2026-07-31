@@ -410,14 +410,14 @@ class TestClosedParentGuard(GilFixture):
 
     def test_chain_close_enables_lesson_carrying_new_chain(self):
         """닫힌 체인 끝에서 새 체인을 열 수 있다 — 대문·교훈이 체인을 넘어 이어진다."""
-        self.gil("chain", "dev", "--purpose", "개발 국면")
-        self.gil("open", "dev/c001", "--author", "a", "--purpose", "P")
-        self.gil("step", "dev/c001", "--kind", "success", "--title", "s")
-        self.gil("close", "dev/c001")
-        self.gil("chain-close", "dev")
-        r = self.gil("chain", "stg", "--purpose", "스테이징 국면")
+        self.gil("chain", "devchain", "--purpose", "개발 국면")
+        self.gil("open", "devchain/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "devchain/c001", "--kind", "success", "--title", "s")
+        self.gil("close", "devchain/c001")
+        self.gil("chain-close", "devchain")
+        r = self.gil("chain", "stg", "--purpose", "스테이징 국면", "--from", "devchain")
         self.assertEqual(r.returncode, 0, r.stderr)
-        # 새 체인 stg 는 닫힌 dev 끝에서 분기 — 대문(CLAUDE.md)이 조상으로 보존
+        # 새 체인 stg 는 닫힌 devchain 끝에서 분기(--from 으로 선언) — 대문(CLAUDE.md)이 조상으로 보존
         self.assertEqual(self.trailer("stg", "Gil-Chain-Purpose"), "스테이징 국면")
 
     def test_chain_close_rejects_twice(self):
@@ -3204,25 +3204,25 @@ class TestViewer(GilFixture):
         체인 계보(부모→자식)가 이어진다 — 첫 부모 한 칸만 보면 계보가 끊겨
         체인 그래프가 전체맵(비-gil 을 건너뛰는 DAG)과 안 맞았다(AIL 실사용 결함)."""
         self.gil("init", "--name", "clew")
-        self.gil("chain", "dev", "--purpose", "P")
-        self.gil("open", "dev/c1", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "dev/c1", "--kind", "success", "--title", "됨", "--body", "종합")
-        self.gil("close", "dev/c1", "--verdict", "supported")
-        self.gil("chain-close", "dev", "--verdict", "supported")
+        self.gil("chain", "devchain", "--purpose", "P")
+        self.gil("open", "devchain/c1", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "devchain/c1", "--kind", "success", "--title", "됨", "--body", "종합")
+        self.gil("close", "devchain/c1", "--verdict", "supported")
+        self.gil("chain-close", "devchain", "--verdict", "supported")
         # 평범 개발 커밋 두 개 — 실사용 레포에선 체인 사이에 흔히 낀다.
         for i in (1, 2):
             with open(os.path.join(self.repo, f"plain{i}.txt"), "w") as f:
                 f.write("x\n")
             self._git("add", "-A")
             self._git("commit", "-m", f"plain dev commit {i}")
-        self.gil("chain", "stg", "--purpose", "P2")
+        self.gil("chain", "stg", "--purpose", "P2", "--from", "devchain")
         out_html = os.path.join(self.repo, "g.html")
         r = self.gil("viewer", "build", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         import json, re
         html = open(out_html, encoding="utf-8").read()
         parents = json.loads(re.search(r'"parentdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
-        self.assertEqual(parents.get("stg"), "dev",
+        self.assertEqual(parents.get("stg"), "devchain",
                          f"평범 커밋을 건너 조상 체인을 못 찾음 — 계보 끊김: {parents}")
 
     def test_stepmap_zoom_pan_and_cycle_labels(self):
@@ -3248,14 +3248,14 @@ class TestViewer(GilFixture):
         """
         self.gil("init", "--name", "clew")
         # dev 체인: verify → success → close → chain-close.
-        self.gil("chain", "dev", "--purpose", "P")
-        self.gil("open", "dev/c1", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "dev/c1", "--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported")
-        self.gil("step", "dev/c1", "--kind", "success", "--title", "됨", "--body", "종합")
-        self.gil("close", "dev/c1", "--verdict", "supported")
-        self.gil("chain-close", "dev", "--verdict", "supported")
+        self.gil("chain", "devchain", "--purpose", "P")
+        self.gil("open", "devchain/c1", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "devchain/c1", "--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported")
+        self.gil("step", "devchain/c1", "--kind", "success", "--title", "됨", "--body", "종합")
+        self.gil("close", "devchain/c1", "--verdict", "supported")
+        self.gil("chain-close", "devchain", "--verdict", "supported")
         # staging 체인: 닫힌 dev 끝에서 열린다.
-        self.gil("chain", "stg", "--purpose", "P2")
+        self.gil("chain", "stg", "--purpose", "P2", "--from", "devchain")
         self.gil("open", "stg/c1", "--author", "clew", "--purpose", "Q2")
         out_html = os.path.join(self.repo, "g.html")
         self.gil("viewer", "build", "--out", out_html)
@@ -3263,7 +3263,7 @@ class TestViewer(GilFixture):
         html = open(out_html, encoding="utf-8").read()
         dag = json.loads(re.search(r'"dagdata"[^>]*>(\[.*?\])</script>', html).group(1))
         by = {(d["chain"], d["step"]): d for d in dag}
-        dev_success = next(d for d in dag if d["chain"] == "dev" and d["kind"] == "success")
+        dev_success = next(d for d in dag if d["chain"] == "devchain" and d["kind"] == "success")
         stg_s1 = by[("stg", "s1")]
         self.assertIn(dev_success["sha"], stg_s1["parents"],
                       "staging 첫 스텝이 dev 종결 스텝을 부모로 갖지 않음 — 경계 넘는 전수 끊김")
@@ -4502,18 +4502,18 @@ class TestDeploy(GilFixture):
     """gil deploy — 배포(공개) 지점 마커 (이슈 #34)."""
 
     def _live_step(self):
-        self.gil("chain", "dev", "--purpose", "개발")
-        self.gil("open", "dev/c001", "--author", "a", "--purpose", "P")
-        self.gil("step", "dev/c001", "--kind", "success", "--title", "릴리스 준비")
+        self.gil("chain", "devchain", "--purpose", "개발")
+        self.gil("open", "devchain/c001", "--author", "a", "--purpose", "P")
+        self.gil("step", "devchain/c001", "--kind", "success", "--title", "릴리스 준비")
 
     def test_deploy_marks_target_step(self):
         """deploy 는 대상 스텝을 가리키는 Gil-Deploy 트레일러 커밋을 남긴다."""
         self._live_step()
-        r = self.gil("deploy", "--at", "dev/c001/s4", "--tag", "v0.2.0",
+        r = self.gil("deploy", "--at", "devchain/c001/s4", "--tag", "v0.2.0",
                      "--url", "https://example.com/r/v0.2.0")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Deploy"), "v0.2.0")
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-At"), "dev/c001/s4")
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-At"), "devchain/c001/s4")
         self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Url"),
                          "https://example.com/r/v0.2.0")
         # 배포 커밋은 추론 노드가 아니다 — Gil-Step 을 달지 않는다(그래프 위상 불변).
@@ -4523,25 +4523,25 @@ class TestDeploy(GilFixture):
         self._live_step()
         r = self.gil("deploy", "--tag", "v1")  # --at 없음
         self.assertNotEqual(r.returncode, 0)
-        r = self.gil("deploy", "--at", "dev/c001/s4")  # --tag 없음
+        r = self.gil("deploy", "--at", "devchain/c001/s4")  # --tag 없음
         self.assertNotEqual(r.returncode, 0)
 
     def test_deploy_rejects_missing_step(self):
         """실재하지 않는 스텝엔 마커를 얹지 못한다."""
         self._live_step()
-        r = self.gil("deploy", "--at", "dev/c001/s99", "--tag", "v1")
+        r = self.gil("deploy", "--at", "devchain/c001/s99", "--tag", "v1")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("s99", r.stdout + r.stderr)
 
     def test_deploy_rejects_malformed_at(self):
         """--at 은 chain/cycle/step 세 조각을 다 요구한다."""
         self._live_step()
-        r = self.gil("deploy", "--at", "dev/c001", "--tag", "v1")  # 스텝 없음
+        r = self.gil("deploy", "--at", "devchain/c001", "--tag", "v1")  # 스텝 없음
         self.assertNotEqual(r.returncode, 0)
 
     def test_deploy_url_optional(self):
         self._live_step()
-        r = self.gil("deploy", "--at", "dev/c001/s4", "--tag", "v0.1.0")
+        r = self.gil("deploy", "--at", "devchain/c001/s4", "--tag", "v0.1.0")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.trailer("HEAD", "Gil-Deploy"), "v0.1.0")
         self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Url"), "")
@@ -6752,14 +6752,33 @@ class TestParallelChains(GilFixture):
         self.gil("init", "--name", "tester")
         self.gil("chain", "alpha", "--purpose", "장기 트랙 A")
 
-    def test_new_chain_refused_while_another_is_open(self):
-        """문서와 실동작의 어긋남을 없앤다 — 열린 체인이 있으면 그냥 통과시키지 않는다."""
+    def test_new_chain_refused_while_another_is_open_without_dev_layer(self):
+        """문서와 실동작의 어긋남을 없앤다 — 열린 체인이 있으면 그냥 통과시키지 않는다.
+
+        이 거부가 옳았던 이유는 **새로 시작할 자리가 없었기** 때문이다: dev 층이 없으면 새
+        체인은 HEAD(=열린 체인)에 얹힐 수밖에 없고, 그러면 커밋 그래프가 계승을 거짓말한다.
+        그래서 옛 레이아웃(dev 없음)에서는 이 거부가 그대로 산다.
+        """
+        self._git("branch", "-D", "dev")  # 옛 레이아웃 재현
         r = self.gil("chain", "beta", "--purpose", "동시에 굴릴 트랙 B")
         self.assertNotEqual(r.returncode, 0)
         out = r.stdout + r.stderr
         self.assertIn("alpha", out)
         self.assertIn("chain-close", out)      # 이어받기
         self.assertIn("--parallel-with", out)  # 병렬
+
+    def test_dev_layer_lets_a_new_lineage_start_beside_an_open_chain(self):
+        """dev 층이 있으면 열린 체인 옆에서 **새 계보를 시작**할 수 있다 (main-dev-chain).
+
+        얹히는 게 아니라 층에서 갈라지므로 계승으로 그려질 위험 자체가 없다 — 거부의 이유가
+        사라진 자리에서는 거부도 사라져야 한다.
+        """
+        r = self.gil("chain", "beta", "--purpose", "무관한 새 계보")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("beta", "Gil-Chain-Orphan"), "dev")
+        anc = self._git("merge-base", "--is-ancestor", "alpha", "beta").returncode == 0
+        self.assertFalse(anc, "dev 시조라 했는데 열린 체인의 자손으로 각인됐다")
+        self.assertIn("위반 0", self.gil("fsck").stdout)
 
     def test_declared_parallel_is_recorded(self):
         r = self.gil("chain", "beta", "--purpose", "B", "--parallel-with", "alpha")
@@ -6831,12 +6850,27 @@ class TestChainCloseAdvancesTheChainRef(GilFixture):
         self.assertIn("app/c1/s1", reachable)
 
     def test_next_chain_really_succeeds_the_closed_one(self):
-        """'닫힌 체인의 끝에서 새 체인을 연다'가 이름 수준에서도 성립한다."""
+        """'닫힌 체인의 끝에서 새 체인을 연다'가 이름 수준에서도 성립한다.
+
+        main-dev-chain 레이아웃(2026-07-31)에서 이 규칙은 **선언될 때만** 선다: --from 으로
+        어느 체인을 이어받는지 말한 체인만 그 체인의 자손이 된다. 선언 없이 열면 dev 층에서
+        나는 시조다 — 옛 동작(HEAD 가 마침 거기 있어서 얹힘)은 계승을 사고로 만들었다.
+        """
         self._close()
-        r = self.gil("chain", "next", "--purpose", "P2")
+        r = self.gil("chain", "next", "--purpose", "P2", "--from", "app")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         anc = self._git("merge-base", "--is-ancestor", "app", "next").returncode == 0
-        self.assertTrue(anc, "새 체인이 닫힌 체인의 자손이 아니다 — 고아로 보인다")
+        self.assertTrue(anc, "선언한 계승이 실재 분기가 아니다 — 선언만 있고 분기는 없다")
+
+    def test_undeclared_chain_is_a_dev_root_not_a_successor(self):
+        """선언하지 않은 체인은 계승이 아니라 dev 층의 시조다 (main-dev-chain)."""
+        self._close()
+        r = self.gil("chain", "other", "--purpose", "무관한 새 계보")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        anc = self._git("merge-base", "--is-ancestor", "app", "other").returncode == 0
+        self.assertFalse(anc, "선언하지 않았는데 앞 체인 위에 얹혔다 — 계승이 사고로 생겼다")
+        on_dev = self._git("merge-base", "--is-ancestor", "dev", "other").returncode == 0
+        self.assertTrue(on_dev, "dev 층에서 갈라지지 않았다")
 
 
 class TestMCPExposesNewGrammar(GilFixture):
@@ -7989,3 +8023,85 @@ class TestHereAndWorkNode(GilFixture):
         self.assertIn('id="gohere"', html)
         self.assertIn("현재위치로", html)
         self.assertIn("function goHere()", html)
+
+
+class TestMainDevChainLayout(GilFixture):
+    """main-dev-chain 레이아웃 (상현님, 2026-07-31).
+
+    옛 문법에는 **새 계보를 시작할 자리가 없었다.** 체인은 닫힌 체인 끝에서만 열렸으므로
+    무관한 탐색선도 앞 체인 위에 얹혔고, drift 는 그걸 stacked 로 계속 짖었다. 짖는 게
+    옳았다 — 얹힐 수밖에 없는 문법이 문제였다. 층을 하나 넣어 그 자리를 만든다:
+
+        main(대문) → dev(층) → 체인들
+
+    dev 를 부모로 둔 체인은 계보상 시조(orphan)다. **대문은 물려받는다** — 끊기는 것은
+    'gil 이 인정하는 계승' 뿐이다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+
+    def test_init_plants_the_dev_layer(self):
+        """gil init 이 대문 다음에 dev 층을 심고, HEAD 를 거기 둔다 — 작업은 dev 에서 시작한다."""
+        self.assertEqual(self._git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "dev")
+        self.assertEqual(self.trailer("dev", "Gil-Kind"), "dev-root")
+
+    def test_dev_inherits_the_gate(self):
+        """층이 대문을 물려받는다 — orphan 은 '대문 없음'이 아니라 '앞선 체인 없음'이다."""
+        for path in ("CLAUDE.md", "docs/gil/index.md"):
+            r = self._git("cat-file", "-e", "dev:" + path)
+            self.assertEqual(r.returncode, 0, f"dev 에 대문 {path} 이 없다 — SPEC 규칙 2 위반")
+
+    def test_chain_without_declaration_is_a_dev_root(self):
+        """--from 없이 연 체인은 dev 팁에서 실제로 갈라지고, 그 사실을 선언으로 남긴다."""
+        self.gil("chain", "alpha", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+        self.assertEqual(self.trailer("alpha", "Gil-Chain-Orphan"), "dev")
+        parent = self._git("rev-parse", "alpha^").stdout.strip()
+        dev_tip = self._git("rev-parse", "dev").stdout.strip()
+        self.assertEqual(parent, dev_tip, "선언은 dev 인데 실제로는 다른 자리에서 갈라졌다")
+
+    def test_two_unrelated_lineages_are_siblings_not_a_stack(self):
+        """무관한 두 계보가 형제로 선다 — 이게 없어서 데모 위에 프로젝트가 얹혔다."""
+        for n in ("alpha", "beta"):
+            r = self.gil("chain", n, "--purpose", n, "--reference", "-",
+                         "--criterion", "C", input="기준")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        anc = self._git("merge-base", "--is-ancestor", "alpha", "beta").returncode == 0
+        self.assertFalse(anc, "무관한 두 체인이 여전히 한 줄기로 쌓인다")
+        self.assertIn("위반 0", self.gil("fsck").stdout)
+
+    def test_layer_name_is_not_available_to_chains(self):
+        """이름이 무엇을 가리키는지 하나로 정한다 — 체인이 층을 덮어쓰지 못한다."""
+        r = self.gil("chain", "dev", "--purpose", "P", "--reference", "-",
+                     "--criterion", "C", input="기준")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("층의 이름", r.stdout + r.stderr)
+
+    def test_fsck_catches_a_declared_but_unreal_dev_root(self):
+        """**선언은 실재가 뒷받침할 때만 계보다** (v3.45.0 의 판정을 층에도).
+
+        dev 에서 났다고 적어두고 실제로는 체인 위에 얹은 거짓 계보를 일부러 심는다.
+        약한 검사('dev 의 자손이면 통과')는 이걸 못 잡는다 — 얹힌 체인도 dev 의 자손이니까.
+        """
+        self.gil("chain", "alpha", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+        self._git("checkout", "-q", "alpha")
+        self._git("checkout", "-q", "-b", "gamma")
+        self._git("commit", "-q", "--allow-empty", "-m",
+                  "gil gamma chain: 거짓\n\n체인 [gamma] 개설.\n\n"
+                  "Gil-Chain: gamma\nGil-Kind: chain-root\nGil-Chain-Purpose: 거짓\n"
+                  "Gil-Chain-Orphan: dev")
+        r = self.gil("fsck")
+        out = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0, "거짓 계보를 심었는데 fsck 가 통과시켰다: " + out)
+        self.assertIn("dev 에서 닿지 않는 커밋", out)
+
+    def test_drift_names_the_missing_layer_as_the_cause(self):
+        """층이 없는 저장소에는 증상(stacked)만이 아니라 원인을 말한다."""
+        self.gil("chain", "alpha", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+        self._git("branch", "-D", "dev")
+        out = self.gil("drift").stdout + self.gil("drift").stderr
+        self.assertIn("no-dev-layer", out)

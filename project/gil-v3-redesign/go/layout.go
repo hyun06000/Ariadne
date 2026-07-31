@@ -1,0 +1,166 @@
+// layout.go — main-dev-chain 레이아웃 (상현님, 2026-07-31).
+//
+// 옛 문법에는 **새 계보를 시작할 자리가 없었다.** 체인은 "닫힌 체인 끝에서만" 열렸으므로,
+// 무관한 탐색선도 앞 체인 위에 얹혔다 — 데모 체인이 끝나면 그 데모에서 이어서 프로젝트를
+// 계속하는 식이었다. 계보가 실제 사고 구조를 왜곡했고, drift 는 그걸 stacked 로 계속 짖었다.
+// 짖는 게 옳았다. 얹을 수밖에 없는 문법이 문제였다.
+//
+// 그래서 층을 하나 넣는다:
+//
+//	main  — 대문(README·CLAUDE.md·existence·project)의 뿌리. 배포된 것만 여기 온다.
+//	dev   — main 의 **루트 커밋**에서 갈라진 유일한 층. 모든 작업이 여기서 시작한다.
+//	chain — dev 팁에서 갈라지거나(= 시조), 다른 닫힌 체인을 이어받거나(--from).
+//
+// **dev 를 부모로 둔 체인은 orphan 이다.** 이때 orphan 은 "대문을 못 물려받는다"가 아니다 —
+// dev 는 main 루트의 자손이라 대문은 그대로 물려받는다(SPEC 규칙 2 유지). 끊기는 것은
+// **gil 이 인정하는 계승**뿐이다: 앞선 체인이 없다는 선언, 즉 계보상 시조.
+// 실재(커밋)와 선언(계보)은 다른 축이라는 v3.45.0 의 원칙이 여기서도 그대로 선다.
+//
+// dev → main 승격 = 배포(gil deploy). 체인 간 합류 = 머지(gil merge). 둘은 구분한다 —
+// main·dev 를 체인으로 취급할지는 아직 정하지 않았기 때문이다.
+package main
+
+import (
+	"sort"
+	"strings"
+)
+
+// devBranchName — dev 층의 브랜치 이름. 고정이다(레이아웃의 이름은 문법의 일부).
+const devBranchName = "dev"
+
+// gateRootSHA — 대문의 뿌리 커밋. dev 가 갈라져 나오는 자리이자, 계보 판정의 기준점이다.
+// 커밋이 없으면 "".
+func gateRootSHA() string {
+	out, err := gitTry("rev-list", "--max-parents=0", "HEAD")
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimSpace(out)
+	if i := strings.Index(s, "\n"); i >= 0 {
+		s = s[:i] // 뿌리가 여럿이면(옛 orphan 브랜치들) 가장 오래된 하나 — 첫 줄이 HEAD 계보의 것이다.
+	}
+	return s
+}
+
+// hasDevLayer — 이 저장소가 dev 층을 갖췄나. 브랜치가 있는 것만으로는 부족하다:
+// 사람이 만든 평범한 dev 브랜치와, gil 이 심은 층은 다른 것이다. 표식(dev-root)으로 가른다.
+//
+// 표식 없는 dev 브랜치를 층으로 오인하면, 체인들이 남의 작업 브랜치 위에 태어난다.
+func hasDevLayer() bool {
+	return devRootSHA() != ""
+}
+
+// devRootSHA — dev 층의 뿌리 커밋(Gil-Kind: dev-root). 없으면 "".
+func devRootSHA() string {
+	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
+		return ""
+	}
+	fmtStr := "%H" + fsep + trailer("Gil-Kind") + sep
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, devBranchName), sep) {
+		sha, kind, _ := cut(strings.TrimSpace(rec), fsep)
+		if strings.TrimSpace(kind) == "dev-root" {
+			return strings.TrimSpace(sha)
+		}
+	}
+	return ""
+}
+
+// devTipSHA — 체인이 갈라져 나올 자리. **루트가 아니라 팁이다** — dev 에 얹힌 대문 갱신을
+// 새 체인이 물려받아야 하기 때문이다(뿌리에서 갈라지면 대문이 init 시점에서 멈춘다).
+func devTipSHA() string {
+	if !hasDevLayer() {
+		return ""
+	}
+	return strings.TrimSpace(git("rev-parse", devBranchName))
+}
+
+// ensureDevLayer — dev 층을 심는다(gil init 전용). 이미 있으면 아무 일도 하지 않는다.
+// 반환: 새로 심었나.
+//
+// **대문이 다 선 자리에서** 갈라진다. 뿌리 커밋에서 갈라고 싶은 유혹이 있지만(그러면 main
+// 팁엔 배포된 것만 남는다), 그렇게 하면 dev 가 대문 파일(docs/gil·llms.txt·진입점 블록)을
+// 못 물려받는다 — SPEC 규칙 2 가 깨진다. 대문이 완성된 시점의 main 팁이 곧 대문이고,
+// 그 자리가 dev 의 뿌리다. 어디서 갈라졌는지는 트레일러에 남겨 나중에 대조 가능하게 한다.
+func ensureDevLayer() bool {
+	if hasDevLayer() {
+		return false
+	}
+	base := strings.TrimSpace(git("rev-parse", "HEAD"))
+	if base == "" {
+		return false // 커밋이 하나도 없는 저장소 — 대문부터 서야 층이 선다.
+	}
+	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
+		// 표식 없는 dev 가 이미 있다. 남의 브랜치를 층으로 삼키지 않는다 — 조용히 물러난다.
+		// (드리프트가 이걸 no-dev-layer 로 보고하고, migrate 가 이름 충돌을 다룬다.)
+		return false
+	}
+	commitOn(devBranchName, base,
+		"gil init: dev 층 개설",
+		"모든 작업은 dev 에서 시작한다. dev 를 부모로 둔 체인은 계보상 시조(orphan)다 —\n"+
+			"대문(README·CLAUDE.md·existence·project)은 dev 가 main 루트의 자손이라 그대로\n"+
+			"물려받고, 끊기는 것은 '앞선 체인' 뿐이다.\n\n"+
+			"dev 에서 main 으로의 승격 = 배포(gil deploy). 체인 간 합류 = gil merge.",
+		[][2]string{{"Gil-Kind", "dev-root"}, {"Gil-Dev-From", base}}, true)
+	return true
+}
+
+// fsckDevLayer — **층의 선언과 실재를 대조한다.**
+//
+// `Gil-Chain-Orphan: dev` 는 "나는 dev 에서 갈라졌다"는 선언이다. 트레일러에 그렇게 적고
+// 실제로는 다른 자리에서 갈라졌다면, 그 계보는 거짓이다 — v3.45.0 이 사이클에 세운 판정을
+// 층에도 그대로 세운다. 판정은 눈이 아니라 도구가 한다.
+//
+// 약한 검사를 경계한다: "dev 의 어느 커밋이든 조상이면 통과"로 짜면, dev 에서 난 체인 위에
+// 얹힌 체인도 통과한다(그 체인 역시 dev 의 자손이므로). 그래서 **부모 커밋이 dev 브랜치에서
+// 실제로 닿는 커밋인가**를 본다 — 체인 위에 얹혔다면 그 부모는 dev 에서 안 닿는다.
+func fsckDevLayer() []string {
+	if !hasDevLayer() {
+		return nil
+	}
+	// dev 브랜치에서 닿는 커밋 전부. 체인 브랜치의 커밋은 여기 없다.
+	onDev := map[string]bool{}
+	for _, l := range strings.Split(gitlog("--format=%H", devBranchName), "\n") {
+		if s := strings.TrimSpace(l); s != "" {
+			onDev[s] = true
+		}
+	}
+	fmtStr := "%H" + fsep + "%P" + fsep + trailer("Gil-Chain") + fsep +
+		trailer("Gil-Kind") + fsep + trailer("Gil-Chain-Orphan") + sep
+	var out []string
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		sha, r1, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok {
+			continue
+		}
+		par, r2, _ := cut(r1, fsep)
+		ch, r3, _ := cut(r2, fsep)
+		kind, orphan, _ := cut(r3, fsep)
+		if strings.TrimSpace(kind) != "chain-root" || strings.TrimSpace(orphan) != "dev" {
+			continue
+		}
+		_ = sha
+		ps := strings.Fields(par)
+		if len(ps) == 0 {
+			out = append(out, "층: 체인 "+strings.TrimSpace(ch)+" — dev 에서 갈라졌다고 선언했는데 "+
+				"**부모가 없다**(저장소의 첫 커밋이다). 선언과 실재가 다르다.")
+			continue
+		}
+		if !onDev[ps[0]] {
+			out = append(out, "층: 체인 "+strings.TrimSpace(ch)+" — dev 에서 갈라졌다고 선언했는데 "+
+				"**실제로는 dev 에서 닿지 않는 커밋("+first9(ps[0])+")에서 갈라졌다**.\n"+
+				"    dev 층에서 난 시조가 아니라 무언가에 얹힌 체인이다 — 선언만 있고 분기는 없다.\n"+
+				"    확인: git log --oneline --graph "+devBranchName+" "+strings.TrimSpace(ch))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// devLayerNudge — dev 층이 없는 저장소(옛 레이아웃)에게 주는 안내. 거부가 아니라 안내인
+// 이유: 이 저장소들은 gil 이 층을 만들기 전에 태어났고, 이주 경로(gil migrate)가 서기
+// 전에 문법으로 막으면 이미 있는 나무가 통째로 얼어붙는다. 집행 지점은 **탄생**(gil init)이다.
+func devLayerNudge() {
+	stderr("  ▸ 이 저장소엔 dev 층이 없다 — 새 계보를 시작할 자리가 문법에 없다는 뜻이다.")
+	stderr("    그래서 무관한 탐색선도 앞 체인 위에 얹히고, drift 가 그걸 stacked 로 계속 짖는다.")
+	stderr("    나무 전체를 main-dev-chain 으로 옮기려면: gil migrate --to-dev-layout")
+}

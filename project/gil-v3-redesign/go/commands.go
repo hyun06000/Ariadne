@@ -3125,6 +3125,19 @@ func cmdChain(args []string) {
 	if !idRe.MatchString(name) {
 		die("거부: 체인 이름 \"" + name + "\"은 소문자·숫자·하이픈만")
 	}
+	// 층의 이름은 체인이 쓸 수 없다(main-dev-chain). 옛 저장소에는 "dev" 라는 이름의 체인이
+	// 흔했는데, 그 이름이 이제 층을 가리키므로 그대로 두면 체인이 층을 덮어쓴다. 이름이 무엇을
+	// 가리키는지 하나로 정해야 한다 — 아니면 뷰어도 fsck 도 어느 dev 를 말하는지 모른다.
+	if name == devBranchName {
+		die("거부: \"" + devBranchName + "\" 은 층의 이름이다 — 모든 체인이 여기서 태어난다.\n" +
+			"  체인에는 그 작업이 무엇인지 말하는 이름을 줘라(예: " + name + "-<하는 일>).\n" +
+			"  층이 궁금하면: git log --oneline " + devBranchName)
+	}
+	// homeBranch 는 main/master 가 없으면 아무 브랜치나 되돌려준다 — 그 폴백으로 이름을 막으면
+	// 알파벳 순 첫 체인이 자기 이름을 못 쓰게 된다. 대문이 확실할 때만 막는다.
+	if h := homeBranch(); (h == "main" || h == "master") && name == h {
+		die("거부: \"" + name + "\" 은 대문 브랜치다 — 배포된 것만 여기 온다(gil deploy).")
+	}
 	if chainPurpose(name, "HEAD") != "" {
 		die("거부: 체인 \"" + name + "\" 이미 목적 선언됨 (chain은 새 체인만)")
 	}
@@ -3143,9 +3156,17 @@ func cmdChain(args []string) {
 				"  (동시에 굴리는 트랙이면 --parallel-with " + f + " 다.)")
 		}
 	}
+	// ── 이 체인은 어느 자리에서 태어나나 ──────────────────────────────────────────
+	// dev 층이 있으면(main-dev-chain 레이아웃), --from 으로 계승을 선언하지 않은 체인은
+	// **dev 팁에서** 갈라진다 = 계보상 시조(orphan). 옛 문법에는 이 자리가 없어서 무관한
+	// 탐색선도 앞 체인 위에 얹혔다 — 그게 drift 가 stacked 로 계속 짖던 것의 정체다.
+	devRooted := hasDevLayer() && strings.TrimSpace(*from) == "" && len(*parallelWith) == 0
 	// 열린 체인이 있으면 — 이어받는 것이 아니라 나란히 여는 것이므로 — 선언을 요구한다.
 	// gil 자신의 규칙("닫힌 체인 끝에서만")과 실동작의 어긋남을 여기서 없앤다.
-	if open := openChains(); len(open) > 0 {
+	//
+	// **dev 에서 나는 체인은 이 요구에서 빠진다.** 그건 열린 체인 옆에 얹히는 게 아니라
+	// 층에서 새로 시작하는 것이라, 계승으로 그려질 위험 자체가 없다(진짜로 dev 에서 갈라진다).
+	if open := openChains(); len(open) > 0 && !devRooted {
 		declared := map[string]bool{}
 		for _, p := range *parallelWith {
 			declared[p] = true
@@ -3215,12 +3236,21 @@ func cmdChain(args []string) {
 	if f := strings.TrimSpace(*from); f != "" {
 		tr = append(tr, [2]string{"Gil-Chain-From", f}) // 이어받는 체인 선언(이슈 #68)
 	}
+	if devRooted {
+		// 계보상 시조 — 앞선 체인이 없다는 **선언**이다(대문은 물려받는다, layout.go).
+		// 선언을 남겨야 drift·뷰어가 이걸 '끊긴 계보'가 아니라 '여기서 새로 시작'으로 읽는다.
+		tr = append(tr, [2]string{"Gil-Chain-Orphan", "dev"})
+	}
 	// 체인 = git 브랜치. 현재 위치(대문/닫힌 체인 끝)에서 분기해 대문을 이어받는다(orphan 아님).
 	//
 	// 병렬이면 **그 체인이 시작한 자리와 같은 자리**에서 갈라진다(이슈 #54·#65). 선언만 하고
 	// 위상은 적층으로 두면, 커밋 그래프는 여전히 "뒤에 왔으니 이어받았다"고 말한다 — 적층
 	// 자체를 없애야 두 진실이 하나가 된다.
 	base := "HEAD"
+	if devRooted {
+		// dev 팁 — 대문 갱신까지 물려받는 자리. HEAD 를 쓰면 "마지막으로 있던 곳"에 얹힌다.
+		base = devTipSHA()
+	}
 	if f := strings.TrimSpace(*from); f != "" {
 		// 선언한 그 체인의 **끝**에서 갈라진다(이슈 #68). 이름이 봉인을 가리키므로(이슈 #66)
 		// 그 ref 가 곧 끝이다. 선언과 그래프가 같은 말을 하게 된다.
@@ -3232,6 +3262,11 @@ func cmdChain(args []string) {
 	}
 	commitOn(name, base, subject, body, tr, true)
 	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
+	if devRooted {
+		println2("  ⌂ dev 층에서 갈라졌다 — 계보상 시조(앞선 체인 없음). 대문은 그대로 물려받는다.")
+	} else if !hasDevLayer() {
+		devLayerNudge()
+	}
 	if strings.TrimSpace(refBody) != "" {
 		println2("  ✓ 기준 문서(레퍼런스 트루스) 심음 — 이후 사이클의 define·가설·성패판정이 이걸 잣대로 선다.")
 	} else {

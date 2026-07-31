@@ -90,6 +90,10 @@ func cmdInit(args []string) {
 		}
 	}
 
+	// 4.7. dev 층 — 대문이 다 선 **지금** 갈라진다(layout.go). 여기가 집행 지점이다:
+	// 층이 태어날 때 심어야, 이 저장소에서 여는 모든 체인이 시작할 자리를 갖는다.
+	devMade := ensureDevLayer()
+
 	// 5. refspec 등록 + push.
 	ensureGlobalRefspec()
 	pushed := globalPush()
@@ -108,6 +112,11 @@ func cmdInit(args []string) {
 		println2("     커밋까지 마쳤다 — 복원 경로의 첫 칸이 이제 저장소에 있다(갱신: gil docs install).")
 	} else if docsWrote > 0 || gateState != "unchanged" {
 		println2("     작업트리에 있다 — 커밋은 네가 한다(갱신: gil docs install [--force]).")
+	}
+	if devMade {
+		println2("  층: main(대문) → dev 분기 완료 — 지금 HEAD 는 dev 다. 작업은 여기서 시작한다.")
+		println2("     dev 를 부모로 둔 체인은 계보상 시조(orphan)다 — 대문은 그대로 물려받는다.")
+		println2("     dev → main 승격 = 배포(gil deploy). 체인 간 합류 = gil merge.")
 	}
 	if pushed {
 		println2("  원격: refspec 등록 + push 완료.")

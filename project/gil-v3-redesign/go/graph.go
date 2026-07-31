@@ -519,6 +519,7 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	//  오염된 저장소에서 수십 줄이 되어 정작 다른 위반을 덮는다. 이슈 #84 에서 실측.)
 	violations = append(violations, fsckChainStacking()...)
 	violations = append(violations, fsckLineageIsReal(universe)...)
+	violations = append(violations, fsckDevLayer()...)
 	violations = append(violations, fsckMigratedBodies()...)
 	violations = append(violations, fsckMemoryLayer(nodes)...)
 	violations = append(violations, fsckUnanchoredSteps()...)

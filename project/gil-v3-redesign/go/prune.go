@@ -148,6 +148,14 @@ func driftReport(only string) []driftItem {
 			}
 		}
 	}
+	// (e) dev 층 없음 — 이 저장소엔 **새 계보를 시작할 자리가 없다.** 그래서 무관한 탐색선도
+	// 앞 체인 위에 얹히고, 위의 stacked 보고가 끝없이 재발한다. 증상만 세고 원인을 말하지
+	// 않으면 사람은 같은 항목을 매번 다시 읽는다 — 원인을 한 줄로 세운다.
+	if only == "" && len(names) > 0 && !hasDevLayer() {
+		items = append(items, driftItem{devBranchName, "no-dev-layer",
+			"dev 층이 없다 — 새 계보를 시작할 자리가 문법에 없어, 무관한 체인도 앞 체인 위에 얹힌다",
+			"나무 전체를 옮기려면: gil migrate --to-dev-layout"})
+	}
 	// (d) 잔재 브랜치 — 브랜치는 있는데 gil 이 모르는 것. 정리 후보다.
 	if only == "" {
 		home := homeBranch()
@@ -157,6 +165,9 @@ func driftReport(only string) []driftItem {
 			}
 			if b == home {
 				continue // 대문이 사는 브랜치다 — gil 커밋이 없어도 잔재가 아니다(뿌리다)
+			}
+			if b == devBranchName && hasDevLayer() {
+				continue // 층이다. 체인이 아직 하나도 없어도 잔재가 아니다 — 모든 체인이 여기서 난다.
 			}
 			// 대문 계보(체인들이 그 위에서 자란 자리)도 잔재가 아니다.
 			ancestorOfChain := false
