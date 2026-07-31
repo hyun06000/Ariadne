@@ -330,6 +330,25 @@ func serve(args []string) {
 		}
 		w.Write(out)
 	})
+	// POST /prune-withdraw?target= — 요청을 거둔다(이슈 #91). 승인과 달리 사람만의 문이 아니다:
+	// 아무것도 지우지 않고 카드만 걷는다. 갇힌 상태에서 빠져나오는 길은 화면에도 있어야 한다.
+	handle("/prune-withdraw", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		target := r.URL.Query().Get("target")
+		if target == "" || strings.ContainsAny(target, " ;&|$`\n") {
+			http.Error(w, "bad target", http.StatusBadRequest)
+			return
+		}
+		out, err := gilExec("prune", target, "--withdraw", "--reason", "뷰어에서 사람이 요청을 거둠")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+		w.Write(out)
+	})
 	handle("/interview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -1394,6 +1413,10 @@ svg.dag{display:block}
 @keyframes gilflash{0%{stroke-width:2.5}30%{stroke-width:7}100%{stroke-width:2.5}}
 .planbadge{font-size:10px;font-weight:700;fill:var(--dim);text-anchor:middle;pointer-events:none}
 .planbadge.broke{fill:#f59e0b}
+/* 요청 철회 — 승인 옆의 낮은 무게 버튼(아무것도 지우지 않는다, 이슈 #91) */
+.prunewd{margin-left:8px;font:inherit;font-size:12px;padding:5px 12px;border-radius:7px;cursor:pointer;
+ border:1px solid var(--line);background:transparent;color:var(--dim)}
+.prunewd:hover{border-color:var(--fg);color:var(--fg)}
 /* 정정(AIL #12) — ⟲정정한 스텝은 호박색 표식, 대체된 구버전 가지는 통째로 흐리게.
    지우는 게 아니라 '살아있지 않다'를 보이는 것이다: 이력은 그대로 남는다. */
 .supbadge{font-size:10px;font-weight:700;fill:#f59e0b;text-anchor:middle;pointer-events:none}
@@ -2671,6 +2694,10 @@ function buildPrunes(){
     head.textContent='삭제 요청: '+p.target+'  ('+p.sha+')';
     const body=document.createElement('div'); body.className='prunebody'; body.textContent=p.body;
     const btn=document.createElement('button'); btn.className='prunebtn'; btn.textContent='이 삭제를 승인합니다';
+    // 요청을 올린 순간 빠져나올 수 없으면 그 문은 문이 아니라 덫이다(이슈 #91). 철회는
+    // 아무것도 지우지 않으므로 승인과 같은 무게의 문을 달지 않는다 — 카드만 걷는다.
+    const wbtn=document.createElement('button'); wbtn.className='prunewd'; wbtn.textContent='요청 철회';
+    wbtn.title='아무것도 지우지 않고 이 요청을 거둔다(이력엔 남는다)';
     const st=document.createElement('span'); st.style.marginLeft='10px'; st.style.fontSize='12px';
     btn.addEventListener('click',async()=>{
       if(!confirm('정말 '+p.target+' 삭제를 승인합니까?\n\n승인해도 바로 지워지지는 않습니다 — 실행에는 CLI 확인 문구가 더 필요합니다.'))return;
@@ -2682,7 +2709,16 @@ function buildPrunes(){
         else{ st.textContent=' ✕ '+t.split('\n')[0]; btn.disabled=false; }
       }catch(e){ st.textContent=' ✕ '+e; btn.disabled=false; }
     });
-    card.appendChild(head); card.appendChild(body); card.appendChild(btn); card.appendChild(st);
+    wbtn.addEventListener('click',async()=>{
+      wbtn.disabled=true; st.textContent=' 철회 중…';
+      try{
+        const res=await fetch('/prune-withdraw?target='+encodeURIComponent(p.target),{method:'POST'});
+        const t=await res.text();
+        if(res.ok){ st.textContent=' ✓ 요청을 거뒀다 — 아무것도 지워지지 않았다'; setTimeout(()=>location.reload(),900); }
+        else{ st.textContent=' ✕ '+t.split('\n')[0]; wbtn.disabled=false; }
+      }catch(e){ st.textContent=' ✕ '+e; wbtn.disabled=false; }
+    });
+    card.appendChild(head); card.appendChild(body); card.appendChild(btn); card.appendChild(wbtn); card.appendChild(st);
     host.appendChild(card);
   });
 }

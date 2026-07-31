@@ -1496,6 +1496,77 @@ class TestInterviewArrival(GilFixture):
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
 
 
+class TestPruneWithdraw(GilFixture):
+    """이슈 #91 — 요청을 올린 순간 빠져나올 수 없었다.
+
+    `--request` 는 커밋을 남기는데 철회 문법이 없어, 승인도 철회도 못 하는 상태에 갇혔다
+    (카드가 뷰어 상단을 영구히 덮는다). append-only 는 그래프 안의 규율이지 새 사실을 못
+    적는다는 뜻이 아니다 — **'이 요청은 더 이상 유효하지 않다' 도 새 사실이다.**"""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c1", "--purpose", "정리 대상")
+        self.gil("prune", "c1", "--request", "--reason", "실험이었고 이제 필요 없다")
+
+    def test_request_tells_how_to_get_out(self):
+        """거부만 하고 길이 없으면 벽이다 — 요청하는 자리에서 나가는 길도 함께 준다."""
+        r = self.gil("prune", "c1", "--request", "--reason", "다시")
+        self.assertIn("--withdraw", r.stdout + r.stderr)
+
+    def test_withdraw_settles_the_request(self):
+        r = self.gil("prune", "c1", "--withdraw", "--reason", "생각이 바뀌었다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Kind"), "prune-withdraw")
+        # 거둔 요청은 승인될 수 없다.
+        a = self.gil("prune-approve", "c1")
+        self.assertNotEqual(a.returncode, 0)
+        self.assertIn("삭제 요청이 없다", a.stderr)
+
+    def test_withdraw_needs_a_reason_and_a_request(self):
+        self.assertNotEqual(self.gil("prune", "c1", "--withdraw").returncode, 0)
+        r = self.gil("prune", "없는체인", "--withdraw", "--reason", "x")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("거둘 것이 없다", r.stderr)
+
+    def test_re_request_after_withdraw_shows_up_again(self):
+        """철회 뒤 **다시 올린 요청**은 다시 떠야 한다 — 결말은 시간 축의 마지막 사실이다."""
+        self.gil("prune", "c1", "--withdraw", "--reason", "거둔다")
+        self.gil("prune", "c1", "--request", "--reason", "역시 지우자")
+        r = self.gil("prune", "c1")
+        self.assertIn("아직 사람의 승인이 없다", r.stdout + r.stderr)
+        a = self.gil("prune-approve", "c1")
+        self.assertEqual(a.returncode, 0, a.stderr)
+
+    def test_withdrawn_request_cannot_be_confirmed(self):
+        self.gil("prune", "c1", "--withdraw", "--reason", "거둔다")
+        r = self.gil("prune", "c1", "--confirm", "c1", "--reason", "지운다")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_retire_without_refs_gives_a_way_out(self):
+        """정리 사다리의 아래 칸이 위 칸의 대상을 모르면 막다른 길이 생긴다(#91 ③).
+
+        prune 은 아는 체인을 retire 는 "로컬 브랜치가 없다"로 거부했고, 그래서 카드를 접을
+        수도 지울 수도 없었다. 거부하더라도 **갈 수 있는 길**은 줘야 한다."""
+        # 브랜치는 없는데 그래프에는 살아 있는 상태(보고자의 v3-* 체인이 그랬다)를 만든다:
+        # 태그로 도달 가능하게 남기고 브랜치만 지운다 — prune 은 --all 로 보고 retire 는 못 본다.
+        tip = self._git("rev-parse", "refs/heads/c1").stdout.strip()
+        self._git("tag", "keep-c1", tip)
+        self._git("update-ref", "-d", "refs/heads/c1")
+        r = self.gil("chain-retire", "c1", "--reason", "접자")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("그래프에는 살아 있다", r.stderr)
+        self.assertIn("gil prune c1 --withdraw", r.stderr)   # 갇힌 요청에서 나가는 길
+
+    def test_retire_says_when_it_is_already_folded(self):
+        """이미 접힌 체인을 또 접으라 하면, 그 사실과 펼치는 법을 말한다."""
+        self.gil("chain-retire", "c1", "--reason", "접자", "--confirm", "c1")
+        r = self.gil("chain-retire", "c1", "--reason", "또 접자")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("이미 접혀 있다", r.stderr)
+        self.assertIn("chain-unretire", r.stderr)
+
+
 class TestViewerLeavesATrace(GilFixture):
     """뷰어가 죽으면 **왜 죽었는지 남아야 한다** (상현님 실사용).
 

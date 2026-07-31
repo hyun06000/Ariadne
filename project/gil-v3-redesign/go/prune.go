@@ -408,7 +408,36 @@ func cmdChainRetire(args []string) {
 	}
 	refs := chainRefs(chain)
 	if len(refs) == 0 {
-		die("거부: " + chain + " 의 로컬 브랜치가 없다 — 이미 폐기됐거나 이름이 틀렸다(gil drift 로 확인).")
+		// 거부만 하고 길이 없으면 벽이다(이슈 #91 ③). prune 은 이 체인을 아는데 retire 는
+		// 모른다 — 정리 사다리(drift → reconcile → retire → prune)의 아래 칸이 위 칸의 대상을
+		// 포함하지 않으면, 그 사이에 낀 체인은 접을 수도 지울 수도 없는 막다른 길이 된다.
+		// 그러니 **무엇이 실재하는지 말하고, 갈 수 있는 길을 준다.**
+		msg := "거부: " + chain + " 의 로컬 브랜치가 없다 — 접어서 감출 ref 자체가 없다.\n"
+		already := false
+		for _, r := range retiredChainNames() {
+			if r == chain || strings.HasPrefix(r, chain+"-") {
+				already = true
+				break
+			}
+		}
+		steps := 0
+		for _, n := range collectNodes("--all") {
+			if n.chain == chain {
+				steps++
+			}
+		}
+		switch {
+		case already:
+			msg += "  이미 접혀 있다(" + retiredPrefix + "). 펼치려면: gil chain-unretire " + chain
+		case steps > 0 || chainPurpose(chain, "--all") != "":
+			msg += "  다만 그래프에는 살아 있다(스텝 " + itoa(steps) + "개) — 브랜치만 없는 상태다.\n" +
+				"    · 정말 지우려면: gil prune " + chain + " --dry-run  (prune 은 이 체인을 인식한다)\n" +
+				"    · 올려둔 삭제 요청을 거두려면: gil prune " + chain + " --withdraw --reason <왜>\n" +
+				"    · 이름·상태를 확인하려면: gil drift"
+		default:
+			msg += "  이 이름의 체인을 그래프에서도 못 찾았다 — 이름이 틀렸을 수 있다(gil drift 로 확인)."
+		}
+		die(msg)
 	}
 	// ── 영향 요약 — 접기 전에 **무엇이 시야에서 사라지는지** 말한다(이슈 #92) ──
 	var cycSet = map[string]bool{}
@@ -521,16 +550,35 @@ func cmdChainUnretire(args []string) {
 // ── 4. prune — 삭제(비가역) ───────────────────────────────────────────
 
 // pruneApproved — 이 대상에 대한 **사람의 승인 커밋**이 있나(뷰어 카드에서 누른 것).
-func pruneApproved(target string) bool {
+// pruneState — 이 대상의 **최신 사실**: none | requested | withdrawn | approved | pruned.
+//
+// 왜 상태로 보나(이슈 #91): 옛 코드는 "prune-request 커밋이 있나"만 봤다. 그래서 요청을 한 번
+// 올리면 되돌릴 문법이 없어 **빠져나올 수 없었다** — 카드가 뷰어 상단을 영구히 덮었다.
+// append-only 는 그래프 안의 규율이지 새 사실을 못 적는다는 뜻이 아니다: '이 요청은 더 이상
+// 유효하지 않다' 도 새 사실이라 append 로 표현된다(prune 문서가 스스로 그렇게 말한다).
+func pruneState(target string) string {
 	fmtStr := trailer("Gil-Kind") + fsep + trailer("Gil-Prune-Target") + sep
+	// gitlog 는 new→old — 가장 최근의 결정적 사실 하나만 보면 된다.
 	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--all"), sep) {
 		k, t, _ := cut(strings.TrimSpace(rec), fsep)
-		if strings.TrimSpace(k) == "prune-approve" && strings.TrimSpace(t) == target {
-			return true
+		if strings.TrimSpace(t) != target {
+			continue
+		}
+		switch strings.TrimSpace(k) {
+		case "prune":
+			return "pruned"
+		case "prune-approve":
+			return "approved"
+		case "prune-withdraw":
+			return "withdrawn"
+		case "prune-request":
+			return "requested"
 		}
 	}
-	return false
+	return "none"
 }
+
+func pruneApproved(target string) bool { return pruneState(target) == "approved" }
 
 // pruneScope — 삭제 대상이 무엇이고 무엇을 잃는가. 체인 전체 또는 잎 스텝 하나.
 type pruneScope struct {
@@ -662,16 +710,40 @@ func cmdPrune(args []string) {
 	fs := newFlags("gil prune")
 	dryRun := fs.boolFlag("dry-run")
 	request := fs.boolFlag("request")
+	withdraw := fs.boolFlag("withdraw")
 	confirm := fs.str("confirm", "")
 	reason := fs.str("reason", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil prune <chain>|<chain>/<cycle>/<step> --dry-run     (무엇을 잃는지 먼저 본다)\n" +
 			"      gil prune <대상> --request --reason <왜>               (사람 승인을 요청한다 — 뷰어에 카드가 뜬다)\n" +
+			"      gil prune <대상> --withdraw --reason <왜>              (요청을 거둔다 — 카드가 사라진다)\n" +
 			"      gil prune <대상> --confirm <대상> --reason <왜>        (승인이 있을 때만 실제 삭제)\n" +
 			"  삭제는 되돌릴 수 없다. 그래서 셋을 다 요구한다 — 사람의 승인 커밋, CLI 확인 문구, 그리고 묘비.")
 	}
 	target := pos[0]
+	// ── 요청 철회 (이슈 #91) ─────────────────────────────────────────────────────
+	// 요청을 올린 순간 빠져나올 수 없으면, 그 문은 문이 아니라 덫이다. 대상 해석(그래프 조회)
+	// 보다 먼저 처리한다 — 대상이 이미 사라진 뒤에도 요청은 거둘 수 있어야 하니까.
+	if *withdraw {
+		if strings.TrimSpace(*reason) == "" {
+			die("거부: --withdraw 는 --reason <왜 거두나> 필요 — 철회도 기록이다.")
+		}
+		switch pruneState(target) {
+		case "none":
+			die("거부: \"" + target + "\" 에 대한 삭제 요청이 없다 — 거둘 것이 없다.")
+		case "pruned":
+			die("거부: \"" + target + "\" 은 이미 삭제됐다 — 철회로 되돌릴 수 없다(삭제는 비가역).")
+		}
+		commit("gil prune-withdraw: "+target,
+			"이 삭제 요청을 거둔다.\n\n"+*reason+"\n\n"+
+				"아무것도 지워지지 않았다. 요청은 이력에 남고(append-only), 이 커밋이 그 위에\n"+
+				"'더 이상 유효하지 않다'는 새 사실을 얹는다 — 뷰어의 승인 카드가 사라진다.",
+			[][2]string{{"Gil-Kind", "prune-withdraw"}, {"Gil-Prune-Target", target}, {"Gil-Reason", *reason}}, true)
+		println2("prune-withdraw: " + target + " — 요청을 거뒀다. 뷰어의 승인 카드가 사라진다.")
+		println2("  아무것도 지워지지 않았다. 다시 올리려면: gil prune " + target + " --request --reason <왜>")
+		return
+	}
 	sc := resolvePruneTarget(target)
 	report := pruneReport(sc)
 
@@ -703,6 +775,7 @@ func cmdPrune(args []string) {
 		}, true)
 		println2("prune-request: " + target + " — 사람의 승인을 기다린다.")
 		println2("  뷰어에 승인 카드가 뜬다(🗑 삭제 승인). 사람이 누르기 전엔 아무것도 지워지지 않는다.")
+		println2("  마음이 바뀌면 거둘 수 있다: gil prune " + target + " --withdraw --reason <왜>")
 		return
 	}
 
@@ -813,14 +886,6 @@ func cmdPruneApprove(args []string) {
 	println2("prune-approve: " + target + " — 승인됨. 실행에는 확인 문구가 더 필요하다.")
 }
 
-func pruneRequested(target string) bool {
-	fmtStr := trailer("Gil-Kind") + fsep + trailer("Gil-Prune-Target") + sep
-	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--all"), sep) {
-		k, t, _ := cut(strings.TrimSpace(rec), fsep)
-		if strings.TrimSpace(k) == "prune-request" && strings.TrimSpace(t) == target {
-			return true
-		}
-	}
-	return false
-}
+func pruneRequested(target string) bool { return pruneState(target) == "requested" }
+
 

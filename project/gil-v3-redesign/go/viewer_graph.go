@@ -515,32 +515,27 @@ func pendingPrunes() []pruneReq {
 	if err != nil {
 		return nil
 	}
-	settled := map[string]bool{} // 승인되었거나 이미 실행된 대상
-	var reqs []pruneReq
-	seen := map[string]bool{}
+	// **대상마다 가장 최근의 사실 하나**로 판정한다(이슈 #91). 옛 코드는 "요청이 있고 승인/실행이
+	// 하나라도 있으면 끝난 것"으로 봤는데, 그러면 철회 뒤 **다시 올린 요청이 영영 안 뜬다** —
+	// 결말은 시간 축 위의 마지막 것이지 존재 여부가 아니다.
+	decided := map[string]bool{}
+	var open []pruneReq
 	for _, rec := range strings.Split(string(out), rs) { // new→old
 		parts := strings.SplitN(strings.TrimLeft(rec, "\n"), fs, 4)
 		if len(parts) < 4 {
 			continue
 		}
 		kind, target := strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
-		if target == "" {
+		if target == "" || decided[target] {
 			continue
 		}
 		switch kind {
-		case "prune-approve", "prune":
-			settled[target] = true
+		case "prune-approve", "prune", "prune-withdraw":
+			decided[target] = true // 승인·실행·철회 — 어느 쪽이든 이 요청은 끝났다
 		case "prune-request":
-			if !seen[target] {
-				seen[target] = true
-				reqs = append(reqs, pruneReq{target: target, sha: parts[0][:9], body: strings.TrimSpace(stripTrailers(parts[3]))})
-			}
-		}
-	}
-	var open []pruneReq
-	for _, r := range reqs {
-		if !settled[r.target] {
-			open = append(open, r)
+			decided[target] = true
+			open = append(open, pruneReq{target: target, sha: parts[0][:9],
+				body: strings.TrimSpace(stripTrailers(parts[3]))})
 		}
 	}
 	return open
