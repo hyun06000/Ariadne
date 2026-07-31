@@ -331,6 +331,14 @@ func chainRefs(chain string) []string {
 	return out
 }
 
+// byTrailer — 출처가 있으면 Gil-By 한 줄, 없으면 비어 있다.
+func byTrailer(by string) [][2]string {
+	if b := strings.TrimSpace(by); b != "" {
+		return [][2]string{{"Gil-By", b}}
+	}
+	return nil
+}
+
 // retiredChainNames — refs/gil/retired/ 에 접혀 있는 체인 이름들.
 func retiredChainNames() []string {
 	seen := map[string]bool{}
@@ -711,6 +719,7 @@ func cmdPrune(args []string) {
 	dryRun := fs.boolFlag("dry-run")
 	request := fs.boolFlag("request")
 	withdraw := fs.boolFlag("withdraw")
+	by := fs.str("by", "") // 뷰어가 부르면 "viewer" — 사람이 거둔 것이라 에이전트에게 고지한다
 	confirm := fs.str("confirm", "")
 	reason := fs.str("reason", "")
 	pos := fs.parse(args)
@@ -739,7 +748,8 @@ func cmdPrune(args []string) {
 			"이 삭제 요청을 거둔다.\n\n"+*reason+"\n\n"+
 				"아무것도 지워지지 않았다. 요청은 이력에 남고(append-only), 이 커밋이 그 위에\n"+
 				"'더 이상 유효하지 않다'는 새 사실을 얹는다 — 뷰어의 승인 카드가 사라진다.",
-			[][2]string{{"Gil-Kind", "prune-withdraw"}, {"Gil-Prune-Target", target}, {"Gil-Reason", *reason}}, true)
+			append([][2]string{{"Gil-Kind", "prune-withdraw"}, {"Gil-Prune-Target", target},
+				{"Gil-Reason", *reason}}, byTrailer(*by)...), true)
 		println2("prune-withdraw: " + target + " — 요청을 거뒀다. 뷰어의 승인 카드가 사라진다.")
 		println2("  아무것도 지워지지 않았다. 다시 올리려면: gil prune " + target + " --request --reason <왜>")
 		return
@@ -748,6 +758,9 @@ func cmdPrune(args []string) {
 	report := pruneReport(sc)
 
 	if *dryRun || (!*request && strings.TrimSpace(*confirm) == "") {
+		// 이 자리가 "사람의 손을 읽는" 자리다 — 아래에서 승인 여부를 그대로 보여준다.
+		// 봤으니 도착 고지를 끈다(영원히 뜨는 경고는 안 읽힌다).
+		defer markAllPruneActsSeen()
 		for _, ln := range report {
 			println2(ln)
 		}
@@ -871,6 +884,9 @@ func cmdPrune(args []string) {
 // cmdPruneApprove — 사람의 승인. 뷰어 카드가 이걸 부른다(에이전트가 직접 부르지 말 것).
 func cmdPruneApprove(args []string) {
 	fs := newFlags("gil prune-approve")
+	// --by <출처>: 뷰어가 부르면 "viewer" — **사람이 눌렀다**는 뜻이다. 그 사실이 있어야
+	// 다음 접촉 때 에이전트에게 고지할 수 있다(자기가 부른 것까지 자기에게 알리면 소음이다).
+	by := fs.str("by", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil prune-approve <대상>   (사람의 승인 — 보통 뷰어 카드가 부른다)")
@@ -879,10 +895,13 @@ func cmdPruneApprove(args []string) {
 	if !pruneRequested(target) {
 		die("거부: \"" + target + "\" 에 대한 삭제 요청이 없다 — 먼저 gil prune " + target + " --request.")
 	}
+	tr := [][2]string{{"Gil-Kind", "prune-approve"}, {"Gil-Prune-Target", target}}
+	if b := strings.TrimSpace(*by); b != "" {
+		tr = append(tr, [2]string{"Gil-By", b})
+	}
 	commit("gil prune-approve: "+target, "사람이 이 삭제를 승인했다.\n\n"+
 		"승인만으로는 아무것도 지워지지 않는다 — 실행에는 CLI 확인 문구가 더 필요하다:\n"+
-		"    gil prune "+target+" --confirm "+target+" --reason <왜>",
-		[][2]string{{"Gil-Kind", "prune-approve"}, {"Gil-Prune-Target", target}}, true)
+		"    gil prune "+target+" --confirm "+target+" --reason <왜>", tr, true)
 	println2("prune-approve: " + target + " — 승인됨. 실행에는 확인 문구가 더 필요하다.")
 }
 

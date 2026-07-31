@@ -323,7 +323,7 @@ func serve(args []string) {
 			http.Error(w, "bad target", http.StatusBadRequest)
 			return
 		}
-		out, err := gilExec("prune-approve", target)
+		out, err := gilExec("prune-approve", target, "--by", "viewer")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -342,7 +342,8 @@ func serve(args []string) {
 			http.Error(w, "bad target", http.StatusBadRequest)
 			return
 		}
-		out, err := gilExec("prune", target, "--withdraw", "--reason", "뷰어에서 사람이 요청을 거둠")
+		out, err := gilExec("prune", target, "--withdraw",
+			"--reason", "뷰어에서 사람이 요청을 거둠", "--by", "viewer")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)

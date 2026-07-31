@@ -315,6 +315,7 @@ func lineageTowardLines(chain, cycle string) string {
 func cmdContext(args []string) {
 	// context 는 "지금까지를 읽는" 명령이다 — 사람의 판정도 여기서 읽힌다(고지를 끈다).
 	defer markAllJudgmentsSeen()
+	defer markAllPruneActsSeen()
 	fs := newFlags("gil context")
 	pos := fs.parse(args)
 	if len(pos) < 1 {

@@ -1539,6 +1539,44 @@ class TestJudgmentArrival(GilFixture):
         again = self.gil("log").stdout + self.gil("log").stderr
         self.assertNotIn("사람의 판정", again)
 
+    def test_prune_approval_by_the_human_is_announced(self):
+        """사람→에이전트 통로의 마지막 구멍 — 뷰어에서 누른 삭제 승인도 닿아야 한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c1", "--purpose", "정리 대상")
+        self.gil("prune", "c1", "--request", "--reason", "실험이었다")
+        self.gil("prune-approve", "c1", "--by", "viewer")   # 뷰어가 부르는 형태
+        out = self.gil("log").stdout + self.gil("log").stderr
+        self.assertIn("사람이 삭제를 **승인했다**", out)
+        self.assertIn("--confirm", out)   # 다음 수까지 준다
+
+    def test_agent_own_prune_action_is_not_announced(self):
+        """자기 행동을 자기에게 알리면 소음이다 — CLI 로 부른 것은 고지하지 않는다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c1", "--purpose", "정리 대상")
+        self.gil("prune", "c1", "--request", "--reason", "실험이었다")
+        self.gil("prune-approve", "c1")    # 에이전트가 직접
+        out = self.gil("log").stdout + self.gil("log").stderr
+        self.assertNotIn("사람이 삭제", out)
+
+    def test_prune_withdraw_by_the_human_is_announced(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c1", "--purpose", "정리 대상")
+        self.gil("prune", "c1", "--request", "--reason", "실험이었다")
+        self.gil("prune", "c1", "--withdraw", "--reason", "역시 두자", "--by", "viewer")
+        out = self.gil("log").stdout + self.gil("log").stderr
+        self.assertIn("거뒀다", out)
+        self.assertIn("지우지 마라", out)
+
+    def test_reading_the_prune_view_stops_the_notice(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c1", "--purpose", "정리 대상")
+        self.gil("prune", "c1", "--request", "--reason", "실험이었다")
+        self.gil("prune-approve", "c1", "--by", "viewer")
+        self.assertIn("사람이 삭제", self.gil("log").stdout + self.gil("log").stderr)
+        self.gil("prune", "c1")            # 승인 여부를 그 자리에서 읽는다
+        again = self.gil("log").stdout + self.gil("log").stderr
+        self.assertNotIn("사람이 삭제", again)
+
     def test_no_notice_when_nothing_was_judged(self):
         self._upto_pending()
         out = self.gil("log").stdout + self.gil("log").stderr

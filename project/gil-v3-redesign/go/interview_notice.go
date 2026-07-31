@@ -172,6 +172,55 @@ func markAllJudgmentsSeen() {
 	}
 }
 
+// ── 삭제 요청에 대한 사람의 손도 도착한다 (사람→에이전트 통로의 마지막 구멍) ──────
+//
+// 통로를 세어 보니 인터뷰 답·개시 인터뷰 답·pending 판정은 고지되는데 prune 만 남아 있었다.
+// 사람이 뷰어에서 [이 삭제를 승인합니다] 나 [요청 철회] 를 눌러도 에이전트는 모른다.
+// **자기가 CLI 로 부른 것은 고지하지 않는다**(자기 행동을 자기에게 알리면 소음이다) —
+// 뷰어를 거친 것만, 즉 Gil-By 가 찍힌 것만 사람의 손으로 본다.
+type pruneAct struct{ kind, target, sha string }
+
+func arrivedPruneActs() []pruneAct {
+	seen := seenMap()
+	fmtStr := "%H" + fsep + trailer("Gil-Kind") + fsep + trailer("Gil-Prune-Target") + fsep +
+		trailer("Gil-By") + sep
+	var out []pruneAct
+	got := map[string]bool{} // 대상마다 가장 최근 것 하나(gitlog 는 new→old)
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		parts := strings.SplitN(strings.TrimSpace(rec), fsep, 4)
+		if len(parts) < 4 {
+			continue
+		}
+		kind, target, by := strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), strings.TrimSpace(parts[3])
+		if target == "" || got[target] {
+			continue
+		}
+		switch kind {
+		case "prune", "prune-request":
+			got[target] = true // 그 뒤의 옛 사람 손은 이미 지나간 일이다
+		case "prune-approve", "prune-withdraw":
+			got[target] = true
+			if by == "" {
+				continue // 에이전트가 CLI 로 부른 것 — 자기 행동은 자기에게 안 알린다
+			}
+			sha := first9(parts[0])
+			if seen[pruneKey(target)] == sha {
+				continue
+			}
+			out = append(out, pruneAct{kind: kind, target: target, sha: sha})
+		}
+	}
+	return out
+}
+
+func pruneKey(target string) string { return "prune:" + target }
+
+func markAllPruneActsSeen() {
+	for _, a := range arrivedPruneActs() {
+		markSeenKey(pruneKey(a.target), a.sha)
+	}
+}
+
 // noticeArrivedInterviews — 어떤 명령을 부르든 맨 앞에 한 줄. 이게 이 이슈의 핵심이다:
 // 통지가 아니라 **다음 접촉 때의 강제 고지**.
 func noticeArrivedInterviews() {
@@ -194,9 +243,19 @@ func noticeArrivedInterviews() {
 		stderr("⚡ 사람의 판정이 도착했다 — " + j.chain + "/" + j.cycle + " 의 pending 을 사람이 **" + what + "**(" + j.step + ").")
 		stderr("   " + next)
 	}
+	for _, a := range arrivedPruneActs() {
+		if a.kind == "prune-approve" {
+			stderr("⚡ 사람이 삭제를 **승인했다** — " + a.target + ". 승인만으로는 아무것도 안 지워졌다.")
+			stderr("   실행하려면 확인 문구까지: gil prune " + a.target + " --confirm " + a.target + " --reason <왜>")
+			stderr("   (정말 지울 것인지 한 번 더 판단하라 — 되돌릴 수 없다. 폐기로 충분하면 chain-retire.)")
+		} else {
+			stderr("⚡ 사람이 삭제 요청을 **거뒀다** — " + a.target + ". 지우지 마라.")
+			stderr("   다시 필요해지면 처음부터: gil prune " + a.target + " --request --reason <왜>")
+		}
+	}
 	chains := arrivedInterviews()
 	if len(chains) == 0 {
-		if len(arrivedJudgments()) > 0 {
+		if len(arrivedJudgments()) > 0 || len(arrivedPruneActs()) > 0 {
 			stderr("")
 		}
 		return
