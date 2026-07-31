@@ -223,6 +223,19 @@ func gitReadOnly(args []string) bool {
 }
 
 // gitTry 는 git을 실행하고 (stdout, err). 호출자가 실패를 흡수할 수 있게 한다.
+// gitTryIn — 특정 디렉토리에서 한 번 실행(캐시·전역 상태를 건드리지 않는다). 뷰어 로그
+// 경로를 **기동하는 쪽**에서 구할 때 쓴다 — 그쪽의 cwd 는 관전 대상과 다를 수 있다.
+func gitTryIn(dir string, args ...string) (string, error) {
+	cmd := gitCommand(args...)
+	cmd.Dir = dir
+	var out strings.Builder
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
 func gitTry(args ...string) (string, error) {
 	key := ""
 	if gitCacheOn && gitReadOnly(args) {

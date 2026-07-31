@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -89,6 +92,55 @@ func assembleReference(chain string, answers []struct {
 	return b.String()
 }
 
+// ── 뷰어 로그 (상현님 실사용: "인터뷰 진행하다가 갑자기 서버가 죽었어") ──────────────
+//
+// 자동 기동되는 뷰어는 stdout/stderr 를 /dev/null 로 버렸다. 그래서 뷰어가 죽어도 **한 글자도
+// 안 남는다** — 패닉이든 git 실패든 OOM 이든 사후에 알 방법이 원리적으로 없다. 관전 도구가
+// 죽은 이유를 못 밝히면, 같은 일이 몇 번을 반복돼도 계속 모른다(침묵은 '이상 없음'과
+// 구분되지 않는다 — 이슈 #84 의 교훈이 도구 자신에게도 선다).
+//
+// 로그는 저장소의 .git 안에 둔다: 작업트리를 더럽히지 않고(미커밋 파일로 잡히지 않는다),
+// 저장소마다 하나이며, 저장소를 지우면 함께 사라진다.
+var viewerLogFile *os.File
+
+func viewerLogPath() string { return viewerLogPathFor(viewerRepoDir) }
+
+// viewerLogPathFor — 그 저장소의 뷰어 로그 경로(기동하는 쪽에서도 같은 자리를 쓴다).
+func viewerLogPathFor(repo string) string {
+	gd, err := gitTryIn(repo, "rev-parse", "--git-dir")
+	dir := strings.TrimSpace(gd)
+	if err != nil || dir == "" {
+		return filepath.Join(os.TempDir(), "gil-viewer.log")
+	}
+	if !filepath.IsAbs(dir) {
+		abs, aerr := filepath.Abs(filepath.Join(repo, dir))
+		if aerr == nil {
+			dir = abs
+		}
+	}
+	return filepath.Join(dir, "gil-viewer.log")
+}
+
+// viewerLogOpen — 로그를 열고 기동 한 줄을 남긴다. 실패해도 서버는 뜬다(로그는 보조다).
+func viewerLogOpen(port string) {
+	f, err := os.OpenFile(viewerLogPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	viewerLogFile = f
+	abs, _ := filepath.Abs(viewerRepoDir)
+	viewerLogWrite("기동 — pid " + itoa(os.Getpid()) + " · 포트 " + port + " · 레포 " + abs +
+		" · gil " + gilVersion)
+}
+
+// viewerLogWrite — 시각과 함께 한 줄. 뷰어가 죽은 뒤 사람이 읽을 유일한 자리다.
+func viewerLogWrite(msg string) {
+	if viewerLogFile == nil {
+		return
+	}
+	fmt.Fprintf(viewerLogFile, "[%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
+}
+
 func serve(args []string) {
 	port := "8790"
 	for i := 0; i < len(args); i++ {
@@ -97,6 +149,23 @@ func serve(args []string) {
 			i++
 		}
 	}
+	viewerLogOpen(port)
+	// 핸들러 패닉은 net/http 가 연결 단위로 회수하고 ErrorLog 로 흘린다 — 그 흐름을 로그
+	// 파일로 돌린다. 안 그러면 자동 기동 뷰어에서는 패닉 스택이 /dev/null 로 사라진다.
+	if viewerLogFile != nil {
+		log.SetOutput(viewerLogFile)
+	}
+	// 신호로 죽는 경우(SIGTERM/SIGINT)도 이유를 남긴다 — "그냥 사라졌다"를 없앤다.
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		sig := <-ch
+		viewerLogWrite("종료 — 신호 " + sig.String() + " 를 받았다")
+		if viewerLogFile != nil {
+			viewerLogFile.Close()
+		}
+		os.Exit(0)
+	}()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -248,7 +317,12 @@ func serve(args []string) {
 			}
 		}()
 	}
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	srv := &http.Server{Addr: addr}
+	if viewerLogFile != nil {
+		srv.ErrorLog = log.New(viewerLogFile, "http: ", log.LstdFlags)
+	}
+	if err := srv.ListenAndServe(); err != nil {
+		viewerLogWrite("종료 — ListenAndServe: " + err.Error())
 		fmt.Fprintln(os.Stderr, "거부: 서버 실패 —", err)
 		os.Exit(1)
 	}

@@ -557,6 +557,12 @@ func handoffReport() string {
 		}
 		L = append(L, "    "+cname+" ("+cinfo.status+") ← "+par)
 	}
+	// 접힌 체인은 **없는 것이 아니다**(이슈 #92). 흔적이 한 줄도 없으면 이어받은 세션은
+	// "체인이 하나뿐인 저장소"로 읽고, 접힌 곳에 남은 위반·미완의 사이클을 영영 못 본다.
+	if rc := retiredChainNames(); len(rc) > 0 {
+		L = append(L, "    ↩ 접힌(retired) 브랜치 "+itoa(len(rc))+"개 — 지워진 게 아니라 기본 뷰에서 접혀 있다.")
+		L = append(L, "       펼치기: gil chain-unretire <chain>   |   접힌 위반까지: gil fsck --all")
+	}
 	L = append(L, "")
 	if gfiles := globalList(); len(gfiles) > 0 {
 		L = append(L, "")

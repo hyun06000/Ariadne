@@ -408,12 +408,30 @@ func cmdFsck(args []string) {
 	}
 	universe := collectNodes("--branches")
 	v := fsck(collectNodes(rng), declaredChains("--branches"), universe, closedCycles("--branches"))
+	// 접힌(retired) 영역의 위반은 기본 범위에서 빠진다 — 그 사실을 **숫자로** 남긴다(이슈 #92).
+	// retire 는 세는 범위에서 뺄 뿐 아무것도 고치지 않는데, 옛 기본 보고는 그 사실을 한 마디도
+	// 하지 않았다. 그래서 "위반 229 → 1" 이 성과로 읽혔다. 도구가 자기 상태를 축소 보고하면
+	// 사람은 검증할 기회를 잃는다 — 없는 게 죄가 아니라 감춘 게 죄다(#87 의 축).
+	hiddenLine := ""
+	if rng == "--branches" {
+		if h := hiddenViolationCount(); h > 0 {
+			hiddenLine = "  ↩ 접힌(retired) 체인에 위반 " + itoa(h) + "건이 더 있다 — 이 숫자에는 안 들어간다. " +
+				"보려면: gil fsck --all"
+		}
+	}
 	if len(v) == 0 {
 		println2("fsck: 위반 0 — 커밋 그래프 건강")
+		if hiddenLine != "" {
+			println2(hiddenLine)
+			println2("  (접었다고 고쳐진 것은 아니다. 되돌리기: gil chain-unretire <chain>)")
+		}
 		return
 	}
 	for _, x := range v {
 		println2("위반: " + x)
+	}
+	if hiddenLine != "" {
+		println2(hiddenLine)
 	}
 	gilExit(1)
 }

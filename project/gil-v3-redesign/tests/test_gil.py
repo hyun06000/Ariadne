@@ -32,7 +32,8 @@ if not os.path.exists(GIL_BIN):
 GIL_CMD = [GIL_BIN]
 
 # 테스트용 기준 문서(사람이 준 것으로 간주) — 목적과 기준은 쌍으로만 태어난다(상현님).
-CRIT_FILE = os.path.join(tempfile.gettempdir(), "gil-test-criterion.md")
+# 파일명에 pid — 병렬 러너가 프로세스로 쪼개 돌리므로 공유 경로에 동시에 쓰면 서로를 자른다.
+CRIT_FILE = os.path.join(tempfile.gettempdir(), f"gil-test-criterion-{os.getpid()}.md")
 with open(CRIT_FILE, "w", encoding="utf-8") as _f:
     _f.write("# 기준 문서(테스트)\n사람이 세운 기준으로 간주한다.\n")
 
@@ -145,7 +146,7 @@ class GilFixture(unittest.TestCase):
            and not any(a.startswith("--from-intake") for a in args) \
            and not any(a.startswith("--reference") for a in args) \
            and not any(a.startswith("--criterion") for a in args):
-            cf = os.path.join(tempfile.gettempdir(), "gil-test-criterion.md")
+            cf = CRIT_FILE
             with open(cf, "w", encoding="utf-8") as f:
                 f.write("# 기준 문서(테스트 자동 주입)\n사람이 세운 기준으로 간주한다.\n")
             args += ["--reference", cf,
@@ -1492,6 +1493,82 @@ class TestInterviewArrival(GilFixture):
         # 차선(다음 턴의 첫 명령)도 여전히 적히되, 이제 백그라운드 --wait 뒤에 온다(이슈 #82).
         self.assertIn("다음 턴의 **첫 명령**", out)
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
+
+
+class TestRetireHidesNothingSilently(GilFixture):
+    """이슈 #92 — gil 은 삭제를 막지만 **은닉**을 막지 않았다.
+
+    삭제(prune)엔 문이 셋인데 폐기(chain-retire)엔 0개였다. 되돌릴 수 있다는 것이 게이트를
+    면제하는 근거가 됐는데, **되돌릴 수 있는 것과 되돌릴 필요를 알아차릴 수 있는 것은 다르다.**
+    그리고 접으면 기본 fsck 의 숫자가 뚝 떨어져(실사용 229→1) 아무것도 안 고쳤는데 성과로
+    읽혔다 — 없는 게 죄가 아니라 감춘 게 죄다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "dirty", "--purpose", "위반이 있는 체인")
+        self.gil("open", "dirty/cy", "--author", "x", "--purpose", "p", "--body", "정의")
+        self.gil("step", "dirty/cy", "--kind", "hypothesis", "--title", "h",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "dirty/cy", "--kind", "verify", "--title", "v",
+                 "--verdict", "refuted", "--falsify-met", "관측됨")
+        self.gil("step", "dirty/cy", "--kind", "analyze", "--title", "an",
+                 "--finding", "밝힌 것")
+        # HEAD 가 딴 데로 가면서 analyze 잎이 매달린다 → fsck 위반 1건.
+        self.gil("goto", "dirty/cy/s1", "--leave-open")
+        self.gil("step", "dirty/cy", "--kind", "hypothesis", "--to", "s1",
+                 "--inherit", "교훈", "--title", "h2", "--falsify", "F2", "--falsify-to", "s1")
+
+    def _violations(self, *extra):
+        r = self.gil("fsck", *extra)
+        return [l for l in (r.stdout + r.stderr).splitlines() if l.startswith("위반:")]
+
+    def test_precondition_there_is_a_violation(self):
+        self.assertEqual(len(self._violations()), 1)
+
+    def test_dry_run_shows_what_gets_folded(self):
+        """--dry-run 한 줄만 있어도 사람이 검증할 지점이 생긴다."""
+        r = self.gil("chain-retire", "dirty", "--reason", "정리", "--dry-run")
+        out = r.stdout + r.stderr
+        self.assertIn("브랜치(ref)", out)
+        self.assertIn("스텝", out)
+        self.assertIn("fsck 위반 1건", out)
+        # 아무것도 옮기지 않았다.
+        self.assertEqual(len(self._violations()), 1)
+        self.assertIn("dirty", self._git("for-each-ref", "--format=%(refname:short)",
+                                          "refs/heads/").stdout)
+
+    def test_folding_violations_needs_a_typed_confirmation(self):
+        """위반을 함께 접는 것은 정리가 아니라 은닉이다 — 그때만 문을 단다."""
+        r = self.gil("chain-retire", "dirty", "--reason", "정리")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("은닉", r.stderr)
+        self.assertIn("--confirm dirty", r.stderr)
+        self.assertEqual(len(self._violations()), 1, "거부됐는데 접혔다")
+
+    def test_clean_chain_folds_without_friction(self):
+        """위반 없는 체인은 지금처럼 한 줄로 접힌다 — 규율은 마찰이 아니라 방향이다."""
+        self.gil("chain", "clean", "--purpose", "위반 없는 체인", "--parallel-with", "dirty")
+        r = self.gil("chain-retire", "clean", "--reason", "끝난 국면")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("위반은 접히지 않는다", r.stdout + r.stderr)
+
+    def test_default_fsck_reports_what_it_stopped_counting(self):
+        """도구가 자기 상태를 축소 보고하지 않는다 — 접힌 위반은 집계로라도 남는다."""
+        self.gil("chain-retire", "dirty", "--reason", "정리", "--confirm", "dirty")
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertIn("접힌(retired)", out)
+        self.assertIn("1건", out)
+        self.assertIn("--all", out)
+        # 그리고 --all 은 여전히 그 위반을 전부 보고한다(고쳐진 게 아니다).
+        self.assertEqual(len(self._violations("--all")), 1)
+
+    def test_handoff_leaves_a_trace_of_folded_chains(self):
+        """접힌 체인은 없는 것이 아니다 — 다음 세션이 '체인 하나뿐'으로 읽지 않게."""
+        self.gil("chain-retire", "dirty", "--reason", "정리", "--confirm", "dirty")
+        out = self.gil("handoff").stdout + self.gil("handoff").stderr
+        self.assertIn("접힌(retired)", out)
+        self.assertIn("chain-unretire", out)
 
 
 class TestFindingAndWallMap(GilFixture):

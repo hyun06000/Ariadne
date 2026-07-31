@@ -331,14 +331,76 @@ func chainRefs(chain string) []string {
 	return out
 }
 
+// retiredChainNames — refs/gil/retired/ 에 접혀 있는 체인 이름들.
+func retiredChainNames() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, ln := range strings.Fields(git("for-each-ref", "--format=%(refname:short)", retiredPrefix)) {
+		short := strings.TrimPrefix(strings.TrimSpace(ln), "gil/retired/")
+		if short == "" {
+			continue
+		}
+		name := short
+		if i := strings.Index(short, "-"); i > 0 {
+			// <chain>-<cycle>… 형태의 하위 브랜치도 그 체인의 것으로 센다.
+			if !seen[short] {
+				// 체인 루트 이름을 정확히 모르므로 가장 긴 접두 후보를 그대로 쓴다.
+				name = short
+			}
+		}
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// hiddenViolationCount — 접힌(retired) 영역에 있어 **기본 보고에서 빠지는** 위반 수.
+//
+// 왜 이게 필요한가(이슈 #92): retire 는 객체를 지우지 않지만 **세는 범위에서 뺀다.** 그래서
+// 위반이 있는 체인을 접으면 `gil fsck` 의 숫자가 뚝 떨어진다 — 아무것도 고치지 않았는데
+// 건강해 보인다. 실사용에서 229 → 1 이 됐고, 그 228건은 그대로 남아 있었다.
+// 없는 게 죄가 아니라 감춘 게 죄다(#87 의 축) — 그러니 접힌 것은 **집계로라도** 보여야 한다.
+func hiddenViolationCount() int {
+	if len(retiredChainNames()) == 0 {
+		return 0
+	}
+	all := fsck(collectNodes("--all"), declaredChains("--all"), collectNodes("--all"), closedCycles("--all"))
+	live := fsck(collectNodes("--branches"), declaredChains("--branches"), collectNodes("--branches"), closedCycles("--branches"))
+	if n := len(all) - len(live); n > 0 {
+		return n
+	}
+	return 0
+}
+
+// violationsMentioning — 지금 보고되는 위반 중 이 체인을 가리키는 것의 수(접히면 사라질 것들).
+func violationsMentioning(chain string) int {
+	vs := fsck(collectNodes("--branches"), declaredChains("--branches"),
+		collectNodes("--branches"), closedCycles("--branches"))
+	n := 0
+	for _, v := range vs {
+		if strings.Contains(v, chain+"/") || strings.Contains(v, " "+chain+" ") {
+			n++
+		}
+	}
+	return n
+}
+
 func cmdChainRetire(args []string) {
 	fs := newFlags("gil chain-retire")
 	reason := fs.str("reason", "")
+	// 이슈 #92: 삭제엔 문이 셋인데 폐기엔 0개였다. 되돌릴 수 있다는 것이 게이트를 면제하는
+	// 근거가 되고 있었는데, **되돌릴 수 있는 것과 되돌릴 필요를 알아차릴 수 있는 것은 다르다.**
+	dryRun := fs.boolFlag("dry-run")
+	confirm := fs.str("confirm", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil chain-retire <chain> --reason <왜 폐기하나>\n" +
+		die("사용: gil chain-retire <chain> --reason <왜 폐기하나> [--dry-run] [--confirm <chain>]\n" +
 			"  폐기를 커밋으로 선언하고 브랜치를 " + retiredPrefix + " 로 옮긴다. **객체는 하나도 안 지운다** —\n" +
-			"  기본 뷰에서 접힐 뿐이고, gil chain-unretire 로 되돌릴 수 있다.")
+			"  기본 뷰에서 접힐 뿐이고, gil chain-unretire 로 되돌릴 수 있다.\n" +
+			"  --dry-run: 무엇이 접히는지 먼저 본다(ref 수 · 사이클/스텝 수 · 함께 접히는 위반 수).")
 	}
 	chain := pos[0]
 	if strings.TrimSpace(*reason) == "" {
@@ -347,6 +409,41 @@ func cmdChainRetire(args []string) {
 	refs := chainRefs(chain)
 	if len(refs) == 0 {
 		die("거부: " + chain + " 의 로컬 브랜치가 없다 — 이미 폐기됐거나 이름이 틀렸다(gil drift 로 확인).")
+	}
+	// ── 영향 요약 — 접기 전에 **무엇이 시야에서 사라지는지** 말한다(이슈 #92) ──
+	var cycSet = map[string]bool{}
+	steps := 0
+	for _, n := range collectNodes("--branches") {
+		if n.chain == chain {
+			steps++
+			if n.cycle != "" {
+				cycSet[n.cycle] = true
+			}
+		}
+	}
+	hides := violationsMentioning(chain)
+	println2("chain-retire " + chain + " — 접히면 이렇게 된다:")
+	println2("  · 브랜치(ref) " + itoa(len(refs)) + "개가 " + retiredPrefix + " 로 옮겨진다(객체는 안 지운다).")
+	println2("  · 사이클 " + itoa(len(cycSet)) + "개 · 스텝 " + itoa(steps) + "개가 기본 뷰에서 접힌다.")
+	if hides > 0 {
+		println2("  · ⚠ **fsck 위반 " + itoa(hides) + "건이 기본 보고에서 함께 접힌다** — 고쳐지는 게 아니라 안 보이게 된다.")
+	} else {
+		println2("  · fsck 위반은 접히지 않는다(이 체인에 보고된 위반 0).")
+	}
+	println2("  · 되돌리기: gil chain-unretire " + chain)
+	if *dryRun {
+		println2("")
+		println2("(--dry-run — 아무것도 옮기지 않았다. 실행하려면 --dry-run 을 빼라.)")
+		return
+	}
+	// 위반을 함께 접는 것은 정리가 아니라 **은닉**이다 — 그때만 문을 단다(이슈 #92 제안 2·4).
+	// 위반 없는 체인을 접는 건 지금처럼 한 줄로 끝난다: 규율은 마찰이 아니라 방향이다.
+	if hides > 0 && strings.TrimSpace(*confirm) != chain {
+		die("거부: 이 폐기는 fsck 위반 " + itoa(hides) + "건을 기본 보고에서 함께 접는다 — 그건 정리가 아니라 은닉이다.\n" +
+			"  둘 중 하나를 골라라:\n" +
+			"    ▸ 먼저 고친다   → gil fsck  로 그 " + itoa(hides) + "건을 보고 해결한 뒤 접어라.\n" +
+			"    ▸ 알고도 접는다 → --confirm " + chain + " 를 붙여라(이 이름을 직접 타이핑하는 것이 그 게이트다).\n" +
+			"  (접어도 위반은 사라지지 않는다 — gil fsck --all 에 그대로 있고, 기본 fsck 도 집계로 한 줄 남긴다.)")
 	}
 	// 폐기 선언을 **먼저** 남긴다 — 브랜치를 옮긴 뒤엔 그 체인 계보에 커밋할 자리가 없다.
 	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+chain) {

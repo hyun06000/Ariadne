@@ -243,7 +243,13 @@ var helpTable = map[string]helpEntry{
 	"chain-retire": {
 		"gil chain-retire <chain> --reason <왜>   |   gil chain-unretire <chain>\n" +
 			"  폐기를 커밋으로 선언하고 브랜치를 refs/gil/retired/ 로 옮긴다. **객체는 하나도 안 지운다** —\n" +
-			"  기본 뷰에서 접힐 뿐이고 unretire 로 되돌아온다. 대부분의 '정리'는 여기서 끝나야 한다.",
+			"  기본 뷰에서 접힐 뿐이고 unretire 로 되돌아온다.\n" +
+			"  **위반 없는 체인은 여기서 끝내라. 위반이 있으면 그건 정리가 아니라 은닉이다**(이슈 #92):\n" +
+			"    · --dry-run 으로 먼저 봐라 — ref 수 · 사이클/스텝 수 · **함께 접히는 fsck 위반 수**.\n" +
+			"    · 위반을 함께 접으려면 --confirm <chain> 이 필요하다(이름을 직접 타이핑하는 것이 그 게이트).\n" +
+			"    · 접어도 위반은 안 사라진다 — gil fsck 가 집계로 한 줄, gil fsck --all 이 전부를 보고한다.\n" +
+			"  되돌릴 수 있다는 것이 게이트를 면제하지 않는다 — **되돌릴 수 있는 것과 되돌릴 필요를\n" +
+			"  알아차릴 수 있는 것은 다르다.**",
 		"docs/gil/concepts.md",
 	},
 	"prune": {

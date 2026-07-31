@@ -107,8 +107,19 @@ func launchViewer() {
 	if devnull != nil {
 		cmd.Stdin = devnull
 	}
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// 옛 코드는 stdout/stderr 을 통째로 버렸다(nil = /dev/null). 그래서 자동 기동된 뷰어가
+	// 죽으면 **한 글자도 안 남았다** — 패닉이든 git 실패든 사후 진단이 원리적으로 불가능했다
+	// (상현님 실사용: "인터뷰 진행하다가 갑자기 서버가 죽었어" → 왜인지 알 방법이 없었다).
+	// 이제 저장소의 .git/gil-viewer.log 로 흘린다. 열지 못하면 옛 동작(버림)으로 물러난다 —
+	// 로그 때문에 뷰어가 안 뜨는 일은 없어야 한다.
+	if lf, lerr := os.OpenFile(viewerLogPathFor(repo), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); lerr == nil {
+		cmd.Stdout = lf
+		cmd.Stderr = lf
+		defer lf.Close() // 자식이 fd 를 물려받은 뒤 부모 쪽은 닫는다
+	} else {
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+	}
 	if err := cmd.Start(); err != nil {
 		println2("  뷰어: 기동 실패(" + err.Error() + ") — 수동: `gil viewer serve --repo . --port " + viewerPortNum() + "`.")
 		return
