@@ -90,11 +90,14 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 529 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.41.0**
+- **검증**: example 534 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.42.0**
   (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init` 까지 실측 확인).
   v3.34.1 = 윈도우 필드테스트 두 건: 뷰어 자동 새로고침이 인터뷰 답을 지우던 것(초안 저장 +
   쓰는 중 리로드 보류) · 윈도우 **사람**용 설치 경로(`docs/INSTALL.md`)와 "에이전트가 설치를
   거부하면" 정규 분기.
+  v3.42.0 = **이슈 #94 닫음** — `--wait` 안내를 호스트 중립으로(셸 `&` 는 완료가 턴을 못 연다) ·
+  MCP `gil_interview_wait`(호스트가 완료를 추적) · 도착 고지가 intake 언어로 · `--status` 는
+  짧게(전문은 `--show`) · `--ask` 인라인 JSON.
   v3.41.0 = **이슈 #91 닫음** — prune `--withdraw`(요청 철회, 뷰어 카드에도 버튼) · 정리
   사다리의 끊긴 칸에 길 안내 · 뷰어 표 렌더 셋(문단에 붙은 표·셀 안 파이프·칸 수 불일치).
   v3.39.0/v3.40.0 = **이슈 #92·#93 닫음.** chain-retire 에 `--dry-run`·(위반 접을 때만)
