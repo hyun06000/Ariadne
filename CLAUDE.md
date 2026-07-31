@@ -90,11 +90,15 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 508 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.38.0**
+- **검증**: example 520 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.40.0**
   (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init` 까지 실측 확인).
   v3.34.1 = 윈도우 필드테스트 두 건: 뷰어 자동 새로고침이 인터뷰 답을 지우던 것(초안 저장 +
   쓰는 중 리로드 보류) · 윈도우 **사람**용 설치 경로(`docs/INSTALL.md`)와 "에이전트가 설치를
   거부하면" 정규 분기.
+  v3.39.0/v3.40.0 = **이슈 #92·#93 닫음.** chain-retire 에 `--dry-run`·(위반 접을 때만)
+  `--confirm`, fsck 가 접힌 위반을 집계로 고지, handoff 에 접힌 흔적 · 뷰어 로그
+  (`<레포>/.git/gil-viewer.log`), die 가 서버를 안 죽임, 레포 사라지면 자진 종료,
+  `--wait` 중 창구가 죽으면 되살림, `gil viewer list`.
   v3.38.0 = analyze `--finding`(결론) 필수 · 재분기가 **벽의 지도**를 벗어나면 `--despite`
   없이는 거부 · 누적 지식이 handoff·모든 가설 스텝에 **묻지 않아도** 도착(그 밖의 커밋엔 한 줄 넛지).
   v3.37.0 = **기준 없는 체인은 태어나지 못한다** — chain 이 --from-intake(권장) 또는
