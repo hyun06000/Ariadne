@@ -90,11 +90,15 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 544 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.44.0**
+- **검증**: example 547 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.45.0**
   (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init` 까지 실측 확인).
   v3.34.1 = 윈도우 필드테스트 두 건: 뷰어 자동 새로고침이 인터뷰 답을 지우던 것(초안 저장 +
   쓰는 중 리로드 보류) · 윈도우 **사람**용 설치 경로(`docs/INSTALL.md`)와 "에이전트가 설치를
   거부하면" 정규 분기.
+  v3.45.0 = **선언만 하고 갈라지지 않으면 그 계보는 거짓이다** — open --parent 가 그 자리로
+  되돌아가 **실제로 분기**한다(옛 코드는 HEAD 에서 갈라 커밋 그래프가 계보를 거짓말했다) ·
+  fsck 가 선언과 실재를 대조해 판정("실제로는 X 에서 갈라졌다") · 뷰어에 **git 그래프(날것)**
+  — 전체맵과 같은 규칙(x=깊이·y=레인)으로 그려 사람이 직접 대조한다.
   v3.44.0 = **분기는 분기로 그린다** — 사이클 그래프가 커밋 위상 대신 **선언된 계보**를 쓰고
   (--parent 는 open 이 강제·검증하는 사실), 배치도 계보로(col=깊이·row=형제). 그리고 사람이
   뷰어에서 누른 **삭제 승인·철회**도 고지한다(자기가 CLI 로 부른 것은 조용히).
