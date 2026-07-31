@@ -1496,6 +1496,56 @@ class TestInterviewArrival(GilFixture):
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
 
 
+class TestCycleForkIsDrawnAsAFork(GilFixture):
+    """사이클 분기가 사이클 그래프에서 일직선으로 보였다 (상현님 실사용).
+
+    두 결함이 겹쳐 있었다. (1) 뷰어가 **선언된 계보(Gil-Cycle-Parent)** 대신 커밋 위상으로
+    부모를 잡았다 — 새 사이클을 열 때 HEAD 가 어느 브랜치에 서 있었느냐가 그대로 조상이 되니,
+    cy1 에서 갈라진 cy2·cy3 를 차례로 열면 cy3 의 조상이 cy2 가 된다. (2) 카드 배치가
+    부모를 아예 안 보고 i*gap 으로 줄 세웠다."""
+
+    def _forked_chain(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        def run(cyc):
+            self.gil("step", "c/" + cyc, "--kind", "hypothesis", "--title", "h",
+                     "--falsify", "F", "--falsify-to", "s1")
+            self.gil("step", "c/" + cyc, "--kind", "verify", "--title", "v",
+                     "--verdict", "supported", "--falsify-unmet", "u")
+            self.gil("step", "c/" + cyc, "--kind", "analyze", "--title", "an", "--finding", "f")
+            self.gil("step", "c/" + cyc, "--kind", "success", "--title", "ok")
+            self.gil("close", "c/" + cyc, "--verdict", "solved", "--goal-met")
+        self.gil("open", "c/cy1", "--author", "x", "--purpose", "뿌리", "--body", "d")
+        run("cy1")
+        self.gil("open", "c/cy2", "--author", "x", "--purpose", "가지 A", "--body", "d",
+                 "--parent", "cy1", "--inherit", "cy1 에서")
+        run("cy2")
+        # cy3 도 cy1 의 자식이다 — 그런데 HEAD 는 방금 cy2 에 서 있었다(위상은 cy2 를 가리킨다).
+        self.gil("open", "c/cy3", "--author", "x", "--purpose", "가지 B", "--body", "d",
+                 "--parent", "cy1", "--inherit", "cy1 에서")
+
+    def test_declared_lineage_beats_commit_topology(self):
+        """--parent 는 open 이 강제·검증하는 선언이다 — 위상보다 이쪽이 참이다."""
+        self._forked_chain()
+        out = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out)
+        with open(out, encoding="utf-8") as f:
+            html = f.read()
+        m = re.search(r'"cy3","steps":\d+,"status":"[^"]*","here":\w+,"parent":"([^"]*)"', html)
+        self.assertIsNotNone(m, "cy3 의 진입 부모를 못 찾았다")
+        self.assertIn("cy1", m.group(1), "cy3 의 부모가 선언(cy1)이 아니라 위상(cy2)으로 잡혔다")
+
+    def test_card_lays_cycles_out_by_lineage(self):
+        """배치가 부모를 본다 — 같은 부모의 형제는 같은 열에서 세로로 갈린다."""
+        self._forked_chain()
+        out = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out)
+        with open(out, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("parentOf", html)   # 계보로 col/row 를 잡는 배치가 들어 있다
+        self.assertIn("rowGap", html)
+
+
 class TestJudgmentArrival(GilFixture):
     """사람의 판정도 도착한다 (상현님 실사용).
 

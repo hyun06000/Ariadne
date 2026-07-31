@@ -809,6 +809,21 @@ func jsonStrings(in []string) string {
 // 각 체인의 노드 좌표도 함께 실어 확장 패널을 그 자리에 띄운다.
 // static=true 면 각 노드에 "body"(스텝 커밋 본문)를 임베드 — 서버 /step 페치 없이 보고서를
 // 바로 렌더한다. serve(static=false)면 본문은 클릭 시 /step 으로 페치(HTML 을 가볍게 유지).
+// lastStepOfCycle — 그 사이클의 마지막 스텝 ref(chain/cycle/step). 없으면 "".
+func lastStepOfCycle(g graphView, chain, cycle string) string {
+	best := ""
+	bestN := -1
+	for _, n := range g.allNodes {
+		if n.chain != chain || n.cycle != cycle {
+			continue
+		}
+		if k := stepNum(n.step); k > bestN {
+			bestN, best = k, n.chain+"/"+n.cycle+"/"+n.step
+		}
+	}
+	return best
+}
+
 // cycleEntryParents — 각 사이클의 진입 부모 스텝(AIL #7). 사이클 첫 스텝(가장 낮은 s번호)의
 // 커밋 부모 사슬을 거슬러, 다른 사이클/체인에 속한 가장 가까운 gil 스텝을 찾는다. 반환:
 // (chain\x01cycle) → "chain/cycle/step". 위상 유도라 Gil-Cycle-Parent 선언이 없어도 잡힌다.
@@ -828,6 +843,27 @@ func cycleEntryParents(g graphView) map[string]string {
 	}
 	out := map[string]string{}
 	for k, def := range first {
+		// **선언이 먼저다**(상현님 실사용: 사이클 분기가 사이클 그래프에서 일직선으로 보였다).
+		// 옛 순서는 위상(커밋 조상)을 먼저 보고 없을 때만 선언을 썼는데, 사이클 계보에서
+		// 위상은 부수적이다: 새 사이클을 열 때 HEAD 가 어느 브랜치에 서 있었느냐가 그대로
+		// 커밋 조상이 된다. cy1 에서 갈라진 cy2·cy3 를 차례로 열면 cy3 의 커밋 조상은 cy2 라,
+		// 진짜 분기(cy1 → cy2, cy1 → cy3)가 일직선(cy1 → cy2 → cy3)으로 그려졌다.
+		// --parent 는 open 이 **강제·검증**하는 선언이다(부모가 닫혀 있어야 통과한다) —
+		// 사람이 한 말이 아니라 문법이 받은 사실이다. 그러니 이쪽이 먼저다.
+		for _, pc := range def.cycleParents {
+			pc = strings.TrimSpace(pc)
+			if pc == "" {
+				continue
+			}
+			// 선언은 사이클 id 또는 체인명이다 — 그 사이클의 마지막 스텝을 진입점으로 삼는다.
+			if tip := lastStepOfCycle(g, def.chain, pc); tip != "" {
+				out[k] = tip
+				break
+			}
+		}
+		if out[k] != "" {
+			continue
+		}
 		// def 의 커밋 부모에서 시작해, 다른 사이클의 gil 스텝을 만날 때까지 거슬러 오른다.
 		seen := map[string]bool{}
 		var walk func(sha string) string
@@ -1623,28 +1659,62 @@ function openCard(chain){
   let longestCy=0; cy.forEach(c=>{ longestCy=Math.max(longestCy,(c.name||'').length); });
   const gap=Math.max(104, longestCy*8+20);
   const padX=Math.max(34, longestCy*4+10);
-  const w=Math.max(160, padX*2+(cy.length-1)*gap+r*2);
-  const h=padY*2+r*2+18;
+  // **사이클도 계보로 배치한다**(상현님 실사용: 사이클 분기가 났는데 일직선으로 보였다).
+  // 옛 배치는 cy[i] 를 i*gap 자리에 놓고 앞 노드와 선을 이었다 — 부모를 아예 안 봤다.
+  // 그래서 같은 부모에서 갈라진 두 사이클이 앞뒤로 줄지어 서고, 진짜 분기가 사라졌다.
+  // 바로 아래 스텝 그래프는 이미 이렇게 그린다: col=부모 사슬 깊이, row=형제마다 한 칸.
+  const byName={}; cy.forEach(c=>byName[c.name]=c);
+  const parentOf=c=>{
+    const p=(c.parent||'').split('/');            // "chain/cycle/step"
+    if(p.length>=2 && p[0]===chain && byName[p[1]] && p[1]!==c.name) return p[1];
+    return null;                                   // 뿌리(대문·다른 체인에서 들어옴)
+  };
+  const kids={}; const roots=[];
+  cy.forEach(c=>{ const p=parentOf(c); if(p){ (kids[p]=kids[p]||[]).push(c); } else roots.push(c); });
+  const col={}, row={};
+  let nextRow=0;
+  const place=(c,depth)=>{
+    col[c.name]=depth;
+    const ks=kids[c.name]||[];
+    if(!ks.length){ row[c.name]=nextRow++; return; }
+    const rs=[];
+    ks.forEach((k,i)=>{ if(i>0) nextRow++; place(k,depth+1); rs.push(row[k.name]); });
+    row[c.name]=rs[0];                             // 부모는 첫 자식 줄에 선다
+  };
+  roots.forEach((c,i)=>{ if(i>0) nextRow++; place(c,0); });
+  let maxCol=0, maxRow=0;
+  cy.forEach(c=>{ maxCol=Math.max(maxCol,col[c.name]||0); maxRow=Math.max(maxRow,row[c.name]||0); });
+  const rowGap=r*2+34;
+  const w=Math.max(160, padX*2+maxCol*gap+r*2);
+  const h=padY*2+r*2+18+maxRow*rowGap;
   const svg=svgEl('svg',{class:'cygraph',viewBox:'0 0 '+w+' '+h,width:w,height:h});
-  const cx0=padX+r, cyy=padY+r;
-  for(let i=0;i<cy.length;i++){
-    const cx=cx0+i*gap;
-    if(i>0) svg.appendChild(svgEl('line',{class:'cyedge',x1:cx0+(i-1)*gap+r,y1:cyy,x2:cx-r,y2:cyy}));
-    const g=svgEl('g',{class:'cynode '+cy[i].status+(cy[i].here?' here':''),transform:'translate('+cx+','+cyy+')'});
-    g.dataset.cycle=cy[i].name;
+  const cx0=padX+r, cyy0=padY+r;
+  const X=c=>cx0+(col[c.name]||0)*gap, Y=c=>cyy0+(row[c.name]||0)*rowGap;
+  // 엣지 먼저(노드 아래로 깔린다) — 부모에서 자식으로. 줄이 다르면 꺾어 내린다.
+  cy.forEach(c=>{
+    const p=parentOf(c); if(!p)return;
+    const pc=byName[p], x1=X(pc)+r, y1=Y(pc), x2=X(c)-r, y2=Y(c);
+    if(y1===y2){ svg.appendChild(svgEl('line',{class:'cyedge',x1:x1,y1:y1,x2:x2,y2:y2})); }
+    else { const mx=(x1+x2)/2;
+      svg.appendChild(svgEl('path',{class:'cyedge',fill:'none',
+        d:'M '+x1+' '+y1+' L '+mx+' '+y1+' L '+mx+' '+y2+' L '+x2+' '+y2})); }
+  });
+  cy.forEach(c=>{
+    const g=svgEl('g',{class:'cynode '+c.status+(c.here?' here':''),transform:'translate('+X(c)+','+Y(c)+')'});
+    g.dataset.cycle=c.name;
     g.appendChild(svgEl('circle',{r:r}));
-    g.appendChild(svgEl('text',{class:'cystep',dy:4},cy[i].steps));
-    g.appendChild(svgEl('text',{class:'cyname',dy:r+18},cy[i].name));
-    if(cy[i].here) g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-8)+' l -6 -9 l 12 0 z'})); // HEAD ▼
+    g.appendChild(svgEl('text',{class:'cystep',dy:4},c.steps));
+    g.appendChild(svgEl('text',{class:'cyname',dy:r+18},c.name));
+    if(c.here) g.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-8)+' l -6 -9 l 12 0 z'})); // HEAD ▼
     g.addEventListener('click',ev=>{
       ev.stopPropagation();
       document.querySelectorAll('.cynode.sel').forEach(x=>x.classList.remove('sel'));
       g.classList.add('sel');
-      saveSel({chain:chain,cycle:cy[i].name});
-      openStepCard(chain,cy[i]);
+      saveSel({chain:chain,cycle:c.name});
+      openStepCard(chain,c);
     });
     svg.appendChild(g);
-  }
+  });
   const wrap=document.createElement('div');
   wrap.className='cygraph-wrap'; wrap.appendChild(svg);
   card.appendChild(wrap);
