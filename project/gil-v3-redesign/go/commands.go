@@ -2572,6 +2572,11 @@ func interviewWatch(chain string, wait bool, timeoutS, then string) {
 		if pending {
 			println2("interview: " + chain + " — pending (사람 답 대기 중)")
 			println2("▸ 사람에게 뷰어 폼 제출을 청하라. 답이 오면 이 명령이 done 으로 바뀐다.")
+			// 뷰어가 죽었으면 **사람이 답할 창구 자체가 없다**(이슈 #93). 기다리는 자리에서
+			// 그걸 모르면 에이전트도 사람도 "왜 아무 일이 없지"에서 멈춘다 — 실제로 그랬다.
+			for _, ln := range viewerDeadNotice() {
+				println2(ln)
+			}
 			if interviewWaiterActive(chain) {
 				println2("▸ 지금 이 답을 **기다리는 프로세스가 살아 있다**(백그라운드 --wait). 제출되면 그쪽이 이어간다.")
 			} else {
@@ -2600,6 +2605,10 @@ func interviewWatch(chain string, wait bool, timeoutS, then string) {
 	}
 	println2("interview: " + chain + " — 사람 답을 기다린다(최대 " + strconv.Itoa(secs) + "초). 뷰어 폼 제출을 청하라.")
 	println2("  ▸ 뷰어가 이 대기를 사람에게 보여준다(\"에이전트가 이 답을 기다리는 중\") — 제출이 곧바로 이어진다는 걸 사람이 안다.")
+	// 기다리기 **전에** 창구가 있는지 확인한다(이슈 #93) — 없으면 몇 분이든 헛되이 기다린다.
+	for _, ln := range viewerDeadNotice() {
+		println2(ln)
+	}
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
 	// 대기 표식(이슈 #82): 기다리는 중임을 뷰어·handoff·--status 가 볼 수 있게 한다.
 	// die 로 빠져나가도 표식을 남기지 않는다 — 유령이 "기다리는 중"이라 말하면 사람은 다시
@@ -2632,6 +2641,11 @@ func interviewWatch(chain string, wait bool, timeoutS, then string) {
 			tick += 2 * time.Second
 		}
 		waiterBeat(chain, deadline) // 심장박동 — 끊기면 읽는 쪽이 죽은 표식으로 본다
+		// **창구가 살아 있는지도 함께 본다**(이슈 #93). 실사용에서 정확히 이 일이 났다:
+		// --wait 은 멀쩡히 기다리는데 뷰어만 조용히 죽어, 사람이 답을 낼 창구가 사라졌다.
+		// 기다리는 쪽이 그걸 모르면 둘 다 "왜 아무 일이 없지"에서 멈춘다. 다시 띄운다 —
+		// 관전 서버 기동은 싸고 멱등이며, 여기서 침묵할 이유가 없다.
+		reviveViewerIfDead(chain)
 		if sig := refSig(); sig == lastSig {
 			continue // 커밋이 하나도 안 늘었다 — 제출이 있었을 리 없다
 		} else {

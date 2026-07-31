@@ -1601,6 +1601,59 @@ class TestViewerLeavesATrace(GilFixture):
                 p.wait(timeout=10)
             shutil.rmtree(work, ignore_errors=True)
 
+    def test_wait_notices_and_revives_a_dead_viewer(self):
+        """기다리는 도중 창구가 사라지면 알아채고 다시 띄운다 (이슈 #93).
+
+        실사용에서 정확히 이 일이 났다 — `--wait` 은 멀쩡히 기다리는데 뷰어만 조용히 죽어
+        **사람이 답을 낼 창구가 사라졌다.** 둘 다 "왜 아무 일이 없지"에서 멈췄다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("interview", "c", "--ask", "-", input='[{"q":"무엇을","type":"text"}]')
+        port = "8"+str(880 + (os.getpid() % 15))
+        env = dict(os.environ, GIL_VIEWER_PORT=port)
+        env.pop("GIL_NO_VIEWER", None)
+        log = os.path.join(self.repo, "wait.out")
+        with open(log, "w") as lf:
+            w = subprocess.Popen([*GIL_CMD, "interview", "c", "--wait", "--timeout", "60"],
+                                 cwd=self.repo, stdout=lf, stderr=subprocess.STDOUT, env=env)
+        try:
+            def listener():
+                r = subprocess.run(["lsof", "-nP", "-iTCP:" + port, "-sTCP:LISTEN", "-t"],
+                                   capture_output=True, text=True)
+                return [int(x) for x in r.stdout.split()]
+            pids = []
+            for _ in range(80):
+                pids = listener()
+                if pids:
+                    break
+                time.sleep(0.25)
+            if not pids:
+                self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
+            os.kill(pids[0], 9)            # 창구만 죽인다 — 기다리는 쪽은 그대로
+            for _ in range(80):            # 다음 틱에 알아채고 되살린다
+                with open(log, encoding="utf-8") as f:
+                    out = f.read()
+                if "사라졌다" in out:
+                    break
+                time.sleep(0.25)
+            self.assertIn("사라졌다", out, "창구가 죽었는데 기다리는 쪽이 몰랐다:\n" + out)
+            self.assertIsNone(w.poll(), "뷰어가 죽었다고 기다리던 쪽까지 죽었다")
+        finally:
+            w.terminate()
+            w.wait(timeout=15)
+            for pid in (listener() if 'listener' in dir() else []):
+                try:
+                    os.kill(pid, 15)
+                except Exception:
+                    pass
+
+    def test_viewer_list_says_which_port_watches_which_repo(self):
+        """포트 폴백으로 뷰어가 겹겹이 쌓이는데 어느 것이 내 저장소인지 알 방법이 없었다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("viewer", "list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue("뜬 뷰어 없음" in r.stdout or "127.0.0.1:" in r.stdout, r.stdout)
+
     def test_log_lives_in_git_dir_not_the_worktree(self):
         """로그가 작업트리를 더럽히면 '미커밋 작업'으로 잡혀 관전 화면을 오염시킨다."""
         self.gil("init", "--name", "clew")

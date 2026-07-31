@@ -180,6 +180,69 @@ func portOpen(port string) bool {
 	return true
 }
 
+// viewerScan — 8790..8799 를 훑어 **어느 포트가 어느 저장소를 보는지** 알아낸다(이슈 #93 곁다리).
+// 포트 폴백 때문에 뷰어가 세션마다 겹겹이 쌓이는데, 어느 것이 내 저장소인지 알 방법이 없었다.
+func viewerScan() []struct{ Port, Repo string } {
+	var out []struct{ Port, Repo string }
+	base := 8790
+	if p := os.Getenv("GIL_VIEWER_PORT"); p != "" {
+		if n := atoiSafe(p); n > 0 {
+			base = n
+		}
+	}
+	for i := 0; i < 10; i++ {
+		port := itoa(base + i)
+		if !portOpen(port) {
+			continue
+		}
+		_, repo := viewerServesThisRepo(port)
+		if repo == "" {
+			repo = "(gil 뷰어가 아니거나 응답 없음)"
+		}
+		out = append(out, struct{ Port, Repo string }{port, repo})
+	}
+	return out
+}
+
+// viewerAliveForThisRepo — 이 저장소를 보는 살아있는 뷰어가 있나(이슈 #93 제안 3).
+// 뷰어가 죽으면 **사람이 인터뷰 폼을 제출할 수단이 사라진다** — 답을 기다리는 자리에서
+// 그 사실을 모르면 에이전트도 사람도 "왜 아무 일이 없지"에서 멈춘다.
+func viewerAliveForThisRepo() bool {
+	for _, v := range viewerScan() {
+		if mine, _ := viewerServesThisRepo(v.Port); mine {
+			return true
+		}
+	}
+	return false
+}
+
+// viewerDeadNotice — 사람의 답을 기다리는 자리에서 뷰어가 없으면 그 자리에서 알린다.
+func viewerDeadNotice() []string {
+	if os.Getenv("GIL_NO_VIEWER") != "" || viewerAliveForThisRepo() {
+		return nil
+	}
+	return []string{
+		"  ⚠ 이 저장소를 보는 뷰어가 없다 — **사람이 폼을 제출할 창구가 없다.** 기다려도 답은 안 온다.",
+		"    다시 띄워라: gil viewer serve   (죽은 이유는 <레포>/.git/gil-viewer.log 에 남아 있다)",
+	}
+}
+
+// reviveViewerIfDead — 사람의 답을 기다리는 동안 창구(뷰어)가 죽으면 다시 띄운다(이슈 #93).
+// 조용히 되살리지 않는다 — 죽었다는 사실 자체가 알아야 할 정보다(로그에 이유가 남아 있다).
+func reviveViewerIfDead(chain string) {
+	if os.Getenv("GIL_NO_VIEWER") != "" || viewerAliveForThisRepo() {
+		return
+	}
+	println2("  ⚠ 이 저장소를 보는 뷰어가 사라졌다 — 사람이 답할 창구가 없어졌다. 다시 띄운다.")
+	println2("    (죽은 이유: <레포>/.git/gil-viewer.log 를 읽어라.)")
+	launchViewer()
+	if viewerAliveForThisRepo() {
+		println2("  ✓ 뷰어를 다시 띄웠다 — 사람에게 " + chain + " 인터뷰 폼 제출을 다시 청하라.")
+	} else {
+		println2("  ✗ 다시 띄우지 못했다 — 사람에게 직접 청하라: gil viewer serve")
+	}
+}
+
 // viewerServesThisRepo — 그 포트의 뷰어가 **이 저장소**를 보고 있나(온보딩 실측).
 // 포트가 열려 있다는 사실만으로는 부족하다: 다른 프로젝트의 뷰어가 같은 기본 포트를 쥐고
 // 있으면, "이 주소를 열어라"는 지시가 사람을 남의 그래프로 보낸다. /whoami 로 되묻는다.

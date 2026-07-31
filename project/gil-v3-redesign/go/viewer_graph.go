@@ -939,6 +939,23 @@ func cmdViewer(args []string) {
 	switch sub {
 	case "serve":
 		serve([]string{"--port", port})
+	case "list":
+		// 어느 포트가 어느 저장소를 보는가(이슈 #93 곁다리). 포트 폴백으로 뷰어가 세션마다
+		// 겹겹이 쌓이는데, 그걸 알 방법이 없어 사람이 남의 그래프를 자기 것으로 읽었다.
+		vs := viewerScan()
+		if len(vs) == 0 {
+			println2("뜬 뷰어 없음 — 띄워라: gil viewer serve")
+			return
+		}
+		mineAbs, _ := filepath.Abs(".")
+		for _, v := range vs {
+			mark := " "
+			if v.Repo == mineAbs {
+				mark = "◀ 이 저장소"
+			}
+			println2("  127.0.0.1:" + v.Port + "  →  " + v.Repo + "  " + mark)
+		}
+		println2("  (죽은 뷰어의 이유는 각 저장소의 .git/gil-viewer.log 에 남는다.)")
 	case "build":
 		if out == "" {
 			die("사용: gil viewer build --out <파일> [--repo <경로>]")
@@ -947,7 +964,7 @@ func cmdViewer(args []string) {
 	case "", "text":
 		renderText(buildGraph())
 	default:
-		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve build text]")
+		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve build text list]")
 	}
 }
 
