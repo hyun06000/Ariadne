@@ -73,12 +73,17 @@ func markInterviewSeen(chain string) {
 	if sha == "" {
 		return
 	}
+	markSeenKey(chain, sha)
+}
+
+// markSeenKey — "봤다" 파일에 한 항목을 적는다(인터뷰 답·사람의 판정이 같은 파일을 쓴다).
+func markSeenKey(key, sha string) {
 	p := seenPath()
 	if p == "" {
 		return
 	}
 	m := seenMap()
-	m[chain] = sha
+	m[key] = sha
 	var keys []string
 	for k := range m {
 		keys = append(keys, k)
@@ -110,6 +115,63 @@ func arrivedInterviews() []string {
 	return out
 }
 
+// ── 사람의 판정도 도착한다 (상현님 실사용) ──────────────────────────────────────
+//
+// "gil approve 또는 gil reject 가 필요합니다" 라고 해서 사람이 뷰어에서 승인을 눌렀는데
+// **에이전트가 그걸 모른다.** 인터뷰 답에는 ⚡ 고지가 있는데 판정에는 없었다 — 같은 병의
+// 다른 얼굴이다(#77 과 같은 자리). 사람이 자기 몫을 다했는데 그 사실이 닿지 않으면,
+// 사람은 다시 말을 걸어야 하고 그건 사람에게 두 번 일을 시키는 것이다.
+type judgment struct{ chain, cycle, step, verdict, sha string }
+
+// arrivedJudgments — 사람이 내린 판정(approve/reject) 중 이 클론이 아직 못 본 것들.
+func arrivedJudgments() []judgment {
+	seen := seenMap()
+	fmtStr := "%H" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +
+		trailer("Gil-Step") + fsep + trailer("Gil-Approval") + sep
+	var out []judgment
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		parts := strings.SplitN(strings.TrimSpace(rec), fsep, 5)
+		if len(parts) < 5 {
+			continue
+		}
+		v := strings.TrimSpace(parts[4])
+		if v != "approved" && v != "rejected" {
+			continue
+		}
+		j := judgment{
+			chain: strings.TrimSpace(parts[1]), cycle: strings.TrimSpace(parts[2]),
+			step: strings.TrimSpace(parts[3]), verdict: v, sha: first9(parts[0]),
+		}
+		if j.chain == "" || j.cycle == "" {
+			continue
+		}
+		if seen[judgmentKey(j.chain, j.cycle)] == j.sha {
+			continue
+		}
+		out = append(out, j)
+	}
+	return out
+}
+
+func judgmentKey(chain, cycle string) string { return "judgment:" + chain + "/" + cycle }
+
+// markJudgmentSeen — 이 사이클의 최신 판정을 봤다고 기록한다.
+func markJudgmentSeen(chain, cycle string) {
+	for _, j := range arrivedJudgments() {
+		if j.chain == chain && j.cycle == cycle {
+			markSeenKey(judgmentKey(chain, cycle), j.sha)
+			return
+		}
+	}
+}
+
+// markAllJudgmentsSeen — 읽는 명령(handoff·context·log)이 지나가면 전부 봤다고 본다.
+func markAllJudgmentsSeen() {
+	for _, j := range arrivedJudgments() {
+		markSeenKey(judgmentKey(j.chain, j.cycle), j.sha)
+	}
+}
+
 // noticeArrivedInterviews — 어떤 명령을 부르든 맨 앞에 한 줄. 이게 이 이슈의 핵심이다:
 // 통지가 아니라 **다음 접촉 때의 강제 고지**.
 func noticeArrivedInterviews() {
@@ -120,8 +182,23 @@ func noticeArrivedInterviews() {
 	if !gitOK("rev-parse", "--git-dir") {
 		return
 	}
+	// 사람의 판정(승인/기각)도 같은 자리에서 알린다 — 사람이 자기 몫을 다했는데 그 사실이
+	// 닿지 않으면 사람이 다시 말을 걸어야 한다(상현님 실사용).
+	for _, j := range arrivedJudgments() {
+		what, next := "승인했다", "이어가라: gil step "+j.chain+"/"+j.cycle+" --kind <다음> …  (gil context "+
+			j.chain+"/"+j.cycle+" 로 지금까지를 먼저 읽어라)"
+		if j.verdict == "rejected" {
+			what, next = "기각했다", "되돌아간 자리에서 새 가지를 파라: gil step "+j.chain+"/"+j.cycle+
+				" --kind hypothesis --to <조상 define|analyze> --inherit <이 기각에서 배운 것>"
+		}
+		stderr("⚡ 사람의 판정이 도착했다 — " + j.chain + "/" + j.cycle + " 의 pending 을 사람이 **" + what + "**(" + j.step + ").")
+		stderr("   " + next)
+	}
 	chains := arrivedInterviews()
 	if len(chains) == 0 {
+		if len(arrivedJudgments()) > 0 {
+			stderr("")
+		}
 		return
 	}
 	for _, c := range chains {

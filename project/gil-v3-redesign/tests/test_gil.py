@@ -1496,6 +1496,55 @@ class TestInterviewArrival(GilFixture):
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
 
 
+class TestJudgmentArrival(GilFixture):
+    """사람의 판정도 도착한다 (상현님 실사용).
+
+    "gil approve 또는 gil reject 가 필요합니다" 라고 해서 사람이 뷰어에서 승인을 눌렀는데
+    **에이전트가 그걸 몰랐다.** 인터뷰 답에는 ⚡ 고지가 있는데 판정에는 없었다 — 사람이 자기
+    몫을 다했는데 그 사실이 닿지 않으면, 사람이 다시 말을 걸어야 한다(#77 과 같은 자리)."""
+
+    def _upto_pending(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/cy", "--author", "x", "--purpose", "p", "--body", "정의")
+        self.gil("step", "c/cy", "--kind", "hypothesis", "--title", "h",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", "c/cy", "--kind", "verify", "--title", "v", "--verdict", "supported",
+                 "--falsify-unmet", "미달")
+        self.gil("step", "c/cy", "--kind", "analyze", "--title", "an", "--finding", "밝힘")
+        self.gil("step", "c/cy", "--kind", "pending", "--title", "사람 판단 필요")
+
+    def test_approval_is_announced_on_the_next_command(self):
+        self._upto_pending()
+        self.gil("approve", "c/cy")
+        out = self.gil("log").stdout + self.gil("log").stderr
+        self.assertIn("사람의 판정이 도착했다", out)
+        self.assertIn("승인했다", out)
+        self.assertIn("c/cy", out)
+
+    def test_rejection_is_announced_with_the_way_forward(self):
+        """기각은 '끝'이 아니다 — 되돌아간 자리에서 새 가지를 파는 길을 함께 준다."""
+        self._upto_pending()
+        self.gil("reject", "c/cy", "--to", "s1")
+        out = self.gil("log").stdout + self.gil("log").stderr
+        self.assertIn("기각했다", out)
+        self.assertIn("--inherit", out)
+
+    def test_notice_stops_once_it_has_been_read(self):
+        """영원히 뜨는 경고는 안 읽힌다 — 읽는 명령(context·handoff)이 지나가면 끈다."""
+        self._upto_pending()
+        self.gil("approve", "c/cy")
+        self.assertIn("사람의 판정", self.gil("log").stdout + self.gil("log").stderr)
+        self.gil("context", "c/cy")
+        again = self.gil("log").stdout + self.gil("log").stderr
+        self.assertNotIn("사람의 판정", again)
+
+    def test_no_notice_when_nothing_was_judged(self):
+        self._upto_pending()
+        out = self.gil("log").stdout + self.gil("log").stderr
+        self.assertNotIn("사람의 판정", out)
+
+
 class TestWaitHandoffToHost(GilFixture):
     """이슈 #94 — 답은 도착했는데 **아무도 그 출력을 읽지 못했다**(네 번째 겹).
 
@@ -1686,9 +1735,18 @@ class TestViewerLeavesATrace(GilFixture):
     def _log_path(self):
         return os.path.join(self.repo, ".git", "gil-viewer.log")
 
+    def _free_port(self):
+        """OS 에서 빈 포트를 받는다 — pid 로 계산하면 병렬 워커끼리 같은 포트를 골라 깜빡인다."""
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        return str(port)
+
     def test_serve_writes_start_and_stop_to_the_repo_log(self):
         self.gil("init", "--name", "clew")
-        port = "8"+str(970 + (os.getpid() % 20))
+        port = self._free_port()
         env = dict(os.environ)
         env.pop("GIL_NO_VIEWER", None)
         p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
@@ -1737,7 +1795,7 @@ class TestViewerLeavesATrace(GilFixture):
         렌더 경로의 헬퍼 여럿이 하드 git() 을 부르는데, 그중 하나가 실패하면(index.lock 경합·
         레포 이동·일시적 I/O) 옛 코드는 os.Exit 로 서버를 통째로 죽였다."""
         self.gil("init", "--name", "clew")
-        port = "8"+str(900 + (os.getpid() % 20))
+        port = self._free_port()
         p = self._start(port)
         try:
             os.rename(os.path.join(self.repo, ".git"), os.path.join(self.repo, ".git-off"))
@@ -1766,7 +1824,7 @@ class TestViewerLeavesATrace(GilFixture):
         env = dict(os.environ, GIL_NO_VIEWER="1")
         subprocess.run([*GIL_CMD, "init", "--name", "clew"], cwd=work, env=env,
                        capture_output=True, text=True)
-        port = "8"+str(920 + (os.getpid() % 20))
+        port = self._free_port()
         p = self._start(port, cwd=work)
         try:
             shutil.rmtree(work, ignore_errors=True)
@@ -1789,7 +1847,7 @@ class TestViewerLeavesATrace(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "c", "--purpose", "P")
         self.gil("interview", "c", "--ask", "-", input='[{"q":"무엇을","type":"text"}]')
-        port = "8"+str(880 + (os.getpid() % 15))
+        port = self._free_port()
         env = dict(os.environ, GIL_VIEWER_PORT=port)
         env.pop("GIL_NO_VIEWER", None)
         log = os.path.join(self.repo, "wait.out")
@@ -1837,7 +1895,7 @@ class TestViewerLeavesATrace(GilFixture):
     def test_log_lives_in_git_dir_not_the_worktree(self):
         """로그가 작업트리를 더럽히면 '미커밋 작업'으로 잡혀 관전 화면을 오염시킨다."""
         self.gil("init", "--name", "clew")
-        port = "8"+str(940 + (os.getpid() % 20))
+        port = self._free_port()
         env = dict(os.environ)
         env.pop("GIL_NO_VIEWER", None)
         p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],

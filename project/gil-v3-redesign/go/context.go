@@ -313,6 +313,8 @@ func lineageTowardLines(chain, cycle string) string {
 
 // cmdContext — `gil context <chain>[/<cycle>]`. 계보 브리핑을 사람·에이전트가 언제든 부른다.
 func cmdContext(args []string) {
+	// context 는 "지금까지를 읽는" 명령이다 — 사람의 판정도 여기서 읽힌다(고지를 끈다).
+	defer markAllJudgmentsSeen()
 	fs := newFlags("gil context")
 	pos := fs.parse(args)
 	if len(pos) < 1 {

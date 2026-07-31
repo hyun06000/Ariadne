@@ -60,6 +60,7 @@ func cmdHandoff(args []string) {
 	report := handoffReport()
 	// 여기까지 왔으면 도착한 답을 이 세션이 본 것이다(handoff 가 그 사실을 싣는다) — 기록해
 	// 고지를 끈다. 안 끄면 "⚡ 도착했다"가 영원히 뜨고, 영원히 뜨는 경고는 안 읽힌다(#77).
+	markAllJudgmentsSeen() // 사람의 판정도 handoff 가 싣는다 — 봤으니 고지를 끈다
 	for _, c := range arrivedInterviews() {
 		markInterviewSeen(c)
 	}

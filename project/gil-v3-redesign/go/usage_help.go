@@ -156,7 +156,10 @@ var helpTable = map[string]helpEntry{
 	},
 	"approve": {
 		"gil approve <chain>/<cycle> [--title T]\n" +
-			"  pending 을 사람이 승인 → 산 잎(Gil-Approval: approved). pending 뒤엔 이것/reject 만 허용.",
+			"  pending 을 사람이 승인 → 산 잎(Gil-Approval: approved). pending 뒤엔 이것/reject 만 허용.\n" +
+			"  사람이 뷰어에서 눌러도 된다 — 그러면 **다음에 무슨 명령을 부르든** gil 이 맨 앞에\n" +
+			"  ⚡ 로 그 판정을 알린다(상현님 실사용: 눌렀는데 에이전트가 몰랐다). 읽는 명령\n" +
+			"  (gil context·handoff)이 지나가면 고지는 꺼진다.",
 		"docs/gil/human-in-the-loop.md",
 	},
 	"reject": {
