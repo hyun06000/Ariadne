@@ -528,6 +528,15 @@ func die(msg string) {
 		runDieHooks()
 		panic(gilAbort{msg: msg, code: 1})
 	}
+	// 뷰어 서버로 돌 때도 마찬가지다(상현님) — **한 번의 거부가 관전 창 전체를 끊으면 안 된다.**
+	// 렌더 경로의 헬퍼 여럿이 하드 git() 을 부르는데, 그중 하나가 실패하면(index.lock 경합·
+	// 레포 이동·일시적 I/O) die 가 os.Exit 를 불러 서버가 통째로 죽었다. 그리고 그 죽음은
+	// 로그가 없던 시절엔 흔적조차 없었다. 이제는 그 요청 하나만 500 으로 끝나고 서버는 산다.
+	if viewerServeMode {
+		os.Stderr.WriteString(msg + "\n") // 뷰어 로그로 흘러 들어간다
+		runDieHooks()
+		panic(gilAbort{msg: msg, code: 1})
+	}
 	os.Stderr.WriteString(msg + "\n")
 	traceSummary() // 거부로 끝나도 시간은 밝힌다 — 느린 거부가 제일 답답하다(이슈 #88)
 	runDieHooks() // 원인을 먼저, 뒷정리 안내는 그 다음(이슈 #64②)
@@ -536,7 +545,7 @@ func die(msg string) {
 
 // gilExit — os.Exit 를 쓰던 자리. MCP 모드에서는 종료 대신 그 호출만 끝낸다.
 func gilExit(code int) {
-	if mcpMode {
+	if mcpMode || viewerServeMode {
 		panic(gilAbort{code: code})
 	}
 	traceSummary() // os.Exit 는 defer 를 건너뛴다 — 여기서도 시간을 밝힌다(이슈 #88)

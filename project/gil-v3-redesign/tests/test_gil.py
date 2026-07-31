@@ -19,6 +19,7 @@ import tempfile
 import time
 import shutil
 import unittest
+import urllib.request
 
 # gil 은 Go 단일 바이너리가 유일 구현이다(Python 참조 은퇴, 2026-07-24 상현님).
 # 기본은 빌드된 Go 바이너리. GIL_BIN 으로 다른 경로를 물릴 수 있다.
@@ -1534,6 +1535,71 @@ class TestViewerLeavesATrace(GilFixture):
                 break
             time.sleep(0.1)
         self.assertIn("종료", out, "죽은 이유가 안 남았다:\n" + out)
+
+    def _start(self, port, cwd=None):
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
+                             cwd=cwd or self.repo, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, env=env)
+        for _ in range(60):
+            try:
+                urllib.request.urlopen("http://127.0.0.1:" + port + "/", timeout=1).read()
+                return p
+            except Exception:
+                time.sleep(0.1)
+        p.terminate()
+        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
+
+    def test_a_broken_repo_does_not_kill_the_server(self):
+        """한 번의 거부가 관전 창 전체를 끊으면 안 된다 — die() 가 서버를 죽이지 않는다.
+
+        렌더 경로의 헬퍼 여럿이 하드 git() 을 부르는데, 그중 하나가 실패하면(index.lock 경합·
+        레포 이동·일시적 I/O) 옛 코드는 os.Exit 로 서버를 통째로 죽였다."""
+        self.gil("init", "--name", "clew")
+        port = "8"+str(900 + (os.getpid() % 20))
+        p = self._start(port)
+        try:
+            os.rename(os.path.join(self.repo, ".git"), os.path.join(self.repo, ".git-off"))
+            try:
+                try:
+                    urllib.request.urlopen("http://127.0.0.1:" + port + "/", timeout=5).read()
+                except Exception:
+                    pass  # 500 이어도 좋다 — 중요한 건 프로세스가 사는 것이다
+            finally:
+                os.rename(os.path.join(self.repo, ".git-off"), os.path.join(self.repo, ".git"))
+            self.assertIsNone(p.poll(), "레포가 깨졌다고 서버가 죽었다")
+            # 복구되면 다시 정상으로 응답한다.
+            body = urllib.request.urlopen("http://127.0.0.1:" + port + "/", timeout=5).read()
+            self.assertIn(b"gil", body)
+        finally:
+            p.terminate()
+            p.wait(timeout=10)
+
+    def test_viewer_retires_when_its_repo_disappears(self):
+        """관전 레포가 사라지면 스스로 물러난다 — 좀비가 기본 포트를 쥐면 사람이 남의 그래프를 본다."""
+        work = tempfile.mkdtemp(prefix="gil-zombie-")
+        subprocess.run(["git", "init", "-q", work], check=True)
+        for a in (["config", "user.email", "t@e.com"], ["config", "user.name", "t"],
+                  ["config", "commit.gpgsign", "false"]):
+            subprocess.run(["git", "-C", work, *a], check=True)
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        subprocess.run([*GIL_CMD, "init", "--name", "clew"], cwd=work, env=env,
+                       capture_output=True, text=True)
+        port = "8"+str(920 + (os.getpid() % 20))
+        p = self._start(port, cwd=work)
+        try:
+            shutil.rmtree(work, ignore_errors=True)
+            for _ in range(120):   # 감시 주기 5초 + 여유
+                if p.poll() is not None:
+                    break
+                time.sleep(0.25)
+            self.assertIsNotNone(p.poll(), "관전 레포가 사라졌는데 뷰어가 포트를 쥐고 남았다")
+        finally:
+            if p.poll() is None:
+                p.terminate()
+                p.wait(timeout=10)
+            shutil.rmtree(work, ignore_errors=True)
 
     def test_log_lives_in_git_dir_not_the_worktree(self):
         """로그가 작업트리를 더럽히면 '미커밋 작업'으로 잡혀 관전 화면을 오염시킨다."""

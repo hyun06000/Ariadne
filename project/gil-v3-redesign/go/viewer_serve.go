@@ -103,6 +103,57 @@ func assembleReference(chain string, answers []struct {
 // 저장소마다 하나이며, 저장소를 지우면 함께 사라진다.
 var viewerLogFile *os.File
 
+// viewerServeMode — 이 프로세스가 관전 서버인가. die()/gilExit() 가 여기서는 프로세스를
+// 죽이지 않고 그 요청 하나만 끝내게 한다(아래 handle 의 recover 가 받는다).
+var viewerServeMode bool
+
+// handle — 모든 뷰어 핸들러의 단일 관문. 어떤 조각이 죽어도 **서버는 산다**:
+// 그 요청만 500 으로 끝나고, 이유는 로그와 응답 본문에 남는다. 관전 도구가 조용히
+// 사라지는 것보다 한 요청이 실패하는 편이 언제나 낫다.
+func handle(path string, fn func(http.ResponseWriter, *http.Request)) {
+	http.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			msg := "패닉"
+			if ab, ok := rec.(gilAbort); ok {
+				msg = "거부"
+				if strings.TrimSpace(ab.msg) != "" {
+					msg = ab.msg
+				}
+			} else {
+				msg = fmt.Sprintf("패닉: %v", rec)
+			}
+			viewerLogWrite("요청 " + r.Method + " " + path + " 실패(서버는 계속 산다) — " + msg)
+			defer func() { _ = recover() }() // 헤더가 이미 나갔으면 쓰기도 실패한다
+			http.Error(w, "이 요청은 실패했다(서버는 살아 있다):\n"+msg+
+				"\n\n자세한 이유: <레포>/.git/gil-viewer.log", http.StatusInternalServerError)
+		}()
+		fn(w, r)
+	})
+}
+
+// repoGone — 관전 대상 저장소가 사라졌는가(삭제·이동·이름변경). 이건 일시적 오류가 아니라
+// **이 뷰어의 존재 이유가 없어진 것**이다. 실사용에서 그런 뷰어가 기본 포트를 쥔 채 남아,
+// handoff 가 그 주소를 "지금 열어라"로 가리켰고 사람은 남의(없는) 그래프를 봤다.
+func repoGone() bool {
+	if viewerRepoDir == "" {
+		return false
+	}
+	if _, err := os.Stat(viewerRepoDir); err != nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(viewerRepoDir, ".git")); err != nil {
+		// .git 이 파일(worktree)일 수도 있으니 rev-parse 로 한 번 더 묻는다.
+		if _, gerr := gitTryIn(viewerRepoDir, "rev-parse", "--git-dir"); gerr != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func viewerLogPath() string { return viewerLogPathFor(viewerRepoDir) }
 
 // viewerLogPathFor — 그 저장소의 뷰어 로그 경로(기동하는 쪽에서도 같은 자리를 쓴다).
@@ -149,7 +200,22 @@ func serve(args []string) {
 			i++
 		}
 	}
+	viewerServeMode = true // die/gilExit 가 이 프로세스를 죽이지 않는다(요청 하나만 끝난다)
 	viewerLogOpen(port)
+	// 관전 레포가 사라지면 스스로 물러난다 — 기본 포트를 쥔 채 남아 있으면 사람이 남의(없는)
+	// 그래프를 자기 것으로 읽는다. 사라짐은 일시적 오류가 아니라 존재 이유의 소멸이다.
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			if repoGone() {
+				viewerLogWrite("종료 — 관전 레포가 사라졌다(" + viewerRepoDir + "). 포트를 놓고 물러난다.")
+				if viewerLogFile != nil {
+					viewerLogFile.Close()
+				}
+				os.Exit(0)
+			}
+		}
+	}()
 	// 핸들러 패닉은 net/http 가 연결 단위로 회수하고 ErrorLog 로 흘린다 — 그 흐름을 로그
 	// 파일로 돌린다. 안 그러면 자동 기동 뷰어에서는 패닉 스택이 /dev/null 로 사라진다.
 	if viewerLogFile != nil {
@@ -166,7 +232,7 @@ func serve(args []string) {
 		}
 		os.Exit(0)
 	}()
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	handle("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
@@ -178,7 +244,7 @@ func serve(args []string) {
 	// 포트가 열려 있다는 것만으로 "그 뷰어가 내 저장소를 본다"고 말할 수 없다. 실제로
 	// 다른 프로젝트의 뷰어가 같은 기본 포트를 쥐고 있었고, handoff 는 그 주소를 "지금
 	// 열어라(선택이 아니다)"로 지시했다 — 사람은 남의 그래프를 자기 것으로 읽는다.
-	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
+	handle("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		abs, err := filepath.Abs(viewerRepoDir)
 		if err != nil {
 			abs = viewerRepoDir
@@ -186,12 +252,12 @@ func serve(args []string) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, "{\"repo\":%q}\n", abs)
 	})
-	http.HandleFunc("/poll", func(w http.ResponseWriter, r *http.Request) {
+	handle("/poll", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte(tipSignature()))
 	})
 	// /step?sha=<full> — 한 스텝 커밋의 상세 보고서(제목+본문+트레일러) 원문.
-	http.HandleFunc("/step", func(w http.ResponseWriter, r *http.Request) {
+	handle("/step", func(w http.ResponseWriter, r *http.Request) {
 		sha := r.URL.Query().Get("sha")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		if !validSHA(sha) {
@@ -238,8 +304,8 @@ func serve(args []string) {
 		}
 		w.Write(out)
 	}
-	http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "approve") })
-	http.HandleFunc("/reject", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "reject") })
+	handle("/approve", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "approve") })
+	handle("/reject", func(w http.ResponseWriter, r *http.Request) { pendingAction(w, r, "reject") })
 	// POST /interview?chain=  — 사람이 인터뷰 폼을 제출한다(이슈 #33). 본문 = 답변 JSON 배열
 	// [{q,type,answer}]. 서버가 이걸 마크다운 기준 문서로 조립해 reference-<chain>.md 로 저장하고,
 	// gil interview <chain> --resolve <파일> 을 호출해 레퍼런스를 커밋한다. 파일은 워킹트리에
@@ -247,7 +313,7 @@ func serve(args []string) {
 	// POST /prune-approve?target=  — 사람이 삭제를 승인한다(상현님). 승인만으로는 아무것도
 	// 지워지지 않는다 — 실행에는 CLI 확인 문구가 더 필요하다. 안전장치를 둘로 나눈 이유는
 	// 하나가 뚫려도 다른 하나가 남게 하기 위해서다.
-	http.HandleFunc("/prune-approve", func(w http.ResponseWriter, r *http.Request) {
+	handle("/prune-approve", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
@@ -264,7 +330,7 @@ func serve(args []string) {
 		}
 		w.Write(out)
 	})
-	http.HandleFunc("/interview", func(w http.ResponseWriter, r *http.Request) {
+	handle("/interview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
