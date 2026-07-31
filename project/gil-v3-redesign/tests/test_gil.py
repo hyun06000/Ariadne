@@ -1535,6 +1535,57 @@ class TestCycleForkIsDrawnAsAFork(GilFixture):
         self.assertIsNotNone(m, "cy3 의 진입 부모를 못 찾았다")
         self.assertIn("cy1", m.group(1), "cy3 의 부모가 선언(cy1)이 아니라 위상(cy2)으로 잡혔다")
 
+    def test_the_branch_really_forks_in_git(self):
+        """**선언이 아니라 실재다** — gil 이 아무리 계보를 그려도 진짜 브랜치로 갈라지지
+        않으면 아무 의미가 없다(상현님). open --parent 는 그 자리로 되돌아가 분기를 친다."""
+        self._forked_chain()
+        cy1 = self._git("rev-parse", "refs/heads/c-cy1").stdout.strip()
+        cy2 = self._git("rev-parse", "refs/heads/c-cy2").stdout.strip()
+        cy3 = self._git("rev-parse", "refs/heads/c-cy3").stdout.strip()
+        anc = lambda a, b: self._git("merge-base", "--is-ancestor", a, b).returncode == 0
+        self.assertTrue(anc(cy1, cy3), "cy3 가 선언한 부모(cy1)의 자손이 아니다")
+        self.assertFalse(anc(cy2, cy3), "cy3 가 cy2 에서 갈라졌다 — 커밋 그래프가 계보를 거짓말한다")
+        self.assertTrue(anc(cy1, cy2))
+
+    def test_viewer_draws_the_raw_git_graph(self):
+        """사람이 직접 점검할 수 있어야 한다 — gil 의 해석을 거치지 않은 git 자신의 그림.
+
+        ASCII 가 아니라 **그림**이다(레인·점·선·브랜치 칩). 정적 build 에도 실린다:
+        데이터를 심어 화면에서 그리므로 서버가 없어도 자기완결이다."""
+        self._forked_chain()
+        out = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out)
+        with open(out, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("det-gitgraph", html)
+        self.assertIn("gitgraphdata", html)
+        self.assertIn("buildGitGraph", html)
+        # 데이터가 진짜 커밋 위상이다 — cy3 의 부모가 cy1 의 팁이어야 한다.
+        cy1 = self._git("rev-parse", "refs/heads/c-cy1").stdout.strip()[:9]
+        m = re.search(r'\{"sha":"[0-9a-f]{9}","parents":\["' + cy1 + r'"\][^}]*"subj":"gil c/cy3/s1[^"]*"', html)
+        self.assertIsNotNone(m, "cy3/s1 의 커밋 부모가 cy1 의 팁이 아니다(그래프가 계보를 거짓말한다)")
+
+    def test_fsck_catches_a_lineage_that_is_not_a_real_fork(self):
+        """**판정은 눈이 아니라 도구가 한다**(상현님) — 선언과 실재가 어긋나면 fsck 가 짚는다.
+
+        그림 두 개를 사람이 비교해야만 드러나는 거짓은, 다음번엔 아무도 안 본다."""
+        self._forked_chain()
+        self.assertNotIn("계보:", self.gil("fsck").stdout)   # 정상은 조용하다
+        # 거짓 계보를 심는다: cy2 위에서 갈라놓고 부모는 cy1 이라고 선언.
+        self._git("branch", "-f", "c-cy4", "refs/heads/c-cy2")
+        self._git("checkout", "-q", "c-cy4")
+        msg = ("gil c/cy4/s1 define: 거짓\n\n거짓 계보.\n\n"
+               "Gil-Chain: c\nGil-Cycle: cy4\nGil-Step: s1\nGil-Kind: define\n"
+               "Gil-Parent: null\nGil-Cycle-Author: x\nGil-Cycle-Purpose: 거짓\n"
+               "Gil-Cycle-Parent: cy1\nGil-Fits: f\n")
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", msg],
+                       cwd=self.repo, capture_output=True, text=True)
+        r = self.gil("fsck")
+        out = r.stdout + r.stderr
+        self.assertIn("실제로는", out)
+        self.assertIn("cy4", out)
+        self.assertNotEqual(r.returncode, 0)
+
     def test_card_lays_cycles_out_by_lineage(self):
         """배치가 부모를 본다 — 같은 부모의 형제는 같은 열에서 세로로 갈린다."""
         self._forked_chain()

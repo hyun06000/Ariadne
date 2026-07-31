@@ -839,9 +839,22 @@ func cmdOpen(args []string) {
 	if strings.TrimSpace(*inherit) != "" {
 		tr = append(tr, [2]string{"Gil-Inherit", *inherit}) // 물려받은 전수(AIL #3)
 	}
-	// 사이클 = 체인 안의 git 가지. 현재 위치(체인 팁/닫힌 사이클 끝)에서 분기.
+	// 사이클 = 체인 안의 git 가지.
+	//
+	// **선언한 부모가 있으면 진짜 그 자리에서 갈라진다**(상현님). 옛 코드는 무조건 HEAD 에서
+	// 갈랐고 --parent 는 트레일러로만 적혔다 — 그래서 커밋 그래프가 계보를 거짓말했다:
+	// cy1 에서 갈라진 cy2·cy3 를 차례로 열면 cy3 의 커밋 조상은 (그때 HEAD 가 거기 있었으므로)
+	// cy2 가 됐다. 그러면 위상으로 그리는 화면과 선언으로 그리는 화면이 서로 다른 말을 하고,
+	// **둘이 다르면 어느 쪽이 참인지 알 수 없다.** 되돌아가서 분기를 치는 것이 사실이어야 한다 —
+	// git 그래프 모양과 gil 계보가 위상적으로 같아야 한다.
 	cb := cycleBranch(chain, cycle)
-	commitOn(cb, "HEAD", subject, body, tr, true)
+	from := "HEAD"
+	if len(*parents) > 0 {
+		if sha := cycleTipSHA(chain, (*parents)[0]); sha != "" {
+			from = sha
+		}
+	}
+	commitOn(cb, from, subject, body, tr, true)
 	println2("open: " + ref + "/s1 define (브랜치 " + cb + ")")
 	if len(*refutes) > 0 {
 		guideRefutes(*refutes)
@@ -2401,6 +2414,28 @@ func cmdInterview(args []string) {
 			"  그제서야 다음으로 넘어간다. 스스로 더 생각해 진행하지 마라 — 사람의 답이 기준이다.")
 	}
 	interviewAsk(chain, *ask, *title, nil)
+}
+
+// cycleTipSHA — 그 사이클(또는 체인)의 팁 커밋. 되돌아가 분기를 칠 **실재하는 자리**다.
+// 사이클 브랜치 <chain>-<cycle> 이 우선이고, 없으면 같은 이름의 체인 브랜치, 그것도 없으면
+// 그 사이클의 마지막 스텝 커밋을 쓴다.
+func cycleTipSHA(chain, parent string) string {
+	p := strings.TrimSpace(parent)
+	if p == "" {
+		return ""
+	}
+	for _, ref := range []string{"refs/heads/" + cycleBranch(chain, p), "refs/heads/" + p} {
+		if gitOK("rev-parse", "--verify", "-q", ref) {
+			return strings.TrimSpace(git("rev-parse", ref))
+		}
+	}
+	best, bestN := "", -1
+	for _, n := range cycleAnywhere(chain, p) {
+		if k := stepNum(n.step); k > bestN {
+			bestN, best = k, n.sha
+		}
+	}
+	return best
 }
 
 // interviewAsk — 질문지를 검증해 심는다. gil interview(체인 인터뷰)와 gil intake

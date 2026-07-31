@@ -518,6 +518,7 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	// (번호 중복은 fsckStepIdentity 가 **묶어서** 한 줄로 짚는다 — 쌍마다 한 줄씩 내면
 	//  오염된 저장소에서 수십 줄이 되어 정작 다른 위반을 덮는다. 이슈 #84 에서 실측.)
 	violations = append(violations, fsckChainStacking()...)
+	violations = append(violations, fsckLineageIsReal(universe)...)
 	violations = append(violations, fsckMigratedBodies()...)
 	violations = append(violations, fsckMemoryLayer(nodes)...)
 	violations = append(violations, fsckUnanchoredSteps()...)
@@ -819,6 +820,92 @@ func chainRootParent(chain string) string {
 // 끝에서 태어났을 때만 계승"(#53)이라는 엄격한 판정을 쓴다. 두 패널을 일치시키면 그 차이가
 // 사라지는데 — 이 이상을 발견할 수 있었던 건 역설적으로 두 패널이 **달랐기 때문**이다.
 // 그래서 그 신호를 여기로 옮긴다: 그래프는 일관되게 그리되, 이상은 fsck 가 말한다.
+// fsckLineageIsReal — **선언한 계보가 진짜 브랜치인가**(상현님).
+//
+// gil 이 아무리 계보를 그려도 그게 실재 커밋 분기로 갈라지지 않으면 아무 의미가 없다.
+// 옛 open 은 --parent 를 트레일러로만 적고 실제로는 HEAD 에서 갈랐다 — 그래서 커밋 그래프가
+// 계보를 거짓말했고(cy1 에서 갈라진 둘을 차례로 열면 뒤엣것이 앞엣것의 자손이 됐다),
+// 그 거짓은 눈으로 그림 두 개를 비교해야만 드러났다. 판정은 눈이 아니라 도구가 해야 한다.
+//
+// 규칙: 사이클이 부모 사이클 P 를 선언했으면, 그 사이클의 첫 커밋은 **P 의 어느 커밋의
+// 자손**이어야 한다. 아니면 그 선언은 그래프에 없는 말이다.
+func fsckLineageIsReal(nodes []node) []string {
+	// 커밋 → 그 커밋이 속한 (chain,cycle). 사이클 경계를 알아야 "어디서 갈라졌나"를 판정한다.
+	owner := map[string]string{}
+	firstSHA := map[string]string{}
+	declared := map[string][]string{}
+	for _, n := range nodes {
+		if n.chain == "" || n.cycle == "" || n.sha == "" {
+			continue
+		}
+		k := n.chain + "\x01" + n.cycle
+		owner[n.sha] = k
+		if n.kind == "define" && (n.parent == "" || n.parent == "null") {
+			firstSHA[k] = n.sha
+			declared[k] = n.cycleParents
+		}
+	}
+	// 커밋 부모 맵(9자 sha). 사이클에 속하지 않는 커밋(close·chain-root 등)은 뚫고 올라간다.
+	parents := map[string][]string{}
+	for _, rec := range strings.Split(gitlog("--format=%H"+fsep+"%P", "--branches"), "\n") {
+		h, ps, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok || strings.TrimSpace(h) == "" {
+			continue
+		}
+		var out []string
+		for _, p := range strings.Fields(ps) {
+			out = append(out, first9(p))
+		}
+		parents[first9(h)] = out
+	}
+	// entryCycle — 이 커밋의 조상 쪽에서 **가장 먼저 만나는 다른 사이클**. 그게 실제 분기점이다.
+	entryCycle := func(start, self string) string {
+		seen := map[string]bool{}
+		stack := append([]string{}, parents[start]...)
+		for len(stack) > 0 {
+			cur := stack[0]
+			stack = stack[1:]
+			if seen[cur] {
+				continue
+			}
+			seen[cur] = true
+			if k, ok := owner[cur]; ok && k != self {
+				return k
+			}
+			stack = append(stack, parents[cur]...)
+		}
+		return ""
+	}
+	var out []string
+	for k, ps := range declared {
+		child := firstSHA[k]
+		if child == "" || len(ps) == 0 {
+			continue
+		}
+		ch, cy, _ := cut(k, "\x01")
+		real := entryCycle(child, k)
+		if real == "" {
+			continue // 조상 쪽에 사이클이 없다(대문에서 바로 났다) — 여기선 판정하지 않는다
+		}
+		_, realCy, _ := cut(real, "\x01")
+		hit := false
+		for _, p := range ps {
+			if strings.TrimSpace(p) == realCy {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			out = append(out, "계보: "+ch+"/"+cy+" — 부모로 \""+strings.Join(ps, ",")+"\" 를 선언했는데 "+
+				"**실제로는 \""+realCy+"\" 에서 갈라졌다**.\n"+
+				"    gil 이 갈랐다고 말하는 것과 git 이 가진 것이 다르다 — 선언만 있고 분기는 없는 계보다.\n"+
+				"    (v3.45.0 부터 gil open --parent 는 그 자리로 되돌아가 실제로 분기한다.)")
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func fsckChainStacking() []string {
 	parents := chainParents() // 진짜 계승(닫힌 끝에서 태어남)만 담긴 맵
 	roots := map[string]string{}

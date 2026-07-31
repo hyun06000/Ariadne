@@ -734,6 +734,16 @@ func renderHTML(g graphView, static bool) string {
 			`<button data-depth="cycle" title="사이클 단위 — 각 사이클 상태·분기(⚡)">사이클</button>` +
 			`<button data-depth="step" class="on" title="스텝 단위 — 모든 스텝 커밋 DAG">스텝</button>` +
 			`</span></h2><div id="view-map"></div></section>`)
+		// **날것의 git 그래프**(상현님). gil 이 아무리 예쁘게 계보를 그려도 그게 실재 브랜치로
+		// 갈라지지 않으면 아무 의미가 없다 — 그러니 사람이 직접 점검할 수 있어야 한다.
+		// 커밋·부모·브랜치 이름을 그대로 심고, 화면에서 레인 배치로 그린다(ASCII 는 사람이 못 읽는다).
+		b.WriteString(`<section class="pane"><details id="det-gitgraph"><summary class="panehead">` +
+			`git 그래프 (날것) <span class="gtoggle">(펼치기 — gil 계보가 진짜 브랜치인지 여기서 점검한다)</span></summary>` +
+			`<p class="hint">gil 이 그리는 계보와 <b>git 자신의 그림</b>이 같은지 보는 자리다. ` +
+			`선언만 하고 실제로 갈라지지 않으면 그 계보는 거짓이고, 그건 여기서 바로 드러난다. ` +
+			`점=커밋 · 선=부모 · 칩=브랜치 이름. 최근 400개.</p>` +
+			`<div id="gitgraph"></div></details></section>`)
+		b.WriteString(`<script id="gitgraphdata" type="application/json">` + gitGraphJSON() + `</script>`)
 		b.WriteString(`<section class="pane"><details id="det-chain"><summary class="panehead">체인 그래프 <span class="gtoggle">(펼치기)</span></summary><div id="view-chain">`)
 		b.WriteString(fmt.Sprintf(
 			`<svg id="graph" viewBox="0 0 %d %d" width="%d" height="%d"><g id="edges">%s</g><g id="nodes">%s</g></svg>`,
@@ -1047,6 +1057,47 @@ func cycleJSON(g graphView, static bool) string {
 		sb.WriteString("]}")
 	}
 	sb.WriteString("}")
+	return sb.String()
+}
+
+// gitGraphJSON — **git 자신의 그래프**를 그대로 넘긴다(해석 없이): 커밋 sha·부모들·ref
+// 이름·제목. gil 스텝인지도 함께 실어 화면에서 구분한다.
+func gitGraphJSON() string {
+	// --topo-order: 날짜순으로 섞으면 한 가지의 커밋들이 다른 가지 사이사이에 끼어 그림이
+	// 읽히지 않는다. 위상 순서로 묶어야 "이 가지가 여기서 갈라졌다"가 눈에 들어온다.
+	out, err := viewerGit("log", "--all", "--topo-order", "-n", "400",
+		"--format=%H\x1f%P\x1f%D\x1f%s\x1e")
+	if err != nil {
+		return "[]"
+	}
+	gil := map[string]bool{}
+	for _, n := range viewerCollectNodes() {
+		gil[n.full] = true
+	}
+	var sb strings.Builder
+	sb.WriteString("[")
+	first := true
+	for _, rec := range strings.Split(string(out), "\x1e") {
+		rec = strings.Trim(rec, "\n")
+		if strings.TrimSpace(rec) == "" {
+			continue
+		}
+		f := strings.SplitN(rec, "\x1f", 4)
+		if len(f) < 4 {
+			continue
+		}
+		if !first {
+			sb.WriteString(",")
+		}
+		first = false
+		var ps []string
+		for _, p := range strings.Fields(f[1]) {
+			ps = append(ps, fmt.Sprintf("%q", first9(p)))
+		}
+		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":[%s],"refs":%q,"subj":%q,"gil":%t}`,
+			first9(f[0]), strings.Join(ps, ","), strings.TrimSpace(f[2]), f[3], gil[f[0]]))
+	}
+	sb.WriteString("]")
 	return sb.String()
 }
 
@@ -1461,6 +1512,18 @@ svg.dag{display:block}
 .snode.gone{opacity:.42}
 .snode.gone circle{stroke-dasharray:3 3}
 .dnode.gone{opacity:.4}
+/* 날것의 git 그래프 — 등폭 글꼴 그대로, 가로 스크롤(그래프 선이 깨지면 안 된다). */
+.ggwrap{margin-top:8px;padding:10px 12px;background:var(--card);border:1px solid var(--line);
+ border-radius:8px;overflow-x:auto}
+.ggsvg{display:block;min-width:100%}
+.ggedge{stroke-width:2;opacity:.85}
+.ggnode circle{stroke:var(--bg);stroke-width:1.2}
+.ggreftxt{font-size:10px;fill:var(--node);text-anchor:middle}
+.ggreftxt.head{fill:var(--here);font-weight:700}
+details#det-gitgraph>summary{cursor:pointer;list-style:none}
+details#det-gitgraph>summary::-webkit-details-marker{display:none}
+details#det-gitgraph>summary::before{content:"▸ ";color:var(--dim)}
+details#det-gitgraph[open]>summary::before{content:"▾ "}
 .dag .dnode .dagdeploy{font-size:10px;font-weight:800;fill:#2dd4bf;text-anchor:middle;pointer-events:none}
 /* 집계 노드(사이클/체인 뎁스, AIL #6) — 이름 라벨 + ⚡분기 표식 */
 .dag .dnode.agg .agglabel{font-size:10px;font-weight:600;fill:var(--fg);text-anchor:middle}
@@ -2751,6 +2814,100 @@ function openDefaultView(){
   const n=(step&&nodes.find(x=>x.id===step))||nodes[nodes.length-1];
   if(n)openReport(chain,cyc.name,n);
 }
+// git 그래프는 **펼칠 때** 한 번 불러온다 — 항상 긁으면 큰 저장소에서 비싸고, 접혀 있는
+// 동안은 아무도 안 본다. 폴링 리로드마다 다시 접히므로 상태는 기억한다.
+// buildGitGraph — 날것의 git 그래프를 **그림으로** 그린다.
+//
+// ASCII 그래프(git log --graph)는 사람이 못 읽는다 — 선이 문자로 그려져 몇 갈래인지 눈에 안 들어온다.
+// 그래서 같은 사실을 레인 배치로 그린다: 세로=시간(위가 최신), 가로 레인=동시에 살아있는 가지,
+// 점=커밋, 선=부모로 가는 길, 칩=브랜치 이름. **여기서 갈라져 보이지 않으면 그 계보는 거짓이다.**
+function buildGitGraph(){
+  const host=document.getElementById('gitgraph');
+  if(!host)return;
+  const rows=JSON.parse(document.getElementById('gitgraphdata')?.textContent||'[]');
+  if(!rows.length){ host.textContent='커밋이 없다.'; return; }
+  // 전체맵과 같은 눈높이로 **간결하게**: 왼→오른 흐름, 점=커밋, 선=부모, 칩=브랜치 이름만.
+  // 커밋마다 sha·제목을 늘어놓으면 그건 그림이 아니라 목록이다(그리고 ASCII 와 다를 바 없다).
+  // 자세한 것은 점에 얹은 툴팁으로 — 눈으로 보는 것은 **몇 갈래로 갈라졌나** 하나다.
+  const old2new=rows.slice().reverse();          // git log 는 최신부터 — 왼쪽이 과거가 되게
+  const idx={}; old2new.forEach((c,i)=>idx[c.sha]=i);
+  // **레인 규칙을 전체맵과 같게 한다**(상현님: 둘이 달라 눈으로 대조가 안 된다).
+  // 전체맵은 "첫 자식이 줄기를 잇고, 뒤에 갈라진 형제는 아래로 내려간다". git 방식(최신부터
+  // 훑으며 빈 레인 잡기)은 줄기가 위에 있으리란 보장이 없어 같은 그래프가 달리 보였다.
+  // 그래서 **오래된 것부터** 훑으며 첫 자식에게 부모의 레인을 물려준다.
+  const lane={}, taken={};                        // taken[sha]=부모 레인을 이미 물려준 자식이 있다
+  let maxL=0;
+  const used=i=>{ const set={}; return set; };
+  old2new.forEach((c,i)=>{
+    const ps=(c.parents||[]).filter(p=>idx[p]!==undefined);
+    let L=null;
+    for(const p of ps){ if(!taken[p]){ L=lane[p]; taken[p]=true; break; } }
+    if(L===null||L===undefined){                  // 뿌리이거나, 부모의 줄기를 이미 형제가 가져갔다
+      const busy={};
+      old2new.slice(0,i).forEach(o=>{             // 지금 시점에 살아 있는 레인은 피한다
+        if((o.parents||[]).some(p=>idx[p]!==undefined) || true) busy[lane[o.sha]]=true;
+      });
+      L=0; while(busy[L]) L++;
+    }
+    lane[c.sha]=L; if(L>maxL) maxL=L;
+  });
+  // **x 는 '부모로부터의 깊이'다**(상현님: 스텝 전체맵과 형제가 다르게 보였다).
+  // 로그 순서로 x 를 잡으면 같은 부모에서 갈라진 둘이 서로 다른 칸에 서서 "차례로 이어진 것"
+  // 처럼 보인다 — 전체맵은 깊이로 잡아 형제를 **같은 열**에 세운다. 같은 사실은 같은 모양이어야
+  // 눈으로 대조할 수 있다.
+  const depth={};
+  const depthOf=sha=>{
+    if(depth[sha]!==undefined) return depth[sha];
+    depth[sha]=0;                                  // 순환 방어(있을 수 없지만)
+    const c=old2new[idx[sha]];
+    let d=0;
+    (c&&c.parents||[]).forEach(p=>{ if(idx[p]!==undefined) d=Math.max(d, depthOf(p)+1); });
+    return depth[sha]=d;
+  };
+  old2new.forEach(c=>depthOf(c.sha));
+  let maxDepth=0; old2new.forEach(c=>maxDepth=Math.max(maxDepth,depth[c.sha]));
+  const colW=15, laneH=17, padX=12, padY=14, r=3.5;
+  const maxLane=maxL;
+  const W=padX*2+Math.max(1,maxDepth)*colW, H=padY*2+maxLane*laneH+16;
+  const svg=svgEl('svg',{class:'ggsvg',viewBox:'0 0 '+W+' '+H,width:'100%',height:H});
+  const X=sha=>padX+depth[sha]*colW, Y=sha=>padY+lane[sha]*laneH;
+  const color=L=>['var(--node)','#3ddc84','#f59e0b','#e0574a','#2dd4bf','#a78bfa'][L%6];
+  rows.forEach(c=>{
+    (c.parents||[]).forEach(p=>{
+      if(idx[p]===undefined)return;
+      const x1=X(p), y1=Y(p), x2=X(c.sha), y2=Y(c.sha);   // 부모(왼) → 자식(오른)
+      const d=(y1===y2)?('M '+x1+' '+y1+' L '+x2+' '+y2)
+        :('M '+x1+' '+y1+' L '+(x2-colW*0.6)+' '+y1+' Q '+x2+' '+y1+' '+x2+' '+y2);
+      svg.appendChild(svgEl('path',{class:'ggedge',d:d,stroke:color(lane[c.sha]),fill:'none'}));
+    });
+  });
+  rows.forEach(c=>{
+    const g=svgEl('g',{class:'ggnode'+(c.gil?' gil':''),transform:'translate('+X(c.sha)+','+Y(c.sha)+')'});
+    g.appendChild(svgEl('circle',{r:c.gil?r:r-1.2,fill:color(lane[c.sha])}));
+    g.appendChild(svgEl('title',{},c.sha+'  '+c.subj+(c.refs?'\n['+c.refs+']':'')));
+    svg.appendChild(g);
+    // 브랜치 이름은 **그 ref 가 가리키는 커밋에만** 붙인다 — 그게 가지의 끝이다.
+    (c.refs||'').split(',').map(x=>x.trim()).filter(Boolean).forEach((rf,k)=>{
+      const head=/HEAD/.test(rf);
+      const t=svgEl('text',{class:'ggreftxt'+(head?' head':''),x:X(c.sha),y:Y(c.sha)-8-k*11},
+        rf.replace('HEAD -> ','▶ '));
+      svg.appendChild(t);
+    });
+  });
+  const wrap=document.createElement('div'); wrap.className='ggwrap'; wrap.appendChild(svg);
+  host.replaceChildren(wrap);
+}
+(function initGitGraph(){
+  const det=document.getElementById('det-gitgraph');
+  if(!det)return;
+  let drawn=false;
+  const draw=()=>{ if(drawn)return; drawn=true; step('git 그래프', buildGitGraph); };
+  try{ if(localStorage.getItem('gil-gitgraph-open')==='1'){ det.open=true; draw(); } }catch(e){}
+  det.addEventListener('toggle',()=>{
+    try{ localStorage.setItem('gil-gitgraph-open', det.open?'1':'0'); }catch(e){}
+    if(det.open) draw();
+  });
+})();
 // 안내는 **처음 온 사람에게 펼쳐** 둔다. 한 번 접으면 그 브라우저에선 접힌 채 기억한다 —
 // 매번 같은 설명을 다시 펼쳐 보이면 그건 안내가 아니라 방해다(#85 의 교훈).
 (function initGuide(){
