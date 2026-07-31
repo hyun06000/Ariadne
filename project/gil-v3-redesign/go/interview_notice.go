@@ -125,8 +125,14 @@ func noticeArrivedInterviews() {
 		return
 	}
 	for _, c := range chains {
-		stderr("⚡ 인터뷰 답이 도착해 있다 — 체인 " + c + " 의 기준 문서가 확정됐다(아직 안 읽었다).")
-		stderr("   읽어라: gil interview " + c + " --status   (읽으면 이 고지는 사라진다)")
+		// 개시 인터뷰(gil intake)는 체인이 아니다 — "체인 X" 라고 부르고 gil interview 로
+		// 안내하면, 아직 체인을 열지도 않은 사람이 없는 체인을 찾게 된다(이슈 #94).
+		cmd, what := "interview", "체인 "+c+" 의 기준 문서가 확정됐다"
+		if chainPurpose(c, "--branches") == "" && intakeState(c) != "" {
+			cmd, what = "intake", "개시 인터뷰 "+c+" 에 사람이 답했다"
+		}
+		stderr("⚡ 인터뷰 답이 도착해 있다 — " + what + "(아직 안 읽었다).")
+		stderr("   읽어라: gil " + cmd + " " + c + " --status   (읽으면 이 고지는 사라진다)")
 	}
 	stderr("")
 }

@@ -2341,6 +2341,7 @@ type interviewQ struct {
 func cmdInterview(args []string) {
 	fs := newFlags("gil interview")
 	ask := fs.str("ask", "")
+	show := fs.boolFlag("show") // --status 에 기준 문서 전문까지(기본은 짧게, 이슈 #94)
 	title := fs.str("title", "")
 	// --resolve <ref파일>: 인터뷰를 해소한다(뷰어 서버가 사람 제출 후 호출). 답변으로 조립한
 	// 레퍼런스 파일을 이 체인에 심고(Gil-Reference) 인터뷰를 done 으로 닫는다. 사람이 CLI 로 직접
@@ -2373,7 +2374,7 @@ func cmdInterview(args []string) {
 		if strings.TrimSpace(*then) != "" && !*wait {
 			die("거부: --then 은 --wait 와 함께 쓴다 — 기다리지 않으면 이어서 실행할 순간이 없다.")
 		}
-		interviewWatch(chain, *wait, *timeout, *then)
+		interviewWatchOpt(chain, *wait, *timeout, *then, *show)
 		return
 	}
 	if strings.TrimSpace(*then) != "" {
@@ -2412,7 +2413,7 @@ func interviewAsk(chain, ask, title string, extra [][2]string) {
 // interviewAskOpt — toolAuthored 면 '첫 질문은 열린 질문' 규칙을 면제한다. gil 이 직접 만든
 // 마지막 차수(뿌리 후보 선택)만 해당한다 — 후보가 그래프에서 나온 사실이라 앵커가 아니다.
 func interviewAskOpt(chain, ask, title string, extra [][2]string, toolAuthored bool) {
-	interviewAskCore(chain, resolveBody("", ask), title, extra, toolAuthored)
+	interviewAskCore(chain, resolveAskJSON(ask), title, extra, toolAuthored)
 }
 
 // interviewAskInline — 질문 JSON 을 **문자열 그대로** 받는다(파일 경로가 아니다).
@@ -2534,7 +2535,20 @@ func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored 
 // 에이전트를 둘 중 나쁜 쪽으로 민다 — 바쁜대기(무의미한 git log 반복)거나 우회(내가 기준을 쓴다).
 // 레일이 사람의 응답을 전달하지 못하면 레일을 뚫는 게 합리적으로 보이기 시작한다. 그래서 기다림을
 // 정직한 한 줄(--status)과 진짜 대기(--wait)로 만든다.
+// statusCmdName — 이 이름이 개시 인터뷰 슬러그면 intake, 체인이면 interview.
+func statusCmdName(name string) string {
+	if chainPurpose(name, "--branches") == "" && intakeState(name) != "" {
+		return "intake"
+	}
+	return "interview"
+}
+
 func interviewWatch(chain string, wait bool, timeoutS, then string) {
+	interviewWatchOpt(chain, wait, timeoutS, then, false)
+}
+
+// interviewWatchOpt — showFull 이면 --status 도 기준 문서 전문을 함께 낸다(--show).
+func interviewWatchOpt(chain string, wait bool, timeoutS, then string, showFull bool) {
 	if chainPurpose(chain, "--branches") == "" && intakeState(chain) == "" {
 		// 개시 인터뷰(gil intake)는 **체인보다 먼저** 서는 자리다 — 아직 아무것도 안 물은
 		// 슬러그에 "체인이 없다"고 답하면, 정작 해야 할 다음 수(--ask)를 가린다.
@@ -2555,12 +2569,25 @@ func interviewWatch(chain string, wait bool, timeoutS, then string) {
 	done := func() bool { return interviewState(chain) == "done" }
 	report := func() {
 		println2("interview: " + chain + " — done (사람이 제출해 기준 문서가 확정됐다)")
+		// 전문은 **기다린 쪽에만** 준다(--wait). --status 는 확인용이라 도움말이 "한 줄"이라
+		// 약속했는데 실제로는 수십 줄을 쏟아 컨텍스트를 크게 먹었다(이슈 #94 곁다리).
+		// 확인하는 자리에 필요한 건 상태와 **인용할 번호**지 문서 전문이 아니다.
 		if ref := chainReferenceText(chain, "--branches"); strings.TrimSpace(ref) != "" {
-			println2("")
-			println2("── 확정된 기준 문서 ──")
-			println2(ref)
+			if wait || showFull {
+				println2("")
+				println2("── 확정된 기준 문서 ──")
+				println2(ref)
+			} else {
+				println2("  (전문은 길다 — 필요하면: gil " + statusCmdName(chain) + " " + chain + " --status --show)")
+			}
 		}
-		println2("▸ 이제 작업 사이클을 열 수 있다: gil open " + chain + "/<cycle> --author <a> --purpose <p>")
+		// 개시 인터뷰(intake)의 다음 수는 사이클이 아니라 **체인**이다 — 아직 체인이 없다.
+		if statusCmdName(chain) == "intake" {
+			println2("▸ 이 답으로 체인을 연다(목적·기준은 인용된다):")
+			println2("    gil chain <이름> --from-intake " + chain + " --purpose-from <n> --criterion-from <m>")
+		} else {
+			println2("▸ 이제 작업 사이클을 열 수 있다: gil open " + chain + "/<cycle> --author <a> --purpose <p>")
+		}
 	}
 	if done() {
 		report()

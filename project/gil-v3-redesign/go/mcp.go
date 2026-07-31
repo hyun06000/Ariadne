@@ -506,6 +506,28 @@ func registerGilTools(s *mcp.Server) {
 			"대신 쓰지 마라.",
 		func(in inInterviewStatus) []string { return []string{in.Chain, "--status"} },
 		cmdInterview)
+
+	// **MCP 에서는 셸 백그라운드 문제가 없다**(이슈 #94). 툴 호출은 호스트가 스스로 추적하므로,
+	// 블로킹 대기를 툴로 노출하면 "제출 → 이 호출이 끝남 → 호스트가 그 결과로 턴을 이어감" 이
+	// 한 홉으로 성립한다. 셸에서 `&` 로 떼어낸 프로세스가 추적 밖이라 완료가 턴을 못 열던
+	// 바로 그 구멍을, 이 경로는 애초에 갖지 않는다.
+	tool(s, "gil_interview_wait",
+		"사람이 인터뷰 폼에 답할 때까지 **기다린다**(블로킹). 답이 오면 확정된 기준 문서를 그대로 "+
+			"돌려준다. 셸 백그라운드(`&`)와 달리 이 호출의 완료는 호스트가 추적하므로, 제출이 "+
+			"곧바로 다음 행동으로 이어진다. 기준을 대신 쓰지 말고 이걸로 기다려라.",
+		func(in inInterviewWait) []string {
+			a := []string{in.Chain, "--wait"}
+			if strings.TrimSpace(in.Timeout) != "" {
+				a = append(a, "--timeout", in.Timeout)
+			}
+			return a
+		},
+		cmdInterview)
+}
+
+type inInterviewWait struct {
+	Chain   string `json:"chain" jsonschema:"기다릴 체인 이름(또는 개시 인터뷰 슬러그)"`
+	Timeout string `json:"timeout,omitempty" jsonschema:"최대 대기 초(기본 600). 대화형이면 넉넉히"`
 }
 
 type inInterviewStatus struct {

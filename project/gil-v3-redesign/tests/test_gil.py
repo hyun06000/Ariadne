@@ -1182,7 +1182,7 @@ class TestReInterview(GilFixture):
         with open(os.path.join(self.repo, "ref2.md"), "w", encoding="utf-8") as f:
             f.write("기준 v2: 두 축을 갈라 잰다\n")
         self.gil("interview", "mr", "--resolve", "ref2.md")
-        r = self.gil("interview", "mr", "--status")
+        r = self.gil("interview", "mr", "--status", "--show")
         self.assertIn("done", r.stdout)
         self.assertIn("기준 v1", r.stdout)   # 1차 답이 남아 있다
         self.assertIn("기준 v2", r.stdout)
@@ -1494,6 +1494,62 @@ class TestInterviewArrival(GilFixture):
         # 차선(다음 턴의 첫 명령)도 여전히 적히되, 이제 백그라운드 --wait 뒤에 온다(이슈 #82).
         self.assertIn("다음 턴의 **첫 명령**", out)
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
+
+
+class TestWaitHandoffToHost(GilFixture):
+    """이슈 #94 — 답은 도착했는데 **아무도 그 출력을 읽지 못했다**(네 번째 겹).
+
+    "백그라운드로 심어라(`&`)" 라는 안내가 조건부였다: 셸에서 `&` 로 떼어낸 프로세스는
+    대부분의 호스트에서 추적 밖이라 완료가 턴을 열지 못한다. 그 조건이 문서에 없었다."""
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+
+    def _put(self, name, text):
+        p = os.path.join(self.repo, name)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+        return name
+
+    def test_ask_accepts_inline_json(self):
+        """도움말이 <질문JSON|-> 라고 약속했으면 JSON 을 그대로 받아야 한다(곁다리 2)."""
+        r = self.gil("intake", "s1", "--ask", '[{"q":"무엇을","type":"text"}]')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("질문 1개 심음", r.stdout + r.stderr)
+
+    def test_help_shows_the_question_schema(self):
+        """type 이 필수인 걸 도움말만 보고 알 수 있어야 한다 — 두 번 죽지 않게."""
+        h = self.gil("help", "intake").stdout
+        self.assertIn('"type"', h)
+        self.assertIn("text|radio|checkbox", h)
+
+    def test_wait_hint_warns_about_shell_background(self):
+        """`&` 한 글자가 '깨어난다'와 '영원히 안 깨어난다'를 가른다 — 그 구분을 문서에 넣는다."""
+        self.gil("interview", "c", "--ask", "-", input='[{"q":"q","type":"text"}]')
+        h = self.gil("help", "interview").stdout
+        self.assertIn("호스트가 추적하는", h)
+        self.assertIn("gil_interview_wait", h)   # MCP 경로엔 이 구멍이 없다
+
+    def test_status_is_short_by_default(self):
+        """확인용이라 믿고 불렀다가 수십 줄이 쏟아지면 컨텍스트를 크게 먹는다(곁다리 1)."""
+        self.gil("intake", "s2", "--ask", '[{"q":"무엇을","type":"text"}]')
+        self._put("a.md", "## 무엇을\n\n" + ("답 " * 200))
+        self.gil("intake", "s2", "--resolve", "a.md")
+        short = self.gil("intake", "s2", "--status").stdout
+        full = self.gil("intake", "s2", "--status", "--show").stdout
+        self.assertLess(len(short), len(full), "--status 가 --show 와 같은 양을 쏟는다")
+        self.assertIn("--show", short)          # 전문으로 가는 길은 알려준다
+        self.assertIn("인용 가능한 답", short)  # 정작 필요한 번호는 남긴다
+
+    def test_arrival_notice_speaks_intake_language(self):
+        """개시 인터뷰는 체인이 아니다 — 없는 체인을 찾게 만들지 않는다."""
+        self.gil("intake", "s3", "--ask", '[{"q":"무엇을","type":"text"}]')
+        self._put("b.md", "## 무엇을\n\n답")
+        self.gil("intake", "s3", "--resolve", "b.md")
+        out = self.gil("log").stdout + self.gil("log").stderr
+        self.assertIn("개시 인터뷰 s3", out)
+        self.assertIn("gil intake s3 --status", out)
 
 
 class TestMarkdownTables(GilFixture):
@@ -4684,7 +4740,7 @@ class TestInterviewWait(GilFixture):
         """사람이 제출하면 done 이고, 확정된 기준 문서를 그 자리에서 돌려준다."""
         self._ask()
         self._resolve()
-        r = self.gil("interview", "sb", "--status")
+        r = self.gil("interview", "sb", "--status", "--show")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = r.stdout + r.stderr
         self.assertIn("done", out)
@@ -6881,7 +6937,7 @@ class TestDeepInterviewRounds(GilFixture):
         self._round("# 1차\n속도를 올리고 싶다")
         r = self._round("# 2차\n재보니 I/O 였다. 목표는 200ms")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        ref = self.gil("interview", "deep", "--status").stdout
+        ref = self.gil("interview", "deep", "--status", "--show").stdout
         self.assertIn("속도를 올리고 싶다", ref)   # 1차
         self.assertIn("목표는 200ms", ref)         # 2차
         self.assertIn("인터뷰 2차", ref)

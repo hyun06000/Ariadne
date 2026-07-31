@@ -109,11 +109,15 @@ func runThen(chain, then string) {
 func backgroundWaitHint(chain string) []string {
 	return []string{
 		"  ▸ **대화형 세션이면 --wait 를 백그라운드로 돌려라** — 말하는 것과 기다리는 것을 동시에 한다:",
-		"      gil interview " + chain + " --wait --timeout 3600 > /tmp/gil-" + chain + "-ref.md 2>&1 &",
-		"    사람이 제출하는 순간 그 프로세스가 끝난다. 백그라운드 완료로 너를 깨우는 호스트라면" +
-			" 거기서 바로 이어 일한다.",
+		"      gil interview " + chain + " --wait --timeout 3600 > /tmp/gil-" + chain + "-ref.md 2>&1",
+		"    사람이 제출하는 순간 그 프로세스가 끝난다.",
+		"    ⚠ **호스트가 추적하는 백그라운드 실행으로 심어라**(이슈 #94). 셸에서 `&` 로 떼어내면" +
+			" 대부분의 호스트에서 그 프로세스는 추적 밖이라,",
+		"      끝나도 **네 턴이 열리지 않는다** — 답은 도착했는데 아무도 못 읽는 상태가 된다" +
+			"(실사용에서 네 번 반복됐다).",
+		"      네 런타임에 백그라운드 실행 기능이 있으면 그것으로 돌려라. 없으면 아래 차선으로 가라.",
 		"    (제출 시 이어서 할 일이 정해져 있으면: gil interview " + chain + " --wait --then '<명령>')",
-		"  ▸ 깨우지 못하는 호스트라면 그때 차선이다: 다음 턴의 **첫 명령**으로 gil interview " +
-			chain + " --status.",
+		"  ▸ 차선 — 다음 턴의 **첫 명령**으로 gil interview " + chain + " --status.",
+		"    (답이 도착해 있으면 gil 이 어느 명령에서든 맨 앞에 ⚡ 한 줄로 고지한다 — 그래도 네가 먼저 물어라.)",
 	}
 }

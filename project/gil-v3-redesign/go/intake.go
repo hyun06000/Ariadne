@@ -163,6 +163,20 @@ func intakeSections(slug string) []intakeSec {
 	return out
 }
 
+// resolveAskJSON — --ask 인자를 질문 JSON 으로 푼다.
+//
+// 도움말은 `--ask <질문JSON|->` 이라고 적어 놓고 실제로는 **경로 또는 '-' 만** 받았다.
+// JSON 을 그대로 주면 "file name too long" 으로 죽는다(이슈 #94 곁다리) — 도움말이 약속한 것을
+// 도구가 안 지키면, 그 약속을 믿은 쪽이 죽는다. 이제 '[' 나 '{' 로 시작하면 그 자체를 JSON 으로
+// 읽는다(파일 경로가 '[' 로 시작하는 일은 없다).
+func resolveAskJSON(arg string) string {
+	t := strings.TrimSpace(arg)
+	if strings.HasPrefix(t, "[") || strings.HasPrefix(t, "{") {
+		return t
+	}
+	return resolveBody("", arg)
+}
+
 // cmdIntake — gil intake <슬러그> --ask|--status|--wait|--resolve.
 //
 // 인터뷰 기계를 그대로 쓴다(뷰어·폴링·--wait 이 손 안 대고 동작하도록). 다른 점은 단 하나 —
@@ -170,6 +184,7 @@ func intakeSections(slug string) []intakeSec {
 func cmdIntake(args []string) {
 	fs := newFlags("gil intake")
 	ask := fs.str("ask", "")
+	show := fs.boolFlag("show") // --status 에 답 전문까지(기본은 짧게, 이슈 #94)
 	title := fs.str("title", "")
 	resolve := fs.str("resolve", "")
 	askRoot := fs.boolFlag("ask-root") // 마지막 차수 — 질문을 gil 이 만든다(후보=그래프의 사실)
@@ -201,7 +216,7 @@ func cmdIntake(args []string) {
 		return
 	}
 	if *status || *wait {
-		interviewWatch(slug, *wait, *timeout, *then)
+		interviewWatchOpt(slug, *wait, *timeout, *then, *show)
 		// 어느 답을 인용할지 고르려면 **번호가 보여야 한다.** 차수마다 1부터 다시 시작하는
 		// 원문 번호로는 지목할 수 없으니, 누적 순서로 다시 매겨 함께 낸다.
 		if secs := intakeSections(slug); len(secs) > 0 {
