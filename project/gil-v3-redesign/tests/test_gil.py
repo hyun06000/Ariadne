@@ -1495,6 +1495,67 @@ class TestInterviewArrival(GilFixture):
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
 
 
+class TestViewerLeavesATrace(GilFixture):
+    """뷰어가 죽으면 **왜 죽었는지 남아야 한다** (상현님 실사용).
+
+    "인터뷰 진행하다가 갑자기 서버가 죽었어" — 그런데 자동 기동된 뷰어는 stdout/stderr 를
+    통째로 /dev/null 로 버려서 한 글자도 안 남았다. 사후 진단이 원리적으로 불가능했다.
+    관전 도구의 침묵은 '이상 없음'과 구분되지 않는다(#84) — 그 규칙은 도구 자신에게도 선다."""
+
+    def _log_path(self):
+        return os.path.join(self.repo, ".git", "gil-viewer.log")
+
+    def test_serve_writes_start_and_stop_to_the_repo_log(self):
+        self.gil("init", "--name", "clew")
+        port = "8"+str(970 + (os.getpid() % 20))
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
+                             cwd=self.repo, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, env=env)
+        try:
+            for _ in range(50):
+                if os.path.exists(self._log_path()):
+                    break
+                time.sleep(0.1)
+            self.assertTrue(os.path.exists(self._log_path()), "뷰어 로그가 안 생겼다")
+            with open(self._log_path(), encoding="utf-8") as f:
+                started = f.read()
+            self.assertIn("기동", started)
+            self.assertIn("포트 " + port, started)
+            self.assertIn(self.repo.split(os.sep)[-1], started)  # 어느 저장소를 보는가
+        finally:
+            p.terminate()
+            p.wait(timeout=10)
+        for _ in range(30):
+            with open(self._log_path(), encoding="utf-8") as f:
+                out = f.read()
+            if "종료" in out:
+                break
+            time.sleep(0.1)
+        self.assertIn("종료", out, "죽은 이유가 안 남았다:\n" + out)
+
+    def test_log_lives_in_git_dir_not_the_worktree(self):
+        """로그가 작업트리를 더럽히면 '미커밋 작업'으로 잡혀 관전 화면을 오염시킨다."""
+        self.gil("init", "--name", "clew")
+        port = "8"+str(940 + (os.getpid() % 20))
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
+                             cwd=self.repo, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, env=env)
+        try:
+            for _ in range(50):
+                if os.path.exists(self._log_path()):
+                    break
+                time.sleep(0.1)
+            st = self._git("status", "--porcelain").stdout
+            self.assertNotIn("gil-viewer.log", st)
+        finally:
+            p.terminate()
+            p.wait(timeout=10)
+
+
 class TestRetireHidesNothingSilently(GilFixture):
     """이슈 #92 — gil 은 삭제를 막지만 **은닉**을 막지 않았다.
 
