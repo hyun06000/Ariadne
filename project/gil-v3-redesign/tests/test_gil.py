@@ -1496,6 +1496,59 @@ class TestInterviewArrival(GilFixture):
         self.assertLess(out.index("백그라운드"), out.index("다음 턴의 **첫 명령**"))
 
 
+class TestMarkdownTables(GilFixture):
+    """뷰어의 표 렌더 (상현님 실사용: "표가 렌더링될 때 깨지는 현상").
+
+    보고서 본문은 사람이 읽는 자리다 — 표가 밀리면 수치가 엉뚱한 열에 붙어 읽는 사람이
+    잘못 읽는다. 침묵하는 오류가 아니라 **틀린 것을 자신 있게 보여주는** 오류다."""
+
+    BODY = "\n".join([
+        "# 표",
+        "| 항목 | 값 | 비고 |",
+        "|---|---|---|",
+        "| 지연 | 120ms | 개선됨 |",
+        "",
+        "설명 문단입니다.",       # 빈 줄 없이 표가 붙는다 — 아주 흔한 형태
+        "| k | v |",
+        "|---|---|",
+        "| x | 1 |",
+        "",
+        "| 명령 | 뜻 |",
+        "|---|---|",
+        "| `a \\| b` | 파이프가 든 코드 |",
+        "",
+        "| a | b | c |",
+        "|---|---|---|",
+        "| 1 | 2 |",
+        "| 1 | 2 | 3 | 4 |",
+    ])
+
+    def _html(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "t", "--purpose", "표")
+        bf = os.path.join(self.repo, "body.md")
+        with open(bf, "w", encoding="utf-8") as f:
+            f.write(self.BODY)
+        self.gil("open", "t/c1", "--author", "x", "--purpose", "p", "--body-file", "body.md")
+        out = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out)
+        with open(out, encoding="utf-8") as f:
+            return f.read()
+
+    def test_renderer_handles_the_four_shapes(self):
+        html = self._html()
+        # 렌더러는 클라이언트 JS 라 HTML 문자열엔 원문이 들어 있다 — 대신 렌더 규칙 자체를 본다.
+        self.assertIn("mdCells", html)          # 파이프 이스케이프를 아는 분해기
+        self.assertIn("startsTable", html)      # 문단이 표를 삼키지 않는다
+        self.assertIn("cs.length=head.length", html)  # 칸 수를 헤더에 맞춘다
+
+    def test_body_survives_into_the_static_build(self):
+        """정적 build 는 본문을 인라인으로 싣는다 — 표 원문이 그대로 들어가야 렌더된다."""
+        html = self._html()
+        self.assertIn("파이프가 든 코드", html)
+        self.assertIn("설명 문단입니다", html)
+
+
 class TestPruneWithdraw(GilFixture):
     """이슈 #91 — 요청을 올린 순간 빠져나올 수 없었다.
 
@@ -2567,7 +2620,7 @@ class TestViewer(GilFixture):
         try:
             base = f"http://127.0.0.1:{port}"
             ok = False
-            for _ in range(40):  # 최대 ~2s 대기
+            for _ in range(200):  # 최대 ~10s — 병렬 러너(워커 12)에서 2s 는 모자라 깜빡였다
                 try:
                     body = urllib.request.urlopen(base + "/", timeout=1).read().decode()
                     ok = True

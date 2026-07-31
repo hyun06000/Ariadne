@@ -2117,6 +2117,13 @@ function mdInline(s){
 }
 function renderMarkdown(txt){
   const lines=txt.split('\n');
+  // 표 판정·분해는 한 자리에서(문단 처리도 같은 isRow 를 봐야 한다).
+  const isRow=s=>/^\s*\|.*\|\s*$/.test(s);
+  const isSep=s=>/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(s) && s.indexOf('-')>=0;
+  // mdCells — 한 행을 칸으로 쪼갠다. **이스케이프된 파이프(\\|)는 칸 구분이 아니다** —
+  // 셀 안의 인라인 코드에 든 파이프가 표를 두 칸으로 찢던 결함.
+  const mdCells=s=>s.replace(/^\s*\|/,'').replace(/\|\s*$/,'')
+    .split(/(?<!\\)\|/).map(c=>c.trim().replace(/\\\|/g,'|'));
   let html='', i=0, inCode=false, code='';
   let list=null; // 'ul'|'ol'|null
   const closeList=()=>{ if(list){ html+='</'+list+'>'; list=null; } };
@@ -2132,16 +2139,17 @@ function renderMarkdown(txt){
     if(h){ closeList(); const lv=h[1].length; html+='<h'+lv+'>'+mdInline(h[2])+'</h'+lv+'>'; i++; continue; }
     if(/^\s*>\s?/.test(ln)){ closeList(); html+='<blockquote>'+mdInline(ln.replace(/^\s*>\s?/,''))+'</blockquote>'; i++; continue; }
     // 마크다운 표: 헤더행(| a | b |) + 구분행(|---|---|) + 데이터행들.
-    const isRow=s=>/^\s*\|.*\|\s*$/.test(s);
-    const isSep=s=>/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(s) && s.indexOf('-')>=0;
     if(isRow(ln) && i+1<lines.length && isSep(lines[i+1])){
       closeList();
-      const cells=s=>s.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(c=>c.trim());
-      const head=cells(ln);
+      const head=mdCells(ln);
       let t='<table><thead><tr>'+head.map(c=>'<th>'+mdInline(c)+'</th>').join('')+'</tr></thead><tbody>';
       i+=2; // 헤더·구분 소비
       while(i<lines.length && isRow(lines[i]) && !isSep(lines[i])){
-        const cs=cells(lines[i]);
+        // 칸 수를 헤더에 맞춘다(GFM): 남으면 버리고 모자라면 빈 칸으로 채운다. 안 그러면
+        // 한 행이 어긋난 순간 표 전체가 밀려 보인다 — 사람이 "표가 깨졌다"고 하는 그 모양이다.
+        const cs=mdCells(lines[i]);
+        while(cs.length<head.length) cs.push('');
+        cs.length=head.length;
         t+='<tr>'+cs.map(c=>'<td>'+mdInline(c)+'</td>').join('')+'</tr>';
         i++;
       }
@@ -2157,7 +2165,10 @@ function renderMarkdown(txt){
     closeList();
     let para=ln;
     const BLOCK=new RegExp('^(#{1,6}\\s|'+BT+BT+BT+'|\\s*[-*]\\s|\\s*\\d+\\.\\s|\\s*>)');
-    while(i+1<lines.length && lines[i+1].trim()!=='' && !BLOCK.test(lines[i+1])){
+    // 표는 **문단의 일부가 아니다.** 앞 문단과 빈 줄 없이 붙은 표(에이전트 보고서에서 아주
+    // 흔하다)를 문단이 통째로 삼켜 표 문법이 날것으로 찍히던 결함.
+    const startsTable=k=>k+1<lines.length && isRow(lines[k]) && isSep(lines[k+1]);
+    while(i+1<lines.length && lines[i+1].trim()!=='' && !BLOCK.test(lines[i+1]) && !startsTable(i+1)){
       i++; para+='<br>'+lines[i];
     }
     html+='<p>'+mdInline(para)+'</p>';
