@@ -4499,7 +4499,12 @@ class TestPendingLeaf(GilFixture):
 
 
 class TestDeploy(GilFixture):
-    """gil deploy — 배포(공개) 지점 마커 (이슈 #34)."""
+    """gil deploy — 배포(공개) 지점 마커 (이슈 #34).
+
+    이 fixture 는 gil init 을 부르지 않는다 = dev 층이 없는 저장소다. 층이 없으면 마커는
+    옛 자리(그때 서 있던 브랜치)에 그대로 새겨지고 승격도 일어나지 않는다 — 옛 레이아웃의
+    저장소가 이 변경으로 깨지지 않는다는 것을 여기서 지킨다.
+    """
 
     def _live_step(self):
         self.gil("chain", "devchain", "--purpose", "개발")
@@ -4519,12 +4524,18 @@ class TestDeploy(GilFixture):
         # 배포 커밋은 추론 노드가 아니다 — Gil-Step 을 달지 않는다(그래프 위상 불변).
         self.assertEqual(self.trailer("HEAD", "Gil-Step"), "")
 
-    def test_deploy_requires_tag_and_at(self):
+    def test_deploy_requires_a_tag(self):
+        """태그는 필수, --at 은 선택이다 (main-dev-chain).
+
+        배포 단위가 여러 체인의 합류(dev)일 때는 가리킬 스텝 하나가 없다 — 그걸 요구하면
+        사람은 아무 스텝이나 골라 적게 되고, 그러면 그 칸이 형해화된다.
+        """
         self._live_step()
-        r = self.gil("deploy", "--tag", "v1")  # --at 없음
-        self.assertNotEqual(r.returncode, 0)
         r = self.gil("deploy", "--at", "devchain/c001/s4")  # --tag 없음
         self.assertNotEqual(r.returncode, 0)
+        r = self.gil("deploy", "--tag", "v1")  # --at 없음 — 정상이다
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Deploy"), "v1")
 
     def test_deploy_rejects_missing_step(self):
         """실재하지 않는 스텝엔 마커를 얹지 못한다."""
@@ -6656,6 +6667,9 @@ class TestFsckReportsChainStacking(GilFixture):
 class TestDeployStaged(GilFixture):
     """배포 단위 확정과 실제 롤아웃을 가른다 (이슈 #56, 다른 레포 실사용).
 
+    (2026-07-31) 배포 마커는 이제 **배포되는 것 위에** — dev 층에 — 새겨진다. 그때 서 있던
+    체인에 찍으면, 승격된 대문에는 정작 "배포했다"는 기록이 없다.
+
     옛 마커는 찍는 순간 "여기서 세상으로 나갔다"였다. 그런데 배포 단위를 확정하고도 실제
     롤아웃은 조율 때문에 몇 주 뒤인 구간이 구조적으로 길다. 그 사이 기록이 거짓이 된다 —
     보고자는 notes 에 `rollout_state=staged` 라는 필드를 손으로 발명해 정정하고 있었다.
@@ -6685,12 +6699,12 @@ class TestDeployStaged(GilFixture):
         r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0",
                      "--state", "staged", "--target", "l40s:8080")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Target"), "l40s:8080")
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "staged")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy-Target"), "l40s:8080")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy-State"), "staged")
         # 승격도 대상을 함께 남긴다 — 언제 어디로 올라갔나가 둘 다 남는다.
         self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--promote", "--target", "l40s:8080")
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "live")
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-Target"), "l40s:8080")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy-State"), "live")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy-Target"), "l40s:8080")
 
     def test_target_is_shown_in_viewer(self):
         self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--target", "l40s:8080")
@@ -6704,13 +6718,13 @@ class TestDeployStaged(GilFixture):
         """옛 사용법은 그대로다 — 새 상태가 기존 흐름을 깨지 않는다."""
         r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v0.2.0")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "live")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy-State"), "live")
 
     def test_staged_is_recorded_as_machine_readable_state(self):
         """산문이 아니라 상태로 남는다 — notes 에 손으로 쓴 필드를 발명하지 않아도 되게."""
         r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--state", "staged")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "staged")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy-State"), "staged")
         out = r.stdout + r.stderr
         self.assertIn("아직 안 올라갔다", out)
         self.assertIn("--promote", out)   # 다음 올바른 한 수
@@ -6718,12 +6732,13 @@ class TestDeployStaged(GilFixture):
     def test_promote_appends_rather_than_rewrites(self):
         """승격은 앞 마커를 고치지 않는다 — 언제 준비됐고 언제 올라갔나가 둘 다 남는다."""
         self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--state", "staged")
-        staged_sha = self._git("rev-parse", "HEAD").stdout.strip()
+        # 마커는 배포되는 것 위에(dev) 새겨진다 — HEAD 는 하던 자리에 그대로 있다.
+        staged_sha = self._git("rev-parse", "dev").stdout.strip()
         r = self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--promote")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.trailer("HEAD", "Gil-Deploy-State"), "live")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy-State"), "live")
         # 앞의 staged 커밋이 그대로 살아 있다(append-only).
-        self.assertNotEqual(self._git("rev-parse", "HEAD").stdout.strip(), staged_sha)
+        self.assertNotEqual(self._git("rev-parse", "dev").stdout.strip(), staged_sha)
         self.assertIn("Gil-Deploy-State: staged",
                       self._git("log", staged_sha, "-1", "--format=%B").stdout)
 
@@ -8105,3 +8120,52 @@ class TestMainDevChainLayout(GilFixture):
         self._git("branch", "-D", "dev")
         out = self.gil("drift").stdout + self.gil("drift").stderr
         self.assertIn("no-dev-layer", out)
+
+
+class TestLayerGraphInViewer(GilFixture):
+    """뷰어의 층 그래프 — main · dev · 체인이 각자 자기 줄에 선다 (상현님이 그린 그림).
+
+    레인을 **위상이 아니라 선언**으로 정하는 것이 git 그래프와의 차이다. 배포 머지가 일어나면
+    main 은 모든 커밋을 조상으로 갖는데, 위상만 보면 전부 대문의 일이 된다 — 그러나 로그인
+    체인의 걸음은 배포됐다고 해서 대문의 걸음이 되지 않는다.
+    """
+
+    def _build(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "login", "--purpose", "로그인", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        self.gil("open", "login/c1", "--author", "clew", "--purpose", "P", "--body", "정의")
+        self.gil("step", "login/c1", "--kind", "success", "--title", "S", "--body", "종합")
+        self.gil("close", "login/c1", "--verdict", "supported")
+        self.gil("chain-close", "login", "--verdict", "supported", "--retro", "-", input="회고")
+        self.gil("merge", "login", "--into", "dev", "--reason", "배포 단위에 포함")
+        self.gil("deploy", "--tag", "v1.0.0")
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return open(out_html, encoding="utf-8").read()
+
+    def test_lanes_are_main_dev_then_chains(self):
+        import json, re
+        html = self._build()
+        data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
+        self.assertEqual(data["lanes"][:2], ["main", "dev"])
+        self.assertIn("login", data["lanes"])
+
+    def test_a_deployed_step_still_belongs_to_its_chain(self):
+        """배포로 main 이 모든 커밋을 품어도, 그 걸음은 여전히 체인의 일이다."""
+        import json, re
+        html = self._build()
+        data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
+        by_layer = {}
+        for row in data["rows"]:
+            by_layer.setdefault(row["layer"], []).append(row["subj"])
+        self.assertTrue(any("login/c1" in s for s in by_layer.get("login", [])),
+                        f"체인의 걸음이 자기 층에 없다: {list(by_layer)}")
+        # 합류는 받는 쪽(dev)의 일이고, 배포 마커도 dev 에 새겨진다.
+        self.assertTrue(any("merge" in s for s in by_layer.get("dev", [])))
+
+    def test_the_panel_is_rendered(self):
+        html = self._build()
+        self.assertIn('id="det-layer"', html)
+        self.assertIn("buildLayerGraph", html)

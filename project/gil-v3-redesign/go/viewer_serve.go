@@ -734,6 +734,16 @@ func renderHTML(g graphView, static bool) string {
 			`<button data-depth="cycle" title="사이클 단위 — 각 사이클 상태·분기(⚡)">사이클</button>` +
 			`<button data-depth="step" class="on" title="스텝 단위 — 모든 스텝 커밋 DAG">스텝</button>` +
 			`</span></h2><div id="view-map"></div></section>`)
+		// **층 그래프**(상현님, 2026-07-31) — main / dev / 체인이 각자 자기 줄에 선다.
+		// 전체맵은 "무슨 걸음을 밟았나"를, 층 그래프는 "그 걸음이 어느 층의 일이고 언제
+		// 층을 건넜나"를 보여준다. 배포·합류가 층을 건너는 선으로 눈에 들어온다.
+		b.WriteString(`<section class="pane"><details id="det-layer" open><summary class="panehead">` +
+			`층 그래프 <span class="gtoggle">(main · dev · 체인 — 어디서 나서 어디로 갔나)</span></summary>` +
+			`<p class="hint"><b>main</b> = 대문, 배포된 것만 온다. <b>dev</b> = 모든 작업이 시작하는 층. ` +
+			`그 아래가 <b>체인</b> — dev 에서 갈라진 시조들이다. ` +
+			`층을 건너는 선이 <b>합류(gil merge)</b>와 <b>배포(gil deploy)</b>다. 최근 400개.</p>` +
+			`<div id="layergraph"></div></details></section>`)
+		b.WriteString(`<script id="layergraphdata" type="application/json">` + layerGraphJSON() + `</script>`)
 		// **날것의 git 그래프**(상현님). gil 이 아무리 예쁘게 계보를 그려도 그게 실재 브랜치로
 		// 갈라지지 않으면 아무 의미가 없다 — 그러니 사람이 직접 점검할 수 있어야 한다.
 		// 커밋·부모·브랜치 이름을 그대로 심고, 화면에서 레인 배치로 그린다(ASCII 는 사람이 못 읽는다).
@@ -1062,6 +1072,90 @@ func cycleJSON(g graphView, static bool) string {
 
 // gitGraphJSON — **git 자신의 그래프**를 그대로 넘긴다(해석 없이): 커밋 sha·부모들·ref
 // 이름·제목. gil 스텝인지도 함께 실어 화면에서 구분한다.
+// layerGraphJSON — **층 그래프**의 데이터 (main-dev-chain, 2026-07-31).
+//
+// git 그래프가 "실재가 무엇인가"를 날것으로 보여준다면, 층 그래프는 "그 실재가 **어느 층의
+// 일인가**"를 보여준다. 두 그림은 같은 커밋을 그리되 세로축이 다르다: git 그래프의 레인은
+// 위상이 정하고, 층 그래프의 레인은 **선언**이 정한다(체인 트레일러·머지 대상·배포).
+//
+// 왜 선언인가. 배포 머지가 일어난 뒤 main 은 모든 커밋을 조상으로 갖는다 — 위상만 보면
+// 전부 main 의 일이 된다. 그러나 "로그인 체인의 s3" 은 배포됐다고 해서 대문의 일이 되지
+// 않는다. 어느 층에서 벌어진 일인가는 그 일이 태어날 때 선언된 사실이다.
+func layerGraphJSON() string {
+	out, err := viewerGit("log", "--all", "--topo-order", "-n", "400",
+		"--format=%H\x1f%P\x1f%D\x1f%s\x1f"+
+			"%(trailers:key=Gil-Chain,valueonly)\x1f"+
+			"%(trailers:key=Gil-Kind,valueonly)\x1f"+
+			"%(trailers:key=Gil-Merge-Into,valueonly)\x1f"+
+			"%(trailers:key=Gil-Deploy,valueonly)\x1e")
+	if err != nil {
+		return `{"lanes":[],"rows":[]}`
+	}
+	type row struct{ sha, parents, refs, subj, layer string }
+	var rows []row
+	seen := map[string]bool{}
+	var chainOrder []string
+	for _, rec := range strings.Split(string(out), "\x1e") {
+		rec = strings.Trim(rec, "\n")
+		if strings.TrimSpace(rec) == "" {
+			continue
+		}
+		f := strings.SplitN(rec, "\x1f", 8)
+		if len(f) < 8 {
+			continue
+		}
+		chain := strings.TrimSpace(f[4])
+		kind := strings.TrimSpace(f[5])
+		into := strings.TrimSpace(f[6])
+		deploy := strings.TrimSpace(f[7])
+		// 선언이 층을 정한다. 순서가 곧 우선순위다 — 합류는 **받는 쪽**의 일이고(그래서
+		// --into 가 먼저), 그다음이 그 커밋이 속한 체인이다.
+		layer := "main"
+		switch {
+		case into != "":
+			layer = into
+		case chain != "":
+			layer = chain
+		case kind == "dev-root" || deploy != "":
+			layer = devBranchName
+		}
+		if layer != "main" && layer != devBranchName && !seen[layer] {
+			seen[layer] = true
+			chainOrder = append(chainOrder, layer)
+		}
+		var ps []string
+		for _, p := range strings.Fields(f[1]) {
+			ps = append(ps, fmt.Sprintf("%q", first9(p)))
+		}
+		rows = append(rows, row{first9(f[0]), "[" + strings.Join(ps, ",") + "]",
+			strings.TrimSpace(f[2]), f[3], layer})
+	}
+	// 레인 순서: 대문이 맨 위, 그다음 층, 그 아래 체인들(오래된 것부터 — git log 는 최신부터
+	// 오므로 뒤집는다). 사람이 그린 그림과 같은 순서다: main / dev / chain…
+	lanes := []string{"main", devBranchName}
+	for i := len(chainOrder) - 1; i >= 0; i-- {
+		lanes = append(lanes, chainOrder[i])
+	}
+	var sb strings.Builder
+	sb.WriteString(`{"lanes":[`)
+	for i, l := range lanes {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf("%q", l))
+	}
+	sb.WriteString(`],"rows":[`)
+	for i, r := range rows {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":%s,"refs":%q,"subj":%q,"layer":%q}`,
+			r.sha, r.parents, r.refs, r.subj, r.layer))
+	}
+	sb.WriteString(`]}`)
+	return sb.String()
+}
+
 func gitGraphJSON() string {
 	// --topo-order: 날짜순으로 섞으면 한 가지의 커밋들이 다른 가지 사이사이에 끼어 그림이
 	// 읽히지 않는다. 위상 순서로 묶어야 "이 가지가 여기서 갈라졌다"가 눈에 들어온다.
@@ -1520,6 +1614,16 @@ svg.dag{display:block}
 .ggnode circle{stroke:var(--bg);stroke-width:1.2}
 .ggreftxt{font-size:10px;fill:var(--node);text-anchor:middle}
 .ggreftxt.head{fill:var(--here);font-weight:700}
+/* 층 그래프 — 레인 띠는 흐리게(구조를 잡아주되 점을 이기지 않게), 층을 건너는 선은 굵게. */
+.lgsvg{display:block}
+.lgband{stroke-width:1;opacity:.18}
+.lglabel{font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;text-anchor:end}
+.lgedge{stroke-width:1.6;opacity:.55}
+.lgedge.cross{stroke-width:2.4;opacity:.95}
+details#det-layer>summary{cursor:pointer;list-style:none}
+details#det-layer>summary::-webkit-details-marker{display:none}
+details#det-layer>summary::before{content:"▸ ";color:var(--dim)}
+details#det-layer[open]>summary::before{content:"▾ "}
 details#det-gitgraph>summary{cursor:pointer;list-style:none}
 details#det-gitgraph>summary::-webkit-details-marker{display:none}
 details#det-gitgraph>summary::before{content:"▸ ";color:var(--dim)}
@@ -2897,6 +3001,80 @@ function buildGitGraph(){
   const wrap=document.createElement('div'); wrap.className='ggwrap'; wrap.appendChild(svg);
   host.replaceChildren(wrap);
 }
+// buildLayerGraph — 층 그래프. 세로 = 층(main·dev·체인), 가로 = 깊이.
+//
+// 레인을 위상이 아니라 **선언**으로 정하는 것이 git 그래프와의 유일한 차이다. 그래서 두
+// 그림을 나란히 보면 "선언한 층에서 실제로 갈라졌는가"가 눈으로 대조된다 — fsck 가 도구로
+// 하는 판정을 사람도 할 수 있어야 한다.
+function buildLayerGraph(){
+  const host=document.getElementById('layergraph');
+  if(!host)return;
+  const data=JSON.parse(document.getElementById('layergraphdata')?.textContent||'{}');
+  const rows=data.rows||[], lanes=data.lanes||[];
+  if(!rows.length){ host.textContent='커밋이 없다.'; return; }
+  const idx={}; rows.forEach(c=>idx[c.sha]=c);
+  const laneOf={}; lanes.forEach((l,i)=>laneOf[l]=i);
+  // x = 깊이(뿌리로부터). 전체맵·git 그래프와 같은 규칙이다 — 같은 사실은 같은 모양으로
+  // 그려야 사람이 두 화면을 대조할 수 있다.
+  const depth={};
+  const depthOf=sha=>{
+    if(depth[sha]!==undefined) return depth[sha];
+    depth[sha]=0;
+    const c=idx[sha]; let d=0;
+    (c&&c.parents||[]).forEach(p=>{ if(idx[p]) d=Math.max(d, depthOf(p)+1); });
+    return depth[sha]=d;
+  };
+  rows.forEach(c=>depthOf(c.sha));
+  let maxDepth=0; rows.forEach(c=>maxDepth=Math.max(maxDepth,depth[c.sha]));
+  const colW=22, laneH=44, padX=110, padY=30, r=5;
+  const W=padX+40+Math.max(1,maxDepth)*colW, H=padY*2+(lanes.length-1)*laneH+10;
+  // xMinYMid: 폭이 남을 때 그림이 가운데로 도망가면 레인 이름과 점이 멀어진다 — 왼쪽에 붙인다.
+  const svg=svgEl('svg',{class:'lgsvg',viewBox:'0 0 '+W+' '+H,width:'100%',height:H,
+    preserveAspectRatio:'xMinYMid meet'});
+  const X=sha=>padX+depth[sha]*colW;
+  const Y=sha=>padY+(laneOf[idx[sha].layer]!==undefined?laneOf[idx[sha].layer]:lanes.length-1)*laneH;
+  const color=L=>L===0?'#e0574a':(L===1?'#2dd4bf':['var(--node)','#3ddc84','#f59e0b','#a78bfa'][(L-2)%4]);
+  // 레인 띠 + 이름 — 띠가 없으면 점들이 어느 줄에 속하는지 눈이 못 묶는다.
+  lanes.forEach((l,i)=>{
+    const y=padY+i*laneH;
+    svg.appendChild(svgEl('line',{class:'lgband',x1:padX-8,y1:y,x2:W-6,y2:y,stroke:color(i)}));
+    const t=svgEl('text',{class:'lglabel',x:padX-14,y:y+4},l);
+    t.setAttribute('fill',color(i)); svg.appendChild(t);
+  });
+  rows.forEach(c=>{
+    (c.parents||[]).forEach(p=>{
+      if(!idx[p])return;
+      const x1=X(p),y1=Y(p),x2=X(c.sha),y2=Y(c.sha);
+      const d=(y1===y2)?('M '+x1+' '+y1+' L '+x2+' '+y2)
+        :('M '+x1+' '+y1+' C '+((x1+x2)/2)+' '+y1+' '+((x1+x2)/2)+' '+y2+' '+x2+' '+y2);
+      const cross=(y1!==y2);
+      svg.appendChild(svgEl('path',{class:'lgedge'+(cross?' cross':''),d:d,
+        stroke:color(laneOf[idx[c.sha].layer]||0),fill:'none'}));
+    });
+  });
+  rows.forEach(c=>{
+    const L=laneOf[c.layer]!==undefined?laneOf[c.layer]:lanes.length-1;
+    const g=svgEl('g',{class:'lgnode',transform:'translate('+X(c.sha)+','+Y(c.sha)+')'});
+    g.appendChild(svgEl('circle',{r:r,fill:color(L)}));
+    g.appendChild(svgEl('title',{},'['+c.layer+'] '+c.sha+'  '+c.subj+(c.refs?'\n['+c.refs+']':'')));
+    svg.appendChild(g);
+    (c.refs||'').split(',').map(x=>x.trim()).filter(Boolean).forEach((rf,k)=>{
+      const head=/HEAD/.test(rf);
+      svg.appendChild(svgEl('text',{class:'ggreftxt'+(head?' head':''),x:X(c.sha),y:Y(c.sha)-9-k*11},
+        rf.replace('HEAD -> ','▶ ')));
+    });
+  });
+  const wrap=document.createElement('div'); wrap.className='ggwrap'; wrap.appendChild(svg);
+  host.replaceChildren(wrap);
+}
+(function initLayerGraph(){
+  const det=document.getElementById('det-layer');
+  if(!det)return;
+  let drawn=false;
+  const draw=()=>{ if(drawn)return; drawn=true; step('층 그래프', buildLayerGraph); };
+  if(det.open) draw();
+  det.addEventListener('toggle',()=>{ if(det.open) draw(); });
+})();
 (function initGitGraph(){
   const det=document.getElementById('det-gitgraph');
   if(!det)return;

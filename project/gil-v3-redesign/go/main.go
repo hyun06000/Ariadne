@@ -91,7 +91,15 @@ func main() {
 		cmdInit(rest)
 	case "chain":
 		cmdChain(rest)
+	case "merge":
+		cmdMerge(rest)
 	case "chain-merge":
+		// 디프리케이트(2026-07-31) — 합류는 gil merge 하나로 말한다. 지우지 않는다:
+		// 옛 문서·스크립트가 이 이름을 부르고, 침묵하는 제거는 사용자에게 원인 미상의
+		// 고장으로 도착한다. 대신 어디로 갔는지 말하고 그대로 실행한다.
+		stderr("⚠ gil chain-merge 는 디프리케이트됐다 — 합류는 이제 gil merge 하나로 말한다.")
+		stderr("   여러 끝단을 새 체인으로 모으는 이 모양은 계속 돈다. 다른 합류는:")
+		stderr("     gil merge <합칠 것>... --into <받는 곳> --reason <왜>")
 		cmdChainMerge(rest)
 	case "open":
 		cmdOpen(rest)
@@ -146,7 +154,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close chain-merge open step close deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck global memory handoff migrate viewer mcp version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close merge chain-merge open step close deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck global memory handoff migrate viewer mcp version]")
 	}
 }
 
@@ -166,6 +174,11 @@ func printUsage() {
   gil memory read [<이름>]        존재의 기억 읽기 (기본 clew)
   gil memory append <이름> <file> 기억에 매듭 이어붙임 (안전, 자동 push)
 
+층 (main > dev > 체인 > 사이클 > 스텝):
+  main 은 대문이고 배포된 것만 온다. dev 는 모든 작업이 시작하는 층 — --from 없이 연 체인은
+  dev 에서 갈라지는 시조다(대문은 물려받는다). 끝난 체인은 gil merge 로 dev 에 모이고,
+  gil deploy 가 그 dev 를 대문으로 올린다.
+
 사고 기록 (체인 > 사이클 > 스텝):
   gil intake <슬러그> --ask <질문JSON>    **체인보다 먼저** 사람에게 묻는다 — 목적도 분기 자리도
                                           사람의 답에서 나온다 (#90). 여기서 시작하는 것이 기본이다.
@@ -176,8 +189,8 @@ func printUsage() {
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
   gil close <chain>/<cycle> --verdict <v> [--abandon]   사이클 닫기 (--abandon: fail만인 죽은 사이클도)
   gil chain-close <chain> --verdict <v>                 체인 닫기 (모든 사이클 닫힌 뒤 — 국면 완결)
-  gil deploy --at <chain>/<cycle>/<step> --tag <v> [--url <u>]  배포(공개) 지점 마커 — 뷰어에 🚀
-  gil chain-merge <src>... --into <dst>                 완성 체인 병합 (실제 git merge)
+  gil merge <합칠 것>... --into <받는 곳> --reason <왜>  합류 (실제 git merge). 끝난 체인 → dev
+  gil deploy --tag <v> [--at <chain>/<cycle>/<step>]    배포 = dev 를 대문(main)에 올린다 🚀
   gil docs install [--force]                            온보딩 설치 — docs/gil· 대문 진입점 블록
   gil goto <chain>/<cycle>[/<step>]                     자리 이동 — 산 잎으로/그 스텝으로 (그래프 불변)
   gil log [<chain>] [--all]       노드(스텝) 나열. --all: 죽은 가지까지 모두(벽의 지도)

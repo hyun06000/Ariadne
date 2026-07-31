@@ -104,6 +104,58 @@ func ensureDevLayer() bool {
 	return true
 }
 
+// promoteDevToMain — dev 를 대문(main)에 머지한다 = **배포**.
+//
+// 승격은 머지와 구분한다(상현님): main·dev 를 체인으로 취급할지 아직 정하지 않았으므로,
+// 여기서는 체인 문법(두 조상·역순·완성만)을 적용하지 않는다. 층과 층 사이의 이동일 뿐이다.
+// 그래서 gil merge 가 아니라 gil deploy 가 이 일을 한다.
+//
+// --no-ff 로 머지한다: fast-forward 로 붙이면 "언제 무엇이 배포됐나"가 커밋 하나로 남지
+// 않는다. 배포는 사건이고, 사건은 자기 커밋을 가져야 한다.
+//
+// 반환: (했나, 사람에게 할 말). 실패는 die 하지 않는다 — 배포 마커는 이미 새겨졌고,
+// 그 사실을 남긴 채 승격만 못 했다고 말하는 게 정직하다.
+func promoteDevToMain(tag string) (bool, string) {
+	if !hasDevLayer() {
+		return false, "dev 층이 없어 승격할 것이 없다(옛 레이아웃) — gil migrate --to-dev-layout"
+	}
+	home := homeBranch()
+	if home != "main" && home != "master" {
+		return false, "대문 브랜치(main/master)를 못 찾았다 — 승격 대상이 없다"
+	}
+	if home == devBranchName {
+		return false, "대문과 층이 같은 브랜치다 — 승격이 성립하지 않는다"
+	}
+	// 추적 파일만 본다(-uno). 추적되지 않은 파일은 브랜치를 옮겨도 따라올 뿐 승격을 막지
+	// 않는다 — 그걸로 거부하면 회고 초안 하나가 배포를 세운다(실제로 그랬다).
+	if dirty := strings.TrimSpace(git("status", "--porcelain", "-uno")); dirty != "" {
+		return false, "작업트리가 깨끗하지 않다 — 승격은 브랜치를 옮겨 다니므로 먼저 커밋하거나 치워라:\n" +
+			"    git status"
+	}
+	// 이미 대문에 다 들어가 있으면 승격할 것이 없다. 그 사실을 조용히 성공으로 위장하지 않는다.
+	if gitOK("merge-base", "--is-ancestor", devBranchName, home) {
+		return false, "dev 에 " + home + " 로 올릴 새 것이 없다 — 이미 다 배포됐다.\n" +
+			"    (체인의 작업은 gil merge 로 dev 에 모인 뒤에야 배포 대상이 된다.)"
+	}
+	back := strings.TrimSpace(git("rev-parse", "--abbrev-ref", "HEAD"))
+	if _, err := gitTry("checkout", "-q", home); err != nil {
+		return false, "대문 브랜치로 옮기지 못했다: " + err.Error()
+	}
+	msg := "gil deploy " + tag + ": dev → " + home + " 승격\n\n" +
+		"배포된 것만 대문에 온다. 이 머지 커밋이 그 사건이다."
+	_, err := gitTry("merge", "--no-ff", "-q", "-m", msg, devBranchName)
+	if err != nil {
+		gitTry("merge", "--abort")
+		gitTry("checkout", "-q", back)
+		return false, "머지가 충돌했다 — 사람이 풀어야 한다:\n" +
+			"    git checkout " + home + " && git merge --no-ff " + devBranchName
+	}
+	// 작업은 dev 에서 계속된다 — 배포했다고 사람을 대문에 세워두지 않는다.
+	gitTry("checkout", "-q", back)
+	invalidateGraphNodes()
+	return true, ""
+}
+
 // fsckDevLayer — **층의 선언과 실재를 대조한다.**
 //
 // `Gil-Chain-Orphan: dev` 는 "나는 dev 에서 갈라졌다"는 선언이다. 트레일러에 그렇게 적고

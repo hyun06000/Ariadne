@@ -2254,10 +2254,14 @@ func cmdDeploy(args []string) {
 	// --promote: staged 로 찍어둔 배포가 실제로 올라갔음을 잇는다(append-only — 앞 마커를
 	// 고치지 않고 새 마커로 승격을 남긴다. 언제 준비됐고 언제 올라갔나가 둘 다 남는다).
 	promote := fs.boolFlag("promote")
+	// --no-promote: 승격 없이 마커만. dev→main 이 CI·사람 손에 있는 저장소를 위한 자리다
+	// (gil 은 기록 도구지 남의 배포 파이프라인을 빼앗는 도구가 아니다).
+	noPromote := fs.boolFlag("no-promote")
 	fs.parse(args)
-	if *at == "" || *tag == "" {
-		die("사용: gil deploy --at <chain>/<cycle>/<step> --tag <v0.2.0> [--state staged|live] [--promote]\n" +
-			"           [--target <배포 대상: host:port·환경>] [--url <릴리스URL>] [--title T]")
+	if *tag == "" {
+		die("사용: gil deploy --tag <v0.2.0> [--at <chain>/<cycle>/<step>] [--state staged|live]\n" +
+			"           [--promote] [--no-promote] [--target <host:port·환경>] [--url <릴리스URL>]\n" +
+			"  배포 = dev 를 대문(main)에 올리는 일이다. --at 은 '어느 스텝에서 잘랐나'를 함께 남긴다.")
 	}
 	if *promote {
 		*state = "live"
@@ -2267,29 +2271,37 @@ func cmdDeploy(args []string) {
 			"  staged = 배포 단위는 확정됐으나 아직 안 올라갔다(조율 대기).\n" +
 			"  live   = 실제로 올라갔다. 나중에 올라가면: gil deploy --at … --tag " + *tag + " --promote")
 	}
-	// --at 파싱·검증: chain/cycle/step 세 조각이 다 있어야 하고 그 스텝이 실재해야 한다.
-	chain, rest, ok := cut(*at, "/")
-	if !ok {
-		die("거부: --at 은 <chain>/<cycle>/<step> 형식 (받음: " + *at + ")")
-	}
-	cycle, step, ok := cut(rest, "/")
-	if !ok || step == "" {
-		die("거부: --at 은 <chain>/<cycle>/<step> 형식 — 스텝까지 지정하라 (받음: " + *at + ")")
-	}
-	var target *node
-	for _, s := range currentCycle(chain, cycle) {
-		if s.step == step {
-			t := s
-			target = &t
-			break
+	// --at 파싱·검증: 주면 chain/cycle/step 세 조각이 다 있어야 하고 그 스텝이 실재해야 한다.
+	// 안 주는 것도 정상이다 — 배포 단위가 여러 체인의 합류(dev)일 때는 가리킬 스텝 하나가 없다.
+	if strings.TrimSpace(*at) != "" {
+		chain, rest, ok := cut(*at, "/")
+		if !ok {
+			die("거부: --at 은 <chain>/<cycle>/<step> 형식 (받음: " + *at + ")")
+		}
+		cycle, step, ok := cut(rest, "/")
+		if !ok || step == "" {
+			die("거부: --at 은 <chain>/<cycle>/<step> 형식 — 스텝까지 지정하라 (받음: " + *at + ")")
+		}
+		var target *node
+		for _, s := range currentCycle(chain, cycle) {
+			if s.step == step {
+				t := s
+				target = &t
+				break
+			}
+		}
+		if target == nil {
+			die("거부: --at " + *at + " 스텝이 없다 — 배포 마커는 실재하는 스텝에만 얹는다")
 		}
 	}
-	if target == nil {
-		die("거부: --at " + *at + " 스텝이 없다 — 배포 마커는 실재하는 스텝에만 얹는다")
+	// --at 이 없으면 "어디서"는 층이다 — 여러 체인이 dev 에 모여 함께 나가는 게 기본형이다.
+	where := strings.TrimSpace(*at)
+	if where == "" {
+		where = devBranchName
 	}
-	defTitle := "배포 " + *tag + " — " + *at + " 에서 세상으로"
+	defTitle := "배포 " + *tag + " — " + where + " 에서 세상으로"
 	if *state == "staged" {
-		defTitle = "배포 준비 " + *tag + " — " + *at + " (staged, 아직 안 올라감)"
+		defTitle = "배포 준비 " + *tag + " — " + where + " (staged, 아직 안 올라감)"
 	} else if *promote {
 		defTitle = "배포 승격 " + *tag + " — staged 였던 것이 실제로 올라갔다"
 	}
@@ -2298,12 +2310,12 @@ func cmdDeploy(args []string) {
 	dBody := resolveBody(*body, *bodyFile)
 	if dBody == "" {
 		if *state == "staged" {
-			dBody = "배포 단위 확정(staged): " + *at + " 에서 " + *tag + " 를 자를 준비가 됐다. " +
+			dBody = "배포 단위 확정(staged): " + where + " 에서 " + *tag + " 를 자를 준비가 됐다. " +
 				"아직 올라가지 않았다 — 실제 롤아웃 시 --promote 로 승격한다."
 		} else if *promote {
 			dBody = "배포 승격(live): " + *tag + " 가 실제로 올라갔다(앞서 staged 로 확정된 단위)."
 		} else {
-			dBody = "배포 지점: " + *at + " 에서 " + *tag + " 를 공개했다."
+			dBody = "배포 지점: " + where + " 에서 " + *tag + " 를 공개했다."
 		}
 		if *url != "" {
 			dBody += " (" + *url + ")"
@@ -2311,8 +2323,10 @@ func cmdDeploy(args []string) {
 	}
 	tr := [][2]string{
 		{"Gil-Deploy", *tag},
-		{"Gil-Deploy-At", *at},
 		{"Gil-Deploy-State", *state}, // staged|live (이슈 #56) — 기계가 읽는 상태
+	}
+	if strings.TrimSpace(*at) != "" {
+		tr = append(tr, [2]string{"Gil-Deploy-At", *at}) // 어느 스텝에서 잘랐나(있으면)
 	}
 	if t := strings.TrimSpace(*deployTarget); t != "" {
 		tr = append(tr, [2]string{"Gil-Deploy-Target", t}) // 어디로 나갔나(#56)
@@ -2320,16 +2334,45 @@ func cmdDeploy(args []string) {
 	if *url != "" {
 		tr = append(tr, [2]string{"Gil-Deploy-Url", *url})
 	}
-	commit(subject, dBody, tr, true)
+	// 마커는 **배포되는 것 위에** 새긴다. 옛 동작은 그때 서 있던 브랜치(대개 작업 중이던
+	// 체인)에 찍었는데, 그러면 승격된 대문에는 정작 "배포했다"는 기록이 없다 — 기록과 실재가
+	// 또 갈린다. 층이 있으면 dev 에 새기고, 새긴 뒤 원래 자리로 돌아온다.
+	backTo := ""
+	if hasDevLayer() {
+		if cur := strings.TrimSpace(git("rev-parse", "--abbrev-ref", "HEAD")); cur != devBranchName {
+			backTo = cur
+		}
+		commitOn(devBranchName, "", subject, dBody, tr, true)
+	} else {
+		commit(subject, dBody, tr, true)
+	}
 	if *state == "staged" {
-		println2("deploy: " + *tag + " @ " + *at + " 📦 staged — 배포 단위는 확정, 아직 안 올라갔다.")
-		println2("  ▸ 실제로 올라가면 승격하라: gil deploy --at " + *at + " --tag " + *tag + " --promote")
+		println2("deploy: " + *tag + " @ " + where + " 📦 staged — 배포 단위는 확정, 아직 안 올라갔다.")
+		println2("  ▸ 실제로 올라가면 승격하라: gil deploy --tag " + *tag + " --promote")
 		println2("  ▸ 그 전까지 이 태그는 '배포됨'으로 읽히지 않는다 — 없는 배포를 주장하지 않는다.")
 	} else {
-		println2("deploy: " + *tag + " @ " + *at + " 🚀 (뷰어에 배포 마커로 표시됨)")
+		println2("deploy: " + *tag + " @ " + where + " 🚀 (뷰어에 배포 마커로 표시됨)")
+		// ── 승격: dev → 대문 ────────────────────────────────────────────────────
+		// 마커만 찍고 끝내면 "배포했다"고 적힌 저장소의 main 에는 아무것도 없다. 배포는
+		// 기록이 아니라 **이동**이다 — 층과 층 사이의. 여기서 실제로 옮긴다.
+		if *noPromote {
+			println2("  ⌂ 승격은 건너뛴다(--no-promote) — dev → " + orDefault(homeBranch(), "main") +
+				" 는 이 저장소의 CI·사람 손에 있다.")
+		} else if ok, why := promoteDevToMain(*tag); ok {
+			println2("  ⌂ 승격 완료: dev → " + homeBranch() + " (--no-ff 머지 커밋으로 남았다).")
+			println2("     대문에는 배포된 것만 온다 — 이제 그 말이 이 저장소에서 참이다.")
+			println2("     작업은 dev 에서 계속한다(HEAD 는 그대로).")
+		} else {
+			println2("  ⌂ 승격 못 함 — 마커는 새겨졌고 대문은 그대로다: " + why)
+		}
 	}
 	if *url != "" {
 		println2("  릴리스: " + *url)
+	}
+	if backTo != "" {
+		// 배포했다고 사람을 층에 세워두지 않는다 — 하던 자리로 돌려놓는다.
+		gitTry("checkout", "-q", backTo)
+		println2("  ▸ 배포 기록은 " + devBranchName + " 에 남았다. 너는 [" + backTo + "] 로 돌아왔다.")
 	}
 }
 

@@ -333,9 +333,19 @@ var helpTable = map[string]helpEntry{
 			"  의도적 외부 행위라 '언제 왜 배포했나'를 배포 시점에 남긴다(자동 tag 감지 대신 명시).",
 		"docs/gil/deployment.md",
 	},
+	"merge": {
+		"gil merge <합칠 것>... --into <받는 곳> --reason <왜 합치나> [--allow-open]\n" +
+			"  둘 이상의 조상을 요구하는 모든 합류 — 실제 git merge(파일까지). 충돌 시 멈춤(사람이 해결).\n" +
+			"  끝난 체인을 층으로: gil merge <chain> --into dev --reason <왜>\n" +
+			"  완성만 머지 대상이다(SPEC 규칙 5) — 열린 체인은 --allow-open 없이는 거부하고,\n" +
+			"  우회하면 그 사실이 머지 커밋 본문에 남는다.\n" +
+			"  dev → main 은 머지가 아니라 **배포**다: gil deploy --tag <vX>. 대문으로 가는 통로는 하나다.",
+		"docs/gil/deployment.md",
+	},
 	"chain-merge": {
-		"gil chain-merge <newchain> --purpose <P> <tip>...\n" +
-			"  흩어진 체인을 하나로 묶는다 — 실제 git merge(파일까지). 충돌 시 멈춤(사람이 해결).",
+		"gil chain-merge <newchain> --purpose <P> <tip>...   (디프리케이트 — gil merge 를 써라)\n" +
+			"  흩어진 체인을 하나로 묶어 **새 체인**을 만든다. 합류의 한 가지 모양일 뿐이라\n" +
+			"  gil merge 로 넓혔다. 옛 문서·스크립트를 위해 계속 돈다(경고를 내며).",
 		"docs/gil/deployment.md",
 	},
 	"docs": {
