@@ -58,6 +58,11 @@ func cmdVersion(args []string) {
 		println2("최신이다 (" + latest + ").")
 		return
 	}
+	if !versionNewer(latest, gilVersion) {
+		// 다름이 곧 뒤처짐은 아니다 — 릴리스 직전의 바이너리는 아직 안 올라간 태그를 각인한다.
+		println2("이 자리는 최신 릴리스(" + latest + ")보다 앞선다 — 갱신할 것이 없다.")
+		return
+	}
 	println2("새 버전 " + latest + " 사용 가능 (현재 " + gilVersion + ").")
 	if !update {
 		println2("갱신: gil version --update  (SHA256 검증 후 제자리 교체)")
@@ -94,9 +99,15 @@ func versionAskLines() []string {
 		return nil
 	}
 	latest := os.Getenv("GIL_VERSION_LATEST") // 시험용 주입(네트워크 없이 이 길을 밟는다)
+	// 지금 이 자리의 버전. 시험은 GIL_VERSION_CURRENT 로 이 자리를 정한다 — 안 그러면
+	// 소스 빌드(dev)로는 "더 높은가"의 두 방향(앞선다/뒤처진다)을 아예 밟을 수 없다.
+	cur := os.Getenv("GIL_VERSION_CURRENT")
+	if cur == "" {
+		cur = gilVersion
+	}
 	// 소스 빌드는 릴리스와 대조할 대상이 아니다 — 조용히 넘어간다(개발·시험이 매번
 	// 네트워크를 때리지 않게 하는 자리도 여기다).
-	if latest == "" && gilVersion == "dev" {
+	if latest == "" && cur == "dev" {
 		return nil
 	}
 	// 6시간 규칙은 주입된 길에도 똑같이 선다 — 시험이 밟는 길과 실사용의 길이 다르면
@@ -112,13 +123,16 @@ func versionAskLines() []string {
 			return nil
 		}
 	}
-	if latest == "" || latest == gilVersion {
+	// **뒤로 올리라고 물으면 안 된다.** 같은지 다른지가 아니라 **더 높은지**를 본다. 릴리스
+	// 직전의 바이너리는 아직 안 올라간 태그를 각인하고 있어서, 다름만 보면 방금 구운 것을
+	// 두고 "옛 버전으로 올릴까요"라고 묻는다(릴리스 자산 실측에서 잡혔다).
+	if latest == "" || !versionNewer(latest, cur) {
 		markVersionAsked()
 		return nil
 	}
 	markVersionAsked()
 	return []string{
-		"  ⚠ 새 gil 버전이 있다: " + latest + " (지금 이 자리는 " + gilVersion + ")",
+		"  ⚠ 새 gil 버전이 있다: " + latest + " (지금 이 자리는 " + cur + ")",
 		"    **사람에게 물어라**: \"gil " + latest + " 이 나왔습니다. 지금 올릴까요?\"",
 		"    올린다면:  gil version --update   (SHA256 검증 후 제자리 교체)",
 		"    올리지 않기로 하면 그대로 진행해도 된다 — 다만 새 명령·바뀐 워크플로우가 있을 수 있다.",
@@ -257,4 +271,44 @@ func selfUpdate(tag string) {
 	}
 	_ = os.Remove(old) // 윈도우는 실행 중이라 실패할 수 있음 — 무해, 다음 갱신 때 지워짐
 	println2("교체 완료: " + self + " → gil " + tag + " (SHA256 검증됨)")
+}
+
+// versionNewer — a 가 b 보다 높은 릴리스인가(vX.Y.Z 세 칸 비교). 모르는 모양(dev·접미사)은
+// **높지 않다**로 본다 — 확신 없는 비교로 사람을 움직이게 하느니 조용한 편이 낫다.
+func versionNewer(a, b string) bool {
+	pa, oka := parseSemver(a)
+	pb, okb := parseSemver(b)
+	if !oka || !okb {
+		return false
+	}
+	for i := 0; i < 3; i++ {
+		if pa[i] != pb[i] {
+			return pa[i] > pb[i]
+		}
+	}
+	return false
+}
+
+// parseSemver — "v3.48.0" → [3 48 0]. 접미사(-rc1 등)가 붙으면 모르는 모양으로 본다.
+func parseSemver(v string) ([3]int, bool) {
+	var out [3]int
+	s := strings.TrimPrefix(strings.TrimSpace(v), "v")
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return out, false
+	}
+	for i, p := range parts {
+		if p == "" {
+			return out, false
+		}
+		n := 0
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return out, false
+			}
+			n = n*10 + int(c-'0')
+		}
+		out[i] = n
+	}
+	return out, true
 }

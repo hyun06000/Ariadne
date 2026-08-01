@@ -8454,8 +8454,8 @@ class TestVersionAsk(GilFixture):
     불충분하다. 그리고 "새 버전 있음"이라고 **알리기만** 했더니 세션은 읽고도 하던 일을 계속했다.
     묻는 것과 알리는 것은 다르다 — 물으면 사람이 답해야 하고, 답이 있어야 결정이 선다."""
 
-    def _boot(self, latest="v9.9.9", extra=None):
-        env = dict(os.environ, GIL_NO_VIEWER="1")
+    def _boot(self, latest="v9.9.9", extra=None, cur="v3.0.0"):
+        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_VERSION_CURRENT=cur)
         if latest is not None:
             env["GIL_VERSION_LATEST"] = latest
         env.update(extra or {})
@@ -8463,7 +8463,8 @@ class TestVersionAsk(GilFixture):
                               capture_output=True, text=True, env=env)
 
     def test_onboarding_asks_when_a_newer_release_exists(self):
-        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_VERSION_LATEST="v9.9.9")
+        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_VERSION_LATEST="v9.9.9",
+                   GIL_VERSION_CURRENT="v3.0.0")
         r = subprocess.run([*GIL_CMD, "init", "--name", "clew"], cwd=self.repo,
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -8482,8 +8483,17 @@ class TestVersionAsk(GilFixture):
     def test_same_version_says_nothing(self):
         self.gil("init", "--name", "clew")
         # 소스 빌드의 버전은 dev 다 — 최신이 dev 면 물을 것이 없다.
-        r = self._boot(latest="dev")
+        r = self._boot(latest="v3.0.0")
         self.assertNotIn("올릴까요", r.stdout, "같은 버전인데 물었다:\n" + r.stdout)
+
+    def test_never_asks_to_go_backwards(self):
+        """다름이 곧 뒤처짐은 아니다 — 릴리스 자산 실측에서 잡혔다.
+
+        방금 구운 v3.48.0 바이너리는 아직 안 올라간 태그를 각인하고 있어서, 최신 릴리스가
+        v3.47.0 이면 '다름'만 보는 코드는 **옛 버전으로 올릴까요**라고 물었다."""
+        self.gil("init", "--name", "clew")
+        r = self._boot(latest="v3.47.0", cur="v3.48.0")   # 아직 안 올라간 태그를 각인한 자리
+        self.assertNotIn("올릴까요", r.stdout, "뒤로 올리라고 물었다:\n" + r.stdout)
 
     def test_opt_out_silences_it(self):
         self.gil("init", "--name", "clew")

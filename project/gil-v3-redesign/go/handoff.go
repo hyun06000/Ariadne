@@ -204,12 +204,15 @@ func currencyBanner() []string {
 		L = append(L, "  최신 릴리스 조회 못 함(오프라인/네트워크) — 확실히 하려면: gil version --check")
 	case gilVersion == "dev":
 		L = append(L, "  ⚠ 개발 빌드(dev)다 — 릴리스 "+latest+"와 다를 수 있다. 실사용은 릴리스 바이너리로.")
-	case latest != gilVersion:
+	case versionNewer(latest, gilVersion):
 		// 알리는 것으로는 부족했다(상현님) — 새 버전이 있다는 줄을 읽고도 세션은 그냥 하던
 		// 일을 했다. 이어받는 자리에서는 **사람에게 물어야** 한다: 지금 올릴까요.
 		L = append(L, "  ⚠ 새 버전 "+latest+" 있음 (현재 "+gilVersion+"). 새/바뀐 명령·워크플로우가 있을 수 있다.")
 		L = append(L, "    **사람에게 물어라**: \"gil "+latest+" 이 나왔습니다. 지금 올릴까요?\"")
 		L = append(L, "    올린다면: gil version --update   그 뒤 이 handoff 를 다시 읽어라.")
+	case latest != gilVersion:
+		// 릴리스보다 앞선 자리(막 구운 릴리스 후보·손빌드 태그)다. 뒤로 올리라고 묻지 않는다.
+		L = append(L, "  이 자리는 최신 릴리스("+latest+")보다 앞선다 — 갱신할 것이 없다.")
 	default:
 		L = append(L, "  최신이다 ("+latest+").")
 	}
