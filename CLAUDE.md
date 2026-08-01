@@ -98,11 +98,20 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
   시작하는 층(`gil init` 이 대문에서 갈라 심는다). 체인은 `--from` 없으면 dev 에서 갈라지는
   **시조**(orphan — 대문은 물려받고 '앞선 체인'만 없다). 끝난 체인은 `gil merge --into dev` 로
   모이고, `gil deploy --tag` 가 그 dev 를 대문에 `--no-ff` 머지한다(= 배포).
-- **검증**: example 561 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.46.0**
-  (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init`·`global mv`·fsck 실측 확인).
+- **층 이주**: `gil migrate --to-dev-layout` — 옛 나무(층 없음)를 main-dev-chain 으로 **다시
+  그린다**(체인이 dev 에서 갈라지게). 트리·메시지는 그대로, 부모만 새 자리로. 접두는 브랜치가
+  아니라 **체인의 이름**을 바꾼다. 옛 브랜치는 남는다 — 무손실은 두 나무를 세어서 확인한다.
+- **층 검사**: `.gil/checks`(대문에 커밋)에 `dev:`/`main:` 명령을 선언하면 `gil merge --into dev`·
+  `gil deploy` 가 그걸 **직접 돌리고 종료코드로 판정**한다. 통과는 `Gil-Checked`, 건너뜀은
+  `Gil-Check-Skipped`(--skip-reason 필수)로 커밋에 남는다. 선언 없으면 막지 않되 고지한다.
+- **검증**: example 572 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.47.0**
+  (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init`·배포 게이트·fsck 실측).
   v3.34.1 = 윈도우 필드테스트 두 건: 뷰어 자동 새로고침이 인터뷰 답을 지우던 것(초안 저장 +
   쓰는 중 리로드 보류) · 윈도우 **사람**용 설치 경로(`docs/INSTALL.md`)와 "에이전트가 설치를
   거부하면" 정규 분기.
+  v3.47.0 = **나무 전체를 옮긴다** — `migrate --to-dev-layout`(적층 33커밋→12, 스텝 무손실) ·
+  **층 검사**(`.gil/checks` — 확인은 선언이 아니라 사건이다) · **전 명령 2배 이상 빨라짐**
+  (같은 커밋을 트레일러만 바꿔 다시 읽던 것: step 181→78ms, init 536→317ms).
   v3.46.0 = **새 계보를 시작할 자리를 문법에 만든다** — main-dev-chain 층(위 참조) · fsck 가
   층의 선언과 실재를 대조(거짓 계보를 일부러 심어 잡히는지 확인) · 합류(`gil merge`)와
   배포(`gil deploy`)를 가름 · **온보딩에서 예시 이름 제거**(모두가 자기를 clew 라 답하던 원인 —
