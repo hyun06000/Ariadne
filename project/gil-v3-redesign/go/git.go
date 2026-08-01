@@ -111,6 +111,8 @@ func traceArgs(args []string) string {
 
 // traceSummary — 종료 직전 요약. 호출 수가 폭주하는지, 한 호출이 오래 잡는지를 가른다.
 func traceSummary() {
+	// 대조 모드 요약도 여기서 함께 낸다 — 종료 경로가 여럿이라(die·정상) 하나로 묶는다.
+	verifySummary()
 	if traceOn == "" {
 		return
 	}
@@ -191,6 +193,7 @@ var gitReadCache = map[string]gitCached{}
 func dropReadCaches() {
 	gitReadCache = map[string]gitCached{}
 	rawScanCache = map[string][]*rawCommit{}
+	dropScanTables()
 }
 
 // gitCacheOn — **짧게 살다 죽는 CLI 명령에서만** 캐시가 참이다. 오래 사는 프로세스
@@ -216,7 +219,7 @@ func gitReadOnly(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "log", "for-each-ref", "rev-list", "ls-tree", "cat-file", "merge-base", "show":
+	case "log", "for-each-ref", "show-ref", "rev-list", "ls-tree", "cat-file", "merge-base", "show":
 		return true
 	case "rev-parse", "symbolic-ref":
 		// --abbrev-ref/--verify 등 조회형만. 쓰기 옵션이 섞이면 캐시하지 않는다.

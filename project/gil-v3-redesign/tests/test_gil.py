@@ -8626,3 +8626,59 @@ class TestSessionTidy(GilFixture):
         r = self.gil("handoff")
         self.assertIn("gil handoff --end", r.stdout, "정리할 자리를 안 짚었다")
         self.assertIn("이어서 가보자", r.stdout, "사람에게 줄 문구가 없다")
+
+
+class TestFastlogSliceMatchesGit(GilFixture):
+    """**최적화가 정확성을 이기면 안 된다** — 그리고 그건 선언으로 지켜지지 않는다.
+
+    범위를 git 에 되묻지 않고 이미 긁어 둔 표에서 잘라내는 길을 냈다. 처음 판은 "큰 표의
+    순서를 그대로 두고 거르면 된다"였고, **582개 테스트가 전부 통과했다.** 그런데 틀렸다:
+    시험의 커밋들은 같은 초에 찍히고, 날짜가 같으면 git 의 순서는 날짜가 아니라 어느 팁에서
+    어떤 차례로 걸어왔는지가 정한다. 순서가 달라도 대부분의 단언은 통과하므로 —
+    **조용히 다른 그래프를 읽고 있었다.**
+
+    그래서 대조 모드(GIL_FASTLOG_VERIFY=1)를 만들었다: 잘라낸 답을 git 에 되물어 sha 열까지
+    맞는지 보고, 다르면 그 자리에서 죽는다. 여기서는 그 모드가 **살아 있는지**를 지킨다."""
+
+    def _verify(self, *args):
+        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_FASTLOG_VERIFY="1")
+        r = subprocess.run([*GIL_CMD, *args], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
+        self.assertNotIn("내부 오류(fastlog)", r.stdout + r.stderr,
+                         f"잘라낸 답이 git 과 다르다: gil {' '.join(args)}\n"
+                         + r.stdout + r.stderr)
+        return r
+
+    def _assert_sliced(self, outs):
+        """**빈 시험은 시험이 아니다** — 잘라낸 범위가 0개면 위 통과는 아무것도 검증하지 않았다."""
+        self.assertTrue(any("fastlog: 잘라낸 범위" in o for o in outs),
+                        "대조는 통과했지만 잘라낸 범위가 하나도 없다 — 이 시험은 빈 시험이다")
+
+    def test_every_range_a_session_reads_matches_git(self):
+        """부팅~작업~부활에서 읽는 범위(HEAD·--branches·--all)가 전부 git 과 일치한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/cy", "--author", "t", "--purpose", "P", "--body", "무엇을 풀려는가")
+        self.gil("step", "a/cy", "--kind", "hypothesis", "--title", "H",
+                 "--falsify", "x 가 관측되면 틀렸다", "--falsify-to", "s1",
+                 "--advances", "지표 1개", "--plan", "설계")
+        outs = []
+        for cmd in (("log",), ("log", "--all"), ("handoff",), ("fsck",),
+                    ("context",), ("drift",), ("goto", "a/cy")):
+            r = self._verify(*cmd)
+            outs.append(r.stderr)
+        self._assert_sliced(outs)
+
+    def test_branches_and_head_agree_after_a_fork(self):
+        """분기가 있으면 팁이 여럿이라 순서가 갈린다 — 거기서 특히 일치해야 한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P")
+        self.gil("open", "a/cy", "--author", "t", "--purpose", "P", "--body", "정의")
+        self.gil("step", "a/cy", "--kind", "hypothesis", "--title", "H1",
+                 "--falsify", "x", "--falsify-to", "s1", "--advances", "a", "--plan", "p")
+        # 조상 define 에서 형제 가지를 낸다 — 브랜치가 둘이 되어 --branches 와 HEAD 가 갈린다.
+        self.gil("step", "a/cy", "--kind", "hypothesis", "--title", "H2", "--to", "s1",
+                 "--falsify", "y", "--falsify-to", "s1", "--advances", "b", "--plan", "p")
+        outs = [self._verify(*cmd).stderr for cmd in
+                (("log",), ("log", "--all"), ("handoff",), ("fsck",))]
+        self._assert_sliced(outs)
