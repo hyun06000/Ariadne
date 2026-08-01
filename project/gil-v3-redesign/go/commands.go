@@ -2273,6 +2273,9 @@ func cmdDeploy(args []string) {
 	// --no-promote: 승격 없이 마커만. dev→main 이 CI·사람 손에 있는 저장소를 위한 자리다
 	// (gil 은 기록 도구지 남의 배포 파이프라인을 빼앗는 도구가 아니다).
 	noPromote := fs.boolFlag("no-promote")
+	// 대문으로 건너기 전 확인(checks.go). SPEC 7 의 '엄밀한 테스트는 배포 앞에서' 자리다.
+	skipCheck := fs.boolFlag("skip-check")
+	skipReason := fs.str("skip-reason", "")
 	fs.parse(args)
 	if *tag == "" {
 		die("사용: gil deploy --tag <v0.2.0> [--at <chain>/<cycle>/<step>] [--state staged|live]\n" +
@@ -2350,6 +2353,24 @@ func cmdDeploy(args []string) {
 	if *url != "" {
 		tr = append(tr, [2]string{"Gil-Deploy-Url", *url})
 	}
+	// ── 대문으로 건너기 전 확인 ────────────────────────────────────────────────
+	// 여기서 실패하면 마커도 안 새긴다. 배포는 되돌리기 어려운 외부 행위라, "확인 안 됐는데
+	// 기록만 남은 상태"를 만들지 않는다(staged 는 예외 — 아직 안 올라간 것이니까).
+	var checkNote string
+	if *state == "live" && !*noPromote {
+		if *skipCheck && strings.TrimSpace(*skipReason) == "" {
+			die("거부: --skip-check 에는 --skip-reason <왜 확인 없이 배포하나> 가 필요하다.\n" +
+				"  이유 없는 건너뜀은 나중에 '확인했다'와 구별되지 않는다.")
+		}
+		_, passed, note := runLayerCheck("main", *skipCheck, *skipReason)
+		if !passed {
+			die("거부: " + note + "\n  (배포 마커도 새기지 않았다 — 확인 안 된 배포를 기록으로 남기지 않는다.)")
+		}
+		checkNote = note
+		for _, t := range checkTrailers("main", !*skipCheck, *skipCheck, *skipReason) {
+			tr = append(tr, t)
+		}
+	}
 	// 마커는 **배포되는 것 위에** 새긴다. 옛 동작은 그때 서 있던 브랜치(대개 작업 중이던
 	// 체인)에 찍었는데, 그러면 승격된 대문에는 정작 "배포했다"는 기록이 없다 — 기록과 실재가
 	// 또 갈린다. 층이 있으면 dev 에 새기고, 새긴 뒤 원래 자리로 돌아온다.
@@ -2384,6 +2405,9 @@ func cmdDeploy(args []string) {
 	}
 	if *url != "" {
 		println2("  릴리스: " + *url)
+	}
+	if checkNote != "" {
+		println2("  ⓘ " + checkNote)
 	}
 	if backTo != "" {
 		// 배포했다고 사람을 층에 세워두지 않는다 — 하던 자리로 돌려놓는다.

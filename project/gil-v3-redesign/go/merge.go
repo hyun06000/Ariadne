@@ -21,6 +21,9 @@ func cmdMerge(args []string) {
 	// --allow-open: 닫히지 않은 것을 합치는 예외. SPEC 규칙 5 는 "완성만 머지 대상"이다 —
 	// 그 규칙을 우회할 길을 아예 막지는 않되, 우회했다는 사실이 기록에 남게 한다.
 	allowOpen := fs.boolFlag("allow-open")
+	// 층을 건널 때는 확인을 돌린다(checks.go). 건너뛰려면 이유를 밝혀라 — 그 사실이 남는다.
+	skipCheck := fs.boolFlag("skip-check")
+	skipReason := fs.str("skip-reason", "")
 	pos := fs.parse(args)
 	if len(pos) == 0 || strings.TrimSpace(*into) == "" {
 		die("사용: gil merge <합칠 것>... --into <받는 곳> --reason <왜 합치나>\n" +
@@ -84,6 +87,21 @@ func cmdMerge(args []string) {
 		die("거부: 합칠 것이 없다 — " + target + " 이 이미 전부 담고 있다.")
 	}
 
+	// ── 층 검사 ──────────────────────────────────────────────────────────────
+	// dev 로 올리는 것은 층을 건너는 일이다. 여기가 SPEC 7 의 'dev verify=smoke' 자리다.
+	var checkNote string
+	if target == devBranchName {
+		if *skipCheck && strings.TrimSpace(*skipReason) == "" {
+			die("거부: --skip-check 에는 --skip-reason <왜 확인 없이 건너나> 가 필요하다.\n" +
+				"  이유 없는 건너뜀은 나중에 '확인했다'와 구별되지 않는다.")
+		}
+		ran, passed, note := runLayerCheck(devBranchName, *skipCheck, *skipReason)
+		if !passed {
+			die("거부: " + note)
+		}
+		checkNote = note
+		_ = ran
+	}
 	back := strings.TrimSpace(git("rev-parse", "--abbrev-ref", "HEAD"))
 	if back != target {
 		git("checkout", "-q", target)
@@ -96,6 +114,9 @@ func cmdMerge(args []string) {
 				" — 판정이 나기 전에 흡수했다는 사실을 여기 남긴다."
 		}
 		trs := "\n\nGil-Merge: " + lf + "\nGil-Merge-Into: " + target + "\nGil-Merge-Reason: " + *reason
+		for _, t := range checkTrailers(devBranchName, target == devBranchName && !*skipCheck, *skipCheck, *skipReason) {
+			trs += "\n" + t[0] + ": " + t[1]
+		}
 		if _, err := gitTry("merge", "--no-ff", "-q", "-m", subject+"\n\n"+body+trs, lf); err != nil {
 			conflicts := strings.TrimSpace(git("diff", "--name-only", "--diff-filter=U"))
 			rest := "(없음)"
@@ -115,6 +136,9 @@ func cmdMerge(args []string) {
 		git("checkout", "-q", back)
 	}
 	println2("  이유: " + *reason)
+	if checkNote != "" {
+		println2("  ⓘ " + checkNote)
+	}
 	if target == devBranchName {
 		println2("  ▸ 층에 모였다. 세상으로 내보내려면: gil deploy --tag <v0.2.0>")
 	}

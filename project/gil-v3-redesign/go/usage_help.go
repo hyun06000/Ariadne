@@ -327,6 +327,8 @@ var helpTable = map[string]helpEntry{
 			"                  올라갔는지가 그래프에서 읽힌다. gil 은 그 주소에 **닿는지 확인하지 않는다** —\n" +
 			"                  기록 도구지 외부를 찌르는 도구가 아니다. 확인은 사람·CI 가 하고 그 결과를\n" +
 			"                  --promote 로 선언한다(헬스체크 출력은 --body-file 로 본문에 남겨라).\n" +
+			"  --skip-check    층 검사를 건너뛴다. --skip-reason 필수 — 건너뛴 사실이 커밋에 남는다\n" +
+			"                  (Gil-Check-Skipped). 안 적으면 이 배포는 확인된 것과 구별되지 않는다.\n" +
 			"  --promote       staged 로 찍어둔 것이 실제로 올라갔다. 앞 마커를 고치지 않고 새 마커로\n" +
 			"                  승격을 남긴다(append-only) — 언제 준비됐고 언제 올라갔나가 둘 다 남는다.\n" +
 			"  (기본은 --state live 라 옛 사용법은 그대로다.) 배포는 되돌리기 어려운\n" +
@@ -335,11 +337,15 @@ var helpTable = map[string]helpEntry{
 	},
 	"merge": {
 		"gil merge <합칠 것>... --into <받는 곳> --reason <왜 합치나> [--allow-open]\n" +
+			"        [--skip-check --skip-reason <왜 확인 없이 건너나>]\n" +
 			"  둘 이상의 조상을 요구하는 모든 합류 — 실제 git merge(파일까지). 충돌 시 멈춤(사람이 해결).\n" +
 			"  끝난 체인을 층으로: gil merge <chain> --into dev --reason <왜>\n" +
 			"  완성만 머지 대상이다(SPEC 규칙 5) — 열린 체인은 --allow-open 없이는 거부하고,\n" +
 			"  우회하면 그 사실이 머지 커밋 본문에 남는다.\n" +
-			"  dev → main 은 머지가 아니라 **배포**다: gil deploy --tag <vX>. 대문으로 가는 통로는 하나다.",
+			"  dev → main 은 머지가 아니라 **배포**다: gil deploy --tag <vX>. 대문으로 가는 통로는 하나다.\n" +
+			"  **층 검사**: .gil/checks 에 `dev: <명령>` 이 선언돼 있으면 dev 로 올릴 때 gil 이 직접\n" +
+			"  돌리고 종료코드로 판정한다(통과 사실은 Gil-Checked 로 커밋에 남는다). 선언은 대문에서\n" +
+			"  읽는다 — 정책은 가지의 사정이 아니다. 선언이 없으면 막지 않되 그 사실을 알린다.",
 		"docs/gil/deployment.md",
 	},
 	"chain-merge": {

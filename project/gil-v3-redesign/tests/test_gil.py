@@ -1160,7 +1160,7 @@ class TestReInterview(GilFixture):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             body = ""
-            for _ in range(40):
+            for _ in range(200):  # 10초 — 2초는 워커 12에서 깜빡인다
                 try:
                     body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read().decode()
                     break
@@ -2839,7 +2839,7 @@ class TestViewer(GilFixture):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             body = ""
-            for _ in range(40):
+            for _ in range(200):  # 10초 — 2초는 워커 12에서 깜빡인다
                 try:
                     body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read().decode()
                     break
@@ -2910,7 +2910,7 @@ class TestViewer(GilFixture):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             base = f"http://127.0.0.1:{port}"
-            for _ in range(40):
+            for _ in range(200):  # 10초 — 2초는 워커 12에서 깜빡인다
                 try:
                     urllib.request.urlopen(base + "/", timeout=1); break
                 except Exception:
@@ -8339,3 +8339,109 @@ class TestMigrateToDevLayout(GilFixture):
         self.assertNotEqual(self._git("rev-parse", "--verify", "-q", "dev-a").returncode, 0,
                             "--dry-run 인데 브랜치를 만들었다")
         self.assertEqual(self._git("rev-parse", "a").stdout.strip(), before)
+
+
+class TestLayerChecks(GilFixture):
+    """층을 건널 때 무엇으로 확인했나 (상현님, 2026-08-01).
+
+    "배포할 때만 테스트하면 안 되나? 아니면 dev 로 올릴 때만이라도."
+
+    SPEC 7 이 이미 그 축을 갖고 있었지만(개발은 smoke, 엄밀한 검증은 배포 앞에서) 문장으로만
+    있었다. 문법에 없는 규율은 지켜지지 않는다.
+
+    **선언이 아니라 실행이다.** `--verified <무엇으로 확인했나>` 같은 자유서술 칸을 만들면
+    #76 이 관전 중인 병이 재발한다(칸이 생기면 채워지고, 채워지면 통과한다). 저장소가 선언한
+    검사를 gil 이 직접 돌리고 종료코드로 판정한다.
+    """
+
+    def _chain(self, name):
+        ok = lambda r, w: self.assertEqual(r.returncode, 0, w + ":\n" + r.stdout + r.stderr)
+        ok(self.gil("chain", name, "--purpose", name, "--reference", "-",
+                    "--criterion", "C", input="기준"), f"chain {name}")
+        ok(self.gil("open", f"{name}/c1", "--author", "clew", "--purpose", "P",
+                    "--body", "정의", "--fits", "목적"), f"open {name}")
+        ok(self.gil("step", f"{name}/c1", "--kind", "hypothesis", "--title", "H", "--body", "B",
+                    "--falsify", "F", "--falsify-to", "s1", "--plan", "P",
+                    "--advances", "A"), f"hypothesis {name}")
+        ok(self.gil("step", f"{name}/c1", "--kind", "verify", "--title", "V", "--body", "B",
+                    "--verdict", "supported", "--plan-held", "--falsify-unmet", "U"), f"verify {name}")
+        ok(self.gil("step", f"{name}/c1", "--kind", "analyze", "--title", "A", "--body", "B",
+                    "--finding", "F"), f"analyze {name}")
+        ok(self.gil("step", f"{name}/c1", "--kind", "success", "--title", "S", "--body", "B",
+                    "--toward", "T", "--next-design", "N"), f"success {name}")
+        ok(self.gil("close", f"{name}/c1", "--verdict", "supported"), f"close {name}")
+        ok(self.gil("chain-close", name, "--verdict", "supported",
+                    "--retro", "-", input="회고"), f"chain-close {name}")
+
+    def _declare(self, text):
+        """검사를 **대문에** 선언한다 — 정책은 가지의 사정이 아니다."""
+        here = self._git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        self._git("checkout", "-q", "main")
+        os.makedirs(os.path.join(self.repo, ".gil"), exist_ok=True)
+        with open(os.path.join(self.repo, ".gil", "checks"), "w", encoding="utf-8") as f:
+            f.write(text)
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "검사 선언")
+        self._git("checkout", "-q", here)
+
+    def setUp(self):
+        super().setUp()
+        self.gil("init", "--name", "clew")
+
+    def test_a_failing_check_stops_the_crossing(self):
+        """검사가 실패하면 층을 건너지 못한다 — 확인은 선언이 아니라 사건이다."""
+        self._declare("dev: false\n")
+        self._chain("a")
+        r = self.gil("merge", "a", "--into", "dev", "--reason", "배포 단위")
+        self.assertNotEqual(r.returncode, 0, "검사가 실패했는데 합류했다")
+        self.assertIn("검사가 실패했다", r.stdout + r.stderr)
+        anc = self._git("merge-base", "--is-ancestor", "a", "dev").returncode == 0
+        self.assertFalse(anc, "거부했다면서 실제로는 합쳐 놨다")
+
+    def test_a_passing_check_is_recorded_on_the_commit(self):
+        """통과한 사실이 커밋에 남는다 — 안 남으면 다음 사람은 다시 확인해야 한다."""
+        self._declare("dev: true\n")
+        self._chain("a")
+        r = self.gil("merge", "a", "--into", "dev", "--reason", "배포 단위")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("dev", "Gil-Checked"), "true")
+
+    def test_skipping_requires_a_reason_and_leaves_a_trace(self):
+        """건너뛴 것을 안 적으면, 이 커밋은 확인된 것과 구별되지 않는다."""
+        self._declare("dev: false\n")
+        self._chain("a")
+        r = self.gil("merge", "a", "--into", "dev", "--reason", "R", "--skip-check")
+        self.assertNotEqual(r.returncode, 0, "이유 없이 건너뛰게 뒀다")
+        r = self.gil("merge", "a", "--into", "dev", "--reason", "R",
+                     "--skip-check", "--skip-reason", "CI 가 이미 돌렸다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("dev", "Gil-Check-Skipped"), "CI 가 이미 돌렸다")
+
+    def test_deploy_runs_the_stricter_check_and_leaves_no_marker_on_failure(self):
+        """배포는 되돌리기 어렵다 — 확인 안 된 배포를 기록으로 남기지 않는다."""
+        self._declare("dev: true\nmain: false\n")
+        self._chain("a")
+        self.assertEqual(self.gil("merge", "a", "--into", "dev", "--reason", "R").returncode, 0)
+        r = self.gil("deploy", "--tag", "v1.0.0")
+        self.assertNotEqual(r.returncode, 0, "main 검사가 실패했는데 배포했다")
+        self.assertEqual(self.trailer("dev", "Gil-Deploy"), "",
+                         "거부했다면서 배포 마커는 새겨 놨다")
+
+    def test_the_policy_does_not_depend_on_which_branch_is_checked_out(self):
+        """검사는 저장소의 정책이지 가지의 사정이 아니다.
+
+        작업트리에서 읽었더니 merge 가 브랜치를 옮기는 순간 파일이 사라져, 검사가 조용히
+        '선언되지 않음'으로 통과했다 — 게이트가 있는 척하면서 없는 상태였다.
+        """
+        self._declare("dev: false\n")
+        self._chain("a")
+        self._git("checkout", "-q", "a")     # 대문이 아닌 자리에서 건넌다
+        r = self.gil("merge", "a", "--into", "dev", "--reason", "R")
+        self.assertNotEqual(r.returncode, 0, "다른 브랜치에 서 있으니 검사가 사라졌다")
+
+    def test_a_repo_without_checks_is_not_blocked_but_is_told(self):
+        """없는 규율을 강요하면 이미 있는 나무가 얼어붙는다 — 막지 않되 알린다."""
+        self._chain("a")
+        r = self.gil("merge", "a", "--into", "dev", "--reason", "R")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("확인한 것이 없다", r.stdout + r.stderr)
