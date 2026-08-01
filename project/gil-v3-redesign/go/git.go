@@ -185,6 +185,14 @@ func traceSummary() {
 // **쓰기가 한 번이라도 일어나면 통째로 버린다**(캐시가 거짓말하지 않게 하는 유일한 규칙).
 var gitReadCache = map[string]gitCached{}
 
+// dropReadCaches — 읽기 캐시 **전부**를 버린다. 캐시가 여럿인데 버리는 자리가 흩어져 있으면
+// 언젠가 하나를 빠뜨리고, 빠뜨린 캐시는 방금 쓴 것을 못 본 채 거짓말을 한다(그 사고를 이미
+// 한 번 쳤다 — 위치 카드가 자기 스텝을 못 찾았다). 버리는 통로를 하나로 둔다.
+func dropReadCaches() {
+	gitReadCache = map[string]gitCached{}
+	rawScanCache = map[string][]*rawCommit{}
+}
+
 // gitCacheOn — **짧게 살다 죽는 CLI 명령에서만** 캐시가 참이다. 오래 사는 프로세스
 // (viewer serve · mcp serve · --wait 폴링)에서는 저장소가 밖에서 바뀌므로 캐시가 곧
 // 거짓말이 된다 — 실제로 --wait 이 첫 응답에 얼어붙었다(테스트가 잡았다). 그런 경로는
@@ -194,7 +202,7 @@ var gitCacheOn = true
 // stopGitCache — 오래 사는 모드로 들어간다. 이후 모든 읽기는 매번 git 에 되묻는다.
 func stopGitCache() {
 	gitCacheOn = false
-	gitReadCache = map[string]gitCached{}
+	dropReadCaches()
 }
 
 type gitCached struct {
@@ -245,7 +253,7 @@ func gitTry(args ...string) (string, error) {
 		}
 	} else {
 		// 쓰기(commit·branch·checkout·update-ref…)가 지나갔다 — 읽기 캐시는 여기서 죽는다.
-		gitReadCache = map[string]gitCached{}
+		dropReadCaches()
 	}
 	cmd := gitCommand(args...)
 	var out, errOut strings.Builder
@@ -269,7 +277,7 @@ func gitInput(msg string, args ...string) string {
 	// 여기는 **쓰기 통로**다(commit-tree·hash-object·mktree). 읽기 캐시를 안 버리면 방금
 	// 만든 노드가 안 보인다 — 실제로 위치 카드가 자기 스텝을 못 찾았다. 캐시는 쓰기를
 	// 놓치는 순간 거짓말이 된다.
-	gitReadCache = map[string]gitCached{}
+	dropReadCaches()
 	cmd := gitCommand(args...)
 	cmd.Stdin = strings.NewReader(msg)
 	var out, errOut strings.Builder
@@ -290,7 +298,7 @@ func gitOK(args ...string) bool {
 		_, err := gitTry(args...) // 캐시 경유 — 같은 존재 판정을 수십 번 되묻는다
 		return err == nil
 	}
-	gitReadCache = map[string]gitCached{}
+	dropReadCaches()
 	cmd := gitCommand(args...)
 	err := cmd.Run()
 	traceDone(cmd)
@@ -300,6 +308,11 @@ func gitOK(args ...string) bool {
 // gitlog 는 git log 래퍼. 커밋 0개(HEAD 부재)면 빈 문자열 — 오류가 아니라 '노드 없음'.
 // 참조: _gitlog. 첫 체인을 여는 빈 저장소에서 git log는 exit 128로 죽지만 정상 흐름이다.
 func gitlog(args ...string) string {
+	// 같은 범위를 트레일러만 바꿔 다시 읽지 않는다(fastlog.go) — 원문을 한 번 긁어 두고
+	// 형식은 그 표에서 만든다. 만들 수 없는 형식이면 그대로 git 을 부른다.
+	if out, ok := fastGitLog(args); ok {
+		return out
+	}
 	out, err := gitTry(append([]string{"log"}, args...)...)
 	if err != nil {
 		return ""

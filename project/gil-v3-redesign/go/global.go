@@ -93,6 +93,47 @@ func globalWrite(name, content, message string) string {
 	return first9(commitSha)
 }
 
+// globalWriteAll — 여러 파일을 **한 번에** 글로벌 ref 에 쓴다(내용은 메모리에서).
+//
+// 파일마다 globalWrite 를 부르면 파일당 git 프로세스가 여섯 개씩 뜬다(hash-object·read-tree·
+// update-index·write-tree·commit-tree·update-ref). gil init 이 존재의 방을 여섯 번 쓰느라
+// 그 비용을 여섯 배로 냈다 — 실측 init 536ms 중 250ms 가 여기였다. 한 인덱스에 다 얹고
+// 한 번 커밋한다. 기록도 이쪽이 정직하다: 존재의 방을 세운 건 **한 사건**이다.
+func globalWriteAll(files map[string]string, message string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	idxFile, err := os.CreateTemp("", "*.gilidx")
+	if err != nil {
+		die("거부: 임시 index 생성 실패: " + err.Error())
+	}
+	idxPath := idxFile.Name()
+	idxFile.Close()
+	os.Remove(idxPath)
+	defer os.Remove(idxPath)
+	env := append(os.Environ(), "GIT_INDEX_FILE="+idxPath)
+	if gitOK("rev-parse", "--verify", "-q", globalRef) {
+		runEnv(env, "read-tree", globalRef)
+	}
+	var names []string
+	for n := range files {
+		names = append(names, n)
+	}
+	sort.Strings(names) // 결정성 — 같은 입력이면 같은 트리
+	for _, n := range names {
+		blob := strings.TrimSpace(gitInput(files[n], "hash-object", "-w", "--stdin"))
+		runEnv(env, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+n)
+	}
+	tree := strings.TrimSpace(runEnvOut(env, "write-tree"))
+	args := []string{"commit-tree", tree}
+	if p, err := gitTry("rev-parse", "-q", "--verify", globalRef); err == nil {
+		args = append(args, "-p", strings.TrimSpace(p))
+	}
+	commitSha := strings.TrimSpace(gitInput(message, args...))
+	git("update-ref", globalRef, commitSha)
+	return first9(commitSha)
+}
+
 // globalWritePaths — 여러 파일/디렉토리를 글로벌 ref로 이전(중첩 디렉토리). 참조: _global_write_paths.
 // 임시 git index에 기존 글로벌 트리를 얹고 paths를 add해 write-tree(작업트리 오염 없음).
 func globalWritePaths(paths []string, message string) string {

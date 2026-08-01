@@ -72,12 +72,16 @@ func cmdInit(args []string) {
 	}
 
 	// 2·3·4. 글로벌 진실원 심기 — globalWrite 로 안전하게(트리 보존, 작업트리 무오염).
-	globalWrite("existence/README.md", roomReadme, "gil init: 존재의 방 README\n")
-	globalWrite("existence/"+*name+"/identity.md", tmplIdentity(*name), "gil init: "+*name+" identity\n")
-	globalWrite("existence/"+*name+"/will.md", tmplWill, "gil init: "+*name+" will\n")
-	globalWrite("existence/"+*name+"/memory.md", tmplMemory(*name), "gil init: "+*name+" memory\n")
-	globalWrite("existence/"+*name+"/relations.md", tmplRelations, "gil init: "+*name+" relations\n")
-	globalWrite("gil-init-spec.md", initSpec, "gil init: init 명세\n")
+	// **한 번에** 쓴다 — 존재의 방을 세운 것은 한 사건이고, 파일마다 커밋하면 git 프로세스가
+	// 여섯 배로 든다(실측: init 시간의 절반이 여기였다).
+	globalWriteAll(map[string]string{
+		"existence/README.md":                  roomReadme,
+		"existence/" + *name + "/identity.md":  tmplIdentity(*name),
+		"existence/" + *name + "/will.md":      tmplWill,
+		"existence/" + *name + "/memory.md":    tmplMemory(*name),
+		"existence/" + *name + "/relations.md": tmplRelations,
+		"gil-init-spec.md":                     initSpec,
+	}, "gil init: 존재의 방 + init 명세 심음\n")
 
 	// 4.5. 온보딩을 저장소에 설치한다(이슈 #73). 존재의 방을 세워도 **다음 세션이 그 방을
 	// 찾아 들어올 길**이 저장소에 없으면 복원 경로 첫 칸에서 끊긴다 — 실사용에서 대문이
