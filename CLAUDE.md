@@ -90,11 +90,20 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **릴리스 빌드**: `scripts/release-build.sh <version>` — **5타깃**(darwin amd64/arm64 · linux
   amd64/arm64 · **windows amd64**) + install.sh·llms.txt·SHA256SUMS를 재현. `-X main.gilVersion`
   각인. 지원 플랫폼은 SPEC '지원 플랫폼' 절이 규범(단일 진실원). 업로드는 사람이 `gh release create`.
-- **검증**: example 547 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.45.0**
-  (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init` 까지 실측 확인).
+- **레이아웃**: **main-dev-chain**(v3.46.0). `main` = 대문, 배포된 것만 온다. `dev` = 모든 작업이
+  시작하는 층(`gil init` 이 대문에서 갈라 심는다). 체인은 `--from` 없으면 dev 에서 갈라지는
+  **시조**(orphan — 대문은 물려받고 '앞선 체인'만 없다). 끝난 체인은 `gil merge --into dev` 로
+  모이고, `gil deploy --tag` 가 그 dev 를 대문에 `--no-ff` 머지한다(= 배포).
+- **검증**: example 561 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.46.0**
+  (업로드 완료 — 릴리스 URL 에서 내려받아 sha·버전·빈 폴더 `gil init`·`global mv`·fsck 실측 확인).
   v3.34.1 = 윈도우 필드테스트 두 건: 뷰어 자동 새로고침이 인터뷰 답을 지우던 것(초안 저장 +
   쓰는 중 리로드 보류) · 윈도우 **사람**용 설치 경로(`docs/INSTALL.md`)와 "에이전트가 설치를
   거부하면" 정규 분기.
+  v3.46.0 = **새 계보를 시작할 자리를 문법에 만든다** — main-dev-chain 층(위 참조) · fsck 가
+  층의 선언과 실재를 대조(거짓 계보를 일부러 심어 잡히는지 확인) · 합류(`gil merge`)와
+  배포(`gil deploy`)를 가름 · **온보딩에서 예시 이름 제거**(모두가 자기를 clew 라 답하던 원인 —
+  이름 없이 심고 `gil global mv` 로 스스로 짓는다) · 전체맵 맨 위에 main·dev 두 줄(레인은
+  위상이 아니라 선언이 정한다) · **llms.txt 가 두 벌로 갈라져 배포판이 낡은 문서를 심던 것**.
   v3.45.0 = **선언만 하고 갈라지지 않으면 그 계보는 거짓이다** — open --parent 가 그 자리로
   되돌아가 **실제로 분기**한다(옛 코드는 HEAD 에서 갈라 커밋 그래프가 계보를 거짓말했다) ·
   fsck 가 선언과 실재를 대조해 판정("실제로는 X 에서 갈라졌다") · 뷰어에 **git 그래프(날것)**
