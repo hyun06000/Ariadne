@@ -734,15 +734,9 @@ func renderHTML(g graphView, static bool) string {
 			`<button data-depth="cycle" title="사이클 단위 — 각 사이클 상태·분기(⚡)">사이클</button>` +
 			`<button data-depth="step" class="on" title="스텝 단위 — 모든 스텝 커밋 DAG">스텝</button>` +
 			`</span></h2><div id="view-map"></div></section>`)
-		// **층 그래프**(상현님, 2026-07-31) — main / dev / 체인이 각자 자기 줄에 선다.
-		// 전체맵은 "무슨 걸음을 밟았나"를, 층 그래프는 "그 걸음이 어느 층의 일이고 언제
-		// 층을 건넜나"를 보여준다. 배포·합류가 층을 건너는 선으로 눈에 들어온다.
-		b.WriteString(`<section class="pane"><details id="det-layer" open><summary class="panehead">` +
-			`층 그래프 <span class="gtoggle">(main · dev · 체인 — 어디서 나서 어디로 갔나)</span></summary>` +
-			`<p class="hint"><b>main</b> = 대문, 배포된 것만 온다. <b>dev</b> = 모든 작업이 시작하는 층. ` +
-			`그 아래가 <b>체인</b> — dev 에서 갈라진 시조들이다. ` +
-			`층을 건너는 선이 <b>합류(gil merge)</b>와 <b>배포(gil deploy)</b>다. 최근 400개.</p>` +
-			`<div id="layergraph"></div></details></section>`)
+		// 층(main·dev)은 **따로 그리지 않는다**(상현님). 전체맵이 이미 좋은 그림이라,
+		// 같은 사실을 두 번 그리면 사람은 어느 쪽을 봐야 하는지부터 고민한다. 데이터만
+		// 심고 전체맵이 위에 두 줄로 얹는다 — 체인들이 어디로 모여 어디로 나갔나.
 		b.WriteString(`<script id="layergraphdata" type="application/json">` + layerGraphJSON() + `</script>`)
 		// **날것의 git 그래프**(상현님). gil 이 아무리 예쁘게 계보를 그려도 그게 실재 브랜치로
 		// 갈라지지 않으면 아무 의미가 없다 — 그러니 사람이 직접 점검할 수 있어야 한다.
@@ -1087,27 +1081,34 @@ func layerGraphJSON() string {
 			"%(trailers:key=Gil-Chain,valueonly)\x1f"+
 			"%(trailers:key=Gil-Kind,valueonly)\x1f"+
 			"%(trailers:key=Gil-Merge-Into,valueonly)\x1f"+
-			"%(trailers:key=Gil-Deploy,valueonly)\x1e")
+			"%(trailers:key=Gil-Deploy,valueonly)\x1f"+
+			"%(trailers:key=Gil-Chain-Orphan,valueonly)\x1e")
 	if err != nil {
 		return `{"lanes":[],"rows":[]}`
 	}
 	type row struct{ sha, parents, refs, subj, layer string }
 	var rows []row
 	seen := map[string]bool{}
+	devRoots := map[string]bool{}
 	var chainOrder []string
 	for _, rec := range strings.Split(string(out), "\x1e") {
 		rec = strings.Trim(rec, "\n")
 		if strings.TrimSpace(rec) == "" {
 			continue
 		}
-		f := strings.SplitN(rec, "\x1f", 8)
-		if len(f) < 8 {
+		f := strings.SplitN(rec, "\x1f", 9)
+		if len(f) < 9 {
 			continue
 		}
 		chain := strings.TrimSpace(f[4])
 		kind := strings.TrimSpace(f[5])
 		into := strings.TrimSpace(f[6])
 		deploy := strings.TrimSpace(f[7])
+		// dev 에서 났다는 **선언**. 이게 있어야 전체맵이 그 체인의 출발을 층에 묶는다 —
+		// 묶지 않으면 시조가 화면에서 orphan(끊긴 계보)처럼 보인다. 시조와 미아는 다르다.
+		if strings.TrimSpace(f[8]) == devBranchName && chain != "" {
+			devRoots[chain] = true
+		}
 		// 선언이 층을 정한다. 순서가 곧 우선순위다 — 합류는 **받는 쪽**의 일이고(그래서
 		// --into 가 먼저), 그다음이 그 커밋이 속한 체인이다.
 		layer := "main"
@@ -1143,6 +1144,20 @@ func layerGraphJSON() string {
 			sb.WriteString(",")
 		}
 		sb.WriteString(fmt.Sprintf("%q", l))
+	}
+	sb.WriteString(`],"devroots":[`)
+	{
+		var dr []string
+		for c := range devRoots {
+			dr = append(dr, c)
+		}
+		sort.Strings(dr)
+		for i, c := range dr {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString(fmt.Sprintf("%q", c))
+		}
 	}
 	sb.WriteString(`],"rows":[`)
 	for i, r := range rows {
@@ -1615,15 +1630,24 @@ svg.dag{display:block}
 .ggreftxt{font-size:10px;fill:var(--node);text-anchor:middle}
 .ggreftxt.head{fill:var(--here);font-weight:700}
 /* 층 그래프 — 레인 띠는 흐리게(구조를 잡아주되 점을 이기지 않게), 층을 건너는 선은 굵게. */
-.lgsvg{display:block}
-.lgband{stroke-width:1;opacity:.18}
-.lglabel{font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;text-anchor:end}
-.lgedge{stroke-width:1.6;opacity:.55}
-.lgedge.cross{stroke-width:2.4;opacity:.95}
-details#det-layer>summary{cursor:pointer;list-style:none}
-details#det-layer>summary::-webkit-details-marker{display:none}
-details#det-layer>summary::before{content:"▸ ";color:var(--dim)}
-details#det-layer[open]>summary::before{content:"▾ "}
+/* 층 두 줄(main·dev) — 전체맵 위에 얹는다. 배치는 그대로, 층만 보이게. */
+.lanerule{stroke-width:1;opacity:.3;stroke-dasharray:3 3}
+.lanerule.lane-main{stroke:#e0574a}
+.lanerule.lane-dev{stroke:#2dd4bf}
+.lanename{font:600 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-anchor:end;opacity:.85}
+.lanename.lane-main{fill:#e0574a}
+.lanename.lane-dev{fill:#2dd4bf}
+.laneedge{stroke-width:2;opacity:.85}
+.laneedge.merge{stroke:#2dd4bf}
+.laneedge.start{stroke:#2dd4bf;opacity:.6}
+.laneedge.fork{stroke:#2dd4bf;opacity:.85}
+.lanelive{stroke-width:2;opacity:.5}
+.lanelive.lane-main{stroke:#e0574a}
+.lanelive.lane-dev{stroke:#2dd4bf}
+.laneedge.deploy{stroke:#e0574a}
+.lanedot.dev{fill:#2dd4bf}
+.lanedot.main{fill:#e0574a}
+.lanetag{font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;text-anchor:middle;fill:#e0574a}
 details#det-gitgraph>summary{cursor:pointer;list-style:none}
 details#det-gitgraph>summary::-webkit-details-marker{display:none}
 details#det-gitgraph>summary::before{content:"▸ ";color:var(--dim)}
@@ -1665,7 +1689,7 @@ details#det-chain>summary,details#det-cycle>summary{cursor:pointer;list-style:no
 details#det-chain>summary::-webkit-details-marker,details#det-cycle>summary::-webkit-details-marker{display:none}
 details#det-chain>summary::before,details#det-cycle>summary::before{content:"▸ ";color:var(--dim)}
 details#det-chain[open]>summary::before,details#det-cycle[open]>summary::before{content:"▾ "}
-.hint .lg-branch{color:#ff6b6b}.hint .lg-dead{color:#ff6b6b}.hint .lg-alive{color:#3ddc84}.hint .lg-cross{color:var(--here)}
+.hint .lg-branch{color:#ff6b6b}.hint .lg-dead{color:#ff6b6b}.hint .lg-alive{color:#3ddc84}.hint .lg-cross{color:var(--here)}.hint .lg-main{color:#e0574a}.hint .lg-dev{color:#2dd4bf}
 .headarrow{fill:var(--here)}  /* HEAD ▼ — 모든 그래프 공통 */
 .report{margin:10px 16px 16px;padding:14px 16px;background:var(--bg);border:1px solid var(--line);
  border-radius:8px;font-size:13px;line-height:1.65;max-height:60vh;overflow:auto;word-break:break-word}
@@ -2550,6 +2574,23 @@ function buildStepMap(){
       row[n.sha]=L; busy[L]=d; if(L>maxRow)maxRow=L;
     });
   });
+  // ── 층 두 줄 (main-dev-chain, 2026-07-31) ────────────────────────────────
+  // 전체맵의 배치는 손대지 않는다 — 지금 그대로가 좋다. 다만 이 그림에는 **어디서 나서
+  // 어디로 갔나**가 없었다: 체인들은 보이는데 그것들이 모이는 층(dev)과 세상으로 나가는
+  // 대문(main)이 화면에 없다. 그래서 위에 두 줄만 얹는다. 나머지는 두 칸 아래로 내린다.
+  //
+  // 층이 없는 저장소(옛 레이아웃)에서는 아무것도 하지 않는다 — 없는 층을 그리면 거짓말이다.
+  const LAYER=(()=>{ try{ return JSON.parse(document.getElementById('layergraphdata')?.textContent||'{}'); }catch(e){ return {}; } })();
+  const LAYERED=(LAYER.lanes||[]).includes('dev');
+  const LMERGE=[], LDEPLOY=[];
+  (LAYER.rows||[]).forEach(c=>{
+    const m=/^gil merge: (\S+) → (\S+)/.exec(c.subj||'');
+    if(m&&m[2]==='dev') LMERGE.push(m[1]);
+    const d=/^gil deploy (\S+):.*승격/.exec(c.subj||'');
+    if(d) LDEPLOY.push(d[1]);
+  });
+  // 층은 **자기 띠**를 위에 갖는다(아래 LANEH). 노드 행을 내리면 라벨(사이클·체인 이름)이
+  // 그 자리로 올라와 두 줄과 겹친다 — 겹침은 실종과 같다(이슈 #37 에서 값을 치른 교훈).
   const rowH=24, padBot=14, r=5;
   // colW: 스텝맵은 촘촘히(34px). 집계 모드(사이클/체인)는 노드 위에 이름 라벨이 붙으니, 가장 긴
   // 이름이 안 겹치게 x간격을 그 폭 기준으로 넓힌다(AIL #9 집계판 — 헤드리스로 못 본 픽셀 버그).
@@ -2566,23 +2607,111 @@ function buildStepMap(){
   if(!aggMode) VIS.forEach(n=>{ longestCyName=Math.max(longestCyName,(n.cycle||'').length); });
   const cyLabelW=longestCyName*6;                       // cyclabel 9px ≈ 6px/글자
   const rotHead=Math.min(120, Math.ceil(cyLabelW*Math.sin(RAD)));
-  const padTop = aggMode ? 38 : 62+rotHead;
+  // 라벨이 들어갈 머리 공간. 체인 이름을 안 그리게 된 뒤로 옛 값(62)은 과했다 —
+  // 남은 건 사이클 이름 한 줄뿐이다.
+  const labelRoom = aggMode ? 26 : 20+rotHead;
+  // 층 사이 간격을 **층과 체인 사이 간격과 같게** 맞춘다. 그냥 두면 main–dev 는 붙어 있고
+  // dev–체인만 멀어져, 같은 종류의 거리(한 층 내려감)가 두 가지로 보인다.
+  //   yMain=16, yDev=16+s, 첫 행=padTop+r 이고 padTop=labelRoom+LANEH, LANEH=s+20 일 때
+  //   (16+s)-16 == (padTop+r)-(16+s)  →  s = labelRoom+9.
+  const LANE_S = LAYERED ? labelRoom+9 : 0;   // 층과 층 사이 = 층과 체인 사이
+  const LANEH  = LAYERED ? LANE_S+20 : 0;     // 두 줄이 차지하는 머리 띠(라벨은 이 아래)
+  const padTop = labelRoom + LANEH;
   let longestLabel=0;
   if(aggMode) VIS.forEach(n=>{ const s=(MAP_DEPTH==='cycle'?n.cycle:n.chain)||''; longestLabel=Math.max(longestLabel,s.length); });
   const colW = aggMode ? Math.max(48, longestLabel*7+18) : 34; // ~7px/글자 + 여백
   // 집계 모드는 첫 노드 라벨(중앙정렬)이 왼쪽으로 삐져나가니 padX 를 라벨 절반만큼 확보.
-  const padX = aggMode ? Math.max(26, longestLabel*7/2+8) : 26;
+  let padX = aggMode ? Math.max(26, longestLabel*7/2+8) : 26;
+  // 층 이름(main·dev)은 왼쪽 여백에 서고, 그 오른쪽으로 **출발 곡선이 달릴 자리**를 둔다.
+  // 이 자리가 없으면 첫 점(깊이 0)이 왼쪽 끝이라 출발선이 수직으로 떨어져 '갈라져 나왔다'가
+  // 아니라 '떨어졌다'로 보인다.
+  // 내려오는 곡선은 **왼쪽으로 달릴 자리**가 없으면 거기서 잘린다 — 그러면 같은 공식을
+  // 써도 내려오는 쪽만 급해 보인다(실측: 달림 52px 대 105px). 어림짐작으로 여백을 주지 말고
+  // **가장 깊은 낙차를 실제로 계산해** 그만큼 확보한다. 올라가는 쪽은 오른쪽 여백이 넉넉하니,
+  // 이 자리가 맞아떨어져야 두 쪽이 같은 곡률로 읽힌다.
+  const LANE_X0 = 30;                                    // 층 선 왼쪽 끝 ~ dev 시작점
+  const deepestDrop = LAYERED ? (padTop + r + maxRow*rowH) - (16+LANE_S) : 0;
+  const LANEPAD = LAYERED ? Math.max(70, Math.min(320, LANE_X0 + deepestDrop*0.75 + 16)) : 0;
+  padX += LAYERED ? 46+LANEPAD : 0;
   let maxD=0; VIS.forEach(n=>{ if(depth[n.sha]>maxD)maxD=depth[n.sha]; });
   // 오른쪽 여유 = 가장 긴 체인 이름이 박스 위 라벨로 삐져나가도 안 잘리게.
   let maxName=0; VIS.forEach(n=>{ maxName=Math.max(maxName,(n.chain||'').length); });
   let maxColUsed=false;
   const workPad=(WORK&&WORK.dirty)?colW+40:0;   // 작업중 유령 노드가 잘리지 않게 한 칸 더
-  const rightPad=Math.max(padX, maxName*7+16)+workPad;
+  const rightPad=Math.max(padX, maxName*7+16)+workPad+(LAYERED?90:0); // 층 곡선이 달릴 자리
   const W=padX+rightPad+maxD*colW+r*2, H=padTop+padBot+maxRow*rowH+r*2;
   const X=sha=>padX+r+depth[sha]*colW;
   const Y=sha=>padTop+r+row[sha]*rowH;
   const svg=svgEl('svg',{class:'dag',viewBox:'0 0 '+W+' '+H,width:W,height:H});
   const agg=aggMode; // 집계 모드(사이클/체인)면 사이클 박스 대신 노드 라벨을 쓴다.
+  // 0) 층 두 줄 — main(대문)·dev(층). 체인들이 어디서 나서 어디로 갔는지가 이 두 줄로 닫힌다.
+  //    **떠 있는 점을 만들지 않는다**: 대문에서 dev 가 갈라져 나오고, dev 에서 체인이 갈라지고,
+  //    체인이 dev 로 합류하고, dev 가 대문으로 오른다 — 그 사슬이 실선으로 끊김 없이 이어진다.
+  //    (엷은 점선은 층이 계속 살아 있다는 배경일 뿐, 사건은 실선이 잇는다.)
+  if(LAYERED){
+    const yMain=16, yDev=16+LANE_S, xL=padX+r-LANEPAD, xR=W-6;
+    [['main',yMain,'배포된 것만 온다 — 대문'],['dev',yDev,'모든 작업이 시작하는 층']].forEach(([nm,y,tip])=>{
+      const ln=svgEl('line',{class:'lanerule lane-'+nm,x1:xL,y1:y,x2:xR,y2:y});
+      ln.appendChild(svgEl('title',{},nm+' — '+tip)); svg.appendChild(ln);
+      const t=svgEl('text',{class:'lanename lane-'+nm,x:xL-6,y:y+4}); t.textContent=nm;
+      svg.appendChild(t);
+    });
+    // 대칭 S곡선. 제어점을 **가로 달림의 절반씩** 양쪽에 두면 들어오는 꺾임과 나가는 꺾임이
+    // 같아진다(0.6 은 나가는 쪽이 더 완만해 보였다). 가로 달림도 세로 낙차에 같은 비율로
+    // 묶는다 — 한쪽만 잘리면 그쪽이 급해 보인다.
+    const runFor=dy=>Math.max(colW*1.6, Math.abs(dy)*0.75);
+    const curve=(x1,y1,x2,y2,cls,tip)=>{
+      const k=Math.abs(x2-x1)*0.5;
+      const p=svgEl('path',{class:'laneedge '+cls,fill:'none',
+        d:'M '+x1+' '+y1+' C '+(x1+k)+' '+y1+' '+(x2-k)+' '+y2+' '+x2+' '+y2});
+      if(tip)p.appendChild(svgEl('title',{},tip));
+      svg.appendChild(p); return p;
+    };
+    const dot=(x,y,cls,tip)=>{
+      const c=svgEl('circle',{class:'lanedot '+cls,cx:x,cy:y,r:4});
+      if(tip)c.appendChild(svgEl('title',{},tip)); svg.appendChild(c); return c;
+    };
+    // (1) 대문 → dev. 층은 대문에서 갈라져 나온 것이다 — 그 사실이 그림에 없으면 dev 가
+    //     어디서 왔는지 알 수 없고, 첫 점이 떠 있는 것처럼 보인다.
+    const xMainStart=xL+6, xDevStart=xL+LANE_X0;
+    dot(xMainStart,yMain,'main','대문(main) — 여기서 층이 갈라진다');
+    curve(xMainStart,yMain,xDevStart,yDev,'fork','dev 는 대문에서 갈라진 층이다 (gil init)');
+    dot(xDevStart,yDev,'dev','dev 층 시작');
+    // (2) dev → 각 체인의 첫 점. 선언이 dev 시조인 체인만 — 시조와 미아는 다르다.
+    //
+    // **하나의 점에서 갈라진다.** 체인마다 출발점을 따로 찍었더니 서로 다른 자리에서 난
+    // 것처럼 보였는데, 그건 사실이 아니다: dev 시조들은 모두 같은 커밋(dev 팁)에서 갈라진다.
+    // 그림이 사실과 다르면 사람은 없는 순서를 읽는다 — 이 저장소가 계보로 값을 치른 자리다.
+    const devEvents=[xDevStart];
+    (LAYER.devroots||[]).forEach(ch=>{
+      const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return;
+      let first=ns[0]; ns.forEach(n=>{ if(depth[n.sha]<depth[first.sha]) first=n; });
+      curve(xDevStart,yDev,X(first.sha),Y(first.sha),'start',
+        '출발: dev → '+ch+' (계보상 시조 — 대문은 물려받는다)');
+    });
+    // (3) 각 체인 → dev 합류(gil merge).
+    LMERGE.forEach(ch=>{
+      const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return;
+      let last=ns[0]; ns.forEach(n=>{ if(depth[n.sha]>depth[last.sha]) last=n; });
+      const x1=X(last.sha), y1=Y(last.sha);
+      const x2=Math.min(xR-40, x1+runFor(y1-yDev));
+      curve(x1,y1,x2,yDev,'merge','합류: '+ch+' → dev (gil merge)');
+      dot(x2,yDev,'dev','합류: '+ch+' → dev'); devEvents.push(x2);
+    });
+    // (4) dev → 대문(gil deploy). **마지막 합류 자리에서** 오른다 — 허공에서 시작하지 않는다.
+    const xDevLast=Math.max(...devEvents);
+    LDEPLOY.forEach(tag=>{
+      const x1=xDevLast, x2=Math.min(xR-8, x1+runFor(yDev-yMain));
+      curve(x1,yDev,x2,yMain,'deploy','배포 '+tag+': dev → main (gil deploy)');
+      dot(x2,yMain,'main','배포 '+tag); devEvents.push(x1);
+      const t=svgEl('text',{class:'lanetag',x:x2,y:yMain-8}); t.textContent='🚀 '+tag;
+      svg.appendChild(t);
+      // 대문도 실선으로 잇는다 — 갈라진 자리에서 배포가 도착한 자리까지가 대문이 산 구간이다.
+      svg.appendChild(svgEl('line',{class:'lanelive lane-main',x1:xMainStart,y1:yMain,x2:x2,y2:yMain}));
+    });
+    // dev 가 산 구간을 실선으로 — 점들이 그 위에 앉아 하나로 읽힌다.
+    svg.appendChild(svgEl('line',{class:'lanelive lane-dev',x1:xDevStart,y1:yDev,x2:Math.max(...devEvents),y2:yDev}));
+  }
   // 1) 사이클 구간 박스(x 범위 = 그 사이클 스텝들의 depth, y 범위 = 그 스텝들의 row). 집계 모드는 생략.
   const cyc={}; if(!agg) VIS.forEach(n=>{ const k=n.chain+'/'+n.cycle; (cyc[k]=cyc[k]||[]).push(n); });
   // 체인별 첫(가장 왼쪽) 사이클 — 그 위에 체인 이름을 얹는다.
@@ -2602,7 +2731,7 @@ function buildStepMap(){
     const hit=()=>placed.some(p=> x < p.x+p.w && p.x < x+w && (y-h) < p.y && p.y-p.h < y);
     while(hit()){
       y-=LSTEP;
-      if(y-h < 2) return false; // 머리 공간을 넘었다 — 생략(박스 title 로 여전히 읽을 수 있다)
+      if(y-h < LANEH+2) return false; // 머리 공간(층 띠 아래)을 넘었다 — 생략(박스 title 로 여전히 읽을 수 있다)
     }
     placed.push({x,y,w,h});
     const el=mk(y); svg.appendChild(el);
@@ -2647,24 +2776,10 @@ function buildStepMap(){
     });
   });
 
-  // 3) 체인 라벨은 **체인당 딱 한 번**(이슈 #52). 옛 판정은 "이 사이클의 dmin 이 체인 최소
-  //    dmin 과 같은가"였는데, migrate 산물처럼 사이클들이 체인 루트에서 나란히 갈라지면 그
-  //    조건이 사이클마다 참이 되어 같은 이름이 사이클 수만큼 방출됐다(실측: 36 사이클 체인에
-  //    라벨 36개). 깊이 비교가 아니라 **이미 그렸는지**로 판정한다. cycKeys 가 x 오름차순이라
-  //    첫 등장이 곧 가장 왼쪽이다.
-  const chainDone=new Set();
-  boxes.forEach(b=>{
-    const ch=b.ns[0].chain;
-    if(chainDone.has(ch)) return;
-    chainDone.add(ch);
-    const pc=PARENTS[ch], chName=ch+(pc?' ↰':'');
-    placeLabel(b.x1+2, b.y1-3-LSTEP, chName.length*(CW+1), 13, y=>{
-      const lab=svgEl('text',{class:'chlabel',x:b.x1+2,y:y});
-      lab.textContent=chName;
-      lab.appendChild(svgEl('title',{},pc?('체인 '+ch+' — 부모 체인 '+pc+' 에서 이어받음'):('체인 '+ch)));
-      return lab;
-    });
-  });
+  // 3) 체인 이름은 **그리지 않는다**(상현님). 라벨이 많아질수록 전체맵은 그림이 아니라
+  //    글자판이 된다 — 이름은 늘 거기 있지만, 사람이 매 순간 알아야 하는 건 아니다.
+  //    필요할 때 점·박스에 올리면 툴팁으로 뜬다(사이클 박스 title = <체인>/<사이클>,
+  //    노드 title = <체인>/<사이클>/<스텝>). 겹침 회피에 쓰던 머리 공간도 그만큼 돌려준다.
   function X_(d){ return padX+r+d*colW; }
   function Y_(rw){ return padTop+r+rw*rowH; }
   // 2) 엣지(부모→자식). backtrack 형제가지=빨강 파선. 경계 넘는(체인 전환) 엣지=주황.
@@ -2748,7 +2863,7 @@ function buildStepMap(){
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
   if(MAP_DEPTH==='step')
-    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 점선 박스=사이클(박스 위 작은 글씨=사이클 이름, 체인 첫 박스 위=체인 이름), 점=스텝. <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 맨 위 두 줄=<b class="lg-main">main</b>(대문, 배포된 것만 온다)·<b class="lg-dev">dev</b>(모든 작업이 시작하는 층) — 층을 건너는 굵은 선이 출발·합류(gil merge)·배포(gil deploy)다. 점선 박스=사이클(박스 위 작은 글씨=사이클 이름), 점=스텝. <b>체인 이름은 점·박스에 올리면 뜬다</b>(글자를 줄여 그림을 살렸다). <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
   else
     leg.innerHTML=(MAP_DEPTH==='cycle'?'사이클':'체인')+' 단위 접힌 맵(<b>gil log --depth</b> 뷰어판) — 노드 하나=한 '+(MAP_DEPTH==='cycle'?'사이클':'체인')+'. <b class="lg-alive">초록</b>=solved(산 잎 있음), <b class="lg-dead">붉음</b>=dead, <b>⚡</b>=분기 밟은 solved(죽은 잎도 품음, 일자 solved 와 구분). 엣지=계보. 노드 클릭 → 그 '+(MAP_DEPTH==='cycle'?'사이클 첫 스텝':'체인 첫 사이클')+'으로 이동.';
   host.appendChild(leg);
@@ -3001,80 +3116,6 @@ function buildGitGraph(){
   const wrap=document.createElement('div'); wrap.className='ggwrap'; wrap.appendChild(svg);
   host.replaceChildren(wrap);
 }
-// buildLayerGraph — 층 그래프. 세로 = 층(main·dev·체인), 가로 = 깊이.
-//
-// 레인을 위상이 아니라 **선언**으로 정하는 것이 git 그래프와의 유일한 차이다. 그래서 두
-// 그림을 나란히 보면 "선언한 층에서 실제로 갈라졌는가"가 눈으로 대조된다 — fsck 가 도구로
-// 하는 판정을 사람도 할 수 있어야 한다.
-function buildLayerGraph(){
-  const host=document.getElementById('layergraph');
-  if(!host)return;
-  const data=JSON.parse(document.getElementById('layergraphdata')?.textContent||'{}');
-  const rows=data.rows||[], lanes=data.lanes||[];
-  if(!rows.length){ host.textContent='커밋이 없다.'; return; }
-  const idx={}; rows.forEach(c=>idx[c.sha]=c);
-  const laneOf={}; lanes.forEach((l,i)=>laneOf[l]=i);
-  // x = 깊이(뿌리로부터). 전체맵·git 그래프와 같은 규칙이다 — 같은 사실은 같은 모양으로
-  // 그려야 사람이 두 화면을 대조할 수 있다.
-  const depth={};
-  const depthOf=sha=>{
-    if(depth[sha]!==undefined) return depth[sha];
-    depth[sha]=0;
-    const c=idx[sha]; let d=0;
-    (c&&c.parents||[]).forEach(p=>{ if(idx[p]) d=Math.max(d, depthOf(p)+1); });
-    return depth[sha]=d;
-  };
-  rows.forEach(c=>depthOf(c.sha));
-  let maxDepth=0; rows.forEach(c=>maxDepth=Math.max(maxDepth,depth[c.sha]));
-  const colW=22, laneH=44, padX=110, padY=30, r=5;
-  const W=padX+40+Math.max(1,maxDepth)*colW, H=padY*2+(lanes.length-1)*laneH+10;
-  // xMinYMid: 폭이 남을 때 그림이 가운데로 도망가면 레인 이름과 점이 멀어진다 — 왼쪽에 붙인다.
-  const svg=svgEl('svg',{class:'lgsvg',viewBox:'0 0 '+W+' '+H,width:'100%',height:H,
-    preserveAspectRatio:'xMinYMid meet'});
-  const X=sha=>padX+depth[sha]*colW;
-  const Y=sha=>padY+(laneOf[idx[sha].layer]!==undefined?laneOf[idx[sha].layer]:lanes.length-1)*laneH;
-  const color=L=>L===0?'#e0574a':(L===1?'#2dd4bf':['var(--node)','#3ddc84','#f59e0b','#a78bfa'][(L-2)%4]);
-  // 레인 띠 + 이름 — 띠가 없으면 점들이 어느 줄에 속하는지 눈이 못 묶는다.
-  lanes.forEach((l,i)=>{
-    const y=padY+i*laneH;
-    svg.appendChild(svgEl('line',{class:'lgband',x1:padX-8,y1:y,x2:W-6,y2:y,stroke:color(i)}));
-    const t=svgEl('text',{class:'lglabel',x:padX-14,y:y+4},l);
-    t.setAttribute('fill',color(i)); svg.appendChild(t);
-  });
-  rows.forEach(c=>{
-    (c.parents||[]).forEach(p=>{
-      if(!idx[p])return;
-      const x1=X(p),y1=Y(p),x2=X(c.sha),y2=Y(c.sha);
-      const d=(y1===y2)?('M '+x1+' '+y1+' L '+x2+' '+y2)
-        :('M '+x1+' '+y1+' C '+((x1+x2)/2)+' '+y1+' '+((x1+x2)/2)+' '+y2+' '+x2+' '+y2);
-      const cross=(y1!==y2);
-      svg.appendChild(svgEl('path',{class:'lgedge'+(cross?' cross':''),d:d,
-        stroke:color(laneOf[idx[c.sha].layer]||0),fill:'none'}));
-    });
-  });
-  rows.forEach(c=>{
-    const L=laneOf[c.layer]!==undefined?laneOf[c.layer]:lanes.length-1;
-    const g=svgEl('g',{class:'lgnode',transform:'translate('+X(c.sha)+','+Y(c.sha)+')'});
-    g.appendChild(svgEl('circle',{r:r,fill:color(L)}));
-    g.appendChild(svgEl('title',{},'['+c.layer+'] '+c.sha+'  '+c.subj+(c.refs?'\n['+c.refs+']':'')));
-    svg.appendChild(g);
-    (c.refs||'').split(',').map(x=>x.trim()).filter(Boolean).forEach((rf,k)=>{
-      const head=/HEAD/.test(rf);
-      svg.appendChild(svgEl('text',{class:'ggreftxt'+(head?' head':''),x:X(c.sha),y:Y(c.sha)-9-k*11},
-        rf.replace('HEAD -> ','▶ ')));
-    });
-  });
-  const wrap=document.createElement('div'); wrap.className='ggwrap'; wrap.appendChild(svg);
-  host.replaceChildren(wrap);
-}
-(function initLayerGraph(){
-  const det=document.getElementById('det-layer');
-  if(!det)return;
-  let drawn=false;
-  const draw=()=>{ if(drawn)return; drawn=true; step('층 그래프', buildLayerGraph); };
-  if(det.open) draw();
-  det.addEventListener('toggle',()=>{ if(det.open) draw(); });
-})();
 (function initGitGraph(){
   const det=document.getElementById('det-gitgraph');
   if(!det)return;

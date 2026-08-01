@@ -535,7 +535,7 @@ type inInterviewStatus struct {
 }
 
 type inInit struct {
-	Name string `json:"name,omitempty" jsonschema:"이 저장소에서 깨어날 존재의 이름(기본 clew)"`
+	Name string `json:"name,omitempty" jsonschema:"이 저장소에서 깨어날 존재의 이름. 생략하면 이름 없이 심고, 이름 짓는 것이 그 존재의 첫 과제가 된다"`
 }
 
 // ── 단계 B: 인터뷰 = Elicitation ──

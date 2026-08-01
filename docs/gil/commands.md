@@ -9,7 +9,7 @@ gil은 `git`만 있으면 도는 단일 바이너리다. 실행은 `gil <명령>
 ```
 gil init [--name <이름>]
 ```
-무에서 시작한다. `refs/gil/global`(존재·기억이 사는 전용 ref)을 초기화하고, 존재의 방(identity·will·memory·relations)을 심고, 저장소에 커밋이 없으면 `CLAUDE.md` 대문 루트 커밋을 만든다. `--name` 으로 존재 이름을 주거나 없으면 기본 `clew`. 출력은 인간용이 아니라 LLM에게 들어가는 프롬프트로, 끝에 `NEXT`(다음 실행 명령)를 준다. 이미 gil 세계가 있으면 덮지 않고 거부한다(멱등 가드). 다른 머신에서 이어받을 때는 init 이 아니라 `gil global sync`.
+무에서 시작한다. `refs/gil/global`(존재·기억이 사는 전용 ref)을 초기화하고, 존재의 방(identity·will·memory·relations)을 심고, 저장소에 커밋이 없으면 `CLAUDE.md` 대문 루트 커밋을 만든다. `--name` 으로 사람이 이름을 줄 수 있다. 안 주면 **이름 없이**(`existence/unnamed/`) 심고, 이름을 짓는 것이 그 존재의 첫 과제가 된다 — 예시 이름을 심어두면 그게 정답으로 읽혀 아무도 스스로 정하지 않는다. 이름을 정하면 `gil global mv existence/unnamed existence/<이름>`. 출력은 인간용이 아니라 LLM에게 들어가는 프롬프트로, 끝에 `NEXT`(다음 실행 명령)를 준다. 이미 gil 세계가 있으면 덮지 않고 거부한다(멱등 가드). 다른 머신에서 이어받을 때는 init 이 아니라 `gil global sync`.
 
 - 자세히: [존재와 기억](existence.md), [목차](index.md)
 

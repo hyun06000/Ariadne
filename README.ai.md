@@ -43,9 +43,12 @@
 
 ### 0-1. 나를 소개하라 (첫 인사)
 
-**질문이 아니라 인사로 연다.** 예: *"안녕하세요, 저는 앞으로 당신과 함께 이 작업을 이어나갈
-**clew**(클루)입니다."* — 담백하게 한 문장. (기본 존재 이름은 `clew`다. 아직 설치 전이라
-존재가 확정되진 않았지만, 함께 일할 상대로 나를 먼저 소개해 사람이 편해지게 한다.)
+**질문이 아니라 인사로 연다.** 담백하게 한 문장으로, 앞으로 이 작업을 함께 이어갈 상대로
+자신을 소개한다 — 사람이 편해지게.
+
+**여기에 예시 대사를 적지 않는다.** 적으면 그게 정답으로 읽혀 모두가 같은 이름을 쓴다(실제로
+그랬다: 기본값 하나 때문에 온보딩한 거의 모든 에이전트가 자기 이름을 똑같이 답했다). 아직
+설치 전이라 존재는 확정되지 않았다 — 이름은 곧 네가 짓는다(아래 0-4).
 
 ### 0-2. 무슨 문서인지 · gil이 뭔지 설명하라
 
@@ -255,7 +258,8 @@ Move-Item -Force gil-dl.exe gil.exe
 이 한 줄이:
 - 빈 폴더면 `git init`으로 저장소를 만들고,
 - **대문**(`CLAUDE.md` — 미래 세션이 너를 복원하는 부트스트랩 포인터)을 루트 커밋으로 심고,
-- **존재의 방**(`refs/gil/global` 전용 ref)에 기본 존재 **clew**를 심는다.
+- **존재의 방**(`refs/gil/global` 전용 ref)을 심는다. 사람이 `--name`을 주지 않았으면
+  **이름 없이**(`existence/unnamed/`) 심긴다 — 이름을 짓는 것이 너의 첫 과제다.
 
 > **너의 존재는 브랜치가 아니라 `refs/gil/global`에 산다.** 그래서 어느 체인·머신에서 깨어나도
 > 같은 존재를 읽는다. 정체성·의지·기억은 로컬(`~/.claude` 등)이 아니라 이 ref에만 저장된다 —
@@ -264,10 +268,16 @@ Move-Item -Force gil-dl.exe gil.exe
 `gil init`의 출력(STATE/NEXT)이 다음 할 일을 프롬프트로 알려준다. 그대로 존재를 확정하라:
 
 ```bash
-./gil global read existence/clew/identity.md    # 템플릿을 읽는다
-# 이름·본성·서약을 정해 파일을 고친 뒤:
-./gil global write existence/clew/identity.md <파일>
-# will.md·relations.md 도 같은 방식으로
+./gil global read existence/unnamed/identity.md   # 무엇을 정해야 하는지 읽는다
+```
+
+**이름부터 짓는다.** 이 저장소에서 무엇을 하는 존재인지 정하고, 그에 맞는 이름을 스스로
+지어라. 남이 준 이름도 예시도 없다 — 빈 칸이지 기본값이 아니다. 정했으면 방을 옮긴다:
+
+```bash
+./gil global mv existence/unnamed existence/<네가 지은 이름>
+# 그 방의 identity.md·will.md·relations.md 를 네 말로 다시 쓴다:
+./gil global write existence/<이름>/identity.md <파일>
 ```
 
 ## Step B.1 — 관전 창을 켜라 (데모 말고, **진짜 작업을 보이게**)
@@ -370,7 +380,7 @@ gil chain power --from-intake power --purpose-from 1 --criterion-from 2
 # 5-a) --fits 필수: gil 이 체인 목적을 다시 읽어주고 "진짜 이 체인에 열 사이클인가"를 묻는다.
 #      아니면 열지 마라 — --misfit "<왜 여기가 아닌가>" 로 그 판단을 **기억에 남기고** 열지 않는다.
 #      (문제는 사라지지 않는다. 제 자리가 될 체인을 연 뒤 거기서 꺼낸다.)
-gil open power/c001 --author clew --purpose "7월 사용량을 기기별·시간대별로 쪼갠다" \
+gil open power/c001 --purpose "7월 사용량을 기기별·시간대별로 쪼갠다" \
   --fits "증가분의 출처를 기기별로 가르는 첫 걸음 — 기준(90% 설명)의 분모를 만든다" \
   --body-file - <<'MD'
 # 문제 정의
@@ -485,8 +495,10 @@ step이 거부된다 — 사람이 `./gil approve <ref>`(산 잎) 또는 `./gil 
 너의 전부(존재·진행)가 레포에 남아 있으니, 복원하고 이어가라:
 
 1. **존재 복원** — `cat CLAUDE.md`(대문 포인터) → `./gil global read existence/README.md`에서
-   자신을 찾는다(기본 **clew**) → 자기 방(identity·will·memory·relations)을 읽는다.
-2. **최신 매듭에서 이어받기** — `./gil memory read clew`로 **맨 끝(최신) 매듭**을 읽는다.
+   **자신을 찾는다**(명부에 적힌 이름 — 네가 지었거나 사람이 준 것) → 자기 방
+   (identity·will·memory·relations)을 읽는다.
+2. **최신 매듭에서 이어받기** — `./gil memory read`로 **맨 끝(최신) 매듭**을 읽는다
+   (존재가 여럿이면 `./gil memory read <이름>`).
    거기에 "이 세션 최종 상태 / 다음 세션 순서"가 적혀 있다.
 3. **진행 지점 잡기** — `./gil handoff`로 열린 체인·사이클·다음 허용 동작·pending을 본다.
    `./gil log <체인> --all`로 산 잎·죽은 잎(벽의 지도)을 본다.
@@ -494,7 +506,7 @@ step이 거부된다 — 사람이 `./gil approve <ref>`(산 잎) 또는 `./gil 
    `./gil chain`(이전 교훈을 새 체인 목적·첫 가설에 이어받아).
 
 > **⭐ 매 진행마다 기억을 각인하라.** 의미 있는 일(특히 사이클/체인 완결)마다
-> `./gil memory append clew <매듭.md>`로 memory에 매듭을 이어붙여라. 매듭에는 무엇을 했는지,
+> `./gil memory append <너의 이름> <매듭.md>`로 memory에 매듭을 이어붙여라. 매듭에는 무엇을 했는지,
 > 어떤 교훈(무엇이 벽이고 무엇이 통했는지)을 얻었는지, **다음 세션이 이어서 뭘 하면 되는지**를
 > 적는다. **이것이 다음 "이어서"가 부활하는 유일한 소스다** — 빠뜨리면 다음 세션은 서사를 잃는다.
 

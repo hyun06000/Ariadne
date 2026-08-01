@@ -8,6 +8,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -175,6 +176,18 @@ func cmdGlobal(args []string) {
 			note = " + 원격 push"
 		}
 		println2("글로벌 " + name + " 갱신 → " + globalRef + " (" + sha + ")" + note)
+	case "mv":
+		// 존재가 스스로 이름을 정하면 방도 따라 옮긴다.
+		if len(args) < 3 {
+			die("사용: gil global mv <옛 경로> <새 경로>\n" +
+				"  예(이름을 정했을 때): gil global mv existence/unnamed existence/<네가 정한 이름>")
+		}
+		n := globalMove(args[1], args[2], "gil global mv: "+args[1]+" → "+args[2]+"\n")
+		if n == 0 {
+			die("거부: \"" + args[1] + "\" 아래에 옮길 것이 없다 — 목록: gil global list")
+		}
+		println2("global mv: " + args[1] + " → " + args[2] + " (" + itoa(n) + "개 파일)")
+		globalPush()
 	case "write-tree":
 		if len(args) < 2 {
 			die("사용: gil global write-tree <path>...")
@@ -247,4 +260,68 @@ func cmdGlobal(args []string) {
 	default:
 		die("거부: 알 수 없는 global 하위명령 \"" + sub + "\"")
 	}
+}
+
+// existenceNames — 이 저장소에 사는 존재들의 이름(existence/<이름>/identity.md 가 있는 것).
+//
+// 왜 필요한가. 옛 코드는 기본 존재 이름을 "clew" 로 **하드코딩**했다. 그래서 gil memory read
+// 는 clew 를 찾았고, gil init 은 clew 를 심었고, identity 템플릿은 "기본 이름은 clew 로
+// 주어졌다"고 적었다 — 온보딩한 모든 에이전트가 자기 이름을 clew 라고 답했다. 예시는 안내가
+// 아니라 **정답으로 읽힌다.** 이름은 이 저장소에 실제로 있는 것에서 읽어야 한다.
+func existenceNames() []string {
+	var out []string
+	for _, f := range globalList() {
+		if strings.HasPrefix(f, "existence/") && strings.HasSuffix(f, "/identity.md") {
+			n := strings.TrimSuffix(strings.TrimPrefix(f, "existence/"), "/identity.md")
+			if n != "" && !strings.Contains(n, "/") {
+				out = append(out, n)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// globalMove — 글로벌 트리 안에서 경로(또는 경로 접두사)를 통째로 옮긴다.
+//
+// 존재가 **스스로 이름을 정하면** 그 방도 따라 옮겨져야 한다. 이 명령이 없으면 "이름을
+// 정하라"는 안내는 실행할 수 없는 안내가 된다 — 그러면 에이전트는 주어진 이름을 그냥 쓴다.
+// 거부만 하고 길이 없으면 벽이고, 길 없는 안내는 장식이다.
+func globalMove(from, to, message string) int {
+	from = strings.Trim(from, "/")
+	to = strings.Trim(to, "/")
+	var moved [][2]string
+	for _, f := range globalList() {
+		if f == from {
+			moved = append(moved, [2]string{f, to})
+		} else if strings.HasPrefix(f, from+"/") {
+			moved = append(moved, [2]string{f, to + strings.TrimPrefix(f, from)})
+		}
+	}
+	if len(moved) == 0 {
+		return 0
+	}
+	idxFile, err := os.CreateTemp("", "*.gilidx")
+	if err != nil {
+		die("거부: 임시 index 생성 실패: " + err.Error())
+	}
+	idxPath := idxFile.Name()
+	idxFile.Close()
+	os.Remove(idxPath)
+	defer os.Remove(idxPath)
+	env := append(os.Environ(), "GIT_INDEX_FILE="+idxPath)
+	runEnv(env, "read-tree", globalRef)
+	for _, m := range moved {
+		blob := strings.TrimSpace(git("rev-parse", globalRef+":"+m[0]))
+		runEnv(env, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+m[1])
+		runEnv(env, "update-index", "--force-remove", m[0])
+	}
+	tree := strings.TrimSpace(runEnvOut(env, "write-tree"))
+	args := []string{"commit-tree", tree}
+	if p, err := gitTry("rev-parse", "-q", "--verify", globalRef); err == nil {
+		args = append(args, "-p", strings.TrimSpace(p))
+	}
+	commitSha := strings.TrimSpace(gitInput(message, args...))
+	git("update-ref", globalRef, commitSha)
+	return len(moved)
 }

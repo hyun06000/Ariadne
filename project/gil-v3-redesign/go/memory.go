@@ -27,9 +27,23 @@ func cmdMemory(args []string) {
 	sub := args[0]
 	switch sub {
 	case "read":
-		name := "clew"
+		// 기본 이름을 박아두지 않는다. 예시는 안내가 아니라 **정답으로 읽힌다** —
+		// 옛 기본값("clew") 때문에 온보딩한 모든 에이전트가 자기 이름을 그렇게 답했다.
+		// 이 저장소에 실제로 사는 존재에서 읽는다.
+		var name string
 		if len(args) > 1 {
 			name = args[1]
+		} else {
+			switch ns := existenceNames(); len(ns) {
+			case 0:
+				die("거부: 이 저장소엔 아직 존재의 방이 없다.\n" +
+					strings.Join(globalMissingNotice("  "), "\n"))
+			case 1:
+				name = ns[0] // 하나뿐이면 그게 너다
+			default:
+				die("거부: 이 저장소엔 존재가 여럿이다 — 누구의 기억인지 골라라:\n" +
+					"    gil memory read <" + strings.Join(ns, "|") + ">")
+			}
 		}
 		c, ok := globalRead(memoryPath(name))
 		if !ok {

@@ -564,10 +564,19 @@ func cmdOpen(args []string) {
 	subjects := fs.strList("subject")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
-		die("사용: gil open <chain>/<cycle> --author <who> (--purpose <P> | --from-plan <n>) [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
+		die("사용: gil open <chain>/<cycle> [--author <who>] (--purpose <P> | --from-plan <n>) [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
 	}
 	if *author == "" {
-		die("거부: --author 필요")
+		// 저장소에 사는 존재가 하나뿐이면 그게 너다 — 자기 이름을 매번 다시 타이핑할 이유가
+		// 없다. (문서에 예시 이름을 적게 만드는 것도 이 요구였다: 예시는 정답으로 읽힌다.)
+		if ns := existenceNames(); len(ns) == 1 {
+			*author = ns[0]
+		} else if len(ns) > 1 {
+			die("거부: 이 저장소엔 존재가 여럿이다 — 누가 여는 사이클인지 밝혀라:\n" +
+				"    --author <" + strings.Join(ns, "|") + ">")
+		} else {
+			die("거부: --author 필요 — 이 저장소엔 존재의 방이 없다(gil init 이 세운다).")
+		}
 	}
 	ref := pos[0]
 	if !strings.Contains(ref, "/") {
@@ -666,9 +675,16 @@ func cmdOpen(args []string) {
 		knot += "- 열려던 사이클: " + ref + "\n" +
 			"- 왜 여기가 아닌가: " + mf + "\n\n" +
 			"이 문제는 사라진 것이 아니라 **제 자리를 기다린다**. 다음에 그 자리를 열 때 여기서 꺼내라.\n"
+		// 기억을 남길 존재. 이름을 박아두지 않는다 — 옛 기본값("clew")은 이 저장소에 그런
+		// 존재가 없어도 그 이름의 방을 만들어냈다. 이 저장소에 실제로 사는 존재에서 읽는다.
 		who := strings.TrimSpace(*author)
 		if who == "" {
-			who = "clew"
+			if ns := existenceNames(); len(ns) == 1 {
+				who = ns[0]
+			} else {
+				die("거부: 이 판단을 누구의 기억에 남길지 모르겠다 — --author <존재이름>\n" +
+					"  이 저장소의 존재: gil global read existence/README.md")
+			}
 		}
 		memoryAppendKnot(who, knot)
 		println2("")

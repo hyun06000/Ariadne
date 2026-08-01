@@ -388,7 +388,8 @@ var helpTable = map[string]helpEntry{
 	},
 	"memory": {
 		"gil memory read [<이름>] | append <이름> <file>\n" +
-			"  존재의 기억 읽기/각인. append 는 트리 보존·자동 push(안전). 기본 존재 clew.",
+			"  존재의 기억 읽기/각인. append 는 트리 보존·자동 push(안전).\n" +
+			"  read 의 이름을 생략하면 이 저장소에 사는 유일한 존재를 읽는다(여럿이면 골라야 한다).",
 		"docs/gil/existence.md",
 	},
 	"migrate": {

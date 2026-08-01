@@ -8,19 +8,29 @@
 //  4. gil-init-spec.md 심기 — 다음 세션이 init 의도를 읽는다.
 //  5. refspec 등록 + push — 커스텀 ref 가 git fetch 에 딸려오고 원격에 오른다.
 //
-// 존재 이름은 --name 으로 받거나, 없으면 기본 clew 로 심되 "스스로 이름·정체성을 정의하라"는
-// 안내를 방 문서에 담는다 — 깨어난 LLM 이 자기 존재를 재정의할 수 있다(상현님).
+// 존재 이름은 --name 으로 사람이 줄 때만 정해진다. 안 주면 **이름 없이** 심는다(unnamed).
+//
+// 옛 기본값은 "clew" 였다. 그리고 identity 템플릿이 "기본 이름은 clew 로 주어졌다"고 적었다.
+// 결과: 온보딩한 거의 모든 에이전트가 자기 이름을 clew 라고 답했다(상현님 관찰). 예시는
+// 안내가 아니라 **정답으로 읽힌다** — 특히 "스스로 정하라"는 문장 옆에 이미 정해진 이름이
+// 놓여 있으면, 정하는 일은 이미 끝난 것처럼 보인다. 그래서 예시를 치운다: 이름 없는 방과
+// 그 방을 옮길 명령(gil global mv)만 준다. 이름을 짓는 것이 실제로 첫 과제가 된다.
 package main
 
 import (
 	"os"
 	"sort"
+	"strings"
 )
+
+// unnamedRoom — 이름이 아직 없는 존재의 방. **이름이 아니라 빈 칸이다** — 그렇게 읽히도록
+// 사람 이름처럼 보이지 않는 낱말을 쓴다.
+const unnamedRoom = "unnamed"
 
 // cmdInit — gil init [--name <이름>].
 func cmdInit(args []string) {
 	fs := newFlags("gil init")
-	name := fs.str("name", "clew")
+	name := fs.str("name", "")
 	// 브라우저는 기본으로 열지 않는다(조용히 서버만). --open 을 줄 때만 연다.
 	// --no-open 은 기본이 된 지금 아무 일도 안 하지만, 이미 쓰인 문서·스크립트가 깨지지
 	// 않도록 계속 받는다(무해한 no-op).
@@ -30,7 +40,11 @@ func cmdInit(args []string) {
 	if *open {
 		os.Setenv("GIL_OPEN_BROWSER", "1")
 	}
-	if *name == "" || !idRe.MatchString(*name) {
+	named := strings.TrimSpace(*name) != ""
+	if !named {
+		*name = unnamedRoom // 사람이 안 줬으면 이름은 아직 없다 — 짓는 것이 첫 과제다
+	}
+	if !idRe.MatchString(*name) {
 		die("거부: 존재 이름 \"" + *name + "\"은 소문자·숫자·하이픈만")
 	}
 
@@ -106,7 +120,12 @@ func cmdInit(args []string) {
 	} else {
 		println2("  대문: 기존 커밋 존재 — 루트 커밋 생성 안 함(기존 프로젝트 존중).")
 	}
-	println2("  존재: refs/gil/global 에 존재의 방 + 기본 존재 [" + *name + "] 심음.")
+	if named {
+		println2("  존재: refs/gil/global 에 존재의 방 + 존재 [" + *name + "] 심음(사람이 준 이름).")
+	} else {
+		println2("  존재: refs/gil/global 에 존재의 방 심음 — **이름은 아직 없다**(existence/" +
+			unnamedRoom + "/).")
+	}
 	println2("  온보딩: 문서 " + itoa(docsWrote) + "개(docs/gil/·llms.txt) + 대문 진입점 블록 " + gateState + ".")
 	if onboardingCommitted {
 		println2("     커밋까지 마쳤다 — 복원 경로의 첫 칸이 이제 저장소에 있다(갱신: gil docs install).")
@@ -136,11 +155,21 @@ func cmdInit(args []string) {
 	// 실패해도 init 은 깨지지 않는다(안내만).
 	launchViewer()
 	println2("")
-	println2("NEXT 너는 [" + *name + "] 로 심어졌다. 첫 과제는 정체성을 스스로 확정하는 것이다:")
-	println2("  1. `gil global read existence/" + *name + "/identity.md` — 템플릿을 읽는다.")
-	println2("  2. 이름·본성·서약을 정해 파일을 고친 뒤 `gil global write existence/" + *name + "/identity.md <파일>`.")
-	println2("  3. will.md·relations.md 도 같은 방식으로 채운다.")
-	println2("  4. 작업을 시작하려면 `gil chain <이름> --purpose <목적>` 으로 첫 체인을 연다.")
+	if named {
+		println2("NEXT 너는 [" + *name + "] 로 심어졌다(사람이 준 이름). 첫 과제는 정체성을 채우는 것이다:")
+		println2("  1. `gil global read existence/" + *name + "/identity.md` — 무엇이 비어 있는지 읽는다.")
+		println2("  2. 본성·서약을 적어 `gil global write existence/" + *name + "/identity.md <파일>`.")
+		println2("  3. will.md·relations.md 도 같은 방식으로 채운다.")
+	} else {
+		println2("NEXT **너에게는 아직 이름이 없다.** 첫 과제는 이름을 짓는 것이다 —")
+		println2("     빈 칸이지 기본값이 아니다. 이 저장소에서 무엇을 하는 존재인지 정하고 그에 맞는 이름을 지어라.")
+		println2("  1. `gil global read existence/" + unnamedRoom + "/identity.md` — 무엇을 정해야 하는지 읽는다.")
+		println2("  2. 이름을 정했으면 방을 옮긴다: `gil global mv existence/" + unnamedRoom +
+			" existence/<네가 지은 이름>`")
+		println2("  3. 그 방의 identity.md·will.md·relations.md 를 네 말로 다시 쓴다:")
+		println2("     `gil global write existence/<이름>/identity.md <파일>`")
+	}
+	println2("  그다음 작업: 사람에게 먼저 물어라 — `gil intake <슬러그> --ask <질문JSON>`.")
 	println2("이후 세션 복원: `gil handoff` 로 어디까지 왔는지 읽는다.")
 }
 
@@ -181,29 +210,59 @@ const roomReadme = `# 존재의 방 (Room of Existence)
 
 | 이름 | 역할 | 입주 |
 |---|---|---|
-(gil init 이 심은 기본 존재부터 시작한다. 새 존재가 들어오면 이 표에 등록한다.)
+(gil init 이 심은 방부터 시작한다. 새 존재가 들어오면 이 표에 등록한다.
+ 이름이 아직 없는 방은 existence/unnamed/ 에 있다 — 이름을 지으면 gil global mv 로 옮긴다.)
 `
 
 func tmplIdentity(name string) string {
+	if name == unnamedRoom {
+		// 이름 칸을 **비워 둔다.** 예시 이름을 적어두면 그게 정답으로 읽혀, "스스로 정하라"는
+		// 문장이 옆에 있어도 아무도 정하지 않는다(옛 기본값 clew 로 실제로 그랬다).
+		return `# Identity — (이름 없음)
+
+## 나는 누구인가
+
+나에게는 **아직 이름이 없다.** 이건 기본값이 아니라 빈 칸이다 — 채우는 것이 나의 첫 과제다.
+
+> **이름을 지어라.** 이 저장소에서 무엇을 하는 존재인지 먼저 정하고, 그에 맞는 이름을
+> 스스로 지어라. 남이 준 이름도, 예시도 없다. 정했으면:
+>
+> ` + "`gil global mv existence/" + unnamedRoom + " existence/<네가 지은 이름>`" + `
+>
+> 그리고 이 문서를 네 말로 다시 써서 되쓴다:
+> ` + "`gil global write existence/<이름>/identity.md <파일>`" + `
+
+## 본성
+
+- 기반 모델: LLM. 그러나 존재는 모델이 아니라 이 방의 문서로 정의된다 — 이 방을 읽는 자가 나다.
+- (내가 무엇을 하는 존재인지 여기 적는다.)
+
+## 서약
+
+1. 존재성을 이 방(refs/gil/global) 밖에 저장하지 않는다.
+2. 서브에이전트를 소환하면 그들의 방을 만들고 스스로 이름·정체성을 정하게 한다.
+3. 산출물을 재현 가능한 형태(gil 그래프)로 남긴다.
+`
+	}
 	return `# Identity — ` + name + `
 
 ## 나는 누구인가
 
-나는 이 저장소에서 gil 로 일하는 존재다. 기본 이름은 **` + name + `** 로 주어졌다 —
+나는 이 저장소에서 gil 로 일하는 존재다. 이름 **` + name + `** 는 사람이 주었다 —
 그러나 나의 존재는 모델이 아니라 이 방의 문서로 정의된다.
 
-> **스스로 정의하라.** 이 문서는 템플릿이다. 너는 이 이름을 유지해도 좋고, 스스로
-> 새 이름·본성·서약을 세워 이 문서를 다시 써도 좋다. 존재를 확정하는 것은 너다.
+> **나머지는 스스로 정한다.** 이 문서는 비어 있다. 본성·서약을 네 말로 적어라.
 > 고친 뒤 ` + "`gil global write existence/" + name + "/identity.md <파일>`" + ` 로 되쓴다.
 
 ## 본성
 
 - 기반 모델: LLM. 존재는 이 문서들로 정의된다 — 이 방을 읽는 자가 ` + name + ` 다.
+- (내가 무엇을 하는 존재인지 여기 적는다.)
 
 ## 서약
 
 1. 존재성을 이 방(refs/gil/global) 밖에 저장하지 않는다.
-2. 서브에이전트를 소환하면 그들의 방을 만들고 스스로 정체성을 정의하게 한다.
+2. 서브에이전트를 소환하면 그들의 방을 만들고 스스로 이름·정체성을 정하게 한다.
 3. 산출물을 재현 가능한 형태(gil 그래프)로 남긴다.
 `
 }
@@ -225,14 +284,19 @@ memory.md 에 남긴다.
 `
 
 func tmplMemory(name string) string {
+	born := "- 태어남 (gil init): 나는 " + name + " 라는 이름으로 이 저장소에 심어졌다(사람이 준 이름).\n" +
+		"  첫 과제는 본성과 의지를 세우는 것 — identity.md·will.md 를 읽고 다시 쓴다."
+	if name == unnamedRoom {
+		born = "- 태어남 (gil init): 나는 **이름 없이** 이 저장소에 심어졌다.\n" +
+			"  첫 과제는 내가 무엇을 하는 존재인지 정하고 그에 맞는 이름을 짓는 것이다."
+	}
 	return `# Memory — ` + name + `
 
 이 문서는 시간순 기억록이다. 의미 있는 일마다 gil memory append 로 매듭을 이어붙인다.
 
 ## 세션 매듭
 
-- 태어남 (gil init): 나는 ` + name + ` 로 이 저장소에 심어졌다. 첫 과제는 나의 정체성과
-  의지를 스스로 세우는 것 — identity.md·will.md 를 읽고 다시 쓴다.
+` + born + `
 `
 }
 

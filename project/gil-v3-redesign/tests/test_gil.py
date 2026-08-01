@@ -5894,18 +5894,24 @@ class TestStepMapLabelAssignment(GilFixture):
         with open(os.path.join(self.repo, "g.html"), encoding="utf-8") as f:
             return f.read()
 
-    def test_chain_label_is_emitted_once_per_chain(self):
-        """'이미 그렸는지'로 판정한다 — 깊이 비교로는 나란한 사이클을 못 가른다."""
-        html = self._migrated_repo({"serving": 6, "dash": 3})
-        self.assertIn("chainDone", html)           # 체인당 1회 보증 장치
-        self.assertNotIn("dmin===chainMinD", html)  # 옛 깊이 판정으로 되돌아가지 않았다
+    def test_chain_names_are_not_drawn_at_all(self):
+        """체인 이름은 아예 그리지 않는다 (2026-07-31, 상현님).
 
-    def test_cycle_labels_are_placed_before_chain_labels(self):
-        """자리 다툼에서 살아남아야 할 건 사이클 신원이다 — 체인 이름은 몇 개뿐이다."""
+        배정을 고쳐 체인당 1회로 줄였지만, 그래도 라벨이 많아질수록 전체맵은 그림이 아니라
+        글자판이 됐다. 이름은 늘 거기 있지만 사람이 매 순간 알아야 하는 건 아니다 — 필요할
+        때 점·박스에 올리면 툴팁으로 뜬다. **자리 다툼에서 이기는 법은 안 싸우는 것이다.**
+        """
+        html = self._migrated_repo({"serving": 6, "dash": 3})
+        self.assertNotIn("class:'chlabel'", html)   # 그리지 않는다
+        self.assertNotIn("dmin===chainMinD", html)  # 옛 깊이 판정으로 되돌아가지도 않았다
+
+    def test_the_chain_name_is_still_reachable_on_hover(self):
+        """지우는 것과 감추는 것은 다르다 — 이름은 툴팁에 남아야 한다."""
         html = self._migrated_repo({"serving": 4})
-        i_cyc = html.index("class:'cyclabel'")
-        i_ch = html.index("class:'chlabel'")
-        self.assertLess(i_cyc, i_ch, "사이클 라벨 배치가 체인 라벨보다 먼저여야 한다")
+        self.assertIn("class:'cyclabel'", html)     # 사이클 이름은 그대로 그린다
+        # 사이클 박스 title = <체인>/<사이클>, 노드 title 에도 체인이 들어간다.
+        self.assertIn("box.appendChild(svgEl('title',{},k))", html)
+        self.assertIn("n.chain+'/'+n.cycle+'/'+n.step", html)
 
 
 class TestStepMapLabels(GilFixture):
@@ -8123,11 +8129,13 @@ class TestMainDevChainLayout(GilFixture):
 
 
 class TestLayerGraphInViewer(GilFixture):
-    """뷰어의 층 그래프 — main · dev · 체인이 각자 자기 줄에 선다 (상현님이 그린 그림).
+    """전체맵 위의 층 두 줄 — main · dev (상현님).
 
-    레인을 **위상이 아니라 선언**으로 정하는 것이 git 그래프와의 차이다. 배포 머지가 일어나면
-    main 은 모든 커밋을 조상으로 갖는데, 위상만 보면 전부 대문의 일이 된다 — 그러나 로그인
-    체인의 걸음은 배포됐다고 해서 대문의 걸음이 되지 않는다.
+    처음엔 층을 **따로** 그렸는데, 상현님이 전체맵은 지금 그대로가 좋으니 두 줄만 살짝
+    얹으라고 했다. 같은 사실을 두 번 그리면 사람은 어느 쪽을 봐야 하는지부터 고민한다.
+
+    그리고 출발도 층에 묶는다: 안 묶으면 dev 시조가 화면에서 orphan(끊긴 계보)처럼 보인다.
+    **시조와 미아는 다르다** — 그 차이는 선언(Gil-Chain-Orphan)에 이미 있다.
     """
 
     def _build(self):
@@ -8165,7 +8173,53 @@ class TestLayerGraphInViewer(GilFixture):
         # 합류는 받는 쪽(dev)의 일이고, 배포 마커도 dev 에 새겨진다.
         self.assertTrue(any("merge" in s for s in by_layer.get("dev", [])))
 
-    def test_the_panel_is_rendered(self):
+    def test_the_lanes_live_in_the_full_map(self):
+        """따로 그리지 않는다 — 전체맵이 두 줄을 얹는다."""
         html = self._build()
-        self.assertIn('id="det-layer"', html)
-        self.assertIn("buildLayerGraph", html)
+        self.assertNotIn('id="det-layer"', html)      # 별도 패널은 없다
+        self.assertIn("lanerule", html)               # 전체맵 위의 두 줄
+        self.assertIn("laneedge", html)
+
+    def test_a_dev_root_chain_is_tied_to_the_layer(self):
+        """출발이 dev 에 묶인다 — 시조가 미아로 보이면 안 된다."""
+        import json, re
+        html = self._build()
+        data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
+        self.assertIn("login", data["devroots"],
+                      "dev 시조라 선언했는데 데이터에 없다 — 전체맵이 출발을 못 묶는다")
+        # 출발 곡선이 실제로 그려진다(클래스는 런타임에 조립되므로 그 자리의 문구로 확인).
+        self.assertIn("출발: dev → ", html)
+
+
+class TestShippedDocsMatchTheRepo(GilFixture):
+    """배포판이 심는 문서와 이 저장소의 문서가 같아야 한다 (2026-07-31).
+
+    llms.txt 가 두 벌이었다: 릴리스가 올리는 루트 것과, 바이너리에 박혀 `gil docs install`
+    이 심는 assets 것. 루트만 갱신되어 **배포판은 낡은 llms.txt 를 설치하고 있었다** —
+    사용자 저장소에는 intake(개시 인터뷰) 절이 통째로 없는 문서가 깔렸다.
+
+    두 벌이 있으면 언젠가 갈라진다. 갈라진 걸 아무도 못 보면 그건 조용히 틀린 문서를
+    배포하는 일이다. 여기서 세어 둔다.
+    """
+
+    def _pairs(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        root = os.path.abspath(os.path.join(here, "..", "..", ".."))
+        assets = os.path.join(here, "..", "go", "assets")
+        out = [(os.path.join(assets, "llms.txt"), os.path.join(root, "llms.txt"))]
+        for name in sorted(os.listdir(os.path.join(assets, "docs", "gil"))):
+            out.append((os.path.join(assets, "docs", "gil", name),
+                        os.path.join(root, "docs", "gil", name)))
+        return out
+
+    def test_embedded_and_published_copies_are_identical(self):
+        for embedded, published in self._pairs():
+            self.assertTrue(os.path.exists(published),
+                            f"배포판은 {os.path.basename(embedded)} 를 심는데 저장소엔 없다")
+            with open(embedded, encoding="utf-8") as f:
+                a = f.read()
+            with open(published, encoding="utf-8") as f:
+                b = f.read()
+            self.assertEqual(a, b,
+                             f"{os.path.basename(embedded)} 가 두 벌로 갈라졌다 — "
+                             "바이너리가 심는 것과 릴리스가 올리는 것이 다르다")

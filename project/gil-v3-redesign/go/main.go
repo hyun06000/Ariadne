@@ -171,7 +171,7 @@ func printUsage() {
   gil global list                 글로벌에 담긴 파일 목록
   gil global read <name>          파일 읽기 (예: existence/<이름>/identity.md)
   gil global write <name> <file>  파일 갱신 (트리 보존, append-only)
-  gil memory read [<이름>]        존재의 기억 읽기 (기본 clew)
+  gil memory read [<이름>]        존재의 기억 읽기 (이름 생략 = 이 저장소의 유일한 존재)
   gil memory append <이름> <file> 기억에 매듭 이어붙임 (안전, 자동 push)
 
 층 (main > dev > 체인 > 사이클 > 스텝):
