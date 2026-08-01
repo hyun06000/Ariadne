@@ -29,13 +29,16 @@ type lcommit struct {
 	sha, tree  string
 	parents    []string
 	chain      string
+	cycle      string // Gil-Cycle — 어느 사이클의 커밋인가
+	cycParent  string // Gil-Cycle-Parent — **선언된** 사이클 계보(이슈 #97①)
 	an, ae, ad string // 저자 이름·메일·날짜 — 이주는 저자를 바꾸지 않는다
 }
 
 // collectLayoutCommits — 브랜치 전체의 커밋을 다시 그리기에 필요한 만큼만 읽는다.
 func collectLayoutCommits() (map[string]*lcommit, []string) {
 	fmtStr := "%H" + fsep + "%T" + fsep + "%P" + fsep + trailer("Gil-Chain") +
-		fsep + "%an" + fsep + "%ae" + fsep + "%aI" + sep
+		fsep + "%an" + fsep + "%ae" + fsep + "%aI" + fsep + trailer("Gil-Cycle") +
+		fsep + trailer("Gil-Cycle-Parent") + sep
 	byS := map[string]*lcommit{}
 	var order []string // git log 순(최신→과거)
 	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches", "--topo-order"), sep) {
@@ -43,14 +46,15 @@ func collectLayoutCommits() (map[string]*lcommit, []string) {
 		if strings.TrimSpace(rec) == "" {
 			continue
 		}
-		f := strings.SplitN(rec, fsep, 7)
-		if len(f) < 7 {
+		f := strings.SplitN(rec, fsep, 9)
+		if len(f) < 9 {
 			continue
 		}
 		c := &lcommit{
 			sha: strings.TrimSpace(f[0]), tree: strings.TrimSpace(f[1]),
 			parents: strings.Fields(f[2]), chain: strings.TrimSpace(f[3]),
 			an: f[4], ae: f[5], ad: strings.TrimSpace(f[6]),
+			cycle: strings.TrimSpace(f[7]), cycParent: strings.TrimSpace(f[8]),
 		}
 		byS[c.sha] = c
 		order = append(order, c.sha)
@@ -320,8 +324,32 @@ func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips bool) {
 			}
 			body = rest
 		}
+		// **선언이 실재를 정한다**(이슈 #97①). 사이클이 `Gil-Cycle-Parent` 로 앞 사이클을
+		// 선언했으면, 그 사이클의 **옮긴 끝**에 이어 붙인다. 옛 나무의 커밋 부모를 그대로
+		// 따르지 않는 이유: v3.45.0 이전의 `open --parent` 는 선언만 하고 실제로 갈라지지
+		// 않았다. 그런 나무를 부모 포인터대로 옮기면 **납작한 실재가 그대로 복사되고**,
+		// 새 나무에서도 여덟 사이클이 전부 한 커밋에 붙는다(상현님 실측). 이주는 옮기는
+		// 일이자 **선언과 실재를 맞추는** 일이다 — 그러라고 부르는 명령이다.
+		//
+		// 그리고 **선언한 순서로 그린다.** 납작한 나무에서는 git 이 사이클을 거꾸로 내놓아
+		// (c3 가 c1 보다 먼저 나온다) 부모가 아직 안 그려진 채 자식이 도착한다 — 그러면 붙일
+		// 자리가 없어 조용히 밑동으로 떨어진다. 순서를 git 에 맡기지 않는다.
+		body = orderByDeclaredCycles(body)
+		cycTip := map[string]string{} // 사이클 → 옮긴 끝
+		drawn := map[string]bool{}    // 이 사이클의 첫 커밋을 이미 그렸나
 		for _, c := range body {
 			var ps []string
+			// 사이클의 첫 커밋이고 부모 사이클을 **선언**했으면 그 선언이 자리를 정한다.
+			if c.cycle != "" && !drawn[c.cycle] {
+				drawn[c.cycle] = true
+				if pcy := c.cycParent; pcy != "" && pcy != "null" && cycTip[pcy] != "" {
+					n := regraft(c, []string{cycTip[pcy]}, ch, prefix, fromOf, chains, roots, base, devTip)
+					newSha[c.sha] = n
+					chainTip[ch] = n
+					cycTip[c.cycle] = n
+					continue
+				}
+			}
 			for _, p := range c.parents {
 				// **같은 체인 안의 부모만** 그대로 잇는다. 이미 옮겼다는 이유로 다른 체인의
 				// 커밋을 부모로 삼으면, 옛 적층이 새 나무에 그대로 복사된다(실측: gamma 가
@@ -344,6 +372,9 @@ func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips bool) {
 			n := regraft(c, ps, ch, prefix, fromOf, chains, roots, base, devTip)
 			newSha[c.sha] = n
 			chainTip[ch] = n
+			if c.cycle != "" {
+				cycTip[c.cycle] = n
+			}
 		}
 	}
 
@@ -505,4 +536,61 @@ func layoutLossReport(prefix string, chains []string) lossSummary {
 		sum.missing += len(miss)
 	}
 	return sum
+}
+
+// orderByDeclaredCycles — 체인의 커밋을 **선언된 사이클 순서**로 늘어놓는다(이슈 #97①).
+//
+// 사이클 밖 커밋(chain-root·기준·인터뷰·chain-close)은 원래 자리를 지킨다: 첫 사이클 앞에
+// 있던 것은 앞에, 뒤에 있던 것은 뒤에. 사이클은 선언(Gil-Cycle-Parent)을 따라 부모가 먼저
+// 오도록 세운다. 선언이 순환이거나 없는 것은 원래 순서대로 뒤에 붙인다 — 옛 저장소의 결함
+// 때문에 이주 자체가 막히면 안 된다(layoutChainOrder 와 같은 태도).
+func orderByDeclaredCycles(body []*lcommit) []*lcommit {
+	group := map[string][]*lcommit{}
+	var cycOrderSeen []string
+	var head, tail []*lcommit
+	seenCycle := false
+	parentOf := map[string]string{}
+	for _, c := range body {
+		if c.cycle == "" {
+			if seenCycle {
+				tail = append(tail, c)
+			} else {
+				head = append(head, c)
+			}
+			continue
+		}
+		seenCycle = true
+		if _, ok := group[c.cycle]; !ok {
+			cycOrderSeen = append(cycOrderSeen, c.cycle)
+		}
+		group[c.cycle] = append(group[c.cycle], c)
+		if p := c.cycParent; p != "" && p != "null" && parentOf[c.cycle] == "" {
+			parentOf[c.cycle] = p
+		}
+	}
+	// 부모 먼저(위상 정렬). 못 세우는 것은 원래 순서로 뒤에.
+	done := map[string]bool{}
+	var order []string
+	for i := 0; i < len(cycOrderSeen)+2 && len(order) < len(cycOrderSeen); i++ {
+		for _, cy := range cycOrderSeen {
+			if done[cy] {
+				continue
+			}
+			p := parentOf[cy]
+			if p == "" || done[p] || group[p] == nil {
+				done[cy] = true
+				order = append(order, cy)
+			}
+		}
+	}
+	for _, cy := range cycOrderSeen {
+		if !done[cy] {
+			order = append(order, cy)
+		}
+	}
+	out := append([]*lcommit{}, head...)
+	for _, cy := range order {
+		out = append(out, group[cy]...)
+	}
+	return append(out, tail...)
 }

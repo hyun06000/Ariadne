@@ -8817,3 +8817,179 @@ class TestMigrateLayoutLosesNothingSilently(GilFixture):
         self.assertEqual(before, after, "스텝이 무손실로 옮겨지지 않았다")
         self.assertIn("gold: " + str(len(before)) + " → " + str(len(after)), r.stdout,
                       "체인별 대조를 보고하지 않는다:\n" + r.stdout)
+
+
+class TestMigrateRepairsDeclaredCycleLineage(GilFixture):
+    """**선언이 실재를 정한다** (이슈 #97①, 상현님 실사용).
+
+    v3.45.0 이전의 `gil open --parent` 는 계보를 **선언만** 하고 실제로 갈라지지 않았다.
+    그런 나무를 커밋 부모 그대로 옮기면 납작한 실재가 그대로 복사된다 — 실사용에서 여덟
+    사이클이 전부 한 커밋(intake)에 붙었고, `c008 이 c007 을 이어받았다`는 사실이 그래프에서
+    사라졌다. 도움말은 "계보만 참이 된다"고 약속하는데 계보가 지워진 것이다.
+
+    이주는 옮기는 일이자 **선언과 실재를 맞추는** 일이다 — 그러라고 부르는 명령이다."""
+
+    def _ok(self, r, what):
+        self.assertEqual(r.returncode, 0, what + " 실패:\n" + r.stdout + r.stderr)
+
+    def _cycle(self, cyc, parent=None):
+        args = ["open", f"a/{cyc}", "--author", "clew", "--purpose", "P",
+                "--body", "정의", "--fits", "그 자체"]
+        if parent:
+            args += ["--parent", parent, "--inherit", "앞 사이클의 교훈"]
+        self._ok(self.gil(*args), f"open {cyc}")
+        self._ok(self.gil("step", f"a/{cyc}", "--kind", "hypothesis", "--title", "H",
+                          "--body", "가설", "--falsify", "F", "--falsify-to", "s1",
+                          "--plan", "구현 1개", "--advances", "경로"), "hypothesis")
+        self._ok(self.gil("step", f"a/{cyc}", "--kind", "verify", "--title", "V", "--body", "검증",
+                          "--verdict", "supported", "--plan-held",
+                          "--falsify-unmet", "미관측"), "verify")
+        self._ok(self.gil("step", f"a/{cyc}", "--kind", "analyze", "--title", "A",
+                          "--body", "해석", "--finding", "지지됐다"), "analyze")
+        self._ok(self.gil("step", f"a/{cyc}", "--kind", "success", "--title", "S", "--body", "종합",
+                          "--toward", "충족", "--next-design", "다음"), "success")
+        self._ok(self.gil("close", f"a/{cyc}", "--verdict", "supported"), "close")
+
+    # ── fixture: 선언은 있는데 실재는 납작한 옛 나무 ──────────────────────────
+    def _trailer(self, sha, key):
+        return self._git("log", "-1",
+                         f"--format=%(trailers:key={key},valueonly,unfold=true)", sha).stdout.strip()
+
+    def _flatten(self):
+        """모든 사이클의 첫 커밋을 chain-root 에 붙여 **납작하게** 다시 쓴다.
+
+        v3.45.0 이전 나무의 모양이다: `Gil-Cycle-Parent` 선언은 그대로 남고 커밋 부모만
+        평평하다. 메시지를 손대지 않으므로 선언은 한 글자도 안 바뀐다."""
+        root = None
+        for ln in self._git("log", "--format=%H", "a").stdout.split():
+            if self._trailer(ln, "Gil-Kind") == "chain-root":
+                root = ln
+                break
+        self.assertIsNotNone(root, "chain-root 를 못 찾았다")
+        new = {}
+        def redraw(sha, parents):
+            msg = self._git("log", "-1", "--format=%B", sha).stdout
+            tree = self._git("log", "-1", "--format=%T", sha).stdout.strip()
+            args = ["commit-tree", tree]
+            for p in parents:
+                args += ["-p", p]
+            out = subprocess.run(["git", *args], cwd=self.repo, input=msg,
+                                 capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, "commit-tree 실패: " + out.stderr)
+            new[sha] = out.stdout.strip()
+            return new[sha]
+        # 1) chain-root 까지는 그대로(부모도 그대로).
+        rootParents = self._git("log", "-1", "--format=%P", root).stdout.split()
+        newRoot = redraw(root, rootParents)
+        # 2) 사이클마다: 첫 커밋은 chain-root 에, 나머지는 앞 커밋에 잇는다.
+        tips = {}
+        for cyc in ("c1", "c2", "c3"):
+            prev = newRoot
+            for sha in self._git("log", "--format=%H", "--reverse", f"a-{cyc}").stdout.split():
+                if self._trailer(sha, "Gil-Cycle") != cyc:
+                    continue
+                prev = redraw(sha, [prev])
+            tips[cyc] = prev
+            self._git("update-ref", f"refs/heads/a-{cyc}", prev)
+        self._git("update-ref", "refs/heads/a", newRoot)
+        return tips
+
+    def _define_of(self, cyc, branch):
+        for sha in self._git("log", "--format=%H", branch).stdout.split():
+            if self._trailer(sha, "Gil-Cycle") == cyc and self._trailer(sha, "Gil-Step") == "s1":
+                return sha
+        self.fail(f"{branch} 에서 {cyc} 의 define 을 못 찾았다")
+
+    def _old_flat_tree(self):
+        self._ok(self.gil("init", "--name", "clew"), "init")
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")           # 옛 레이아웃: 층이 없다
+        self._ok(self.gil("chain", "a", "--purpose", "국면", "--reference", "-",
+                          "--criterion", "된다", input="기준"), "chain")
+        self._cycle("c1")
+        self._cycle("c2", parent="c1")
+        self._cycle("c3", parent="c2")
+        self._flatten()
+        # **fixture 를 단언한다**: 선언은 살아 있고 실재는 납작해야 이 시험이 성립한다.
+        for cyc, want in (("c2", "c1"), ("c3", "c2")):
+            d = self._define_of(cyc, f"a-{cyc}")
+            self.assertEqual(want, self._trailer(d, "Gil-Cycle-Parent"),
+                             f"{cyc} 의 계보 선언이 fixture 에서 사라졌다")
+            par = self._git("log", "-1", "--format=%P", d).stdout.split()[0]
+            self.assertEqual("chain-root", self._trailer(par, "Gil-Kind"),
+                             f"{cyc} 가 납작하지 않다 — 이 시험은 아무것도 검증하지 않는다")
+
+    def test_migration_grafts_cycles_where_they_declared_they_came_from(self):
+        self._old_flat_tree()
+        r = self.gil("migrate", "--to-dev-layout", "--prefix", "v3-")
+        self._ok(r, "migrate --to-dev-layout")
+        # 새 나무에서 c3 는 c2 의 끝에, c2 는 c1 의 끝에 붙어야 한다 — 선언한 그대로.
+        for cyc, parentCyc in (("c2", "c1"), ("c3", "c2")):
+            d = self._define_of(cyc, f"v3-a-{cyc}")
+            par = self._git("log", "-1", "--format=%P", d).stdout.split()[0]
+            self.assertEqual(parentCyc, self._trailer(par, "Gil-Cycle"),
+                             f"{cyc} 가 선언한 부모({parentCyc})의 끝에 안 붙었다 — "
+                             "납작한 실재가 그대로 복사됐다:\n" + r.stdout)
+            self.assertEqual("close", self._trailer(par, "Gil-Kind"),
+                             f"{cyc} 가 부모 사이클의 **끝**(close)에 붙지 않았다")
+        # 선언 자체도 그대로 살아 있어야 한다(옮기면서 지우지 않는다).
+        self.assertEqual("c2", self._trailer(self._define_of("c3", "v3-a-c3"), "Gil-Cycle-Parent"))
+
+
+class TestPruneApprovalHasNoSilentDoor(GilFixture):
+    """**문이 열리지 않는데 열리지 않는다는 신호도 없었다** (이슈 #96, 상현님 실사용).
+
+    승인 버튼 핸들러의 첫 줄이 `confirm()` 이었다. 대화상자가 뜨지 않는 환경(차단 설정·
+    자동화 브라우저·포커스를 잃은 창)에서는 **아무 흔적 없이 return** 한다 — 버튼도 서버도
+    정상인데 사람 눈에는 "버튼이 죽었다"로 보였다. 그리고 승인은 뷰어 전용이라, 그 저장소는
+    삭제 승인을 영영 못 했다(#91 의 '덫' 과 같은 계열).
+
+    에이전트가 `window.confirm` 을 덮어써서 통과시킬 수는 있다. 하지만 그러면 사람 게이트가
+    무의미해진다 — 그래서 우회가 아니라 **문 자체를 고친다**."""
+
+    def _page(self):
+        """뷰어 HTML(정적 build 로 얻는다 — 서버를 띄우지 않아도 같은 렌더 코드다)."""
+        out = os.path.join(self.repo, "v.html")
+        r = self.gil("viewer", "build", "--out", out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(out, encoding="utf-8") as f:
+            return f.read()
+
+    def test_the_approve_button_does_not_depend_on_a_browser_dialog(self):
+        self.gil("init", "--name", "clew")
+        html = self._page()
+        # 승인 카드 코드에 confirm( 호출이 없어야 한다 — 주석의 단어는 세지 않는다.
+        calls = [ln for ln in html.split("\n")
+                 if "confirm(" in ln and not ln.strip().startswith("//")]
+        self.assertEqual([], calls,
+                         "승인이 브라우저 대화상자에 걸려 있다 — 막히면 조용히 죽는다:\n"
+                         + "\n".join(calls))
+        self.assertIn("정말 지웁니다 — 한 번 더", html,
+                      "무게를 유지하는 2단계 확인이 없다(그냥 한 번에 지우면 안 된다)")
+
+    def test_it_tells_the_human_the_next_command_after_approving(self):
+        """곁다리 — 승인한 사람이 다음에 무엇을 쳐야 하는지 그 자리에서 준다."""
+        self.gil("init", "--name", "clew")
+        html = self._page()
+        self.assertIn("--confirm", html, "승인 뒤 실행 명령을 안 알려준다")
+        self.assertIn("gil prune ", html)
+
+    def test_cli_approval_path_is_discoverable(self):
+        """뷰어가 유일한 문이면 뷰어의 사고가 곧 저장소의 마비다 — CLI 문을 문서가 보여준다."""
+        r = self.gil("help", "prune")
+        out = r.stdout + r.stderr
+        self.assertIn("gil prune-approve", out,
+                      "CLI 승인 경로가 help 에 없다 — 있는데 아무도 못 찾으면 없는 것과 같다:\n" + out)
+
+    def test_cli_approval_actually_approves(self):
+        """그리고 그 문은 실제로 열린다(있다고 적기만 하면 안 된다)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+        self.gil("chain-close", "a", "--verdict", "supported", "--retro", "-", input="회고")
+        self._ok = self.assertEqual
+        r = self.gil("prune", "a", "--request", "--reason", "이주 완료")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.gil("prune-approve", "a")
+        self.assertEqual(r.returncode, 0, "CLI 승인이 안 된다:\n" + r.stdout + r.stderr)
+        self.assertIn("승인", r.stdout)

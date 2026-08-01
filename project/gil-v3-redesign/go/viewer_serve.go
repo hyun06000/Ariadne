@@ -1515,6 +1515,7 @@ svg.cygraph{display:block}
 .prunehead{font-size:13px;color:#e0574a;font-weight:700;margin-bottom:8px}
 .prunebody{white-space:pre-wrap;font-size:12px;color:var(--dim);margin-bottom:12px;max-height:260px;overflow:auto}
 .prunebtn{font:inherit;font-size:13px;font-weight:700;padding:8px 18px;border-radius:7px;cursor:pointer;border:1px solid #e0574a;background:transparent;color:#e0574a}
+.prunebtn.armed{background:#e0574a;color:#fff}  /* 두 번째 클릭을 기다리는 상태가 눈에 보인다(이슈 #96) */
 #pane-prune .panehead{color:#e0574a}
 .refcard{margin:4px 16px 10px;padding:10px 14px;background:var(--card,var(--bg));border:1px solid var(--line);border-radius:10px}
 .refcard{position:relative}
@@ -3159,15 +3160,30 @@ function buildPrunes(){
     const wbtn=document.createElement('button'); wbtn.className='prunewd'; wbtn.textContent='요청 철회';
     wbtn.title='아무것도 지우지 않고 이 요청을 거둔다(이력엔 남는다)';
     const st=document.createElement('span'); st.style.marginLeft='10px'; st.style.fontSize='12px';
+    // **브라우저 대화상자에 문을 걸지 않는다**(이슈 #96). confirm() 이 막히는 환경(차단
+    // 설정·자동화 브라우저·포커스를 잃은 창)에서는 아무 흔적 없이 return 해서, 사람 눈에는
+    // "버튼이 죽었다"로 보였다. 그리고 승인은 뷰어 전용이라 그 저장소는 정리를 못 했다.
+    // 무게는 유지하되(두 번 눌러야 한다) **눌린 것이 눈에 보이게** 카드 안에서 확인받는다.
+    let armed=0;
     btn.addEventListener('click',async()=>{
-      if(!confirm('정말 '+p.target+' 삭제를 승인합니까?\n\n승인해도 바로 지워지지는 않습니다 — 실행에는 CLI 확인 문구가 더 필요합니다.'))return;
+      if(!armed){
+        armed=Date.now(); btn.textContent='정말 지웁니다 — 한 번 더';
+        btn.classList.add('armed'); st.textContent=' 5초 안에 한 번 더 누르면 승인됩니다';
+        setTimeout(()=>{ if(armed){ armed=0; btn.textContent='이 삭제를 승인합니다';
+          btn.classList.remove('armed'); st.textContent=' (시간이 지나 취소됨)'; } },5000);
+        return;
+      }
+      armed=0; btn.classList.remove('armed');
       btn.disabled=true; st.textContent=' 승인 중…';
       try{
         const res=await fetch('/prune-approve?target='+encodeURIComponent(p.target),{method:'POST'});
         const t=await res.text();
-        if(res.ok){ st.textContent=' ✓ 승인됨 — 실행에는 CLI 확인 문구가 필요합니다'; setTimeout(()=>location.reload(),900); }
-        else{ st.textContent=' ✕ '+t.split('\n')[0]; btn.disabled=false; }
-      }catch(e){ st.textContent=' ✕ '+e; btn.disabled=false; }
+        // 승인한 사람이 **다음에 무엇을 쳐야 하는지** 그 자리에서 준다(이슈 #96 곁다리):
+        // 지금까지는 "CLI 확인 문구가 더 필요하다"고만 하고 그 한 줄을 안 적었다.
+        if(res.ok){ st.textContent=' ✓ 승인됨 — 실행: gil prune '+p.target+' --confirm '+p.target+' --reason <왜>';
+          setTimeout(()=>location.reload(),2500); }
+        else{ st.textContent=' ✕ '+t.split('\n')[0]; btn.textContent='이 삭제를 승인합니다'; btn.disabled=false; }
+      }catch(e){ st.textContent=' ✕ '+e; btn.textContent='이 삭제를 승인합니다'; btn.disabled=false; }
     });
     wbtn.addEventListener('click',async()=>{
       wbtn.disabled=true; st.textContent=' 철회 중…';
