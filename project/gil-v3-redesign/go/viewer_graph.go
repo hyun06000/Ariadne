@@ -951,6 +951,11 @@ func cmdViewer(args []string) {
 			println2("  127.0.0.1:" + v.Port + "  →  " + v.Repo + "  " + mark)
 		}
 		println2("  (죽은 뷰어의 이유는 각 저장소의 .git/gil-viewer.log 에 남는다.)")
+	case "stop":
+		// 켠 것을 끈다(상현님). 이 저장소를 보는 뷰어만 — 남의 것은 건드리지 않는다.
+		for _, ln := range stopMyViewers() {
+			println2(ln)
+		}
 	case "build":
 		if out == "" {
 			die("사용: gil viewer build --out <파일> [--repo <경로>]")
@@ -959,7 +964,7 @@ func cmdViewer(args []string) {
 	case "", "text":
 		renderText(buildGraph())
 	default:
-		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve build text list]")
+		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve build text list stop]")
 	}
 }
 

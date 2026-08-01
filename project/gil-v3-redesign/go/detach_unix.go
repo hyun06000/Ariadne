@@ -6,6 +6,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -17,3 +18,8 @@ func detachFromSession(cmd *exec.Cmd) {
 // hideConsole — 유닉스엔 콘솔 창 개념이 없어 no-op. 윈도우판이 CREATE_NO_WINDOW 를 붙인다
 // (콘솔 없는 부모가 gil 을 돌릴 때 git 호출마다 cmd 창이 번쩍이는 것 방지, 실사용 피드백).
 func hideConsole(cmd *exec.Cmd) {}
+
+// terminateProcess — 뷰어에게 **이유를 남기고 죽을 기회**를 준다: SIGTERM 을 받으면 뷰어의
+// 신호 핸들러가 .git/gil-viewer.log 에 "신호 SIGTERM 을 받았다"를 적고 나간다. SIGKILL 로
+// 끊으면 그 한 줄이 사라져, 나중에 "그냥 사라졌다"와 구분되지 않는다.
+func terminateProcess(p *os.Process) error { return p.Signal(syscall.SIGTERM) }

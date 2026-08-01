@@ -8445,3 +8445,174 @@ class TestLayerChecks(GilFixture):
         r = self.gil("merge", "a", "--into", "dev", "--reason", "R")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("확인한 것이 없다", r.stdout + r.stderr)
+
+
+class TestVersionAsk(GilFixture):
+    """**낡은 gil 을 쥔 세션은 자기가 낡은 줄 모른다** (상현님).
+
+    handoff 에 현행성 배너가 있었지만 handoff 를 부르는 건 자기규율이고, 자기규율은 원리적으로
+    불충분하다. 그리고 "새 버전 있음"이라고 **알리기만** 했더니 세션은 읽고도 하던 일을 계속했다.
+    묻는 것과 알리는 것은 다르다 — 물으면 사람이 답해야 하고, 답이 있어야 결정이 선다."""
+
+    def _boot(self, latest="v9.9.9", extra=None):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        if latest is not None:
+            env["GIL_VERSION_LATEST"] = latest
+        env.update(extra or {})
+        return subprocess.run([*GIL_CMD, "log"], cwd=self.repo,
+                              capture_output=True, text=True, env=env)
+
+    def test_onboarding_asks_when_a_newer_release_exists(self):
+        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_VERSION_LATEST="v9.9.9")
+        r = subprocess.run([*GIL_CMD, "init", "--name", "clew"], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("v9.9.9", r.stdout)
+        self.assertIn("올릴까요", r.stdout, "온보딩이 버전업을 묻지 않았다:\n" + r.stdout)
+
+    def test_boot_asks_once_then_stays_quiet(self):
+        """묻는 건 세션당 한 번이다 — 명령마다 물으면 잡음이 되고, 잡음은 안 읽힌다."""
+        self.gil("init", "--name", "clew")
+        first = self._boot()
+        self.assertIn("올릴까요", first.stdout, "부팅이 안 물었다:\n" + first.stdout)
+        second = self._boot()
+        self.assertNotIn("올릴까요", second.stdout,
+                         "같은 6시간 안에 또 물었다:\n" + second.stdout)
+
+    def test_same_version_says_nothing(self):
+        self.gil("init", "--name", "clew")
+        # 소스 빌드의 버전은 dev 다 — 최신이 dev 면 물을 것이 없다.
+        r = self._boot(latest="dev")
+        self.assertNotIn("올릴까요", r.stdout, "같은 버전인데 물었다:\n" + r.stdout)
+
+    def test_opt_out_silences_it(self):
+        self.gil("init", "--name", "clew")
+        r = self._boot(extra={"GIL_NO_VERSION_CHECK": "1"})
+        self.assertNotIn("올릴까요", r.stdout)
+
+
+class TestViewerOwnership(GilFixture):
+    """**포트가 열렸다는 사실은 주인을 말해 주지 않는다** (상현님).
+
+    옛 코드는 기본 포트가 열려 있으면 그냥 물러났다 — 그 뷰어가 남의 저장소 것이어도. 그러면
+    이 세션은 뷰어가 없는데 있는 줄 알고, 사람은 남의 그래프를 자기 것으로 읽는다. 그리고 켜는
+    레일을 깔았으면 끄는 레일도 깔아야 한다 — 아니면 정리는 사람의 기억력에 맡겨진다."""
+
+    def _free_port(self):
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        return str(port)
+
+    def _other_repo(self):
+        work = tempfile.mkdtemp(prefix="gil-other-")
+        subprocess.run(["git", "init", "-q", work], check=True)
+        for a in (["config", "user.email", "t@e.com"], ["config", "user.name", "t"]):
+            subprocess.run(["git", *a], cwd=work, check=True)
+        subprocess.run([*GIL_CMD, "init", "--name", "other"], cwd=work,
+                       capture_output=True, text=True,
+                       env=dict(os.environ, GIL_NO_VIEWER="1"))
+        return work
+
+    def _serve(self, repo, port):
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
+                             cwd=repo, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, env=env)
+        for _ in range(60):
+            try:
+                urllib.request.urlopen("http://127.0.0.1:" + port + "/whoami", timeout=1).read()
+                return p
+            except Exception:
+                time.sleep(0.1)
+        p.terminate()
+        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
+
+    def test_steps_aside_when_another_repo_holds_the_port(self):
+        self.gil("init", "--name", "clew")
+        base = self._free_port()
+        other = self._other_repo()
+        held = self._serve(other, base)
+        env = dict(os.environ, GIL_VIEWER_PORT=base)
+        env.pop("GIL_NO_VIEWER", None)
+        try:
+            r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
+                               capture_output=True, text=True, env=env)
+            self.assertIn("다른 저장소가 쓰고 있다", r.stdout)
+            self.assertIn("비켜서 띄운다", r.stdout,
+                          "남이 쥔 포트 앞에서 손을 놓았다:\n" + r.stdout)
+            # 비켜 띄운 자리가 실제로 **내 저장소**를 본다 — 그리고 handoff 는 그 자리를 가리킨다.
+            listing = subprocess.run([*GIL_CMD, "viewer", "list"], cwd=self.repo,
+                                     capture_output=True, text=True, env=env).stdout
+            self.assertIn("◀ 이 저장소", listing, "비켜 띄운 뷰어가 내 것이 아니다:\n" + listing)
+            mine = [ln for ln in listing.splitlines() if "◀ 이 저장소" in ln][0]
+            port = mine.split("127.0.0.1:")[1].split()[0]
+            self.assertNotEqual(port, base)
+            self.assertIn("http://127.0.0.1:" + port, r.stdout,
+                          "handoff 가 남의 주소를 '지금 열어라'로 가리켰다")
+            # 남의 뷰어는 살아 있다 — 비켜서 띄우는 것이지 밀어내는 것이 아니다.
+            self.assertIsNone(held.poll(), "남의 뷰어를 죽였다")
+        finally:
+            subprocess.run([*GIL_CMD, "viewer", "stop"], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
+            held.terminate()
+            held.wait(timeout=10)
+            shutil.rmtree(other, ignore_errors=True)
+
+    def test_stop_kills_only_this_repos_viewer(self):
+        self.gil("init", "--name", "clew")
+        base = self._free_port()
+        other = self._other_repo()
+        held = self._serve(other, base)
+        mineport = str(int(base) + 1)
+        minep = self._serve(self.repo, mineport)
+        env = dict(os.environ, GIL_VIEWER_PORT=base)
+        env.pop("GIL_NO_VIEWER", None)
+        try:
+            r = subprocess.run([*GIL_CMD, "viewer", "stop"], cwd=self.repo,
+                               capture_output=True, text=True, env=env)
+            self.assertIn("뷰어 껐다", r.stdout, r.stdout + r.stderr)
+            self.assertIn(mineport, r.stdout)
+            minep.wait(timeout=10)  # 실제로 죽었나 — 말이 아니라 사건이다
+            self.assertIsNone(held.poll(), "남의 저장소 뷰어까지 껐다")
+        finally:
+            for p in (held, minep):
+                if p.poll() is None:
+                    p.terminate()
+                    p.wait(timeout=10)
+            shutil.rmtree(other, ignore_errors=True)
+
+
+class TestSessionTidy(GilFixture):
+    """세션은 매듭 없이 증발했다 (상현님).
+
+    끝날 때 할 일은 늘 같았다: 기억에 매듭을 남기고, 켠 뷰어를 끄고, 사람에게 새 대화를 열어도
+    된다고 알리는 것. 그런데 아무도 짚어 주지 않으니 아무도 하지 않았다. 그리고 사람에게 줄
+    문구는 **하나여야** 한다 — 매번 다른 말로 안내받은 사람은 다음에 무엇을 말할지 모른다."""
+
+    def test_handoff_end_gives_the_ladder(self):
+        self.gil("init", "--name", "clew")
+        r = self.gil("handoff", "--end")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gil memory append clew", r.stdout, "매듭 남기기를 안 짚었다")
+        self.assertIn("부활점", r.stdout)
+        self.assertIn("다음 세션 순서", r.stdout)
+        self.assertIn("세션정리", r.stdout)
+        self.assertIn("이어서 가보자", r.stdout, "사람에게 줄 문구가 없다")
+        self.assertIn("세션정리 끝", r.stdout, "끝 표식이 없다 — 잘림과 구분되지 않는다")
+
+    def test_handoff_end_flags_uncommitted_work(self):
+        self.gil("init", "--name", "clew")
+        with open(os.path.join(self.repo, "잊힌작업.md"), "w", encoding="utf-8") as f:
+            f.write("커밋되지 않은 것은 사라진다\n")
+        r = self.gil("handoff", "--end")
+        self.assertIn("작업트리가 더럽다", r.stdout, r.stdout)
+
+    def test_handoff_recommends_tidying_with_the_exact_phrase(self):
+        self.gil("init", "--name", "clew")
+        r = self.gil("handoff")
+        self.assertIn("gil handoff --end", r.stdout, "정리할 자리를 안 짚었다")
+        self.assertIn("이어서 가보자", r.stdout, "사람에게 줄 문구가 없다")

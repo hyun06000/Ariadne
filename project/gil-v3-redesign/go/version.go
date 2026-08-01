@@ -66,6 +66,101 @@ func cmdVersion(args []string) {
 	selfUpdate(latest)
 }
 
+// ── 버전업 문의 (상현님) ──────────────────────────────────────────────────────
+//
+// 왜. 낡은 gil 을 쥔 세션은 **자기가 낡은 줄 모른다**. handoff 에는 현행성 배너가 있지만
+// handoff 를 부르는 건 자기규율이고, 자기규율은 원리적으로 불충분하다(#55 와 같은 논거).
+// 그래서 사람이 gil 을 처음 심는 자리(온보딩=init)와 세션이 깨어나 첫 명령을 내는 자리
+// (부팅)에서 도구가 먼저 묻는다 — 알리는 게 아니라 **묻는다**: 올릴까요.
+//
+// 값을 치르지 않는다: 소스 빌드(dev)는 대조할 릴리스가 없으니 건너뛰고, 조회는 1.5초로
+// 끊고, 저장소마다 6시간에 한 번만 묻는다(명령마다 물으면 잡음이 되어 안 읽힌다).
+
+const versionAskInterval = 6 * time.Hour
+
+// versionAskStamp — 이 클론이 마지막으로 물어본 시각(.git 안 — 커밋되지 않는다).
+func versionAskStamp() string {
+	dir := strings.TrimSpace(git("rev-parse", "--git-dir"))
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "gil", "version-asked")
+}
+
+// versionAskLines — 최신이 더 높으면 사람에게 물을 줄들. 물을 것이 없으면 nil.
+// 부작용(마지막 문의 시각 기록)은 실제로 물을 때만 남긴다.
+func versionAskLines() []string {
+	if os.Getenv("GIL_NO_VERSION_CHECK") != "" {
+		return nil
+	}
+	latest := os.Getenv("GIL_VERSION_LATEST") // 시험용 주입(네트워크 없이 이 길을 밟는다)
+	// 소스 빌드는 릴리스와 대조할 대상이 아니다 — 조용히 넘어간다(개발·시험이 매번
+	// 네트워크를 때리지 않게 하는 자리도 여기다).
+	if latest == "" && gilVersion == "dev" {
+		return nil
+	}
+	// 6시간 규칙은 주입된 길에도 똑같이 선다 — 시험이 밟는 길과 실사용의 길이 다르면
+	// 시험은 실사용을 검증하지 않는다.
+	if !versionAskDue() {
+		return nil
+	}
+	if latest == "" {
+		var err error
+		latest, err = latestTagTimeout(1500 * time.Millisecond)
+		if err != nil {
+			markVersionAsked() // 오프라인이면 6시간 뒤에 다시 — 매 명령마다 매달리지 않는다
+			return nil
+		}
+	}
+	if latest == "" || latest == gilVersion {
+		markVersionAsked()
+		return nil
+	}
+	markVersionAsked()
+	return []string{
+		"  ⚠ 새 gil 버전이 있다: " + latest + " (지금 이 자리는 " + gilVersion + ")",
+		"    **사람에게 물어라**: \"gil " + latest + " 이 나왔습니다. 지금 올릴까요?\"",
+		"    올린다면:  gil version --update   (SHA256 검증 후 제자리 교체)",
+		"    올리지 않기로 하면 그대로 진행해도 된다 — 다만 새 명령·바뀐 워크플로우가 있을 수 있다.",
+	}
+}
+
+// versionAskDue — 이 저장소에서 마지막 문의로부터 versionAskInterval 이 지났나.
+func versionAskDue() bool {
+	p := versionAskStamp()
+	if p == "" {
+		return false // git 저장소가 아니면 기록할 자리가 없다 — 묻지 않는다(매번 묻게 되므로)
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return true
+	}
+	n := int64(0)
+	fmt.Sscanf(strings.TrimSpace(string(b)), "%d", &n)
+	return time.Since(time.Unix(n, 0)) >= versionAskInterval
+}
+
+func markVersionAsked() {
+	p := versionAskStamp()
+	if p == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte(fmt.Sprintf("%d\n", time.Now().Unix())), 0o644)
+}
+
+// versionAskPrint — 부팅·온보딩 자리에서 한 번 묻는다. 물을 것이 없으면 아무 말도 하지 않는다.
+func versionAskPrint() {
+	L := versionAskLines()
+	if len(L) == 0 {
+		return
+	}
+	println2("── gil 버전 ──")
+	for _, ln := range L {
+		println2(ln)
+	}
+}
+
 // latestTag — GitHub releases/latest 의 tag_name (기본 타임아웃 httpc=15s).
 func latestTag() (string, error) { return latestTagClient(httpc) }
 

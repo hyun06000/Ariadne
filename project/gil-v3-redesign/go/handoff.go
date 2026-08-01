@@ -46,6 +46,14 @@ func nextAllowed(tipKind, tipOutcome string) string {
 
 // cmdHandoff — 참조: cmd_handoff.
 func cmdHandoff(args []string) {
+	// --end (세션정리) — 이어받는 자리가 아니라 **떠나는 자리**다(상현님). 부활 정보를 내는
+	// 대신, 이 세션이 켠 것을 끄고 다음 세션이 이어받을 수 있게 남길 것을 짚는다.
+	for _, a := range args {
+		if a == "--end" {
+			cmdHandoffEnd()
+			return
+		}
+	}
 	// 관전 뷰어를 **세션을 이어받는 자리에서 자동으로 띄운다**(이슈 #55). handoff 는 새 세션이
 	// 정신모델을 세우는 첫 관문이고, 여기서 그래프를 안 보면 그 세션 내내 안 본다.
 	//
@@ -75,16 +83,24 @@ func cmdHandoff(args []string) {
 
 // viewerDirective — "그래프를 지금 띄워라"는 지시. 선택이 아니라 규범으로 쓴다(이슈 #55).
 func viewerDirective() string {
-	url := "http://127.0.0.1:" + viewerPortNum()
-	// 규범을 내기 전에 그 주소가 **이 저장소**를 보는지 확인한다(온보딩 실측). 남의 저장소를
+	// 규범을 내기 전에 **이 저장소를 보는 뷰어의 자리**를 찾는다(온보딩 실측). 남의 저장소를
 	// 가리키면서 "지금 열어라, 선택이 아니다"라고 하면, 레일이 사람을 틀린 그래프로 보낸다.
+	// 기본 포트가 아니어도 된다 — launchViewer 가 남을 피해 비켜 띄웠을 수 있다.
+	if mineport := viewerPortForThisRepo(); mineport != "" {
+		return "── 관전 뷰어 (지금 열어라) ──\n" +
+			"  http://127.0.0.1:" + mineport + "\n" + viewerDirectiveTail()
+	}
+	url := "http://127.0.0.1:" + viewerPortNum()
 	if portOpen(viewerPortNum()) {
 		if mine, other := viewerServesThisRepo(viewerPortNum()); !mine {
 			who := other
 			if who == "" {
 				who = "(뷰어가 아닌 무언가)"
 			}
-			alt := viewerPortNum() + "1"
+			alt := freeViewerPort()
+			if alt == "" {
+				alt = viewerPortNum() + "1"
+			}
 			return "── 관전 뷰어 (지금 띄우고 열어라) ──\n" +
 				"  ⚠ 포트 " + viewerPortNum() + " 는 **다른 저장소**가 쓰고 있다 → " + who + "\n" +
 				"  그 주소를 열면 남의 그래프를 보게 된다. 이 저장소의 뷰어를 다른 포트로 띄워라:\n" +
@@ -189,8 +205,11 @@ func currencyBanner() []string {
 	case gilVersion == "dev":
 		L = append(L, "  ⚠ 개발 빌드(dev)다 — 릴리스 "+latest+"와 다를 수 있다. 실사용은 릴리스 바이너리로.")
 	case latest != gilVersion:
-		L = append(L, "  ⚠ 새 버전 "+latest+" 있음 (현재 "+gilVersion+"). 새/바뀐 명령·워크플로우가 있을 수 있다 —")
-		L = append(L, "    갱신: gil version --update   그 뒤 이 handoff 를 다시 읽어라.")
+		// 알리는 것으로는 부족했다(상현님) — 새 버전이 있다는 줄을 읽고도 세션은 그냥 하던
+		// 일을 했다. 이어받는 자리에서는 **사람에게 물어야** 한다: 지금 올릴까요.
+		L = append(L, "  ⚠ 새 버전 "+latest+" 있음 (현재 "+gilVersion+"). 새/바뀐 명령·워크플로우가 있을 수 있다.")
+		L = append(L, "    **사람에게 물어라**: \"gil "+latest+" 이 나왔습니다. 지금 올릴까요?\"")
+		L = append(L, "    올린다면: gil version --update   그 뒤 이 handoff 를 다시 읽어라.")
 	default:
 		L = append(L, "  최신이다 ("+latest+").")
 	}
@@ -426,6 +445,7 @@ func handoffReport() string {
 	var L []string
 	L = append(L, "═══ gil handoff — 세션 부활 정보 (시작) ═══", "")
 	L = append(L, currencyBanner()...)
+	L = append(L, sessionTidyNudge()...)
 	L = append(L, gatePointerBanner()...)
 	L = append(L, plainTipBanner()...)
 	L = append(L, deadBranchBanner()...)
@@ -603,4 +623,87 @@ func handoffReport() string {
 		L = append(L, "복원 경로: CLAUDE.md → (존재·기억 없음: gil init 으로 먼저 세워라) → 이 handoff → 위 팁에서 이어간다.")
 	}
 	return strings.Join(L, "\n")
+}
+
+// ── 세션정리 (gil handoff --end) ─────────────────────────────────────────────
+//
+// 왜 명령이 되어야 하나(상현님). 세션이 끝날 때 할 일은 늘 같았다: 기억에 매듭을 남기고,
+// 켠 뷰어를 끄고, 사람에게 "이제 새 대화를 열어도 된다"고 알리는 것. 그런데 이걸 아무도
+// 짚어 주지 않으니 세션은 그냥 증발했다 — 매듭 없이 끊긴 세션은 다음 세션에게 없는 것과
+// 같고, 안 꺼진 뷰어는 포트에 쌓인다. 켜는 레일을 깔았으면 끄는 레일도 깔아야 한다.
+//
+// gil 이 대신 해 줄 수 없는 것(무엇을 매듭에 적을지)은 지시로 남기고, 할 수 있는 것
+// (자기 뷰어 끄기)은 여기서 실제로 한다 — 선언이 아니라 사건이다.
+func cmdHandoffEnd() {
+	var L []string
+	L = append(L, "═══ gil 세션정리 — 떠나기 전에 (시작) ═══", "")
+	name := ""
+	if ns := existenceNames(); len(ns) == 1 {
+		name = ns[0]
+	}
+	memcmd := "gil memory append <이름> <매듭파일>"
+	if name != "" {
+		memcmd = "gil memory append " + name + " <매듭파일>"
+	}
+	L = append(L, "1. **기억에 매듭을 남겨라** — 남기지 않은 세션은 다음 세션에게 없던 것과 같다.")
+	L = append(L, "     "+memcmd)
+	L = append(L, "   매듭에 반드시: 이 세션에서 정해진 것 · 값을 치르며 배운 것 · **부활점**(어디까지 왔나) ·")
+	L = append(L, "   **다음 세션 순서**. 다음 세션은 이 네 가지만 읽고 이어간다.")
+	L = append(L, "")
+	L = append(L, "2. **작업을 남겨라** — 커밋되지 않은 것은 사라진다.")
+	if dirty := strings.TrimSpace(git("status", "--porcelain")); dirty != "" {
+		L = append(L, "   ⚠ 작업트리가 더럽다(미커밋 변경이 있다). 커밋하거나, 버릴 것이면 버려라:")
+		L = append(L, "     git status")
+	} else {
+		L = append(L, "   작업트리는 깨끗하다. (푸시했는지는 네가 확인해라: git status -sb)")
+	}
+	L = append(L, "")
+	L = append(L, "3. **켠 것을 끈다** — 이 저장소를 보는 뷰어(남의 저장소 뷰어는 건드리지 않는다):")
+	println2(strings.Join(L, "\n"))
+	for _, ln := range stopMyViewers() {
+		println2(ln)
+	}
+	println2("")
+	println2(strings.Join(sessionTidyPhrase(), "\n"))
+	println2("")
+	println2("═══ gil 세션정리 끝 — 이 줄이 안 보이면 출력이 잘린 것이다 ═══")
+}
+
+// sessionTidyPhrase — 사람에게 그대로 전할 문구(상현님이 불러 준 말). 에이전트가 자기 말로
+// 지어내면 매번 달라지고, 다른 말로 안내받은 사람은 다음에 무엇을 말해야 할지 모른다.
+// 문구가 하나여야 사람이 그 말을 **외운다**.
+func sessionTidyPhrase() []string {
+	return []string{
+		"4. **사람에게 이대로 전해라**(네 말로 바꾸지 마라 — 사람이 외울 말은 하나여야 한다):",
+		"",
+		"   \"세션정리를 원하시면 '세션정리'라고 말씀해 주세요. 그리고 '/clear' 등으로 세션을",
+		"    초기화하시거나 새 대화를 여시면, 제가 지금까지의 기억으로부터 새롭게 리프레시해서",
+		"    출발할 수 있습니다. '이어서 가보자'라고만 말씀해 주세요.\"",
+	}
+}
+
+// sessionTidyNudge — **언제** 정리할지를 handoff 가 먼저 짚는다(상현님). 정리는 세션이
+// 지쳤을 때가 아니라 **매듭이 지을 만할 때** 하는 것이고, 그 시점을 사람은 모른다.
+// 자기 세션의 길이는 gil 이 알 수 없으니(호스트의 일), 자리와 문구만 준다.
+func sessionTidyNudge() []string {
+	return []string{
+		"── 세션정리 (때가 되면) ──",
+		"  한 국면이 끝났거나(체인·사이클을 닫았다, 배포했다) 맥락이 길어졌다면 정리할 때다:",
+		"    gil handoff --end   (기억 매듭 지시 + 작업 확인 + 이 저장소의 뷰어 끄기)",
+		"  그리고 사람에게 다음을 전해라 — 모르는 사람은 새 대화를 여는 것이 손해라고 생각한다:",
+		"    \"세션정리를 원하시면 '세션정리'라고 말씀해 주세요. 그리고 '/clear' 등으로 세션을",
+		"     초기화하시거나 새 대화를 여시면, 제가 지금까지의 기억으로부터 새롭게 리프레시해서",
+		"     출발할 수 있습니다. '이어서 가보자'라고만 말씀해 주세요.\"",
+		"",
+	}
+}
+
+// viewerDirectiveTail — 뷰어 지시문의 공통 본문. 세 갈래(내 뷰어 있음·남이 쥠·아직 없음)가
+// 같은 말을 해야 한다 — 갈래마다 따로 쓰면 언젠가 한 갈래만 고쳐지고 규범이 갈라진다.
+func viewerDirectiveTail() string {
+	return "  **이 주소를 네 인앱 브라우저 패널로 지금 열어라.** 선택이 아니다 — 계보가 수십 개가\n" +
+		"  되면 텍스트 나열로는 분기·죽은 잎·현재위치(HEAD)가 눈에 안 들어온다. 그래프를 안 보고\n" +
+		"  시작하면 이미 있는 가지를 못 보고 새로 파게 된다.\n" +
+		"  인앱 패널이 없는 호스트라면 사람에게 이 주소를 안내하라(밖의 브라우저 창은 사람이\n" +
+		"  앱을 떠나야 하므로 마지막 수단이다)."
 }

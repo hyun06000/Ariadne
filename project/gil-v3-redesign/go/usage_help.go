@@ -381,9 +381,11 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/concepts.md",
 	},
 	"handoff": {
-		"gil handoff\n" +
+		"gil handoff [--end]\n" +
 			"  세션 부활 정보 — 열린 체인·사이클, 각 팁, 다음 허용 동작, pending, 계보.\n" +
-			"  '이어서' 한 마디로 복원할 때 이걸 읽는다.",
+			"  '이어서' 한 마디로 복원할 때 이걸 읽는다.\n" +
+			"  --end = 세션정리(떠나는 자리): 기억 매듭에 무엇을 남길지 짚고, 미커밋을 알리고,\n" +
+			"          이 저장소를 보는 뷰어를 끈다. 사람에게 전할 문구도 함께 준다.",
 		"docs/gil/index.md · docs/gil/lifecycle.md",
 	},
 	"global": {
@@ -432,6 +434,10 @@ var helpTable = map[string]helpEntry{
 			"gil viewer build --out <파일> [--repo <경로>]     정적 자기완결 HTML 1회 출력(Pages 등)\n" +
 			"gil viewer [text] [--repo <경로>]                텍스트 트리 1회 출력\n" +
 			"gil viewer list                                 어느 포트가 어느 저장소를 보는가\n" +
+			"gil viewer stop                                 이 저장소를 보는 뷰어를 끈다(세션정리)\n" +
+			"  **주인을 본다**: 기본 포트를 남의 저장소가 쥐고 있으면 빈 포트로 비켜서 띄우고,\n" +
+			"    이 저장소를 보는 뷰어가 이미 어디엔가 떠 있으면 새로 띄우지 않고 그 주소를 준다.\n" +
+			"    포트가 열렸다는 사실은 주인을 말해 주지 않는다 — /whoami 가 말한다.\n" +
 			"  사고 그래프(체인>사이클>스텝)를 읽어 그린다. gil init 이 serve 를 자동 기동한다.\n" +
 			"  build 는 서버 없이 도는 정적 HTML(스텝 본문 인라인·폴링 없음) — 정적 호스팅용.\n" +
 			"  **브라우저는 기본으로 안 연다** — 조용히 서버만 띄우고 주소를 출력한다(이슈 #48).\n" +

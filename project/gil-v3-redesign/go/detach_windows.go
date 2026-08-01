@@ -5,6 +5,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -29,3 +30,7 @@ func hideConsole(cmd *exec.Cmd) {
 	}
 	cmd.SysProcAttr.CreationFlags |= createNoWindow
 }
+
+// terminateProcess — 윈도우에는 SIGTERM 이 없다(Signal 은 os.Kill 외에는 미구현). Kill 로
+// 끊는다 — 로그 한 줄은 못 남지만, 끄는 일 자체가 안 되는 것보다 낫다.
+func terminateProcess(p *os.Process) error { return p.Kill() }

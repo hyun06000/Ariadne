@@ -250,7 +250,9 @@ func serve(args []string) {
 			abs = viewerRepoDir
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, "{\"repo\":%q}\n", abs)
+		// pid 도 밝힌다 — 세션이 **자기가 띄운 뷰어를 끄려면**(gil viewer stop) 누구를
+		// 끌지 알아야 한다. 포트만으로는 남의 프로세스를 끄는 사고를 막을 수 없다.
+		fmt.Fprintf(w, "{\"repo\":%q,\"pid\":%d}\n", abs, os.Getpid())
 	})
 	handle("/poll", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

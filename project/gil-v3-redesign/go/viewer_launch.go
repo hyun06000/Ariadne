@@ -42,13 +42,42 @@ func ensureViewer() {
 	if os.Getenv("GIL_NO_VIEWER") != "" {
 		return
 	}
-	if portOpen(viewerPortNum()) {
-		return // 이미 관전 중(남의 레포면 launchViewer 가 부를 때 그 사실을 말한다)
-	}
 	if !gitOK("rev-parse", "--git-dir") {
 		return // git 저장소가 아니다 — 관전할 그래프가 없다
 	}
+	// **주인을 본다**(상현님). 옛 코드는 기본 포트가 열려 있으면 그냥 돌아갔다 — 그 뷰어가
+	// 남의 저장소 것이어도. 그러면 이 세션은 뷰어가 없는데 있는 줄 알고, 사람은 남의 그래프를
+	// 자기 것으로 읽는다. 포트가 열렸다는 사실은 주인을 말해 주지 않는다.
+	if viewerPortForThisRepo() != "" {
+		return // 내 저장소를 보는 뷰어가 이미 있다 — 조용히 그대로 쓴다
+	}
 	launchViewer()
+}
+
+// viewerPortForThisRepo — 이 저장소를 보고 있는 살아있는 뷰어의 포트("" = 없음).
+func viewerPortForThisRepo() string {
+	for _, v := range viewerScan() {
+		if mine, _ := viewerServesThisRepo(v.Port); mine {
+			return v.Port
+		}
+	}
+	return ""
+}
+
+// freeViewerPort — 기본 포트부터 훑어 아무도 안 쥔 첫 포트. 열 자리가 없으면 "".
+// 남의 저장소를 밀어내지 않고 **비켜서 띄우기** 위한 자리다.
+func freeViewerPort() string {
+	base := atoiSafe(viewerPortNum())
+	if base <= 0 {
+		base = 8790
+	}
+	for i := 0; i < 10; i++ {
+		p := itoa(base + i)
+		if !portOpen(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 // launchViewer — gil 자기 자신을 `gil viewer serve` 로 관전 서버를 백그라운드로 띄운다.
@@ -59,30 +88,39 @@ func launchViewer() {
 	if os.Getenv("GIL_NO_VIEWER") != "" {
 		return
 	}
-	url := "http://127.0.0.1:" + viewerPortNum()
-
-	// 이미 그 포트가 열려 있으면(뷰어가 이미 떠 있으면) 중복 기동하지 않는다 — 대신 브라우저를
-	// 연다(실사용 피드백: 이미 떠 있을 때 아무 일도 안 하면 사람이 뷰어를 못 찾는다).
-	if portOpen(viewerPortNum()) {
-		mine, other := viewerServesThisRepo(viewerPortNum())
-		if !mine {
-			// 남의 저장소(또는 뷰어가 아닌 것)가 이 포트를 쥐고 있다 — 그 주소를 "관전 중"
-			// 이라 부르면 사람이 남의 그래프를 자기 것으로 읽는다(온보딩 실측).
-			who := other
-			if who == "" {
-				who = "(뷰어가 아닌 무언가)"
-			}
-			println2("  ⚠ 뷰어: 포트 " + viewerPortNum() + " 는 다른 저장소가 쓰고 있다 → " + who)
-			println2("     이 저장소를 보려면 다른 포트로 띄워라: gil viewer serve --port <다른포트>")
-			return
-		}
-		if openBrowser(url) {
-			println2("  뷰어: 이미 관전 중 — 브라우저로 열었다. (" + url + ")")
+	// 내 저장소를 보는 뷰어가 이미 있으면 그걸 쓴다 — 기본 포트가 아니어도(포트 폴백으로
+	// 다른 자리에 떠 있을 수 있다). 중복 기동하지 않고 주소만 준다.
+	if mineport := viewerPortForThisRepo(); mineport != "" {
+		u := "http://127.0.0.1:" + mineport
+		if openBrowser(u) {
+			println2("  뷰어: 이미 관전 중 — 브라우저로 열었다. (" + u + ")")
 		} else {
-			println2("  뷰어: 이미 관전 중 → 브라우저에서 열어라 → " + url)
+			println2("  뷰어: 이미 관전 중 → 브라우저에서 열어라 → " + u)
 		}
 		return
 	}
+
+	// 기본 포트를 **남이 쥐고 있으면 비켜서 띄운다**(상현님). 옛 코드는 여기서 손을 놓고
+	// "다른 포트로 띄워라"라고 사람에게 시켰다 — 길 없는 안내가 아니라 길 있는 안내지만,
+	// 도구가 할 수 있는 일을 사람에게 미룬 것이다. 남의 뷰어는 건드리지 않는다.
+	port := viewerPortNum()
+	if portOpen(port) {
+		_, other := viewerServesThisRepo(port)
+		who := other
+		if who == "" {
+			who = "(뷰어가 아닌 무언가)"
+		}
+		alt := freeViewerPort()
+		if alt == "" {
+			println2("  ⚠ 뷰어: 포트 " + port + " 는 다른 저장소가 쓰고 있다 → " + who)
+			println2("     비켜 띄울 빈 포트가 없다(" + port + "부터 10개 모두 사용 중) — 정리: gil viewer list / gil viewer stop")
+			return
+		}
+		println2("  ⓘ 뷰어: 포트 " + port + " 는 다른 저장소가 쓰고 있다 → " + who)
+		println2("     이 저장소는 " + alt + " 로 비켜서 띄운다(남의 뷰어는 건드리지 않는다).")
+		port = alt
+	}
+	url := "http://127.0.0.1:" + port
 
 	// gil 자기 자신을 뷰어로 재기동한다(뷰어가 gil 에 통합됨). 심링크·PATH 여도 안전하게 절대경로.
 	self, err := os.Executable()
@@ -96,7 +134,7 @@ func launchViewer() {
 		repo = "."
 	}
 
-	cmd := exec.Command(self, "viewer", "serve", "--repo", repo, "--port", viewerPortNum())
+	cmd := exec.Command(self, "viewer", "serve", "--repo", repo, "--port", port)
 	// 자식 서버는 브라우저를 열지 않는다 — 부모(여기)가 아래에서 한 번만 연다(이중 실행 방지).
 	cmd.Env = append(os.Environ(), "GIL_NO_BROWSER=1")
 	// 부모(gil)가 끝나도 살아 있도록 stdio 를 분리하고 백그라운드로 기동한다.
@@ -121,14 +159,14 @@ func launchViewer() {
 		cmd.Stderr = nil
 	}
 	if err := cmd.Start(); err != nil {
-		println2("  뷰어: 기동 실패(" + err.Error() + ") — 수동: `gil viewer serve --repo . --port " + viewerPortNum() + "`.")
+		println2("  뷰어: 기동 실패(" + err.Error() + ") — 수동: `gil viewer serve --repo . --port " + port + "`.")
 		return
 	}
 	// 프로세스를 놓아준다(reap 하지 않음) — gil 종료 후에도 관전 서버가 산다.
 	_ = cmd.Process.Release()
 
 	// 포트가 실제로 열릴 때까지 잠깐 기다려 "떴다"를 사실로 확인한다.
-	if waitPort(viewerPortNum(), 2*time.Second) {
+	if waitPort(port, 2*time.Second) {
 		// 브라우저를 자동으로 연다(실사용 피드백: 비개발자는 127.0.0.1 날 주소를 보고 뭔지 몰라
 		// 그냥 넘어간다). 로컬 기본 브라우저로 URL 을 띄워, 클릭 없이 바로 사고 그래프를 본다.
 		opened := openBrowser(url)
@@ -202,6 +240,63 @@ func viewerScan() []struct{ Port, Repo string } {
 		out = append(out, struct{ Port, Repo string }{port, repo})
 	}
 	return out
+}
+
+// viewerPidAt — 그 포트의 뷰어 프로세스 pid(0 = 모름). /whoami 가 밝힌다.
+func viewerPidAt(port string) int {
+	c := &http.Client{Timeout: 400 * time.Millisecond}
+	resp, err := c.Get("http://127.0.0.1:" + port + "/whoami")
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return 0
+	}
+	var got struct {
+		Pid int `json:"pid"`
+	}
+	if json.Unmarshal(b, &got) != nil {
+		return 0
+	}
+	return got.Pid
+}
+
+// stopMyViewers — **이 저장소를 보는** 뷰어를 끈다(상현님: 세션이 끝나면 자기가 켠 것을 끈다).
+//
+// 왜 여기까지 오나. 세션마다 뷰어가 하나씩 뜨고 아무도 끄지 않으니 포트가 겹겹이 쌓였고,
+// 다음 세션은 비켜 띄우다 자리가 없어졌다. 켜는 레일을 깔았으면 끄는 레일도 깔아야 한다 —
+// 안 그러면 정리는 사람의 기억력에 맡겨진다.
+//
+// 남의 저장소 뷰어는 **절대** 건드리지 않는다: /whoami 로 레포가 나와 일치하는 것만 끈다.
+func stopMyViewers() []string {
+	var L []string
+	for _, v := range viewerScan() {
+		mine, _ := viewerServesThisRepo(v.Port)
+		if !mine {
+			continue
+		}
+		pid := viewerPidAt(v.Port)
+		if pid <= 0 {
+			L = append(L, "  ⚠ 뷰어 "+v.Port+" : pid 를 못 알아냈다(옛 버전 뷰어일 수 있다) — 손으로 끄거나 그대로 둬라.")
+			continue
+		}
+		p, err := os.FindProcess(pid)
+		if err != nil {
+			L = append(L, "  ⚠ 뷰어 "+v.Port+" (pid "+itoa(pid)+"): 프로세스를 못 찾음")
+			continue
+		}
+		if err := terminateProcess(p); err != nil {
+			L = append(L, "  ⚠ 뷰어 "+v.Port+" (pid "+itoa(pid)+"): 종료 실패 — "+err.Error())
+			continue
+		}
+		L = append(L, "  뷰어 껐다: 127.0.0.1:"+v.Port+" (pid "+itoa(pid)+")")
+	}
+	if len(L) == 0 {
+		L = append(L, "  이 저장소를 보는 뷰어가 없다 — 끌 것이 없다.")
+	}
+	return L
 }
 
 // viewerAliveForThisRepo — 이 저장소를 보는 살아있는 뷰어가 있나(이슈 #93 제안 3).
