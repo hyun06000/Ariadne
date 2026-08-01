@@ -30,6 +30,7 @@ var verdicts = map[string]bool{"supported": true, "refuted": true}
 func isLiveLeaf(n node) bool {
 	return n.kind == "success" || (n.kind == "analyze" && n.outcome == "success")
 }
+
 // isLiveLeafKind — kind 만으로 판정하는 산 잎(이슈 #59·#60의 부착 가드용). analyze 는
 // outcome 에 따라 갈리므로 여기 넣지 않는다 — analyze 는 이어갈 수 있는 자리다.
 func isLiveLeafKind(kind string) bool { return kind == "success" }
@@ -380,8 +381,8 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 			workingTips[stepKey(t.chain, t.cycle, t.step)] = true
 		}
 	}
-	hasChild := map[string]bool{}       // 부모로 참조된 스텝키 — 잎 판정용(전체 그래프 기준)
-	defineCount := map[string]int{}     // (chain,cycle) -> define 스텝 수. 사이클당 1개여야.
+	hasChild := map[string]bool{}        // 부모로 참조된 스텝키 — 잎 판정용(전체 그래프 기준)
+	defineCount := map[string]int{}      // (chain,cycle) -> define 스텝 수. 사이클당 1개여야.
 	defineSteps := map[string][]string{} // (chain,cycle) -> define 스텝 id 들(위반 메시지용)
 
 	for _, n := range universe {
@@ -517,9 +518,15 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 	// 매기면 실제로 발생한다 — 문법으로 막았지만, 이미 그렇게 그려진 그래프는 여기서 짚는다.
 	// (번호 중복은 fsckStepIdentity 가 **묶어서** 한 줄로 짚는다 — 쌍마다 한 줄씩 내면
 	//  오염된 저장소에서 수십 줄이 되어 정작 다른 위반을 덮는다. 이슈 #84 에서 실측.)
-	violations = append(violations, fsckChainStacking()...)
-	violations = append(violations, fsckLineageIsReal(universe)...)
-	violations = append(violations, fsckDevLayer()...)
+	// **지워진 체인은 판정 대상이 아니다**(이슈 #97②). 계보·적층·층은 "지금 이 그래프가
+	// 어떻게 서 있나"를 묻는 판정이라, 묘비만 남은 체인에 대고 물으면 답이 사실이 아니다.
+	// 반면 유실 경고(GC 임박·dangling)는 **그대로 둔다** — 지워진 체인의 것이라도 "사라지기
+	// 직전"은 지금 일어나는 일이다. 처음엔 위반 문장에서 체인 이름을 찾아 걸렀다가 그
+	// 경고까지 숨겼다: 거르는 자리는 출력이 아니라 판정 그 자체여야 한다.
+	buried := prunedChains()
+	violations = append(violations, dropForChains(fsckChainStacking(), buried)...)
+	violations = append(violations, dropForChains(fsckLineageIsReal(universe), buried)...)
+	violations = append(violations, dropForChains(fsckDevLayer(), buried)...)
 	violations = append(violations, fsckMigratedBodies()...)
 	violations = append(violations, fsckMemoryLayer(nodes)...)
 	violations = append(violations, fsckUnanchoredSteps()...)
@@ -906,6 +913,26 @@ func fsckLineageIsReal(nodes []node) []string {
 	sort.Strings(out)
 	return out
 }
+
+// dropForChains — 이 판정들 중 그 체인들을 가리키는 것을 뺀다. 몇 개를 뺐는지는
+// fsckBuriedDropped 에 쌓인다(도구가 자기 상태를 축소 보고하면 사람은 검증할 기회를 잃는다).
+func dropForChains(vs []string, chains map[string]bool) []string {
+	if len(chains) == 0 {
+		return vs
+	}
+	var out []string
+	for _, v := range vs {
+		if mentionsAnyChain(v, chains) {
+			fsckBuriedDropped++
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// fsckBuriedDropped — 이번 fsck 에서 지워진 체인 때문에 세지 않은 판정의 수.
+var fsckBuriedDropped int
 
 func fsckChainStacking() []string {
 	parents := chainParents() // 진짜 계승(닫힌 끝에서 태어남)만 담긴 맵

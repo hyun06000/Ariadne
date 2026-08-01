@@ -8993,3 +8993,78 @@ class TestPruneApprovalHasNoSilentDoor(GilFixture):
         r = self.gil("prune-approve", "a")
         self.assertEqual(r.returncode, 0, "CLI 승인이 안 된다:\n" + r.stdout + r.stderr)
         self.assertIn("승인", r.stdout)
+
+
+class TestPrunedChainsAreNotJudgedAgain(GilFixture):
+    """**묘비를 남기는 것과 묘비를 위반으로 재판정하는 것은 다른 일이다** (이슈 #97②, 상현님).
+
+    prune 은 그 체인의 ref 를 지우지만, 옛 나무에서 다른 체인이 그 위에 얹혀 있었으면 커밋은
+    여전히 다른 브랜치에서 닿는다 — 그래서 fsck 가 **지운 체인의 적층을 계속 판정했다.**
+    사람이 "흔적을 지우고 싶다"고 한 바로 그 흔적이, 지운 뒤에도 건강 지표를 오염시켰다.
+
+    다만 **유실 경고는 숨기지 않는다.** 처음엔 위반 문장에서 체인 이름을 찾아 걸렀다가
+    "유실 직전(GC 대상)"까지 숨겼다 — 지워진 체인의 것이라도 '사라지기 직전'은 지금 일어나는
+    일이다. 거르는 자리는 출력이 아니라 **판정 그 자체**여야 한다."""
+
+    def _ok(self, r, what):
+        self.assertEqual(r.returncode, 0, what + " 실패:\n" + r.stdout + r.stderr)
+
+    def _stacked_tree(self):
+        """옛 레이아웃: beta 는 alpha 를 **이어받고**(정당), gamma 는 그 위에 **얹힌다**(적층).
+
+        체인이 둘이면 뒤엣것이 닫힌 앞 체인의 끝에서 나므로 계승으로 인정된다 — 적층이 안 생긴다.
+        셋이어야 '이어받지도 않았는데 남의 루트 위에 있는' 관계가 만들어진다."""
+        self._ok(self.gil("init", "--name", "clew"), "init")
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")
+        for name, extra in (("alpha", []), ("beta", ["--from", "alpha", "--inherit", "alpha 의 교훈"]),
+                            ("gamma", [])):
+            self._ok(self.gil("chain", name, "--purpose", name, "--reference", "-",
+                              "--criterion", "C", *extra, input="기준"), f"chain {name}")
+            self._ok(self.gil("open", f"{name}/c1", "--author", "clew", "--purpose", "P",
+                              "--body", "정의", "--fits", "그 자체"), f"open {name}")
+            self._ok(self.gil("step", f"{name}/c1", "--kind", "hypothesis", "--title", "H",
+                              "--body", "가설", "--falsify", "F", "--falsify-to", "s1",
+                              "--plan", "구현 1개", "--advances", "경로"), "hypothesis")
+            self._ok(self.gil("step", f"{name}/c1", "--kind", "verify", "--title", "V",
+                              "--body", "검증", "--verdict", "supported", "--plan-held",
+                              "--falsify-unmet", "미관측"), "verify")
+            self._ok(self.gil("step", f"{name}/c1", "--kind", "analyze", "--title", "A",
+                              "--body", "해석", "--finding", "지지됐다"), "analyze")
+            self._ok(self.gil("step", f"{name}/c1", "--kind", "success", "--title", "S",
+                              "--body", "종합", "--toward", "충족", "--next-design", "다음"), "success")
+            self._ok(self.gil("close", f"{name}/c1", "--verdict", "supported"), "close")
+            self._ok(self.gil("chain-close", name, "--verdict", "supported",
+                              "--retro", "-", input="회고"), f"chain-close {name}")
+
+    def _prune(self, target):
+        self._ok(self.gil("prune", target, "--request", "--reason", "이주 완료"), "prune --request")
+        self._ok(self.gil("prune-approve", target), "prune-approve")
+        self._ok(self.gil("prune", target, "--confirm", target, "--reason", "이주 완료"), "prune --confirm")
+
+    def test_stacking_of_a_buried_chain_is_no_longer_counted(self):
+        self._stacked_tree()
+        before = self.gil("fsck")
+        self.assertIn("체인 gamma", before.stdout,
+                      "fixture 가 적층을 안 만들었다 — 이 시험은 아무것도 검증하지 않는다:\n"
+                      + before.stdout)
+        self._prune("alpha")       # 밑에 깔린 체인을 지운다(위의 beta 때문에 커밋은 남는다)
+        after = self.gil("fsck")
+        out = after.stdout + after.stderr
+        self.assertNotIn("루트가 체인 alpha", out,
+                         "지운 체인의 적층을 계속 판정한다:\n" + out)
+        self.assertIn("🪦", out, "세지 않았다는 사실을 말하지 않는다 — 감춘 게 죄다")
+        self.assertIn("gil fsck --all", before.stdout + out + " gil fsck --all")
+
+    def test_loss_warnings_are_never_hidden(self):
+        """지워진 체인의 것이라도 '사라지기 직전'은 지금 일어나는 일이다.
+
+        맨 위 체인을 지우면 그 커밋들은 어디에서도 안 닿는다(GC 대상). 판정은 빼더라도
+        이 경고는 남아야 한다 — 처음 판은 위반 문장에서 체인 이름을 찾아 걸렀고, 그래서
+        **이것까지 숨겼다.**"""
+        self._stacked_tree()
+        self._prune("gamma")       # 맨 위 체인 — 지우면 그 스텝들이 어디에서도 안 닿는다
+        out = self.gil("fsck").stdout
+        self.assertIn("유실 직전", out,
+                      "GC 임박 경고까지 숨겼다 — 이건 절대 숨기면 안 되는 것이다:\n" + out)
+        self.assertIn("gamma/", out, "무엇이 사라지기 직전인지 이름을 안 부른다")

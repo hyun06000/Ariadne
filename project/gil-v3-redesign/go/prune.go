@@ -9,15 +9,15 @@
 //
 //  1. gil drift      — 괴리를 이름 붙여 보여준다(읽기 전용). 무엇이 왜 어긋났나.
 //  2. gil reconcile  — 설명 가능한 괴리는 **선언으로 흡수**한다(무손실). orphan 뿌리는
-//                      "의도된 조상 0"으로, 적층은 "병렬 선언"으로. 없어지는 건 위반이지
-//                      역사가 아니다. gil 이 기준이므로 git 쪽(잃은 ref)은 복원해 맞춘다.
+//     "의도된 조상 0"으로, 적층은 "병렬 선언"으로. 없어지는 건 위반이지
+//     역사가 아니다. gil 이 기준이므로 git 쪽(잃은 ref)은 복원해 맞춘다.
 //  3. gil chain-retire — 폐기 선언 + 브랜치를 refs/gil/retired/* 로 옮긴다. **객체는 하나도
-//                      안 지운다.** 되돌릴 수 있다(unretire). 대부분의 '정리'는 여기서 끝난다.
+//     안 지운다.** 되돌릴 수 있다(unretire). 대부분의 '정리'는 여기서 끝난다.
 //  4. gil prune      — 진짜 삭제. 여기서만 되돌릴 수 없고, 그래서 조건이 셋이다:
-//                      (a) 사람의 승인 커밋(뷰어 카드에서 누른 것), (b) CLI 확인 문구,
-//                      (c) 묘비와 번들. **묘비 없는 삭제는 없다** — 계보가 "여기 뭔가 있었고
-//                      결론은 이랬다"를 계속 말해야 한다. 그게 없으면 gil 이 지운 자리는
-//                      git 이 지운 자리와 똑같아진다.
+//     (a) 사람의 승인 커밋(뷰어 카드에서 누른 것), (b) CLI 확인 문구,
+//     (c) 묘비와 번들. **묘비 없는 삭제는 없다** — 계보가 "여기 뭔가 있었고
+//     결론은 이랬다"를 계속 말해야 한다. 그게 없으면 gil 이 지운 자리는
+//     git 이 지운 자리와 똑같아진다.
 package main
 
 import (
@@ -392,6 +392,54 @@ func hiddenViolationCount() int {
 		return n
 	}
 	return 0
+}
+
+// prunedChains — **묘비가 있는 체인들**(이슈 #97②, 상현님 실사용).
+//
+// 왜 필요한가. prune 은 그 체인의 ref 를 지우지만, 옛 나무에서 다른 체인이 그 위에 얹혀
+// 있었으면 커밋은 여전히 다른 브랜치에서 닿는다 — 그래서 fsck 가 **지운 체인의 적층을 계속
+// 판정한다.** 사람이 "흔적을 지우고 싶다"고 한 바로 그 흔적이, 지운 뒤에도 건강 지표를
+// 오염시켰다. 묘비를 남기는 것(설계 의도)과 **묘비를 위반으로 재판정하는 것**은 다른 일이다.
+//
+// 묘비보다 **나중에** 다시 선 체인은 산 것으로 본다(같은 이름으로 다시 열 수 있다) — 결말은
+// 시간 축의 마지막 사실이다(--withdraw 가 세운 규칙과 같다).
+func prunedChains() map[string]bool {
+	out := map[string]bool{}
+	fmtStr := "%H" + fsep + trailer("Gil-Kind") + fsep + trailer("Gil-Prune-Target") + fsep +
+		trailer("Gil-Chain") + sep
+	// git log 는 최신부터 준다 — 각 이름에 대해 **처음 만난 사실**이 마지막 사실이다.
+	seen := map[string]bool{}
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--all"), sep) {
+		_, r1, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok {
+			continue
+		}
+		kind, r2, _ := cut(r1, fsep)
+		target, ch, _ := cut(r2, fsep)
+		kind, target, ch = strings.TrimSpace(kind), strings.TrimSpace(target), strings.TrimSpace(ch)
+		switch {
+		case kind == "prune" && target != "" && !strings.Contains(target, "/"):
+			if !seen[target] {
+				seen[target] = true
+				out[target] = true
+			}
+		case kind == "chain-root" && ch != "":
+			if !seen[ch] {
+				seen[ch] = true // 묘비보다 새 체인 루트가 위에 있다 — 다시 선 체인이다
+			}
+		}
+	}
+	return out
+}
+
+// mentionsAnyChain — 이 위반 문장이 그 체인들 중 하나를 가리키나(violationsMentioning 과 같은 자).
+func mentionsAnyChain(v string, chains map[string]bool) bool {
+	for c := range chains {
+		if strings.Contains(v, c+"/") || strings.Contains(v, " "+c+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 // violationsMentioning — 지금 보고되는 위반 중 이 체인을 가리키는 것의 수(접히면 사라질 것들).
@@ -917,5 +965,3 @@ func cmdPruneApprove(args []string) {
 }
 
 func pruneRequested(target string) bool { return pruneState(target) == "requested" }
-
-
