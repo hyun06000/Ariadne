@@ -51,8 +51,8 @@ type v2cycle struct {
 	opened  string
 	closed  string
 	title   string
-	verdict string // supported|success|rejected|partial|null|""
-	superBy string // superseded_by (무효화 후속) 또는 ""
+	verdict string  // supported|success|rejected|partial|null|""
+	superBy string  // superseded_by (무효화 후속) 또는 ""
 	docs    []v2doc // 같은 폴더의 단계 문서들(1-hypothesis.md …). 이게 진짜 내용물이다(이슈 #87)
 }
 
@@ -65,8 +65,8 @@ type v2doc struct {
 	stage  string // hypothesis | design | verification | analysis | report | other
 	path   string // 저장소 상대 경로 (출처 각인용 — 원본을 찾아갈 수 있어야 한다)
 	text   string
-	binary bool   // 본문에 실을 수 없는 것(NUL 포함 등) — 존재만 기록한다
-	size   int    // 원본 바이트(바이너리·절단분의 사실을 적기 위해)
+	binary bool // 본문에 실을 수 없는 것(NUL 포함 등) — 존재만 기록한다
+	size   int  // 원본 바이트(바이너리·절단분의 사실을 적기 위해)
 }
 
 // v2StageOf — 파일명에서 v2 5단계를 알아낸다. 번호 접두(1-…)와 이름 둘 다 본다:
@@ -521,6 +521,10 @@ func cmdMigrate(args []string) {
 	// 같은 명령에 두는 이유: 사람이 "이 저장소의 이력을 옮긴다"고 생각할 때 떠올리는 낱말은
 	// 하나다. 하는 일이 다르다고 이름을 나누면, 필요한 순간에 그 이름을 아무도 못 찾는다.
 	toDevLayout := fs.boolFlag("to-dev-layout")
+	// --allow-dirty-tips: 끝이 gil 커밋이 아닌 체인 브랜치가 있어도 강행한다(이슈 #95③).
+	// 기본은 거부다 — 그 상태의 이주는 조용히 사이클을 통째로 지웠다. 강행하면 끝의 대조가
+	// 무엇이 빠졌는지 이름을 부르고, 종료코드로도 말한다.
+	allowDirty := fs.boolFlag("allow-dirty-tips")
 	pos := fs.parse(args)
 	_ = pos
 	if *toDevLayout {
@@ -536,7 +540,7 @@ func cmdMigrate(args []string) {
 		if !idRe.MatchString(strings.TrimRight(p, "-")) {
 			die("거부: --prefix \"" + p + "\"는 소문자·숫자·하이픈만 (git ref 안전)")
 		}
-		cmdMigrateToDevLayout(p, *dryRun)
+		cmdMigrateToDevLayout(p, *dryRun, *allowDirty)
 		return
 	}
 	if *from == "" {

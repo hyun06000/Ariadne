@@ -308,6 +308,27 @@ gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--pre
 옛 **v2**(폴더·`cycle.yaml` 기반) 이력을 **v3 커밋 그래프**로 이주한다. 도구 레벨·범용 — 임의의 v2 필드 저장소가 쓴다. 먼저 v2 루트에서 이주 브랜치를 파고(`git checkout -b`) 실행하라. 매핑: v2 5단계를 압축(hypothesis+design→define, verification→verify, analysis+report+verdict→종결 스텝)하고, `verdict`→종결 kind(supported→success, rejected→fail, null&open→pending)로 옮긴다. `--prefix`(예 `v3-`)로 기존 브랜치와의 충돌을 피하며(충돌 시 아무것도 만들지 않고 거부 — 원자성), `--dry-run` 으로 먼저 확인한다. 이주 커밋엔 `[migrate]` 표식(Gil-Migrate·Gil-Migrated-From)이 붙는다.
 
 ```
+gil migrate --to-dev-layout [--prefix <접두, 기본 dev->] [--dry-run] [--allow-dirty-tips]
+```
+이미 v3 인 저장소를 **main-dev-chain 으로 다시 그린다**(각 체인이 dev 에서 갈라지게). 트리·메시지는
+그대로, 부모만 새 자리로. 옛 브랜치는 남는다.
+
+**이주가 스스로 센다**(이슈 #95). 끝에 체인별 `옛 스텝 → 새 스텝` 을 대조해 보고하고, 빠진 것은
+`(사이클, 스텝, kind)` 로 이름을 부른다. 그리고 자기 목적(모든 체인이 dev 에서 갈라짐)을 만족했는지
+**스스로 층 검사를 돌린다**. 유실이나 층 위반이 있으면 거부로 끝난다(종료코드 1) — 새 브랜치는
+남겨 두고 옛 나무는 건드리지 않으니, 원인을 고쳐 다시 실행하면 된다. *사람이 스크립트를 짜야 아는
+무손실은 무손실 안내가 아니다.*
+
+**앞머리는 dev 층에 얹는다.** `gil intake` 는 사람이 dev 에 서서 부르는 명령이라, 살아 있는 흐름에서
+intake·인터뷰 커밋은 dev 의 것이고 chain-root 는 그 위에서 갈라진다. 이주도 같은 모양을 만든다 —
+안 그러면 chain-root 의 부모가 dev 에서 안 닿아, 적층을 풀려고 부른 명령이 적층을 남긴다.
+
+**체인 브랜치의 끝이 gil 커밋이 아니면 옮기기 전에 거부한다.** 그 상태로 옮기면 새 나무에 대응할
+팁이 없어 브랜치가 안 세워지고, 그 사이클이 통째로·아무 경고 없이 빠진다(실측: 스텝 6개, 종료코드 0).
+그 커밋을 다른 브랜치로 옮기고 체인 끝을 gil 커밋으로 되돌린 뒤 다시 실행하라. `--allow-dirty-tips`
+로 강행할 수 있지만, 그때도 끝의 대조가 빠진 것의 이름을 부른다.
+
+```
 gil migrate --to-dev-layout [--prefix <접두, 기본 dev->] [--dry-run]
 ```
 

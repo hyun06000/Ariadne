@@ -8682,3 +8682,138 @@ class TestFastlogSliceMatchesGit(GilFixture):
         outs = [self._verify(*cmd).stderr for cmd in
                 (("log",), ("log", "--all"), ("handoff",), ("fsck",))]
         self._assert_sliced(outs)
+
+
+class TestMigrateLayoutLosesNothingSilently(GilFixture):
+    """**조용한 유실이 가장 나쁘다** (이슈 #95, 상현님 실사용 — v3.48.0).
+
+    실사용에서 `--to-dev-layout` 이 세 가지를 조용히 했다:
+    ① intake 로 연 체인의 뿌리가 옛 나무에 매달렸다(적층을 풀려고 부른 명령이 적층을 남겼다),
+    ② 무엇이 빠졌는지 아무 말이 없었다(사람이 스텝을 직접 세는 스크립트를 짜서야 알았다),
+    ③ 체인 브랜치 끝에 평범한 커밋 하나가 있으면 그 사이클이 통째로 빠졌다 — 종료코드 0.
+
+    ③ 은 fsck 에도 안 잡힌다(옛 나무가 아직 살아 있어 조용하다). 안내대로만 했으면 사이클
+    하나가 사라진 채 옛 체인을 접었을 것이다."""
+
+    def _ok(self, r, what):
+        self.assertEqual(r.returncode, 0, what + " 실패:\n" + r.stdout + r.stderr)
+
+    def _cycle(self, chain, cyc):
+        self._ok(self.gil("open", f"{chain}/{cyc}", "--author", "clew", "--purpose", "P",
+                          "--body", "정의", "--fits", "목적 그 자체"), f"open {chain}/{cyc}")
+        self._ok(self.gil("step", f"{chain}/{cyc}", "--kind", "hypothesis", "--title", "H",
+                          "--body", "가설", "--falsify", "F", "--falsify-to", "s1",
+                          "--plan", "구현 1개", "--advances", "핵심 경로"), "hypothesis")
+        self._ok(self.gil("step", f"{chain}/{cyc}", "--kind", "verify", "--title", "V",
+                          "--body", "검증", "--verdict", "supported", "--plan-held",
+                          "--falsify-unmet", "미관측"), "verify")
+        self._ok(self.gil("step", f"{chain}/{cyc}", "--kind", "analyze", "--title", "A",
+                          "--body", "해석", "--finding", "지지됐다"), "analyze")
+        self._ok(self.gil("step", f"{chain}/{cyc}", "--kind", "success", "--title", "S",
+                          "--body", "종합", "--toward", "기준 충족",
+                          "--next-design", "다음"), "success")
+        self._ok(self.gil("close", f"{chain}/{cyc}", "--verdict", "supported"), "close")
+
+    def _old_tree_with_intake(self):
+        """옛 레이아웃 + **intake 로 연 체인**(chain-root 위에 intake-reference 가 있다)."""
+        self._ok(self.gil("init", "--name", "clew"), "init")
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")     # 옛 레이아웃 재현: 층이 없다
+        self._ok(self.gil("intake", "gold", "--ask", "-",
+                          input='[{"q":"무엇을 풀려는가","type":"text"}]'), "intake")
+        ans = os.path.join(self.repo, "ans.md")
+        with open(ans, "w", encoding="utf-8") as f:
+            f.write("# 답\n\n## Q1 무엇을 풀려는가\n스텝 유실을 없앤다\n")
+        self._ok(self.gil("intake", "gold", "--resolve", "ans.md"), "intake --resolve")
+        self._ok(self.gil("chain", "gold", "--from-intake", "gold",
+                          "--purpose-from", "1", "--criterion-from", "1"), "chain --from-intake")
+        self._cycle("gold", "c1")
+
+    def _steps(self, prefix=""):
+        """브랜치에서 닿는 (체인, 사이클, 스텝) 집합. 접두를 떼어 옛/새를 견준다."""
+        fmt = ("%(trailers:key=Gil-Chain,valueonly,unfold=true)\x1f"
+               "%(trailers:key=Gil-Cycle,valueonly,unfold=true)\x1f"
+               "%(trailers:key=Gil-Step,valueonly,unfold=true)\x1e")
+        out = self._git("log", "--format=" + fmt, "--branches").stdout
+        got = set()
+        for rec in out.split("\x1e"):
+            f = rec.strip("\n").split("\x1f")
+            if len(f) < 3 or not f[2].strip():
+                continue
+            ch = f[1 - 1].strip()
+            if prefix and not ch.startswith(prefix):
+                continue
+            if not prefix and ch.startswith("v3-"):
+                continue
+            got.add((ch[len(prefix):], f[1].strip(), f[2].strip()))
+        return got
+
+    def test_intake_led_chain_branches_from_dev_for_real(self):
+        """① 선언만 있고 분기는 없던 것 — intake 앞머리는 dev 층에 얹힌다.
+
+        살아 있는 흐름에서 `gil intake` 는 사람이 dev 에 서서 부르므로 intake 커밋은 dev 의
+        것이다. 이주가 그걸 체인 가지에 실으면 chain-root 의 부모가 dev 에서 안 닿는다."""
+        self._old_tree_with_intake()
+        r = self.gil("migrate", "--to-dev-layout", "--prefix", "v3-")
+        self._ok(r, "migrate --to-dev-layout")
+        # 층 검사(fsck)가 스스로 통과해야 한다 — 이게 이 명령의 목적 그 자체다.
+        f = self.gil("fsck")
+        self.assertNotIn("층: 체인 v3-gold", f.stdout + f.stderr,
+                         "이주한 체인이 dev 에서 갈라졌다고 선언만 하고 실제로는 아니다:\n"
+                         + f.stdout + f.stderr)
+        # chain-root 의 부모가 dev 브랜치에서 실제로 닿는다(약한 검사를 쓰지 않는다).
+        root = self._git("log", "--format=%H",
+                         "--grep", "Gil-Kind: chain-root", "v3-gold").stdout.split()[0]
+        parent = self._git("log", "-1", "--format=%P", root).stdout.split()[0]
+        on_dev = self._git("log", "--format=%H", "dev").stdout.split()
+        self.assertIn(parent, on_dev, "chain-root 의 부모가 dev 에서 닿지 않는다")
+
+    def test_a_plain_commit_at_a_branch_tip_is_refused_not_ignored(self):
+        """③ 스텝 6개가 조용히 사라진 자리 — 이제 옮기기 전에 막는다."""
+        self._old_tree_with_intake()
+        with open(os.path.join(self.repo, "chore.txt"), "w", encoding="utf-8") as f:
+            f.write("평범한 커밋\n")
+        self._git("checkout", "-q", "gold-c1")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "chore: 평범한 커밋")
+        self._git("checkout", "-q", "main")
+        r = self.gil("migrate", "--to-dev-layout", "--prefix", "v3-")
+        self.assertNotEqual(r.returncode, 0, "조용히 통과했다:\n" + r.stdout + r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("gold-c1", out, "어느 브랜치인지 말하지 않는다")
+        self.assertIn("chore: 평범한 커밋", out, "어느 커밋인지 말하지 않는다")
+        self.assertIn("--allow-dirty-tips", out, "강행하는 길을 알려주지 않는다")
+        # 그리고 아무것도 만들지 않았다 — 거부는 이주 **전에** 선다.
+        self.assertEqual("", self._git("branch", "--list", "v3-*").stdout.strip(),
+                         "거부했는데 새 브랜치가 생겼다")
+
+    def test_it_counts_and_names_what_it_lost(self):
+        """② 사람이 스크립트를 짜야 알 수 있으면 그건 무손실 안내가 아니다.
+
+        --allow-dirty-tips 로 강행하면 실제로 사이클이 빠진다. 그때 **도구가 이름을 부르고**
+        종료코드로도 말하는지를 본다(강행 경로가 없으면 이 길은 시험할 수 없다)."""
+        self._old_tree_with_intake()
+        with open(os.path.join(self.repo, "chore.txt"), "w", encoding="utf-8") as f:
+            f.write("평범한 커밋\n")
+        self._git("checkout", "-q", "gold-c1")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "chore: 평범한 커밋")
+        self._git("checkout", "-q", "main")
+        r = self.gil("migrate", "--to-dev-layout", "--prefix", "v3-", "--allow-dirty-tips")
+        out = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0, "유실이 났는데 성공으로 끝났다:\n" + out)
+        self.assertIn("대조", out, "스스로 세지 않았다")
+        for step in ("s1", "s5"):
+            self.assertIn(f"gold/c1/{step}", out, f"빠진 {step} 의 이름을 안 부른다:\n" + out)
+        self.assertIn("유실", out)
+
+    def test_clean_tree_migrates_losslessly_and_says_so(self):
+        """깨끗한 나무는 그대로 옮겨지고, 체인마다 옛/새 수를 **세어서** 보고한다."""
+        self._old_tree_with_intake()
+        before = self._steps()
+        r = self.gil("migrate", "--to-dev-layout", "--prefix", "v3-")
+        self._ok(r, "migrate")
+        after = self._steps(prefix="v3-")
+        self.assertEqual(before, after, "스텝이 무손실로 옮겨지지 않았다")
+        self.assertIn("gold: " + str(len(before)) + " → " + str(len(after)), r.stdout,
+                      "체인별 대조를 보고하지 않는다:\n" + r.stdout)

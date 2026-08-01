@@ -26,9 +26,9 @@ import (
 
 // lcommit — 다시 그릴 커밋 하나.
 type lcommit struct {
-	sha, tree string
-	parents   []string
-	chain     string
+	sha, tree  string
+	parents    []string
+	chain      string
 	an, ae, ad string // 저자 이름·메일·날짜 — 이주는 저자를 바꾸지 않는다
 }
 
@@ -136,8 +136,75 @@ func renameChainInMsg(msg, old, nw string) string {
 	return strings.Join(out, "\n")
 }
 
+// chainPreamble — 체인 앞머리: **chain-root 보다 먼저 찍힌 그 체인의 커밋들**(intake·인터뷰).
+//
+// 왜 이걸 갈라야 하나(이슈 #95①). `gil intake` 는 사람이 **dev 에 서서** 부르는 명령이라,
+// 살아 있는 흐름에서 intake 커밋은 dev 의 커밋이고 chain-root 는 그 위에서 갈라진다. 그런데
+// 이주는 intake 커밋도 Gil-Chain 을 달고 있다는 이유로 체인 가지에 실었다 — 그러면 chain-root
+// 의 부모가 dev 에서 안 닿게 되고, fsck 가 "선언만 있고 분기는 없다"로 잡는다.
+// **적층을 풀려고 부른 명령이 적층을 남긴 것**이다.
+//
+// 그래서 앞머리는 dev 층에 얹고(살아 있는 흐름과 같은 모양), chain-root 는 그 위에서 가른다.
+func chainPreamble(cs []*lcommit, root string, byS map[string]*lcommit) (pre []*lcommit, rest []*lcommit) {
+	if root == "" {
+		return nil, cs
+	}
+	// root 의 조상인지는 부모 사슬로 판정한다(같은 체인 안에서).
+	anc := map[string]bool{}
+	stack := []string{root}
+	for len(stack) > 0 {
+		sha := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		c := byS[sha]
+		if c == nil {
+			continue
+		}
+		for _, p := range c.parents {
+			if !anc[p] {
+				anc[p] = true
+				stack = append(stack, p)
+			}
+		}
+	}
+	for _, c := range cs {
+		if anc[c.sha] {
+			pre = append(pre, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	return pre, rest
+}
+
+// dirtyChainTips — 체인 커밋을 담고 있으면서 **끝이 gil 커밋이 아닌** 브랜치들(이슈 #95③).
+func dirtyChainTips(byS map[string]*lcommit, chains []string) []string {
+	var out []string
+	for _, b := range branches() {
+		tip := strings.TrimSpace(git("rev-parse", b))
+		c := byS[tip]
+		if c == nil || c.chain != "" {
+			continue // 수집 범위 밖이거나 gil 커밋이다 — 정상
+		}
+		// 이 브랜치가 옮길 체인의 커밋을 담고 있을 때만 문제다(대문·dev 는 원래 gil 커밋이 아니다).
+		holds := false
+		for _, sha := range strings.Fields(gitlog("--format=%H", b)) {
+			if pc := byS[sha]; pc != nil && pc.chain != "" && contains(chains, pc.chain) {
+				holds = true
+				break
+			}
+		}
+		if !holds {
+			continue
+		}
+		subj := strings.TrimSpace(git("log", "-1", "--format=%s", tip))
+		out = append(out, b+" 의 끝이 gil 커밋이 아니다 ("+first9(tip)+" \""+subj+"\")")
+	}
+	sort.Strings(out)
+	return out
+}
+
 // cmdMigrateToDevLayout — 옛 나무를 main-dev-chain 으로 다시 그린다.
-func cmdMigrateToDevLayout(prefix string, dryRun bool) {
+func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips bool) {
 	if strings.TrimSpace(git("status", "--porcelain", "-uno")) != "" {
 		die("거부: 추적 파일에 미커밋 변경이 있다 — 이주 전에 정리하라(브랜치를 옮겨 다닌다).")
 	}
@@ -174,6 +241,24 @@ func cmdMigrateToDevLayout(prefix string, dryRun bool) {
 		}
 	}
 	ordered := layoutChainOrder(chains, fromOf)
+	// **끝이 gil 커밋이 아닌 체인 브랜치는 이주 전에 막는다**(이슈 #95③, 상현님 실사용).
+	//
+	// 왜 거부인가. 3)단계는 옛 브랜치의 팁을 새 sha 로 옮겨 새 브랜치를 세운다. 팁이 gil
+	// 커밋이 아니면(사람이 평범한 커밋 하나를 얹었으면) 그 팁은 새 나무에 대응이 없어 브랜치가
+	// **조용히 안 세워진다** — 커밋은 다시 그려졌는데 아무도 안 가리켜, 그 사이클이 통째로
+	// 사라진다. 실측: 스텝 6개 유실, 종료코드 0, 경고 없음. gil step 은 브랜치 순수성을
+	// 지키는데(#74 계열) migrate 는 그게 깨진 상태를 말없이 통과했다.
+	if bad := dirtyChainTips(byS, chains); len(bad) > 0 && !allowDirtyTips {
+		msg := "거부: 체인 브랜치의 끝이 gil 커밋이 아니다 — 옮기면 그 사이클이 통째로 빠진다.\n"
+		for _, b := range bad {
+			msg += "  " + b + "\n"
+		}
+		msg += "  그 커밋을 다른 브랜치로 옮기고(체인 끝을 gil 커밋으로 되돌리고) 다시 실행하라:\n" +
+			"    git branch <보관용> <브랜치>   &&   git branch -f <브랜치> <그 gil 커밋>\n" +
+			"  (거부하는 이유: 이 상태로 옮기면 아무 경고 없이 스텝이 사라진다. 실제로 6개가 사라졌다.)\n" +
+			"  그래도 강행하려면 --allow-dirty-tips — 다만 무엇이 빠졌는지는 끝의 대조가 이름을 부른다."
+		die(msg)
+	}
 	gate := gateTipSHA(byS)
 	if gate == "" {
 		die("거부: 대문 계보를 못 찾았다 — main/master 브랜치가 필요하다.")
@@ -219,7 +304,23 @@ func cmdMigrateToDevLayout(prefix string, dryRun bool) {
 		if p := fromOf[ch]; p != "" && chainTip[p] != "" {
 			base = chainTip[p] // 계승은 이주 뒤에도 계승이다
 		}
-		for _, c := range inChain[ch] {
+		// 앞머리(intake·인터뷰)는 **dev 층에 얹는다** — 살아 있는 흐름과 같은 모양이 되게
+		// (이슈 #95①). 그러면 chain-root 의 부모가 dev 에서 닿고, 층 선언이 참이 된다.
+		body := inChain[ch]
+		if base == devTip {
+			pre, rest := chainPreamble(inChain[ch], roots[ch], byS)
+			for _, c := range pre {
+				n := regraft(c, []string{base}, ch, prefix, fromOf, chains, roots, base, devTip)
+				newSha[c.sha] = n
+				base = n // 앞머리는 층 위로 이어 자란다
+			}
+			if len(pre) > 0 {
+				git("update-ref", "refs/heads/"+devBranchName, base) // dev 가 앞머리를 품는다
+				devTip = base
+			}
+			body = rest
+		}
+		for _, c := range body {
 			var ps []string
 			for _, p := range c.parents {
 				// **같은 체인 안의 부모만** 그대로 잇는다. 이미 옮겼다는 이유로 다른 체인의
@@ -240,30 +341,7 @@ func cmdMigrateToDevLayout(prefix string, dryRun bool) {
 			if len(ps) == 0 {
 				ps = []string{base}
 			}
-			msg := git("log", "-1", "--format=%B", c.sha)
-			msg = renameChainInMsg(msg, ch, prefix+ch)
-			if p := fromOf[ch]; p != "" && contains(chains, p) {
-				msg = renameChainInMsg(msg, p, prefix+p) // 계승 선언도 새 이름을 가리켜야 한다
-			}
-			msg = strings.TrimRight(msg, "\n") + "\nGil-Migrated-From: " + first9(c.sha) + "\n"
-			// 체인 루트가 dev 에서 나면 **그 사실을 선언한다.** 선언이 없으면 뷰어는 그 체인의
-			// 출발을 층에 못 묶고(시조가 미아처럼 보인다), fsck 도 대조할 것이 없다.
-			// 옮겨 놓고 선언을 안 하면, 새 나무는 참인데 아무도 그걸 못 읽는다.
-			if c.sha == roots[ch] && base == devTip &&
-				!strings.Contains(msg, "Gil-Chain-Orphan:") {
-				msg = strings.TrimRight(msg, "\n") + "\nGil-Chain-Orphan: " + devBranchName + "\n"
-			}
-			args := []string{"commit-tree", c.tree}
-			for _, p := range ps {
-				args = append(args, "-p", p)
-			}
-			env := append(os.Environ(),
-				"GIT_AUTHOR_NAME="+c.an, "GIT_AUTHOR_EMAIL="+c.ae, "GIT_AUTHOR_DATE="+c.ad,
-				"GIT_COMMITTER_NAME="+c.an, "GIT_COMMITTER_EMAIL="+c.ae, "GIT_COMMITTER_DATE="+c.ad)
-			n := strings.TrimSpace(runEnvIn(env, msg, args...))
-			if n == "" {
-				die("거부: 커밋을 다시 그리지 못했다: " + first9(c.sha))
-			}
+			n := regraft(c, ps, ch, prefix, fromOf, chains, roots, base, devTip)
 			newSha[c.sha] = n
 			chainTip[ch] = n
 		}
@@ -285,8 +363,32 @@ func cmdMigrateToDevLayout(prefix string, dryRun bool) {
 		made++
 	}
 	invalidateGraphNodes()
+
+	// 4) **스스로 센다.** 무손실 확인을 사람의 스크립트에 맡기면, 그건 무손실 안내가 아니다
+	//    (이슈 #95②④ — 사람이 직접 세는 스크립트를 짜서야 사이클 하나가 통째로 빠진 걸 알았다).
+	//    체인마다 옛 스텝과 새 스텝을 세어 대조하고, 빠진 것은 (사이클, 스텝, kind)로 이름을 부른다.
+	lost := layoutLossReport(prefix, ordered)
+	// 5) 그리고 **자기 목적을 만족했는지 스스로 검사한다** — 모든 체인이 dev 에서 갈라졌나.
+	//    지금까지는 fsck 를 따로 불러야 알았다. 만든 자가 자기 결과를 안 보는 것은 검사가 아니다.
+	viol := fsckDevLayer()
 	println2("migrate --to-dev-layout 완료 — 커밋 " + itoa(len(newSha)) + "개를 다시 그렸고 " +
 		"브랜치 " + itoa(made) + "개를 세웠다(접두 \"" + prefix + "\").")
+	for _, ln := range lost.lines {
+		println2(ln)
+	}
+	if len(viol) > 0 {
+		println2("  ⚠ 층 검사(스스로 돌렸다) — 새 나무가 목적을 만족하지 못했다:")
+		for _, v := range viol {
+			println2("    " + v)
+		}
+	}
+	if lost.missing > 0 || len(viol) > 0 {
+		// 조용한 성공보다 시끄러운 실패가 낫다. 종료코드로도 말한다 — 스크립트가 이걸 읽는다.
+		die("거부: 이주가 온전하지 않다 — 스텝 " + itoa(lost.missing) + "개 유실 · 층 위반 " +
+			itoa(len(viol)) + "건.\n" +
+			"  새 브랜치(" + prefix + "*)는 남겨 두었다. 위 목록을 보고 원인을 고친 뒤,\n" +
+			"  그 브랜치들을 지우고(git branch -D) 다시 실행하라. **옛 나무는 그대로다.**")
+	}
 	println2("  옛 브랜치는 그대로 있다 — 지우지 않는다. 두 나무를 나란히 놓고 세어서 무손실을 확인하라:")
 	println2("    gil fsck            (새 나무의 위반)")
 	println2("    gil viewer serve    (전체맵 맨 위 두 줄에 층이 보인다)")
@@ -303,4 +405,104 @@ func cmdMigrateToDevLayout(prefix string, dryRun bool) {
 // runEnvIn — 환경변수와 stdin 을 함께 주고 실행(commit-tree 용). runEnv 계열의 짝.
 func runEnvIn(env []string, in string, args ...string) string {
 	return gitInputEnv(env, in, args...)
+}
+
+// regraft — 커밋 하나를 새 부모 위에 다시 그린다. 트리·메시지·저자는 그대로, 부모만 새 자리로.
+// (앞머리를 dev 에 얹는 길과 체인 몸통을 그리는 길이 **같은 코드**를 써야 한다 — 갈라 두면
+// 언젠가 한쪽만 고쳐지고, 새 나무의 절반만 참이 된다.)
+func regraft(c *lcommit, ps []string, ch, prefix string, fromOf map[string]string,
+	chains []string, roots map[string]string, base, devTip string) string {
+	msg := git("log", "-1", "--format=%B", c.sha)
+	msg = renameChainInMsg(msg, ch, prefix+ch)
+	if p := fromOf[ch]; p != "" && contains(chains, p) {
+		msg = renameChainInMsg(msg, p, prefix+p) // 계승 선언도 새 이름을 가리켜야 한다
+	}
+	msg = strings.TrimRight(msg, "\n") + "\nGil-Migrated-From: " + first9(c.sha) + "\n"
+	// 체인 루트가 dev 에서 나면 **그 사실을 선언한다.** 선언이 없으면 뷰어는 그 체인의
+	// 출발을 층에 못 묶고(시조가 미아처럼 보인다), fsck 도 대조할 것이 없다.
+	if c.sha == roots[ch] && base == devTip &&
+		!strings.Contains(msg, "Gil-Chain-Orphan:") {
+		msg = strings.TrimRight(msg, "\n") + "\nGil-Chain-Orphan: " + devBranchName + "\n"
+	}
+	args := []string{"commit-tree", c.tree}
+	for _, p := range ps {
+		args = append(args, "-p", p)
+	}
+	env := append(os.Environ(),
+		"GIT_AUTHOR_NAME="+c.an, "GIT_AUTHOR_EMAIL="+c.ae, "GIT_AUTHOR_DATE="+c.ad,
+		"GIT_COMMITTER_NAME="+c.an, "GIT_COMMITTER_EMAIL="+c.ae, "GIT_COMMITTER_DATE="+c.ad)
+	n := strings.TrimSpace(runEnvIn(env, msg, args...))
+	if n == "" {
+		die("거부: 커밋을 다시 그리지 못했다: " + first9(c.sha))
+	}
+	return n
+}
+
+// lossSummary — 이주가 스스로 센 결과.
+type lossSummary struct {
+	missing int
+	lines   []string
+}
+
+// layoutLossReport — 체인마다 **옛 스텝 수 / 새 스텝 수**를 세고, 빠진 것의 이름을 부른다.
+//
+// 왜 도구가 세야 하나(이슈 #95②). 무손실 확인 안내가 "fsck 와 뷰어 육안"이었는데, 브랜치가
+// 안 세워진 사이클은 fsck 에 안 잡힌다(옛 나무가 아직 살아 있어 조용하다). 상현님은 스텝
+// identity 를 직접 세는 스크립트를 짜서야 사이클 하나가 통째로 빠진 걸 발견했다.
+// **사람이 스크립트를 짜야 알 수 있으면 그건 무손실 안내가 아니다.**
+func layoutLossReport(prefix string, chains []string) lossSummary {
+	type key struct{ cycle, step string }
+	kindOf := map[string]string{}
+	oldOf := map[string]map[key]bool{}
+	newOf := map[string]map[key]bool{}
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +
+		trailer("Gil-Step") + fsep + trailer("Gil-Kind") + sep
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		ch, r1, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok {
+			continue
+		}
+		cy, r2, _ := cut(r1, fsep)
+		st, kd, _ := cut(r2, fsep)
+		ch, cy, st, kd = strings.TrimSpace(ch), strings.TrimSpace(cy), strings.TrimSpace(st), strings.TrimSpace(kd)
+		if st == "" {
+			continue
+		}
+		k := key{cy, st}
+		if strings.HasPrefix(ch, prefix) && contains(chains, strings.TrimPrefix(ch, prefix)) {
+			base := strings.TrimPrefix(ch, prefix)
+			if newOf[base] == nil {
+				newOf[base] = map[key]bool{}
+			}
+			newOf[base][k] = true
+			continue
+		}
+		if contains(chains, ch) {
+			if oldOf[ch] == nil {
+				oldOf[ch] = map[key]bool{}
+			}
+			oldOf[ch][k] = true
+			kindOf[ch+"/"+cy+"/"+st] = kd
+		}
+	}
+	var sum lossSummary
+	sum.lines = append(sum.lines, "  대조(이주가 스스로 셌다) — 체인별 옛 스텝 / 새 스텝:")
+	for _, ch := range chains {
+		o, n := oldOf[ch], newOf[ch]
+		var miss []string
+		for k := range o {
+			if !n[k] {
+				miss = append(miss, "      빠짐: "+ch+"/"+k.cycle+"/"+k.step+" ["+kindOf[ch+"/"+k.cycle+"/"+k.step]+"]")
+			}
+		}
+		sort.Strings(miss)
+		mark := "✓"
+		if len(miss) > 0 {
+			mark = "✗"
+		}
+		sum.lines = append(sum.lines, "    "+mark+" "+ch+": "+itoa(len(o))+" → "+itoa(len(n)))
+		sum.lines = append(sum.lines, miss...)
+		sum.missing += len(miss)
+	}
+	return sum
 }
