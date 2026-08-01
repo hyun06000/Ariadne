@@ -517,10 +517,33 @@ func cmdMigrate(args []string) {
 	excludes := fs.strList("exclude") // 경로 조각(여러 번 가능) — 동결 체인 등을 뺀다
 	prefix := fs.str("prefix", "")
 	dryRun := fs.boolFlag("dry-run")
+	// --to-dev-layout: v2→v3 이주가 아니라 **v3 안에서의 레이아웃 이주**다(main-dev-chain).
+	// 같은 명령에 두는 이유: 사람이 "이 저장소의 이력을 옮긴다"고 생각할 때 떠올리는 낱말은
+	// 하나다. 하는 일이 다르다고 이름을 나누면, 필요한 순간에 그 이름을 아무도 못 찾는다.
+	toDevLayout := fs.boolFlag("to-dev-layout")
 	pos := fs.parse(args)
 	_ = pos
+	if *toDevLayout {
+		if strings.TrimSpace(*from) != "" {
+			die("거부: --to-dev-layout 은 --from 과 함께 쓰지 않는다.\n" +
+				"  --from 은 v2(폴더·cycle.yaml)를 v3 그래프로 옮기는 길이고,\n" +
+				"  --to-dev-layout 은 이미 v3 인 이 저장소를 main-dev-chain 으로 다시 그리는 길이다.")
+		}
+		p := strings.TrimSpace(*prefix)
+		if p == "" {
+			p = "dev-" // 옛 브랜치를 지우지 않으므로 이름이 겹치지 않아야 한다
+		}
+		if !idRe.MatchString(strings.TrimRight(p, "-")) {
+			die("거부: --prefix \"" + p + "\"는 소문자·숫자·하이픈만 (git ref 안전)")
+		}
+		cmdMigrateToDevLayout(p, *dryRun)
+		return
+	}
 	if *from == "" {
 		die("사용: gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--prefix <접두>] [--dry-run]\n" +
+			"  또는: gil migrate --to-dev-layout [--prefix <접두, 기본 dev->] [--dry-run]\n" +
+			"        이미 v3 인 이 저장소를 main-dev-chain 으로 **다시 그린다**(체인들이 dev 에서\n" +
+			"        갈라지게). 트리·메시지는 그대로, 부모만 새 자리로. 옛 브랜치는 남는다.\n" +
 			"  v2(폴더·cycle.yaml) 이력을 현재 브랜치 위에 v3 커밋 그래프로 이주한다.\n" +
 			"  먼저 v2 루트에서 이주 브랜치를 파고(git checkout -b) 실행하라 — 대문·존재는 이어받되\n" +
 			"  v2 계보 조상 위에 v3 그래프를 새로 자란다.\n" +

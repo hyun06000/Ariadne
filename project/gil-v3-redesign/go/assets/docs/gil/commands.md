@@ -276,6 +276,14 @@ gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--pre
 ```
 옛 **v2**(폴더·`cycle.yaml` 기반) 이력을 **v3 커밋 그래프**로 이주한다. 도구 레벨·범용 — 임의의 v2 필드 저장소가 쓴다. 먼저 v2 루트에서 이주 브랜치를 파고(`git checkout -b`) 실행하라. 매핑: v2 5단계를 압축(hypothesis+design→define, verification→verify, analysis+report+verdict→종결 스텝)하고, `verdict`→종결 kind(supported→success, rejected→fail, null&open→pending)로 옮긴다. `--prefix`(예 `v3-`)로 기존 브랜치와의 충돌을 피하며(충돌 시 아무것도 만들지 않고 거부 — 원자성), `--dry-run` 으로 먼저 확인한다. 이주 커밋엔 `[migrate]` 표식(Gil-Migrate·Gil-Migrated-From)이 붙는다.
 
+```
+gil migrate --to-dev-layout [--prefix <접두, 기본 dev->] [--dry-run]
+```
+
+같은 명령의 다른 길이다. 이미 **v3 인 저장소를 main-dev-chain 으로 다시 그린다** — 각 체인이 `dev` 에서 갈라지게 새 브랜치로 옮겨 그린다. 트리(파일 내용)와 메시지는 그대로 두고 **부모만** 새 자리로 바꾸므로, 사고의 내용은 한 글자도 안 바뀌고 계보만 참이 된다. 이어받음을 선언한 체인(`--from`)은 부모 체인의 끝에 붙어 계승이 유지된다.
+
+접두는 브랜치만이 아니라 **체인의 이름**을 바꾼다 — 안 그러면 옛 나무와 새 나무가 같은 체인이 되어 한 사이클의 스텝이 두 벌씩 존재한다(이름이 곧 정체성이다). **옛 브랜치는 지우지 않는다**: 다시 그리면 모든 SHA 가 바뀌므로 돌아갈 곳이 있어야 하고, 무손실인지는 두 나무를 나란히 놓고 세어서 확인한다. 확인이 끝나면 옛 체인을 `gil chain-retire` 로 접는다(그 체인에 위반이 있으면 접는 것이 위반을 감추는 일이라 `--confirm <이름>` 을 요구한다).
+
 ## 관련
 
 - 위계 개념과 순서 규칙: [개념](concepts.md)

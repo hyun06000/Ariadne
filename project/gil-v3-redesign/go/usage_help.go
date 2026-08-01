@@ -393,21 +393,20 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/existence.md",
 	},
 	"migrate": {
-		"gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--prefix <접두>] [--dry-run]\n" +
-			"  v2(폴더·cycle.yaml) 이력을 현재 브랜치 위에 v3 커밋 그래프로 이주한다.\n" +
-			"  먼저 v2 루트에서 이주 브랜치를 파고(git checkout -b) 실행하라. --dry-run 으로 먼저 확인.\n" +
-			"  --prefix: 이주 브랜치에 접두(예 v3-)를 붙여 기존 브랜치와 충돌 회피. 충돌 시 아무것도\n" +
-			"  만들지 않고 거부(원자성) — --prefix 로 다시 돌려라.\n" +
-			"  5단계 압축(hypothesis+design→define, verification→verify, analysis+report→종결),\n" +
-			"  verdict→종결 kind: supported/success→success, rejected→fail, **그 밖의 전부**\n" +
-			"  (partial·inconclusive·verdict 없음)→pending. 없는 성공을 날조하지 않는다(이슈 #50) —\n" +
-			"  결론이 아닌 것을 산 잎으로 접으면 이주된 이력이 원본보다 낙관적인 거짓말이 된다.\n" +
-			"  원 verdict 는 Gil-V2-Verdict 트레일러에 무손실 보존된다(정책이 바뀌어도 복구 가능).\n" +
-			"  --exclude <경로조각>: 그 조각이 경로에 든 사이클을 뺀다(여러 번 가능) — 동결해 둔\n" +
-			"    옛 체인(legacy/archived-chains/…)처럼 v2 fsck 는 안 세는데 migrate 는 끌어오던 것.\n" +
-			"  --dry-run 이 '어디서 몇 개를 가져왔는지'·'무엇을 제외했는지'·'사람 판단 대기'를\n" +
-			"    모두 먼저 보여준다. [migrate] 표식.",
-		"docs/gil/lifecycle.md · docs/gil/concepts.md",
+		"gil migrate --from <v2-ref> [--room <r>] [--exclude <조각>]... [--prefix <접두>] [--dry-run]\n" +
+			"  v2(폴더·cycle.yaml) 이력 → v3 커밋 그래프. 단계 문서 원문을 실제로 싣는다(이슈 #87).\n" +
+			"\n" +
+			"gil migrate --to-dev-layout [--prefix <접두, 기본 dev->] [--dry-run]\n" +
+			"  이미 v3 인 이 저장소를 **main-dev-chain 으로 다시 그린다**. 각 체인이 dev 에서\n" +
+			"  갈라지게 새 브랜치로 옮겨 그린다 — 트리(파일 내용)와 메시지는 그대로, **부모만**\n" +
+			"  새 자리로. 그래서 사고의 내용은 한 글자도 안 바뀌고 계보만 참이 된다.\n" +
+			"  · 이어받음을 선언한 체인(--from)은 그 부모 체인의 끝에 붙어 계승이 유지된다.\n" +
+			"  · 접두는 브랜치만이 아니라 **체인의 이름**을 바꾼다 — 안 그러면 옛 나무와 새 나무가\n" +
+			"    같은 체인이 되어 한 사이클의 스텝이 두 벌씩 존재한다.\n" +
+			"  · **옛 브랜치는 지우지 않는다.** 다시 그리면 모든 SHA 가 바뀌므로 돌아갈 곳이\n" +
+			"    있어야 하고, 무손실인지는 두 나무를 나란히 놓고 세어서 확인한다.\n" +
+			"  먼저 --dry-run 으로 무엇이 어디로 가는지 본 뒤에 실행하라.",
+		"docs/gil/commands.md",
 	},
 	"mcp": {
 		"gil mcp serve [--repo <경로>]   gil 을 stdio MCP 서버로 연다\n" +

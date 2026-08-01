@@ -8223,3 +8223,119 @@ class TestShippedDocsMatchTheRepo(GilFixture):
             self.assertEqual(a, b,
                              f"{os.path.basename(embedded)} 가 두 벌로 갈라졌다 — "
                              "바이너리가 심는 것과 릴리스가 올리는 것이 다르다")
+
+
+class TestMigrateToDevLayout(GilFixture):
+    """gil migrate --to-dev-layout — 옛 나무를 main-dev-chain 으로 다시 그린다.
+
+    v3.46.0 이 층을 세웠지만 그건 **앞으로 여는** 체인에만 적용됐다. 이미 자란 저장소는
+    체인들이 서로 위에 얹힌 채 남고 drift 가 계속 stacked 로 짖는다. 상현님: "이게 돼야
+    나무 전체를 옮길 수 있게 된다."
+
+    이주는 **무손실이어야 하고, 무손실인지는 두 나무를 나란히 놓고 세어서** 확인한다.
+    """
+
+    def _old_tree(self):
+        """dev 층 없이 체인 셋이 얹힌 옛 나무. b 는 a 를 이어받고, c 는 무관한데 얹혔다.
+
+        **반환값을 단언한다.** 처음엔 스텝 순서(define→hypothesis→verify→analyze→종결)를
+        건너뛴 채 실패를 무시했고, 그래서 fixture 가 조용히 반쪽 나무를 만들었다 — 이주를
+        시험한 게 아니라 빈 나무를 옮긴 것이었다. 세우지 못한 fixture 는 시험이 아니다.
+        """
+        self.gil("init", "--name", "clew")
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")          # 옛 레이아웃 재현
+        def ok(r, what):
+            self.assertEqual(r.returncode, 0, what + " 실패:\n" + r.stdout + r.stderr)
+        for name, extra in (("a", []), ("b", ["--from", "a"]), ("c", [])):
+            ok(self.gil("chain", name, "--purpose", name, "--reference", "-",
+                        "--criterion", "C", *extra, input="기준"), f"chain {name}")
+            ok(self.gil("open", f"{name}/c1", "--author", "clew", "--purpose", "P",
+                        "--body", "정의", "--fits", "목적 그 자체"), f"open {name}")
+            ok(self.gil("step", f"{name}/c1", "--kind", "hypothesis", "--title", "H",
+                        "--body", "가설", "--falsify", "F", "--falsify-to", "s1",
+                        "--plan", "구현 1개", "--advances", "핵심 경로"), f"hypothesis {name}")
+            ok(self.gil("step", f"{name}/c1", "--kind", "verify", "--title", "V", "--body", "검증",
+                        "--verdict", "supported", "--plan-held",
+                        "--falsify-unmet", "미관측"), f"verify {name}")
+            ok(self.gil("step", f"{name}/c1", "--kind", "analyze", "--title", "A", "--body", "해석",
+                        "--finding", "지지됐다"), f"analyze {name}")
+            ok(self.gil("step", f"{name}/c1", "--kind", "success", "--title", "S", "--body", "종합",
+                        "--toward", "기준 충족", "--next-design", "다음 설계"), f"success {name}")
+            ok(self.gil("close", f"{name}/c1", "--verdict", "supported"), f"close {name}")
+            ok(self.gil("chain-close", name, "--verdict", "supported",
+                        "--retro", "-", input="회고"), f"chain-close {name}")
+        # fixture 가 실제로 나무를 세웠는지 — 스텝이 0이면 아래 시험은 전부 공회전이다.
+        self.assertGreaterEqual(self._steps("a", "b", "c"), 12, "fixture 가 나무를 못 세웠다")
+
+    def _chain_root(self, branch):
+        """그 브랜치의 chain-root 커밋. **제목이 아니라 트레일러로** 찾는다 —
+        제목은 사람이 읽는 장식이고, 무엇인지를 말하는 것은 Gil-Kind 다(gil 자신이 그렇게 읽는다)."""
+        r = self._git("log", branch, "--format=%H\t%(trailers:key=Gil-Kind,valueonly)")
+        for line in r.stdout.split("\n"):
+            sha, _, kind = line.partition("\t")
+            if kind.strip() == "chain-root":
+                return sha.strip()
+        return ""
+
+    def _steps(self, *refs):
+        r = self._git("log", "--format=%(trailers:key=Gil-Step,valueonly)", *refs, "--")
+        return len([x for x in r.stdout.split("\n") if x.strip()])
+
+    def test_the_stack_is_actually_broken(self):
+        """얹혀 있던 무관한 체인이 dev 에서 갈라진다 — 이게 이주의 전부다.
+
+        한 번은 "이미 옮긴 조상"을 체인 구분 없이 이어붙여, 옛 적층이 새 나무에 그대로
+        복사됐다(c 가 옮겨진 b 뒤에 다시 붙었다). 옮겨 놓고 적층이 남으면 이주는 이름만 남는다.
+        """
+        self._old_tree()
+        r = self.gil("migrate", "--to-dev-layout")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        anc = lambda x, y: self._git("merge-base", "--is-ancestor", x, y).returncode == 0
+        self.assertTrue(anc("dev", "dev-c"), "옮긴 체인이 dev 의 자손이 아니다")
+        self.assertFalse(anc("dev-a", "dev-c"), "적층이 새 나무에 그대로 복사됐다")
+        self.assertTrue(anc("dev-a", "dev-b"), "선언된 계승이 이주에서 끊겼다")
+
+    def test_nothing_is_lost(self):
+        """트리(파일 내용)와 스텝 수가 그대로다 — 옮겼다고 믿게 만드는 게 조용한 손실보다 나쁘다."""
+        self._old_tree()
+        before = self._steps("a", "b", "c")
+        self.gil("migrate", "--to-dev-layout")
+        self.assertEqual(self._steps("dev-a", "dev-b", "dev-c"), before,
+                         "스텝이 이주에서 새거나 늘었다")
+        for b in ("a", "b", "c"):
+            self.assertEqual(self._git("rev-parse", f"{b}^{{tree}}").stdout.strip(),
+                             self._git("rev-parse", f"dev-{b}^{{tree}}").stdout.strip(),
+                             f"{b} 의 파일 내용이 이주에서 바뀌었다")
+
+    def test_the_old_tree_survives(self):
+        """옛 브랜치는 지우지 않는다 — 잘못 옮겼을 때 돌아갈 곳이 있어야 한다."""
+        self._old_tree()
+        self.gil("migrate", "--to-dev-layout")
+        for b in ("a", "b", "c"):
+            self.assertEqual(self._git("rev-parse", "--verify", "-q", b).returncode, 0,
+                             f"옛 브랜치 {b} 가 사라졌다")
+
+    def test_the_migrated_chain_declares_where_it_came_from(self):
+        """이름은 정체성이다 — 접두는 브랜치가 아니라 **체인**의 이름을 바꾼다.
+
+        안 그러면 두 나무가 같은 체인이 되어 한 사이클의 스텝이 두 벌씩 존재한다(fsck 가
+        's4 ×2' 로 곧바로 짖었다). 그리고 dev 에서 났다는 선언이 있어야 뷰어가 출발을 층에
+        묶고 fsck 가 대조할 것이 생긴다.
+        """
+        self._old_tree()
+        self.gil("migrate", "--to-dev-layout")
+        self.assertEqual(self.trailer("dev-c", "Gil-Chain"), "dev-c")
+        self.assertEqual(self.trailer(self._chain_root("dev-c"), "Gil-Chain-Orphan"), "dev",
+                         "dev 에서 났는데 그 선언이 없다 — 뷰어가 출발을 층에 못 묶는다")
+        self.assertEqual(self.trailer(self._chain_root("dev-b"), "Gil-Chain-From"), "dev-a",
+                         "계승 선언이 옛 이름을 가리킨다")
+
+    def test_dry_run_writes_nothing(self):
+        self._old_tree()
+        before = self._git("rev-parse", "a").stdout.strip()
+        r = self.gil("migrate", "--to-dev-layout", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotEqual(self._git("rev-parse", "--verify", "-q", "dev-a").returncode, 0,
+                            "--dry-run 인데 브랜치를 만들었다")
+        self.assertEqual(self._git("rev-parse", "a").stdout.strip(), before)

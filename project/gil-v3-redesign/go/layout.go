@@ -214,5 +214,6 @@ func fsckDevLayer() []string {
 func devLayerNudge() {
 	stderr("  ▸ 이 저장소엔 dev 층이 없다 — 새 계보를 시작할 자리가 문법에 없다는 뜻이다.")
 	stderr("    그래서 무관한 탐색선도 앞 체인 위에 얹히고, drift 가 그걸 stacked 로 계속 짖는다.")
-	stderr("    나무 전체를 main-dev-chain 으로 옮기려면: gil migrate --to-dev-layout")
+	stderr("    나무 전체를 main-dev-chain 으로 옮기려면(먼저 무엇이 일어날지 본다):")
+	stderr("      gil migrate --to-dev-layout --dry-run")
 }

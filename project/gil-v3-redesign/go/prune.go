@@ -154,7 +154,7 @@ func driftReport(only string) []driftItem {
 	if only == "" && len(names) > 0 && !hasDevLayer() {
 		items = append(items, driftItem{devBranchName, "no-dev-layer",
 			"dev 층이 없다 — 새 계보를 시작할 자리가 문법에 없어, 무관한 체인도 앞 체인 위에 얹힌다",
-			"나무 전체를 옮기려면: gil migrate --to-dev-layout"})
+			"나무 전체를 옮기려면(먼저 dry-run): gil migrate --to-dev-layout --dry-run"})
 	}
 	// (d) 잔재 브랜치 — 브랜치는 있는데 gil 이 모르는 것. 정리 후보다.
 	if only == "" {
