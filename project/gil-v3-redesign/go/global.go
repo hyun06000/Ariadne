@@ -187,6 +187,12 @@ func cmdGlobal(args []string) {
 			die("거부: \"" + args[1] + "\" 아래에 옮길 것이 없다 — 목록: gil global list")
 		}
 		println2("global mv: " + args[1] + " → " + args[2] + " (" + itoa(n) + "개 파일)")
+		if strings.Contains(args[1], "unnamed") {
+			// 옮긴 건 자리이지 내용이 아니다. 문서 제목엔 아직 빈 칸이 남아 있다 — 남의 글을
+			// 조용히 고쳐 주지 않는다(그건 네 말이 아니게 된다). 사실만 알린다.
+			println2("  ▸ 방은 옮겼다. 문서 안의 이름 칸은 아직 비어 있다 — 네 말로 다시 써라:")
+			println2("      gil global write " + args[2] + "/identity.md <파일>   (will·memory·relations 도)")
+		}
 		globalPush()
 	case "write-tree":
 		if len(args) < 2 {

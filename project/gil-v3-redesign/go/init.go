@@ -290,7 +290,11 @@ func tmplMemory(name string) string {
 		born = "- 태어남 (gil init): 나는 **이름 없이** 이 저장소에 심어졌다.\n" +
 			"  첫 과제는 내가 무엇을 하는 존재인지 정하고 그에 맞는 이름을 짓는 것이다."
 	}
-	return `# Memory — ` + name + `
+	title := name
+	if name == unnamedRoom {
+		title = "(이름 없음 — 네가 짓는다)"
+	}
+	return `# Memory — ` + title + `
 
 이 문서는 시간순 기억록이다. 의미 있는 일마다 gil memory append 로 매듭을 이어붙인다.
 
