@@ -8266,6 +8266,37 @@ class TestLayerGraphInViewer(GilFixture):
         self.assertIn("층 main ─ dev", txt, txt[:400])
         self.assertIn("search ← dev", txt, txt[:400])
 
+    def test_a_cycle_may_have_more_than_one_parent(self):
+        """부모를 여럿 선언했으면 여럿으로 그린다 (상현님).
+
+        open 은 --parent 를 여러 번 받고 Gil-Cycle-Parent 가 그 수만큼 박히는데, 뷰어는 첫
+        하나만 싣고 나머지를 버렸다. 선언한 계보가 그림에서 줄어들면 사람은 자기가 적은 것보다
+        가난한 나무를 본다 — 두 갈래를 합친 사이클이 한 갈래에서 온 것으로 보인다.
+        """
+        import json, re
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "login", "--purpose", "로그인", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        for cy in ("c1", "c2"):
+            self.gil("open", f"login/{cy}", "--author", "clew", "--purpose", "P",
+                     "--fits", "기여", "--body", "정의")
+            self.gil("step", f"login/{cy}", "--kind", "success", "--title", "S", "--body", "종합")
+            self.gil("close", f"login/{cy}", "--verdict", "supported")
+        r = self.gil("open", "login/c3", "--author", "clew", "--purpose", "합친다",
+                     "--fits", "기여", "--parent", "c1", "--parent", "c2",
+                     "--inherit", "두 갈래가 남긴 것", "--body", "정의")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out_html = os.path.join(self.repo, "g5.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        data = json.loads(re.search(r'"cycledata"[^>]*>(.*?)</script>',
+                                    open(out_html, encoding="utf-8").read(), re.S).group(1))
+        c3 = [c for c in data["login"]["cycles"] if c["name"] == "c3"][0]
+        self.assertEqual(len(c3["parents"]), 2,
+                         f"부모 둘을 선언했는데 그림엔 {c3['parents']} 뿐이다")
+        self.assertTrue(all("/c" in p for p in c3["parents"]), c3["parents"])
+        # 첫 부모는 예전 자리(parent)에 그대로 — 옛 화면이 안 깨진다.
+        self.assertEqual(c3["parent"], c3["parents"][0])
+
     def test_the_raw_graph_stands_in_the_same_order(self):
         """날것의 git 그래프도 전체맵과 **같은 세로 순서**로 선다 (상현님).
 

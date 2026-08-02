@@ -843,6 +843,48 @@ func lastStepOfCycle(g graphView, chain, cycle string) string {
 // cycleEntryParents — 각 사이클의 진입 부모 스텝(AIL #7). 사이클 첫 스텝(가장 낮은 s번호)의
 // 커밋 부모 사슬을 거슬러, 다른 사이클/체인에 속한 가장 가까운 gil 스텝을 찾는다. 반환:
 // (chain\x01cycle) → "chain/cycle/step". 위상 유도라 Gil-Cycle-Parent 선언이 없어도 잡힌다.
+// **부모는 여럿일 수 있다.** open 은 --parent 를 여러 번 받고(Gil-Cycle-Parent 트레일러가
+// 그 수만큼 박힌다), 두 갈래에서 나온 것을 한 사이클에서 합치는 건 실제로 있는 일이다.
+// 그런데 뷰어는 첫 하나만 싣고 나머지를 버렸다 — 선언한 계보가 그림에서 줄어들면, 사람은
+// 자기가 적은 것보다 가난한 나무를 본다(상현님: 부모를 여럿 두는 것도 해보자).
+// 첫 번째는 예전과 같은 자리(parent)로 그대로 나가고, 전부는 parents 로 나간다.
+func cycleEntryParentsAll(g graphView) map[string][]string {
+	one := cycleEntryParents(g)
+	out := map[string][]string{}
+	first := map[string]viewerNode{}
+	for _, n := range g.allNodes {
+		if n.cycle == "" || n.step == "" {
+			continue
+		}
+		k := n.chain + "\x01" + n.cycle
+		if cur, ok := first[k]; !ok || stepNum(n.step) < stepNum(cur.step) {
+			first[k] = n
+		}
+	}
+	for k, def := range first {
+		seen := map[string]bool{}
+		add := func(ref string) {
+			if ref != "" && !seen[ref] {
+				seen[ref] = true
+				out[k] = append(out[k], ref)
+			}
+		}
+		add(one[k]) // 유도·선언 중 이긴 것이 늘 첫째다(옛 동작 그대로)
+		for _, pc := range def.cycleParents {
+			pc = strings.TrimSpace(pc)
+			if pc == "" {
+				continue
+			}
+			if tip := lastStepOfCycle(g, def.chain, pc); tip != "" {
+				add(tip)
+			} else if anchor := cycleAnchorStep(g, def.chain, pc); anchor != "" {
+				add(anchor)
+			}
+		}
+	}
+	return out
+}
+
 func cycleEntryParents(g graphView) map[string]string {
 	stepBySHA := map[string]viewerNode{}
 	for _, n := range g.allNodes {
@@ -955,9 +997,11 @@ func cycleAnchorStep(g graphView, chain, cycle string) string {
 // 막혀 있으니(#60) 그 스텝을 진입 부모로 삼은 카드가 있을 수 없다.
 func cycleExits(g graphView) map[string][]string {
 	out := map[string][]string{}
-	for k, parentRef := range cycleEntryParents(g) {
+	for k, refs := range cycleEntryParentsAll(g) {
 		chain, cycle, _ := strings.Cut(k, "\x01")
-		out[parentRef] = append(out[parentRef], chain+"/"+cycle)
+		for _, parentRef := range refs { // 부모가 둘이면 **둘 다** 진출을 갖는다
+			out[parentRef] = append(out[parentRef], chain+"/"+cycle)
+		}
 	}
 	for _, v := range out {
 		sort.Strings(v) // 결정성 — 같은 그래프면 같은 라벨
@@ -971,6 +1015,7 @@ func cycleJSON(g graphView, static bool) string {
 	// 태어났나. Gil-Cycle-Parent 선언이 없어도(실사용은 위상 분기라 대개 없다) 커밋 부모 사슬로
 	// 유도한다 — dagJSON 의 nearestStep 과 같은 원리. key=(chain\x01cycle) → "chain/cycle/step".
 	cycleEntry := cycleEntryParents(g)
+	cycleEntryAll := cycleEntryParentsAll(g)
 	exits := cycleExits(g) // 진출은 추측이 아니라 사실로만 그린다(이슈 #72)
 	var sb strings.Builder
 	sb.WriteString("{")
@@ -998,10 +1043,11 @@ func cycleJSON(g graphView, static bool) string {
 			}
 			// 사이클 부모(경계 stub 엣지용, AIL #7): 위상 유도한 진입 부모 스텝 ref(다른 카드).
 			cycPar := cycleEntry[ch.name+"\x01"+cy.name]
+			cycPars := cycleEntryAll[ch.name+"\x01"+cy.name]
 			// 측정의 좌표(이슈 #79·#81) — 뷰어 사이클 카드가 "어디서/무엇을" 을 함께 보인다.
 			ds, sj := cycleCoordOf(ch.name, cy.name)
-			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"dataset":%s,"subject":%s,"nodes":[`,
-				cy.name, len(cy.steps), cy.status(), here, cycPar, jsonStrings(ds), jsonStrings(sj)))
+			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"parents":%s,"dataset":%s,"subject":%s,"nodes":[`,
+				cy.name, len(cy.steps), cy.status(), here, cycPar, jsonStrings(cycPars), jsonStrings(ds), jsonStrings(sj)))
 			// 정정(AIL #12 → 정정은 분기다). 뷰어도 두 사실을 보여야 한다: 이 스텝이 무엇을
 			// 정정했나(⟲), 그리고 이 스텝은 대체됐나(구버전 가지 — 대상뿐 아니라 자손 전부).
 			// 텍스트 그래프에만 있고 뷰어엔 없어서, 정작 사람이 보는 화면에서 두 판본이
@@ -1498,6 +1544,8 @@ svg#graph{display:block;max-width:100%;height:auto}
 .cygraph-wrap{padding:12px 16px;overflow-x:auto}
 svg.cygraph{display:block}
 .cyedge{stroke:var(--edge);stroke-width:2}
+/* 둘째 부모 — 사실이되 나무의 줄기는 아니다(파선으로 함께 그린다). */
+.cyedge.second{stroke-dasharray:5 4;opacity:.7}
 .cynode circle{fill:var(--card);stroke:var(--dim);stroke-width:2}
 .cynode text{fill:var(--fg);text-anchor:middle;font-family:inherit;pointer-events:none}
 .cynode .cystep{font-size:13px;font-weight:700}
@@ -1936,11 +1984,17 @@ function openCard(chain){
   // 그래서 같은 부모에서 갈라진 두 사이클이 앞뒤로 줄지어 서고, 진짜 분기가 사라졌다.
   // 바로 아래 스텝 그래프는 이미 이렇게 그린다: col=부모 사슬 깊이, row=형제마다 한 칸.
   const byName={}; cy.forEach(c=>byName[c.name]=c);
-  const parentOf=c=>{
-    const p=(c.parent||'').split('/');            // "chain/cycle/step"
-    if(p.length>=2 && p[0]===chain && byName[p[1]] && p[1]!==c.name) return p[1];
-    return null;                                   // 뿌리(대문·다른 체인에서 들어옴)
+  // 부모는 **여럿일 수 있다**(open --parent 를 여러 번). 배치는 첫 부모로 하고(나무가
+  // 되려면 줄기가 하나여야 한다), 나머지 부모는 선으로 함께 그린다 — 선언한 계보를
+  // 그림에서 줄이지 않는다.
+  const parentsOf=c=>{
+    const src=(c.parents&&c.parents.length)?c.parents:(c.parent?[c.parent]:[]);
+    const out=[];
+    src.forEach(ref=>{ const p=(ref||'').split('/');   // "chain/cycle/step"
+      if(p.length>=2 && p[0]===chain && byName[p[1]] && p[1]!==c.name && out.indexOf(p[1])<0) out.push(p[1]); });
+    return out;
   };
+  const parentOf=c=>{ const ps=parentsOf(c); return ps.length?ps[0]:null; };
   const kids={}; const roots=[];
   cy.forEach(c=>{ const p=parentOf(c); if(p){ (kids[p]=kids[p]||[]).push(c); } else roots.push(c); });
   const col={}, row={};
@@ -1964,12 +2018,17 @@ function openCard(chain){
   const X=c=>cx0+(col[c.name]||0)*gap, Y=c=>cyy0+(row[c.name]||0)*rowGap;
   // 엣지 먼저(노드 아래로 깔린다) — 부모에서 자식으로. 줄이 다르면 꺾어 내린다.
   cy.forEach(c=>{
-    const p=parentOf(c); if(!p)return;
-    const pc=byName[p], x1=X(pc)+r, y1=Y(pc), x2=X(c)-r, y2=Y(c);
-    if(y1===y2){ svg.appendChild(svgEl('line',{class:'cyedge',x1:x1,y1:y1,x2:x2,y2:y2})); }
-    else { const mx=(x1+x2)/2;
-      svg.appendChild(svgEl('path',{class:'cyedge',fill:'none',
-        d:'M '+x1+' '+y1+' L '+mx+' '+y1+' L '+mx+' '+y2+' L '+x2+' '+y2})); }
+    parentsOf(c).forEach((p,i)=>{
+      const pc=byName[p], x1=X(pc)+r, y1=Y(pc), x2=X(c)-r, y2=Y(c);
+      // 둘째 부모부터는 흐리게 — 줄기(배치를 정한 첫 부모)와 구별되게. 둘 다 사실이지만
+      // 나무의 모양을 정한 건 첫째다.
+      const cls='cyedge'+(i?' second':'');
+      const e=(y1===y2)?svgEl('line',{class:cls,x1:x1,y1:y1,x2:x2,y2:y2})
+        :(()=>{ const mx=(x1+x2)/2; return svgEl('path',{class:cls,fill:'none',
+            d:'M '+x1+' '+y1+' L '+mx+' '+y1+' L '+mx+' '+y2+' L '+x2+' '+y2}); })();
+      e.appendChild(svgEl('title',{},(i?'또 하나의 부모: ':'부모: ')+p+' → '+c.name));
+      svg.appendChild(e);
+    });
   });
   cy.forEach(c=>{
     const g=svgEl('g',{class:'cynode '+c.status+(c.here?' here':''),transform:'translate('+X(c)+','+Y(c)+')'});
@@ -2067,7 +2126,10 @@ function openStepCard(chain,cyc){
   const colGap=96, rowGap=82, r=20, padX=30, padYtop=48, padY=30;
   let maxCol=0,maxRow=0;
   steps.forEach(n=>{ maxCol=Math.max(maxCol,col[n.sha]||0); maxRow=Math.max(maxRow,row[n.sha]||0); });
-  const hasEntry=!!cyc.parent;                 // 사이클 부모(Gil-Cycle-Parent)가 있으면 진입 경계.
+  // 진입 부모는 여럿일 수 있다 — 선언한 만큼 고스트를 세운다(하나만 세우면 "두 갈래를
+  // 합쳤다"가 화면에서 한 갈래로 줄어든다).
+  const ENTRIES=(cyc.parents&&cyc.parents.length)?cyc.parents:(cyc.parent?[cyc.parent]:[]);
+  const hasEntry=ENTRIES.length>0;            // 사이클 부모(Gil-Cycle-Parent)가 있으면 진입 경계.
   const exited=steps.filter(n=>n.exit);
   const gx=hasEntry?1:0;                        // 진입 고스트가 있으면 실노드를 한 칸 오른쪽으로.
   const X=sha=>padX+r+(gx+(col[sha]||0))*colGap;
@@ -2079,17 +2141,23 @@ function openStepCard(chain,cyc){
   const GX=padX+r; // 진입 고스트 X(맨 왼쪽 칸).
   if(hasEntry&&roots.length){
     const inh=(steps[0]&&steps[0].inherit)||'';
-    roots.forEach(rt=>{
-      svg.appendChild(svgEl('path',{class:'stepedge ghost',fill:'none',
-        d:'M '+(GX+r)+' '+Y(rt.sha)+' C '+((GX+r+X(rt.sha)-r)/2)+' '+Y(rt.sha)+' '+((GX+r+X(rt.sha)-r)/2)+' '+Y(rt.sha)+' '+(X(rt.sha)-r)+' '+Y(rt.sha)}));
+    const y0=Y(roots[0].sha);
+    ENTRIES.forEach((pref,i)=>{
+      const gy=y0+(i? i*(r*2+14) : 0);          // 부모가 여럿이면 아래로 나란히 세운다
+      roots.forEach(rt=>{
+        svg.appendChild(svgEl('path',{class:'stepedge ghost',fill:'none',
+          d:'M '+(GX+r)+' '+gy+' C '+((GX+r+X(rt.sha)-r)/2)+' '+gy+' '+((GX+r+X(rt.sha)-r)/2)+' '+Y(rt.sha)+' '+(X(rt.sha)-r)+' '+Y(rt.sha)}));
+      });
+      const gg=svgEl('g',{class:'snode ghost',transform:'translate('+GX+','+gy+')'});
+      gg.appendChild(svgEl('title',{},(i?'또 하나의 부모 사이클: ':'부모 사이클: ')+pref+(inh?'\n물려받음: '+inh:'')));
+      gg.appendChild(svgEl('circle',{r:r}));
+      gg.appendChild(svgEl('text',{class:'sid',dy:3},'←'));
+      const short=pref.length>26?pref.slice(0,12)+'…'+pref.slice(-12):pref;
+      const t=svgEl('text',{class:'skind',dy:r+16},short); t.appendChild(svgEl('title',{},pref));
+      gg.appendChild(t);
+      if(inh&&!i){ gg.appendChild(svgEl('text',{class:'inhlbl',dy:-r-14},'⇐'+(inh.length>22?inh.slice(0,22)+'…':inh))); }
+      svg.appendChild(gg);
     });
-    const gg=svgEl('g',{class:'snode ghost',transform:'translate('+GX+','+Y(roots[0].sha)+')'});
-    gg.appendChild(svgEl('title',{},'부모 사이클: '+cyc.parent+(inh?'\n물려받음: '+inh:'')));
-    gg.appendChild(svgEl('circle',{r:r}));
-    gg.appendChild(svgEl('text',{class:'sid',dy:3},'←'));
-    gg.appendChild(svgEl('text',{class:'skind',dy:r+16},cyc.parent));
-    if(inh){ gg.appendChild(svgEl('text',{class:'inhlbl',dy:-r-14},'⇐'+(inh.length>22?inh.slice(0,22)+'…':inh))); }
-    svg.appendChild(gg);
   }
   if(exited.length){
     const anchorRow=Math.round(exited.reduce((s,n)=>s+(row[n.sha]||0),0)/exited.length);
