@@ -931,6 +931,14 @@ func cycleEntryParents(g graphView) map[string]string {
 			}
 			seen[sha] = true
 			if s, ok := stepBySHA[sha]; ok && !(s.chain == def.chain && s.cycle == def.cycle) {
+				// **체인을 넘는 진입은 계승일 때만.** 체인 계보에 세운 판정(#53)을 사이클에도
+				// 그대로 적용한다: 앞 체인이 닫힌 끝에서 태어났을 때만 이어받음이다.
+				// 안 그러면 층에서 난 시조들이 전부 "첫 체인의 마지막 스텝에서 났다"고 그려진다 —
+				// dev 로 합류한 앞 체인이 커밋 조상에 들어오기 때문이다(실측: 여섯 체인 중
+				// 다섯이 같은 스텝을 부모로 물고 있었다). 조상관계는 사실이지만 계승은 아니다.
+				if s.chain != def.chain && g.parents[def.chain] != s.chain {
+					return "" // 나란히 간 것이다 — 없는 계보를 그리느니 안 그린다
+				}
 				return s.chain + "/" + s.cycle + "/" + s.step // 다른 사이클/체인의 스텝 — 진입 부모.
 			}
 			for _, p := range nonStep[sha] {

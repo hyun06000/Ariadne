@@ -8266,6 +8266,28 @@ class TestLayerGraphInViewer(GilFixture):
         self.assertIn("층 main ─ dev", txt, txt[:400])
         self.assertIn("search ← dev", txt, txt[:400])
 
+    def test_a_sibling_chain_is_not_an_heir(self):
+        """층에서 난 시조는 앞 체인의 스텝에서 이어받지 않았다 (상현님, 실사용 관전).
+
+        dev 로 합류한 앞 체인은 뒤에 난 체인의 커밋 조상이 된다 — 그래서 위상만 보면 모든
+        시조가 "첫 체인의 마지막 스텝에서 났다"고 그려졌다(실측: 여섯 중 다섯). 체인 계보는
+        이미 닫힘을 기준으로 이 거짓을 막는데(#53), 사이클 진입 부모는 같은 판정을 안 썼다.
+        조상관계는 사실이지만 계승은 아니다.
+        """
+        import json, re
+        html = self._build()          # login 이 나고 dev 로 합류·배포까지
+        self.gil("chain", "search", "--purpose", "검색", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        self.gil("open", "search/c1", "--author", "clew", "--purpose", "P",
+                 "--fits", "기여", "--body", "정의")
+        out_html = os.path.join(self.repo, "g6.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        data = json.loads(re.search(r'"cycledata"[^>]*>(.*?)</script>',
+                                    open(out_html, encoding="utf-8").read(), re.S).group(1))
+        c1 = [c for c in data["search"]["cycles"] if c["name"] == "c1"][0]
+        self.assertFalse(c1["parent"].startswith("login/"),
+                         f"나란히 간 체인을 이어받았다고 그린다: {c1['parent']}")
+
     def test_a_cycle_may_have_more_than_one_parent(self):
         """부모를 여럿 선언했으면 여럿으로 그린다 (상현님).
 
