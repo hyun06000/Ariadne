@@ -1096,6 +1096,7 @@ func layerGraphJSON() string {
 	// 갈라진 것처럼 보인다 — 그림이 없는 동시성을 만든다(상현님, 실사용 관전). 자리는 선언이
 	// 아니라 사실이 정한다: 어느 층의 일인가는 선언이, 어디서 갈라졌나는 커밋 부모가.
 	devRoots := map[string]string{}
+	devRootSHA := "" // 층이 대문에서 갈라진 그 커밋 — devorder 는 여기서부터다(그 앞은 대문).
 	var chainOrder []string
 	for _, rec := range strings.Split(string(out), "\x1e") {
 		rec = strings.Trim(rec, "\n")
@@ -1118,6 +1119,9 @@ func layerGraphJSON() string {
 				fork = first9(ps[0])
 			}
 			devRoots[chain] = fork
+		}
+		if kind == "dev-root" {
+			devRootSHA = first9(f[0])
 		}
 		// 선언이 층을 정한다. 순서가 곧 우선순위다 — 합류는 **받는 쪽**의 일이고(그래서
 		// --into 가 먼저), 그다음이 그 커밋이 속한 체인이다.
@@ -1188,6 +1192,16 @@ func layerGraphJSON() string {
 				}
 			}
 			break
+		}
+		// 층이 개설된 커밋부터가 dev 다. 그 앞은 대문(main)이 산 구간이라, 층 줄에 얹으면
+		// 대문의 커밋을 dev 의 것으로 세게 된다 — 층 그림이 세는 수가 틀린다.
+		if devRootSHA != "" { // devSeq 는 최신부터 — 층의 뿌리에서 잘라낸다
+			for i, s := range devSeq {
+				if s == devRootSHA {
+					devSeq = devSeq[:i+1]
+					break
+				}
+			}
 		}
 		for i := len(devSeq) - 1; i >= 0; i-- { // git log 는 최신부터 — 뒤집어 오래된 것부터
 			if i < len(devSeq)-1 {
@@ -1683,6 +1697,8 @@ svg.dag{display:block}
 .lanelive.lane-main{stroke:#e0574a}
 .lanelive.lane-dev{stroke:#2dd4bf}
 .laneedge.deploy{stroke:#e0574a}
+/* dev 층이 산 걸음 — 사건(갈라짐·합류)이 아닌 커밋. 작고 흐리게: 세는 데 쓰이되 사건을 이기지 않게. */
+.lanestep{fill:#2dd4bf;opacity:.45}
 .lanedot.dev{fill:#2dd4bf}
 .lanedot.main{fill:#e0574a}
 .lanetag{font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;text-anchor:middle;fill:#e0574a}
@@ -2755,26 +2771,56 @@ function buildStepMap(){
     });
     // 그리고 **다른 커밋이면 다른 자리**여야 한다. 자리를 그 체인의 첫 점에서만 끌어오면,
     // 나중에 난 체인이 (합류가 없어 깊이가 얕은 탓에) 앞 체인과 같은 x 로 도로 겹친다 —
-    // 고치려던 그 거짓이 그대로 돌아온다. 그래서 dev 순서가 다르면 최소 SEP 만큼 벌린다.
-    // 간격은 눈금이 아니라 **순서의 표시**다: 층 줄에는 depth 축이 없다.
-    const SEP=14;
+    // 고치려던 그 거짓이 그대로 돌아온다. 그래서 dev 커밋 **하나하나에 자리를 준다**.
+    //
+    // 자리를 주고 나면 그 자리에 점을 찍을 수 있다. 그러면 층 줄이 세는 그림이 된다:
+    // 두 갈라짐 사이에 놓인 작은 점의 수 = 그 사이 dev 가 쌓은 커밋 수. 간격만으로는
+    // "먼저·나중"까지만 읽혔고, "얼마나 뒤"는 못 읽혔다(직전 매듭에서 남긴 한계).
+    const devSeq=LAYER.devorder||[];
+    // 간격: 사건들이 원하는 자리를 담되, 커밋이 많으면 줄여 층 줄 안에 들어오게. 층 줄에는
+    // depth 축이 없으니 간격은 눈금이 아니다 — 세는 것은 점이고, 간격은 점이 겹치지 않을 만큼.
+    const SEP=Math.max(6, Math.min(14, (xR-60-xDevStart)/Math.max(1,devSeq.length-1)));
+    // 사건이 원하는 자리(합류는 그 체인 마지막 점에서 내려오는 자리).
+    const wantX={};
+    const put=(i,x)=>{ if(i===undefined||i===null||!isFinite(i))return;
+      wantX[i]=(i in wantX)?Math.max(wantX[i],x):x; };
+    Object.keys(forkX).forEach(k=>put(Number(k), forkX[k]));
+    const mergeAt={};
+    evs.filter(e=>e.kind==='merge').forEach(e=>{
+      const x1=X(e.node.sha), y1=Y(e.node.sha);
+      mergeAt[e.at]=Math.min(xR-40, x1+runFor(y1-yDev)); put(e.at, mergeAt[e.at]);
+    });
+    // 왼→오른으로 훑으며 자리를 굳힌다: 앞 커밋보다 최소 SEP 오른쪽, 원하는 자리가 있으면 거기.
+    const devX=[]; let xRun=xDevStart;
+    devSeq.forEach((sha,i)=>{
+      xRun = i===0 ? xDevStart : Math.max(xRun+SEP, (i in wantX)?wantX[i]:xRun+SEP);
+      devX.push(Math.min(xRun, xR-8)); xRun=devX[i];
+    });
+    const atX=i=>(ordered && devX[i]!==undefined) ? devX[i] : xDevStart;
+    // dev 커밋 자체를 점으로 — 사건이 아닌 커밋은 작게(층이 산 걸음), 사건 자리는 아래에서
+    // 제 색으로 덧그린다. 이름은 그 커밋의 제목 그대로: 뷰어는 요약하지 않는다.
+    const subjOf={}; (LAYER.rows||[]).forEach(c=>{ subjOf[c.sha]=c.subj||''; });
+    devSeq.forEach((sha,i)=>{
+      if(i===0)return; // 층 시작점은 위에서 이미 찍었다
+      const c=svgEl('circle',{class:'lanestep',cx:atX(i),cy:yDev,r:2.5});
+      c.appendChild(svgEl('title',{},'dev '+(i)+'걸음: '+(subjOf[sha]||sha)));
+      svg.appendChild(c);
+    });
     const devEvents=[xDevStart];
-    let xPrev=xDevStart, atPrev=null;
     evs.forEach(e=>{
-      const gap = (atPrev===null || e.at===atPrev) ? 0 : SEP;
       if(e.kind==='fork'){
         // 갈라진 자리는 그 체인의 첫 점보다 왼쪽이어야 한다(원인이 결과보다 뒤에 설 수 없다).
-        const x=Math.min(Math.max(xPrev+gap, forkX[e.at]), Math.max(xDevStart, X(e.node.sha)-r*2));
+        const x=Math.min(atX(e.at), Math.max(xDevStart, X(e.node.sha)-r*2));
         curve(x,yDev,X(e.node.sha),Y(e.node.sha),'start',
           '출발: dev → '+e.chain+' (계보상 시조 — 대문은 물려받는다)');
         if(x>xDevStart) dot(x,yDev,'dev','갈라짐: dev → '+e.chain);
-        devEvents.push(x); xPrev=Math.max(xPrev,x); atPrev=e.at;
+        devEvents.push(x);
       }else{
         const x1=X(e.node.sha), y1=Y(e.node.sha);
-        const x2=Math.max(xPrev+gap, Math.min(xR-40, x1+runFor(y1-yDev)));
+        const x2=isFinite(e.at)?atX(e.at):Math.min(xR-40, x1+runFor(y1-yDev));
         curve(x1,y1,x2,yDev,'merge','합류: '+e.chain+' → dev (gil merge)');
         dot(x2,yDev,'dev','합류: '+e.chain+' → dev');
-        devEvents.push(x2); xPrev=Math.max(xPrev,x2); atPrev=e.at;
+        devEvents.push(x2);
       }
     });
     // (4) dev → 대문(gil deploy). **마지막 합류 자리에서** 오른다 — 허공에서 시작하지 않는다.
@@ -2942,7 +2988,7 @@ function buildStepMap(){
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
   if(MAP_DEPTH==='step')
-    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 맨 위 두 줄=<b class="lg-main">main</b>(대문, 배포된 것만 온다)·<b class="lg-dev">dev</b>(모든 작업이 시작하는 층) — 층을 건너는 굵은 선이 출발·합류(gil merge)·배포(gil deploy)다. 점선 박스=사이클(박스 위 작은 글씨=사이클 이름), 점=스텝. <b>체인 이름은 점·박스에 올리면 뜬다</b>(글자를 줄여 그림을 살렸다). <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 맨 위 두 줄=<b class="lg-main">main</b>(대문, 배포된 것만 온다)·<b class="lg-dev">dev</b>(모든 작업이 시작하는 층) — 층을 건너는 굵은 선이 출발·합류(gil merge)·배포(gil deploy)다. <b class="lg-dev">dev 줄 위의 작은 점</b>은 그 층이 쌓은 커밋 하나 — 두 갈라짐 사이의 점을 세면 그 사이 dev 가 몇 걸음 갔는지 읽힌다(점에 올리면 제목이 뜬다).점선 박스=사이클(박스 위 작은 글씨=사이클 이름), 점=스텝. <b>체인 이름은 점·박스에 올리면 뜬다</b>(글자를 줄여 그림을 살렸다). <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
   else
     leg.innerHTML=(MAP_DEPTH==='cycle'?'사이클':'체인')+' 단위 접힌 맵(<b>gil log --depth</b> 뷰어판) — 노드 하나=한 '+(MAP_DEPTH==='cycle'?'사이클':'체인')+'. <b class="lg-alive">초록</b>=solved(산 잎 있음), <b class="lg-dead">붉음</b>=dead, <b>⚡</b>=분기 밟은 solved(죽은 잎도 품음, 일자 solved 와 구분). 엣지=계보. 노드 클릭 → 그 '+(MAP_DEPTH==='cycle'?'사이클 첫 스텝':'체인 첫 사이클')+'으로 이동.';
   host.appendChild(leg);

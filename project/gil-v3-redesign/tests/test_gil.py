@@ -8215,6 +8215,37 @@ class TestLayerGraphInViewer(GilFixture):
         # 먼저 난 체인은 여전히 제자리에서 — 사실이 바뀌지 않았다.
         self.assertIn(data["devroots"]["login"], order)
 
+    def test_the_layer_counts_its_own_steps_not_the_gates(self):
+        """dev 줄이 세는 건 dev 가 쌓은 커밋이다 — 대문의 커밋까지 세면 수가 틀린다.
+
+        devorder 는 첫 부모 사슬을 거슬러 얻는데, 그 사슬은 층의 뿌리를 지나 대문(main)까지
+        이어진다. 자르지 않으면 층 줄이 대문의 걸음을 제 걸음으로 세고, 갈라진 자리도 그만큼
+        오른쪽으로 밀린다.
+        """
+        import json, re, subprocess
+        self._build()
+        # dev 가 스스로 자란다(평범 커밋도 층의 걸음이다).
+        self._git("checkout", "-q", "dev")
+        self._git("commit", "-q", "--allow-empty", "-m", "dev: 문서 정리")
+        out_html = os.path.join(self.repo, "g3.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        html = open(out_html, encoding="utf-8").read()
+        data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
+        order = data["devorder"]
+        # 첫 자리는 층이 개설된 커밋이다 — 그 앞(대문)은 이 줄의 것이 아니다.
+        root = subprocess.run(["git", "-C", self.repo, "log", "--format=%H",
+                               "--grep=Gil-Kind: dev-root", "dev"],
+                              capture_output=True, text=True).stdout.split()
+        self.assertTrue(root, "dev-root 커밋을 못 찾았다")
+        self.assertEqual(order[0], root[0][:9],
+                         f"층 줄이 대문의 커밋부터 세고 있다: {order}")
+        self.assertEqual(order[-1], subprocess.run(
+            ["git", "-C", self.repo, "rev-parse", "dev"],
+            capture_output=True, text=True).stdout.strip()[:9],
+            "층 줄의 끝이 dev 팁이 아니다")
+        # 그리고 층 줄 위의 걸음을 실제로 그린다.
+        self.assertIn("lanestep", html)
+
 
 class TestShippedDocsMatchTheRepo(GilFixture):
     """배포판이 심는 문서와 이 저장소의 문서가 같아야 한다 (2026-07-31).
