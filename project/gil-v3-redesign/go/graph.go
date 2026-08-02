@@ -964,15 +964,71 @@ func fsckChainStacking() []string {
 		}
 		declaredParallel[c][p] = true
 	}
+	// **층에서 난 시조는 아무것에도 얹혀 있지 않다.** 앞 체인이 dev 로 합류하면 그 체인의
+	// 루트는 dev 팁의 조상이 되고, 그래서 뒤에 dev 에서 난 모든 시조가 "앞 체인 위에 얹혔다"로
+	// 잡혔다 — main-dev-chain 의 **정상 흐름이 매번 위반으로 보고됐다**(실측: 7체인 저장소에서
+	// 거짓 위반 다섯). 조상관계는 사실이지만 적층은 아니다: 그 체인은 층에서 갈라졌다.
+	// (선언만 하고 실제로는 층 밖에서 갈라졌다면 fsckDevLayer 가 따로 짚는다 — 판정이 겹치지
+	// 않게 여기서는 선언을 믿고 비킨다.)
+	// 판정은 **선언이 아니라 실재**로 한다: 루트의 첫 부모가 dev 에서 닿으면 그 체인은 층에서
+	// 갈라진 것이다. 선언(Gil-Chain-Orphan)만 보면 --parallel-with 로 연 병렬 트랙이 빠진다 —
+	// 그건 형제와 **같은 자리**(즉 dev 의 그 커밋)에서 갈라지지만 시조 선언은 달지 않는다.
+	// (선언과 실재가 어긋나는 경우는 fsckDevLayer 가 따로 짚는다.)
+	devRooted := map[string]bool{}
+	if hasDevLayer() {
+		onDev := map[string]bool{}
+		for _, l := range strings.Split(gitlog("--format=%H", devBranchName), "\n") {
+			if s := strings.TrimSpace(l); s != "" {
+				onDev[s] = true
+			}
+		}
+		for ch, root := range roots {
+			par := strings.Fields(strings.TrimSpace(git("rev-list", "--parents", "-n", "1", root)))
+			if len(par) > 1 && onDev[par[1]] {
+				devRooted[ch] = true
+			}
+		}
+	}
 	for _, ch := range names {
+		if devRooted[ch] {
+			continue // 층에서 난 시조 — 앞선 체인 위가 아니라 층 위에 섰다
+		}
+		// **가장 가까운 조상 하나만 본다.** 체인이 어디서 났든, 그 자리보다 앞선 체인들은
+		// 전부 조상이 된다 — 계승으로 난 체인도, 병렬로 난 체인도 마찬가지다. 조상 전부를
+		// 걸면 정당하게 난 체인이 앞선 체인 수만큼 위반으로 불린다(실측: followup 이 계승인데도
+		// 그 앞 체인에 얹혔다고, 병렬 트랙이 앞선 셋 모두에 얹혔다고 보고됐다). 얹힘은 **바로
+		// 위**의 관계다: 가장 가까운 체인 조상이 곧 이 체인이 선 자리다.
+		var near []string
 		for _, other := range names {
+			if ch != other && gitOK("merge-base", "--is-ancestor", roots[other], roots[ch]) {
+				near = append(near, other)
+			}
+		}
+		nearest := ""
+		for _, c := range near { // 다른 후보의 조상이 아닌 것 = 가장 가까운 것
+			isAncestorOfOther := false
+			for _, d := range near {
+				if c != d && gitOK("merge-base", "--is-ancestor", roots[c], roots[d]) {
+					isAncestorOfOther = true
+					break
+				}
+			}
+			if !isAncestorOfOther {
+				nearest = c
+				break
+			}
+		}
+		for _, other := range names {
+			if other != nearest {
+				continue // 얹힘은 바로 위의 관계다
+			}
 			if ch == other || parents[ch] == other {
 				continue // 자기 자신이거나, 이미 진짜 계승으로 인정된 관계
 			}
 			if declaredParallel[ch][other] || declaredParallel[other][ch] {
 				continue // 사람이 병렬이라 선언했다 — 사고가 아니라 판단이다(이슈 #54)
 			}
-			if gitOK("merge-base", "--is-ancestor", roots[other], roots[ch]) {
+			{
 				out = append(out, "계보: 체인 "+ch+" — 루트가 체인 "+other+
 					" 위에 얹혀 있으나 계승이 아니다(그 체인은 닫힌 적 없다). 적층이다:\n"+
 					"    커밋 조상관계는 '이어받음'을 뜻하지 않는다 — 그래프는 이 둘을 잇지 않는다.\n"+

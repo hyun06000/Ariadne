@@ -8266,6 +8266,43 @@ class TestLayerGraphInViewer(GilFixture):
         self.assertIn("층 main ─ dev", txt, txt[:400])
         self.assertIn("search ← dev", txt, txt[:400])
 
+    def test_the_normal_flow_is_not_a_violation(self):
+        """층에서 난 시조는 앞 체인 위에 '얹힌' 것이 아니다 — fsck 가 정상 흐름을 짖었다.
+
+        앞 체인이 dev 로 합류하면 그 루트는 dev 팁의 조상이 되고, 뒤에 dev 에서 난 모든 체인이
+        '적층'으로 보고됐다(실측: 7체인 저장소에서 거짓 위반 다섯). 매번 짖는 검사는 아무도
+        안 듣는 검사가 된다 — 그러면 진짜 적층도 같이 묻힌다.
+        """
+        self._build()                    # login 이 나고 dev 로 합류·배포까지
+        self.gil("chain", "search", "--purpose", "검색", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        r = self.gil("fsck")
+        out = r.stdout + r.stderr
+        self.assertNotIn("적층이다", out, "정상 흐름(층에서 난 시조)을 적층으로 짖는다:\n" + out)
+        self.assertEqual(r.returncode, 0, out)
+
+    def test_a_parallel_track_starts_on_the_layer_too(self):
+        """병렬 트랙(--parallel-with)도 층에서 갈라진다 — 그림이 그 출발을 그려야 한다.
+
+        병렬은 형제와 **같은 dev 커밋**에서 갈라지지만 시조 선언(Gil-Chain-Orphan)은 안 단다.
+        선언만 보고 그리면 층에서 난 체인이 화면에서 미아로 선다 — 시조와 미아는 다르다.
+        """
+        import json, re
+        self._build()
+        self.gil("chain", "search", "--purpose", "검색", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        self.gil("open", "search/c1", "--author", "clew", "--purpose", "P",
+                 "--fits", "기여", "--body", "정의")   # search 를 열어 둔 채로
+        r = self.gil("chain", "obs", "--purpose", "관측", "--reference", "-",
+                     "--criterion", "된다", "--parallel-with", "search", input="기준")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out_html = os.path.join(self.repo, "g7.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>',
+                                    open(out_html, encoding="utf-8").read(), re.S).group(1))
+        self.assertIn("obs", data["devroots"],
+                      f"병렬 트랙의 출발이 층에 안 묶인다: {sorted(data['devroots'])}")
+
     def test_a_sibling_chain_is_not_an_heir(self):
         """층에서 난 시조는 앞 체인의 스텝에서 이어받지 않았다 (상현님, 실사용 관전).
 
@@ -9181,8 +9218,7 @@ class TestPrunedChainsAreNotJudgedAgain(GilFixture):
         self._ok(self.gil("init", "--name", "clew"), "init")
         self._git("checkout", "-q", "main")
         self._git("branch", "-D", "dev")
-        for name, extra in (("alpha", []), ("beta", ["--from", "alpha", "--inherit", "alpha 의 교훈"]),
-                            ("gamma", [])):
+        for name, extra in (("alpha", []), ("beta", ["--from", "alpha", "--inherit", "alpha 의 교훈"])):
             self._ok(self.gil("chain", name, "--purpose", name, "--reference", "-",
                               "--criterion", "C", *extra, input="기준"), f"chain {name}")
             self._ok(self.gil("open", f"{name}/c1", "--author", "clew", "--purpose", "P",
@@ -9200,6 +9236,21 @@ class TestPrunedChainsAreNotJudgedAgain(GilFixture):
             self._ok(self.gil("close", f"{name}/c1", "--verdict", "supported"), "close")
             self._ok(self.gil("chain-close", name, "--verdict", "supported",
                               "--retro", "-", input="회고"), f"chain-close {name}")
+        # gamma 는 alpha 의 **사이클 한복판**(닫힌 끝이 아닌 자리)에 손으로 심는다. gil 문법으로는
+        # 만들 수 없는 모양이라 손으로 심어야 한다 — 그게 바로 적층이다: 이어받지도 않았는데
+        # 남의 작업 위에 서 있다. (닫힌 끝에서 났다면 그건 계승이고, 적층이 아니다.)
+        mid = self._git("log", "--format=%H", "--grep=Gil-Step: s2", "alpha-c1").stdout.split()
+        self.assertTrue(mid, "alpha 의 사이클 한복판을 못 찾았다")
+        self._git("checkout", "-q", "-b", "gamma", mid[0])
+        self._git("commit", "-q", "--allow-empty", "-m",
+                  "gil gamma chain: 얹힘\n\n체인 [gamma] 개설.\n\n"
+                  "Gil-Chain: gamma\nGil-Kind: chain-root\nGil-Chain-Purpose: 얹힘\n"
+                  "Gil-Chain-Criterion: 된다\nGil-Reference: true\nGil-Interview: done")
+        self._ok(self.gil("open", "gamma/c1", "--author", "clew", "--purpose", "P",
+                          "--body", "정의", "--fits", "그 자체"), "open gamma")
+        self._ok(self.gil("step", "gamma/c1", "--kind", "hypothesis", "--title", "H",
+                          "--body", "가설", "--falsify", "F", "--falsify-to", "s1",
+                          "--plan", "구현 1개", "--advances", "경로"), "hypothesis gamma")
 
     def _prune(self, target):
         self._ok(self.gil("prune", target, "--request", "--reason", "이주 완료"), "prune --request")

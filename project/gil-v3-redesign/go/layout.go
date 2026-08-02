@@ -156,15 +156,6 @@ func promoteDevToMain(tag string) (bool, string) {
 	return true, ""
 }
 
-// fsckDevLayer — **층의 선언과 실재를 대조한다.**
-//
-// `Gil-Chain-Orphan: dev` 는 "나는 dev 에서 갈라졌다"는 선언이다. 트레일러에 그렇게 적고
-// 실제로는 다른 자리에서 갈라졌다면, 그 계보는 거짓이다 — v3.45.0 이 사이클에 세운 판정을
-// 층에도 그대로 세운다. 판정은 눈이 아니라 도구가 한다.
-//
-// 약한 검사를 경계한다: "dev 의 어느 커밋이든 조상이면 통과"로 짜면, dev 에서 난 체인 위에
-// 얹힌 체인도 통과한다(그 체인 역시 dev 의 자손이므로). 그래서 **부모 커밋이 dev 브랜치에서
-// 실제로 닿는 커밋인가**를 본다 — 체인 위에 얹혔다면 그 부모는 dev 에서 안 닿는다.
 // devLayerFacts — 층이 산 순서와, 각 체인이 **실제로** 갈라진 자리. 뷰어와 CLI 가 같은 답을
 // 하도록 한 군데서 센다: 두 표면이 다르면 사람은 어느 쪽을 믿을지부터 고민한다.
 //
@@ -175,10 +166,14 @@ type devLayerFactsT struct {
 	step  map[string]int    // sha9 → 층에서 몇 걸음째
 	subj  map[string]string // sha9 → 그 커밋 제목
 	forks map[string]string // 체인 → 갈라진 dev 커밋(sha9)
+	// 시조라고 **선언**한 체인(Gil-Chain-Orphan: dev). 갈라진 자리는 실재로 알지만, 선언은
+	// 따로 안다 — 병렬 트랙(--parallel-with)은 층에서 갈라지되 시조 선언을 달지 않는다.
+	declared map[string]bool
 }
 
 func devLayerFacts(run func(...string) ([]byte, error)) devLayerFactsT {
-	f := devLayerFactsT{step: map[string]int{}, subj: map[string]string{}, forks: map[string]string{}}
+	f := devLayerFactsT{step: map[string]int{}, subj: map[string]string{}, forks: map[string]string{},
+		declared: map[string]bool{}}
 	var seq []string // 최신부터
 	for _, ref := range []string{devBranchName, "origin/" + devBranchName} {
 		o, err := run("log", "--first-parent", "--format=%H"+fsep+"%s"+fsep+trailer("Gil-Kind")+sep, ref)
@@ -224,11 +219,20 @@ func devLayerFacts(run func(...string) ([]byte, error)) devLayerFactsT {
 		}
 		ch, r2, _ := cut(r1, fsep)
 		kind, orphan, _ := cut(r2, fsep)
-		if strings.TrimSpace(kind) != "chain-root" || strings.TrimSpace(orphan) != devBranchName {
+		if strings.TrimSpace(kind) != "chain-root" {
 			continue
 		}
-		if ps := strings.Fields(par); len(ps) > 0 && strings.TrimSpace(ch) != "" {
-			f.forks[strings.TrimSpace(ch)] = first9(ps[0])
+		// 선언이 아니라 **실재**로 싣는다: 첫 부모가 층 위면 그 체인은 층에서 갈라졌다.
+		// 선언만 보면 병렬 트랙의 출발이 그림에서 통째로 빠져, 층에서 난 체인이 미아로 보인다.
+		name := strings.TrimSpace(ch)
+		if name == "" {
+			continue
+		}
+		if strings.TrimSpace(orphan) == devBranchName {
+			f.declared[name] = true
+		}
+		if ps := strings.Fields(par); len(ps) > 0 {
+			f.forks[name] = first9(ps[0])
 		}
 	}
 	return f
@@ -253,6 +257,9 @@ func devForkLine(chain string) string {
 	}
 	i, on := f.step[sha]
 	if !on {
+		if !f.declared[chain] {
+			return "" // 층에서 난 체인이 아니다(계승·이주 등) — 여기서 할 말이 없다
+		}
 		return "  층: 이 체인은 dev 에서 갈라졌다고 선언했는데 실재는 dev 밖(" + sha + ")이다 — gil fsck 가 짚는다."
 	}
 	where := "층이 열린 그 자리"
@@ -263,6 +270,15 @@ func devForkLine(chain string) string {
 		"그 앞의 dev 는 물려받았고, 그 뒤의 dev 는 아직 모른다."
 }
 
+// fsckDevLayer — **층의 선언과 실재를 대조한다.**
+//
+// `Gil-Chain-Orphan: dev` 는 "나는 dev 에서 갈라졌다"는 선언이다. 트레일러에 그렇게 적고
+// 실제로는 다른 자리에서 갈라졌다면, 그 계보는 거짓이다 — v3.45.0 이 사이클에 세운 판정을
+// 층에도 그대로 세운다. 판정은 눈이 아니라 도구가 한다.
+//
+// 약한 검사를 경계한다: "dev 의 어느 커밋이든 조상이면 통과"로 짜면, dev 에서 난 체인 위에
+// 얹힌 체인도 통과한다(그 체인 역시 dev 의 자손이므로). 그래서 **부모 커밋이 dev 브랜치에서
+// 실제로 닿는 커밋인가**를 본다 — 체인 위에 얹혔다면 그 부모는 dev 에서 안 닿는다.
 func fsckDevLayer() []string {
 	if !hasDevLayer() {
 		return nil

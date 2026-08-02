@@ -1214,8 +1214,26 @@ func layerGraphJSON() string {
 	lay := devLayerFacts(func(a ...string) ([]byte, error) { return viewerGit(a...) })
 	sb.WriteString(`],"devroots":{`)
 	{
+		// 층에서 난 체인 = **갈라진 자리가 층 위인** 체인. 선언(Gil-Chain-Orphan)만 보면
+		// --parallel-with 로 연 병렬 트랙이 빠진다 — 그건 형제와 같은 dev 커밋에서 갈라지는데
+		// 시조 선언은 안 단다. 그러면 층에서 난 체인이 화면에서 미아로 선다.
+		// (선언은 했는데 실재가 층 밖이면 그대로 실어 보낸다 — fsck 가 짚을 거짓이다.)
+		pick := map[string]string{}
+		for c, fork := range lay.forks {
+			if _, on := lay.step[fork]; on {
+				pick[c] = fork
+			}
+		}
+		for c, fork := range devRoots {
+			if _, ok := pick[c]; !ok {
+				if f, ok2 := lay.forks[c]; ok2 {
+					fork = f
+				}
+				pick[c] = fork
+			}
+		}
 		var dr []string
-		for c := range devRoots { // 선언(Gil-Chain-Orphan)이 있는 체인만 — 시조와 미아는 다르다
+		for c := range pick {
 			dr = append(dr, c)
 		}
 		sort.Strings(dr)
@@ -1223,11 +1241,7 @@ func layerGraphJSON() string {
 			if i > 0 {
 				sb.WriteString(",")
 			}
-			fork := devRoots[c]
-			if f, ok := lay.forks[c]; ok {
-				fork = f
-			}
-			sb.WriteString(fmt.Sprintf("%q:%q", c, fork))
+			sb.WriteString(fmt.Sprintf("%q:%q", c, pick[c]))
 		}
 	}
 	// devorder — dev 층이 산 순서(첫 부모 사슬, 오래된 것부터, 층이 열린 커밋에서 자른다).

@@ -996,7 +996,7 @@ func renderText(g graphView) {
 			}
 			if i, on := lay.step[sha]; on {
 				fmt.Printf("  ├─ %s ← dev %d걸음째 (%s %s)\n", ch.name, i, sha, clip(lay.subj[sha], 40))
-			} else {
+			} else if lay.declared[ch.name] {
 				fmt.Printf("  ├─ %s ← dev 선언, 실재는 dev 밖(%s) ⚠ gil fsck\n", ch.name, sha)
 			}
 		}
