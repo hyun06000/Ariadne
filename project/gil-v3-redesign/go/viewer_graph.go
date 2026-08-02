@@ -901,6 +901,7 @@ func cmdViewer(args []string) {
 	sub := ""
 	out := ""
 	port := "8790"
+	lang := ""
 	rest := args
 	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub = rest[0]
@@ -923,6 +924,13 @@ func cmdViewer(args []string) {
 				out = rest[i+1]
 				i++
 			}
+		// 화면 언어의 **기본값**. 이 상위 파서가 추려서 넘기는 구조라, 여기 없으면 플래그는
+		// 조용히 사라진다 — serve 쪽에만 넣어 두고 안 먹는 걸 한참 찾았다.
+		case "--lang":
+			if i+1 < len(rest) {
+				lang = rest[i+1]
+				i++
+			}
 		// --open: 시스템 브라우저까지 연다. **기본은 조용히 서버만 띄우는 것**이다 — 자동으로
 		// 튀어나오는 창은 도움보다 방해였다(이슈 #48). 주소는 stdout 에 그대로 나온다.
 		case "--open":
@@ -933,7 +941,11 @@ func cmdViewer(args []string) {
 	}
 	switch sub {
 	case "serve":
-		serve([]string{"--port", port})
+		sa := []string{"--port", port}
+		if lang != "" {
+			sa = append(sa, "--lang", lang)
+		}
+		serve(sa)
 	case "list":
 		// 어느 포트가 어느 저장소를 보는가(이슈 #93 곁다리). 포트 폴백으로 뷰어가 세션마다
 		// 겹겹이 쌓이는데, 그걸 알 방법이 없어 사람이 남의 그래프를 자기 것으로 읽었다.

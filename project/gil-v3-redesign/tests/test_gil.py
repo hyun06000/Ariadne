@@ -8857,6 +8857,81 @@ class TestMCPVersionAsk(GilFixture):
         self.assertNotIn("올릴까요", t, "최신인데 물었다:\n" + t)
 
 
+class TestViewerLanguages(GilFixture):
+    """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
+
+    gil 의 주 독자는 에이전트고 에이전트는 한국어를 읽는다. 그러니 영어·중국어의 실익은 거의
+    전적으로 **사람 관전자**에게 있다 — 관전 도구부터가 맞는 순서다.
+
+    여기서 지키는 것은 셋이다: (1) 사전에 구멍이 없다 (2) 한국어 화면이 이 갈아끼움으로
+    바뀌지 않았다 (3) 사람이 쓴 글은 어느 언어에서도 번역되지 않는다."""
+
+    LANGS = ["ko", "en", "zh-CN", "zh-TW"]
+
+    def _build(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "demo", "--purpose", "뷰어 언어 테스트")
+        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "합 100")
+        self.gil("step", "demo/c001", "--kind", "success", "--title", "찾음")
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            return f.read()
+
+    def _dict(self, html):
+        import json, re
+        m = re.search(r'id="i18ndata"[^>]*>(.*?)</script>', html, re.S)
+        self.assertIsNotNone(m, "사전이 페이지에 실리지 않았다")
+        return json.loads(m.group(1))
+
+    def test_no_key_is_missing_in_any_language(self):
+        """**조용히 한국어로 떨어지면 낡은 화면을 아무도 모른다.**
+
+        방금 고친 버전 문의와 같은 실패 모양이다 — 기구는 있는데 그 자리에 서 있지 않은 것.
+        번역이 빠지면 여기서 이름으로 떨어진다."""
+        payload = self._dict(self._build())
+        self.assertEqual(payload["langs"], self.LANGS)
+        missing = [f"{k}/{l}" for k, row in payload["dict"].items()
+                   for l in self.LANGS if not (row.get(l) or "").strip()]
+        self.assertEqual(missing, [], "사전에 구멍이 있다: " + ", ".join(sorted(missing)))
+
+    def test_placeholders_survive_every_translation(self):
+        """{files} 같은 자리표시자가 번역에서 사라지면 화면에 숫자가 안 뜬다 — 조용한 오답이다."""
+        import re
+        payload = self._dict(self._build())
+        bad = []
+        for k, row in payload["dict"].items():
+            want = set(re.findall(r"\{(\w+)\}", row["ko"]))
+            for l in self.LANGS:
+                if set(re.findall(r"\{(\w+)\}", row[l])) != want:
+                    bad.append(f"{k}/{l}")
+        self.assertEqual(bad, [], "자리표시자가 어긋난다: " + ", ".join(sorted(bad)))
+
+    def test_korean_markup_is_untouched(self):
+        """갈아끼움은 한국어 화면을 바꾸지 않는다 — 마크업에 원문이 그대로 박혀 있고,
+        그래서 JS 가 죽어도 화면이 비지 않는다."""
+        html = self._build()
+        self.assertIn("gil — 사고의 지도", html)
+        self.assertIn("전체맵", html)
+        self.assertIn("정적 스냅샷", html)
+
+    def test_user_written_text_is_never_translated(self):
+        """체인 이름·스텝 제목은 **사람이 쓴 것**이다. 옮기면 기록을 위조하는 것이다."""
+        payload = self._dict(self._build())
+        blob = repr(payload["dict"])
+        for written in ("demo", "뷰어 언어 테스트", "찾음"):
+            self.assertNotIn(written, blob,
+                             f"사용자가 쓴 글 '{written}' 이 번역 사전에 들어갔다")
+
+    def test_serve_rejects_an_unknown_language(self):
+        """모르는 언어를 조용히 무시하면 사람은 왜 안 바뀌는지 모른다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("viewer", "serve", "--lang", "xx", "--port", "0")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("모르는 언어", r.stdout + r.stderr)
+
+
 class TestViewerOwnership(GilFixture):
     """**포트가 열렸다는 사실은 주인을 말해 주지 않는다** (상현님).
 

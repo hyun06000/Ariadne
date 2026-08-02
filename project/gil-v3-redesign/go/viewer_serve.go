@@ -199,6 +199,15 @@ func serve(args []string) {
 			port = args[i+1]
 			i++
 		}
+		// --lang 은 **기본값**일 뿐이다. 사람이 화면에서 고른 적이 있으면 그 선택이 이긴다 —
+		// 도구가 사람의 선택을 매번 되돌리면 그건 설정이 아니라 강요다.
+		if args[i] == "--lang" && i+1 < len(args) {
+			if !i18nSupported(args[i+1]) {
+				die("거부: 모르는 언어 " + args[i+1] + " — 쓸 수 있는 것: " + strings.Join(i18nLangs, " · "))
+			}
+			viewerLang = args[i+1]
+			i++
+		}
 	}
 	viewerServeMode = true // die/gilExit 가 이 프로세스를 죽이지 않는다(요청 하나만 끝난다)
 	viewerLogOpen(port)
@@ -632,14 +641,21 @@ func renderHTML(g graphView, static bool) string {
 	}
 
 	var b strings.Builder
+	// 마크업에는 한국어 원문을 그대로 두고 `data-i18n` 만 단다 — JS 가 죽어도 화면이 비지
+	// 않는다. 갈아끼움은 applyLang() 이 첫 걸음에서 한다(viewer_i18n.go).
 	b.WriteString(`<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gil 그래프 뷰어</title>
+<title` + i18nAttr("app.title") + `>` + i18nT("app.title") + `</title>
 <style>` + css + `</style></head><body>
-<header><h1>gil — 사고의 지도</h1>
-<button id="gohere" class="gohere" title="현재위치(HEAD)로 — 작업중이면 그 자리로">▼ 현재위치로</button>
-<span class="meta">체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
-		itoa(g.tipCount) + `개 · ` + liveIndicator(static) + workBadge(g, static) + `</span></header>
+<header><h1` + i18nAttr("app.h1") + `>` + i18nT("app.h1") + `</h1>
+<button id="gohere" class="gohere" title="` + i18nT("head.gohere.title") + `" data-i18n-title="head.gohere.title"` +
+		i18nAttr("head.gohere") + `>` + i18nT("head.gohere") + `</button>
+<span class="meta"><span` + i18nAttr("head.meta") + i18nArgs(map[string]string{
+		"chains": itoa(len(g.chains)), "steps": itoa(g.nodeCount), "tips": itoa(g.tipCount),
+	}) + `>체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
+		itoa(g.tipCount) + `개</span> · ` + liveIndicator(static) + workBadge(g, static) + `</span>
+<span id="langpick" class="langpick"></span></header>
+<script id="i18ndata" type="application/json">` + i18nPayload() + `</script>
 <main>`)
 	// 인터뷰 폼(이슈 #33): 사람 답을 기다리는 인터뷰 요구가 있으면 최상단에 폼을 띄운다.
 	// 정적 build(서버 없음)엔 제출할 곳이 없어 감춘다. JS(buildInterviews)가 질문 JSON 을 읽어
@@ -660,7 +676,7 @@ func renderHTML(g graphView, static bool) string {
 		b.WriteString(`<script id="interviewdata" type="application/json">` + interviewsJSON(g) + `</script>`)
 	}
 	if len(g.chains) == 0 {
-		b.WriteString(`<p class="empty">아직 gil 체인이 없다. 체인을 만들면 여기 노드로 나타난다.</p>`)
+		b.WriteString(`<p class="empty"` + i18nAttr("empty") + `>` + i18nT("empty") + `</p>`)
 	} else {
 		// ── 이 화면 읽는 법(필드테스트) ────────────────────────────────────────────
 		// 노드가 무엇을 뜻하는지 모르는 사람이 너무 많았다. 관전 도구는 관전자를 가르치지
@@ -731,10 +747,8 @@ func renderHTML(g graphView, static bool) string {
 		// 탭 없이 세로로: 안내 → 전체맵 → (접힘)체인 → (접힘)사이클 → 스텝 → 디테일.
 		// 기본 열림은 **전체맵·스텝 그래프·스텝 디테일** 셋이다(필드테스트: 처음 온 사람은
 		// 체인/사이클 그래프보다 "지금 무슨 걸음을 밟고 있나"를 먼저 봐야 한다).
-		b.WriteString(`<section class="pane"><h2 class="panehead">전체맵 <span id="depthseg" class="depthseg">` +
-			`<button data-depth="chain" title="체인 단위 — 국면 계보만">체인</button>` +
-			`<button data-depth="cycle" title="사이클 단위 — 각 사이클 상태·분기(⚡)">사이클</button>` +
-			`<button data-depth="step" class="on" title="스텝 단위 — 모든 스텝 커밋 DAG">스텝</button>` +
+		b.WriteString(`<section class="pane"><h2 class="panehead"><span` + i18nAttr("map.head") + `>` + i18nT("map.head") + `</span> <span id="depthseg" class="depthseg">` +
+			depthBtn("chain", "") + depthBtn("cycle", "") + depthBtn("step", " class=\"on\"") +
 			`</span></h2><div id="view-map"></div></section>`)
 		// 층(main·dev)은 **따로 그리지 않는다**(상현님). 전체맵이 이미 좋은 그림이라,
 		// 같은 사실을 두 번 그리면 사람은 어느 쪽을 봐야 하는지부터 고민한다. 데이터만
@@ -783,9 +797,9 @@ func renderHTML(g graphView, static bool) string {
 // liveIndicator — serve 모드면 폴링 상태 표시(● live), 정적 build 면 스냅샷 표시.
 func liveIndicator(static bool) string {
 	if static {
-		return `<span class="meta">정적 스냅샷</span>`
+		return `<span class="meta"` + i18nAttr("head.static") + `>` + i18nT("head.static") + `</span>`
 	}
-	return `<span id="live">● live</span>`
+	return `<span id="live"` + i18nAttr("head.live") + `>` + i18nT("head.live") + `</span>`
 }
 
 // workBadge — 헤더에 미커밋 작업 요약을 단다. serve(라이브)에서만 의미 있다 —
@@ -795,7 +809,16 @@ func workBadge(g graphView, static bool) string {
 	if static || !g.work.dirty {
 		return ""
 	}
-	return ` · <span class="work">✎ 작업중: ` + esc(g.work.summary()) + `</span>`
+	// 숫자는 자리표시자로 넘기고 문장은 사전이 짓는다 — 어순이 다른 언어에서 조각을 이어붙이면
+	// 부서진다. 마크업에 박히는 한국어 원문은 JS 가 죽었을 때의 바닥이다.
+	key := "head.work"
+	args := map[string]string{"files": itoa(g.work.files)}
+	if g.work.added > 0 || g.work.deleted > 0 {
+		key = "head.work.diff"
+		args["added"] = itoa(g.work.added)
+		args["deleted"] = itoa(g.work.deleted)
+	}
+	return ` · <span class="work"` + i18nAttr(key) + i18nArgs(args) + `>✎ 작업중: ` + esc(g.work.summary()) + `</span>`
 }
 
 // nodes SVG 를 edges 뒤 별도 <g id="nodes"> 에 넣기 위해 renderHTML 의 svg 조립을
@@ -1744,6 +1767,10 @@ button.lchip:hover{border-color:var(--node);color:var(--node)}
 .lchip.lbranch{border-color:#ff6b6b;border-style:dashed}
 .lchip.lchain{border-color:var(--here);color:var(--here);background:none}
 .lchip.ldim{border:none;background:none;color:var(--dim)}
+/* 화면 언어 토글 — 헤더 끝에 조용히. 관전자가 자기 언어를 못 찾으면 이 화면은 그림일 뿐이다. */
+.langpick{ margin-left:auto; }
+.langsel{ font:12px system-ui,sans-serif; padding:3px 6px; border-radius:6px;
+  border:1px solid var(--line,#ccc); background:transparent; color:inherit; cursor:pointer; }
 /* 세로 스택 pane — 탭 없이 전체맵→체인→사이클→스텝→디테일 순으로 펼침 */
 .pane{margin:0 0 22px}
 .panehead{font-size:13px;font-weight:700;color:var(--dim);margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
@@ -1971,6 +1998,91 @@ poll();
 `
 
 const js = `
+// ── 화면 언어 ──────────────────────────────────────────────────────────────────
+// 사전은 페이지에 통째로 실려 온다(viewer_i18n.go). 그래서 토글이 왕복 없이 즉시 먹고,
+// 서버 없는 정적 출력에서도 그대로 돈다. 마크업의 한국어 원문은 그대로 두고 갈아끼우므로
+// JS 가 죽어도 화면은 비지 않는다.
+const I18N=JSON.parse(document.getElementById('i18ndata')?.textContent||'{}');
+const I18N_KEY='gil.viewer.lang';
+
+// pickLang — 사람이 고른 적이 있으면 그게 이긴다. 없으면 --lang, 그다음 브라우저 언어.
+// 브라우저가 'zh-Hant-TW'·'zh-HK' 처럼 말해도 번체로 알아듣는다(en-US → en 도 같은 이치).
+function pickLang(){
+  const langs=I18N.langs||['ko'];
+  const saved=localStorage.getItem(I18N_KEY);
+  if(saved&&langs.includes(saved)) return saved;
+  if(I18N.default&&langs.includes(I18N.default)) return I18N.default;
+  for(const raw of (navigator.languages||[navigator.language||''])){
+    const m=normLang(raw,langs);
+    if(m) return m;
+  }
+  return langs[0];
+}
+function normLang(raw,langs){
+  if(!raw) return '';
+  const t=raw.toLowerCase();
+  if(langs.includes(raw)) return raw;
+  if(t.startsWith('zh')){
+    // 번체를 쓰는 자리를 먼저 가른다 — 아니면 대만·홍콩 사람이 간체 화면을 받는다.
+    const hant=t.includes('hant')||t.includes('-tw')||t.includes('-hk')||t.includes('-mo');
+    const want=hant?'zh-TW':'zh-CN';
+    if(langs.includes(want)) return want;
+  }
+  const base=t.split('-')[0];
+  for(const l of langs) if(l.toLowerCase().split('-')[0]===base) return l;
+  return '';
+}
+let LANG=pickLang();
+
+// T — 키 하나를 지금 언어로. 없는 키는 **눈에 보이게** 남긴다(조용히 한국어로 떨어지면
+// 낡은 화면을 아무도 모른다 — 누락은 시험이 잡지만, 화면에서도 숨기지 않는다).
+function T(key,args){
+  const row=(I18N.dict||{})[key];
+  let s=row?(row[LANG]||row['ko']||''):('⟦'+key+'⟧');
+  if(args) for(const k in args) s=s.split('{'+k+'}').join(args[k]);
+  return s;
+}
+// applyLang — data-i18n 이 달린 자리를 훑어 갈아끼운다. title 속성은 data-i18n-title 로.
+function applyLang(){
+  document.documentElement.lang=LANG;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    let args=null;
+    const raw=el.getAttribute('data-i18n-args');
+    if(raw){ try{ args=JSON.parse(raw); }catch(e){} }
+    el.innerHTML=T(el.getAttribute('data-i18n'),args);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el=>{
+    el.title=T(el.getAttribute('data-i18n-title'));
+  });
+  const t=T('app.title'); if(t) document.title=t;
+}
+function setLang(l){
+  LANG=l;
+  localStorage.setItem(I18N_KEY,l);
+  applyLang();
+  // 토글은 화면의 **거울**이다. 브라우저 언어로 자동 선택된 자리에서 어긋나면, 사람은
+  // 자기가 무슨 언어를 보고 있는지 토글에게 물어볼 수 없게 된다.
+  const sel=document.querySelector('.langsel');
+  if(sel&&sel.value!==l) sel.value=l;
+  // 그림 안의 글(범례 등)은 다시 그려야 바뀐다 — 그 자리는 innerHTML 이 아니라 코드가 만든다.
+  if(typeof buildStepMap==='function'){ try{ buildStepMap(); }catch(e){} }
+}
+function buildLangToggle(){
+  const host=document.getElementById('langpick');
+  if(!host) return;
+  const sel=document.createElement('select');
+  sel.className='langsel';
+  sel.setAttribute('aria-label',T('lang.label'));
+  (I18N.langs||[]).forEach(l=>{
+    const o=document.createElement('option');
+    o.value=l; o.textContent=(I18N.names||{})[l]||l; o.selected=(l===LANG);
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change',()=>{ setLang(sel.value); sel.title=T('lang.note'); });
+  sel.title=T('lang.note');
+  host.appendChild(sel);
+}
+
 const SVGNS='http://www.w3.org/2000/svg';
 const DATA=JSON.parse(document.getElementById('cycledata')?.textContent||'{}');
 const PARENTS=JSON.parse(document.getElementById('parentdata')?.textContent||'{}');
@@ -3234,9 +3346,9 @@ function buildStepMap(){
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
   if(MAP_DEPTH==='step')
-    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 맨 위 두 줄=<b class="lg-main">main</b>(대문, 배포된 것만 온다)·<b class="lg-dev">dev</b>(모든 작업이 시작하는 층) — 층을 건너는 굵은 선이 출발·합류(gil merge)·배포(gil deploy)다. <b class="lg-dev">dev 줄 위의 작은 점</b>은 그 층이 쌓은 커밋 하나 — 두 갈라짐 사이의 점을 세면 그 사이 dev 가 몇 걸음 갔는지 읽힌다(점에 올리면 제목이 뜬다). 점선 박스=사이클(박스 위 작은 글씨=사이클 이름), 점=스텝. <b>체인 이름은 점·박스에 올리면 뜬다</b>(글자를 줄여 그림을 살렸다). <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+    leg.innerHTML=T('map.legend.step');
   else
-    leg.innerHTML=(MAP_DEPTH==='cycle'?'사이클':'체인')+' 단위 접힌 맵(<b>gil log --depth</b> 뷰어판) — 노드 하나=한 '+(MAP_DEPTH==='cycle'?'사이클':'체인')+'. <b class="lg-alive">초록</b>=solved(산 잎 있음), <b class="lg-dead">붉음</b>=dead, <b>⚡</b>=분기 밟은 solved(죽은 잎도 품음, 일자 solved 와 구분). 엣지=계보. 노드 클릭 → 그 '+(MAP_DEPTH==='cycle'?'사이클 첫 스텝':'체인 첫 사이클')+'으로 이동.';
+    leg.innerHTML=T(MAP_DEPTH==='cycle'?'map.legend.folded.cycle':'map.legend.folded.chain');
   host.appendChild(leg);
 }
 // isLeaf — 이 노드를 부모로 삼는 gil 스텝이 없으면 잎(사이클 결말: 산 잎 or 죽은 잎).
@@ -3903,6 +4015,7 @@ function step(name, fn){
     document.body.insertBefore(b, document.body.firstChild);
   }
 }
+step('화면 언어', ()=>{ applyLang(); buildLangToggle(); }); // 그림보다 먼저 — 범례가 맞는 언어로 나야 한다
 step('전체맵', buildStepMap);          // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
 step('체인그래프 줌', enableChainGraphZoom); // 이슈 #79
 step('인터뷰 폼', buildInterviews);     // 사람 답 대기 인터뷰 폼(이슈 #33)
