@@ -203,6 +203,13 @@ func tool[In any](s *mcp.Server, name, desc string, argv func(In) []string, run 
 			if name == "gil_log" || name == "gil_handoff" || name == "gil_fsck" {
 				out = repoBanner() + out
 			}
+			// 버전 문의는 **어느 툴을 부르든** 맨 앞에 선다. MCP 는 cmd* 를 직접 부르므로
+			// main 의 부팅 자리(versionAskPrint)를 지나지 않는다 — 그래서 MCP 호스트로 도는
+			// 세션만 낡은 gil 을 쥔 줄 끝까지 몰랐다(실사용: 최신이 나왔는데 구버전으로 계속 돎).
+			// 6시간 규칙이 같이 서니 세션당 한 번이고, handoff 는 제 현행성 배너가 이미 묻는다.
+			if name != "gil_handoff" {
+				out = versionAskBanner() + out
+			}
 			return text(out), nil, nil
 		})
 }

@@ -81,15 +81,27 @@ func cmdVersion(args []string) {
 // 값을 치르지 않는다: 소스 빌드(dev)는 대조할 릴리스가 없으니 건너뛰고, 조회는 1.5초로
 // 끊고, 저장소마다 6시간에 한 번만 묻는다(명령마다 물으면 잡음이 되어 안 읽힌다).
 
+// 두 간격은 서로 다른 것을 막는다. **묻는 것**을 되풀이하면 잡음이 되니 6시간(사람이 이미
+// "아니오"라 답했을 수 있다). **조회**는 조용해도 도장이 찍히던 것이 문제였다 — 최신이거나
+// 오프라인이면 아무 말도 안 하면서 6시간을 태웠고, 그 사이 릴리스가 나면 세션은 끝까지 몰랐다.
+// 조회는 값이 싸다(1.5초·캐시). 그러니 조용한 확인은 1시간이면 충분하다.
 const versionAskInterval = 6 * time.Hour
+const versionCheckInterval = time.Hour
 
-// versionAskStamp — 이 클론이 마지막으로 물어본 시각(.git 안 — 커밋되지 않는다).
-func versionAskStamp() string {
+// versionAskStamp — 이 클론이 마지막으로 **물어본** 시각과 그때의 최신 태그(.git 안 — 커밋되지
+// 않는다). 태그를 함께 적는 이유: 그 사이에 **더 새 릴리스**가 나오면 6시간을 기다리지 않고
+// 다시 묻는다. 침묵의 목적은 같은 말을 반복하지 않는 것이지, 새 소식을 막는 것이 아니다.
+func versionAskStamp() string { return versionStampPath("version-asked") }
+
+// versionCheckStamp — 마지막으로 **조회한** 시각. 네트워크를 아끼는 자리일 뿐, 문의를 막지 않는다.
+func versionCheckStamp() string { return versionStampPath("version-checked") }
+
+func versionStampPath(name string) string {
 	dir := strings.TrimSpace(git("rev-parse", "--git-dir"))
 	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "gil", "version-asked")
+	return filepath.Join(dir, "gil", name)
 }
 
 // versionAskLines — 최신이 더 높으면 사람에게 물을 줄들. 물을 것이 없으면 nil.
@@ -110,27 +122,33 @@ func versionAskLines() []string {
 	if latest == "" && cur == "dev" {
 		return nil
 	}
-	// 6시간 규칙은 주입된 길에도 똑같이 선다 — 시험이 밟는 길과 실사용의 길이 다르면
-	// 시험은 실사용을 검증하지 않는다.
-	if !versionAskDue() {
-		return nil
-	}
+	// 조회 간격은 **네트워크를 아끼는 자리**일 뿐이다. 그러니 아낄 네트워크가 없는 길
+	// (주입)에는 서지 않는다 — 여기에 세워 두면 문의 규칙이 아니라 조회 규칙을 시험하게 된다.
 	if latest == "" {
+		if !versionCheckDue() {
+			return nil
+		}
 		var err error
 		latest, err = latestTagTimeout(1500 * time.Millisecond)
 		if err != nil {
-			markVersionAsked() // 오프라인이면 6시간 뒤에 다시 — 매 명령마다 매달리지 않는다
+			markVersionChecked() // 오프라인이면 한 시간 뒤에 다시 — 매 명령마다 매달리지 않는다
 			return nil
 		}
+		markVersionChecked()
 	}
 	// **뒤로 올리라고 물으면 안 된다.** 같은지 다른지가 아니라 **더 높은지**를 본다. 릴리스
 	// 직전의 바이너리는 아직 안 올라간 태그를 각인하고 있어서, 다름만 보면 방금 구운 것을
 	// 두고 "옛 버전으로 올릴까요"라고 묻는다(릴리스 자산 실측에서 잡혔다).
 	if latest == "" || !versionNewer(latest, cur) {
-		markVersionAsked()
+		return nil // 조용히 지나간 자리에 **문의** 도장을 찍지 않는다
+	}
+	// 여기까지 왔으면 물을 것이 있다. 같은 버전을 이미 물었다면 6시간은 쉰다 — 그러나
+	// **더 새 것이 나왔다면 그 침묵을 깬다.** 그러지 않으면 릴리스가 난 직후의 세션이 통째로
+	// 침묵 구간에 갇힌다(구버전으로 한 세션을 다 보내는 실패의 절반이 여기였다).
+	if latest == lastAskedVersion() && !versionAskDue() {
 		return nil
 	}
-	markVersionAsked()
+	markVersionAsked(latest)
 	return []string{
 		"  ⚠ 새 gil 버전이 있다: " + latest + " (지금 이 자리는 " + cur + ")",
 		"    **사람에게 물어라**: \"gil " + latest + " 이 나왔습니다. 지금 올릴까요?\"",
@@ -139,9 +157,13 @@ func versionAskLines() []string {
 	}
 }
 
-// versionAskDue — 이 저장소에서 마지막 문의로부터 versionAskInterval 이 지났나.
-func versionAskDue() bool {
-	p := versionAskStamp()
+// versionAskDue — 이 저장소에서 마지막 **문의**로부터 versionAskInterval 이 지났나.
+func versionAskDue() bool { return stampDue(versionAskStamp(), versionAskInterval) }
+
+// versionCheckDue — 마지막 **조회**로부터 versionCheckInterval 이 지났나.
+func versionCheckDue() bool { return stampDue(versionCheckStamp(), versionCheckInterval) }
+
+func stampDue(p string, d time.Duration) bool {
 	if p == "" {
 		return false // git 저장소가 아니면 기록할 자리가 없다 — 묻지 않는다(매번 묻게 되므로)
 	}
@@ -150,29 +172,59 @@ func versionAskDue() bool {
 		return true
 	}
 	n := int64(0)
-	fmt.Sscanf(strings.TrimSpace(string(b)), "%d", &n)
-	return time.Since(time.Unix(n, 0)) >= versionAskInterval
+	fmt.Sscanf(strings.TrimSpace(strings.SplitN(string(b), "\t", 2)[0]), "%d", &n)
+	return time.Since(time.Unix(n, 0)) >= d
 }
 
-func markVersionAsked() {
+// lastAskedVersion — 마지막으로 물었을 때의 최신 태그(없으면 "").
+func lastAskedVersion() string {
 	p := versionAskStamp()
+	if p == "" {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	f := strings.SplitN(strings.TrimSpace(string(b)), "\t", 2)
+	if len(f) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(f[1])
+}
+
+func markVersionAsked(latest string) {
+	writeStamp(versionAskStamp(), fmt.Sprintf("%d\t%s\n", time.Now().Unix(), latest))
+}
+
+func markVersionChecked() {
+	writeStamp(versionCheckStamp(), fmt.Sprintf("%d\n", time.Now().Unix()))
+}
+
+func writeStamp(p, s string) {
 	if p == "" {
 		return
 	}
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
-	_ = os.WriteFile(p, []byte(fmt.Sprintf("%d\n", time.Now().Unix())), 0o644)
+	_ = os.WriteFile(p, []byte(s), 0o644)
 }
 
 // versionAskPrint — 부팅·온보딩 자리에서 한 번 묻는다. 물을 것이 없으면 아무 말도 하지 않는다.
 func versionAskPrint() {
+	if s := versionAskBanner(); s != "" {
+		outRaw(strings.TrimSuffix(s, "\n")) // 부팅 출력은 빈 줄 하나만 남긴다
+	}
+}
+
+// versionAskBanner — 같은 문의를 **한 덩이 텍스트로**. MCP 응답 앞머리에 붙이려면 필요하다:
+// MCP 툴은 cmd* 를 직접 불러 main 의 부팅 자리를 지나지 않으므로(mcp.go 의 tool 래퍼), 거기서만
+// 버전 문의가 통째로 빠져 있었다 — 호스트가 MCP 를 쓰는 세션은 낡은 gil 을 쥔 줄 끝까지 몰랐다.
+func versionAskBanner() string {
 	L := versionAskLines()
 	if len(L) == 0 {
-		return
+		return ""
 	}
-	println2("── gil 버전 ──")
-	for _, ln := range L {
-		println2(ln)
-	}
+	return "── gil 버전 ──\n" + strings.Join(L, "\n") + "\n\n"
 }
 
 // latestTag — GitHub releases/latest 의 tag_name (기본 타임아웃 httpc=15s).

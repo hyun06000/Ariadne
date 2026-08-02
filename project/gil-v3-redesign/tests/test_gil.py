@@ -8753,6 +8753,109 @@ class TestVersionAsk(GilFixture):
         r = self._boot(extra={"GIL_NO_VERSION_CHECK": "1"})
         self.assertNotIn("올릴까요", r.stdout)
 
+    def test_a_silent_check_does_not_burn_the_ask(self):
+        """**조용히 지나간 확인이 6시간을 태우면 안 된다.**
+
+        실측(릴리스 바이너리): `gil init` 이 최신이라 아무 말 없이 도장을 찍었고, 그 뒤 6시간은
+        새 릴리스가 나도 통째로 침묵했다. 소스 빌드(dev)는 확인 자체를 건너뛰어 시험이 이 길을
+        아예 밟지 못했다 — 그래서 릴리스에서만 나는 결함이었다."""
+        self.gil("init", "--name", "clew")
+        quiet = self._boot(latest="v3.0.0")               # 최신이다 → 조용히 지나간다
+        self.assertNotIn("올릴까요", quiet.stdout)
+        later = self._boot(latest="v9.9.9")               # 그 사이 릴리스가 났다
+        self.assertIn("올릴까요", later.stdout,
+                      "조용한 확인이 문의를 6시간 잠갔다:\n" + later.stdout)
+
+    def test_a_newer_release_breaks_the_silence(self):
+        """같은 말은 되풀이하지 않되, **새 소식은 침묵을 깬다.**
+
+        사람이 "아니오"라 답한 그 버전을 다시 묻지 않는 게 6시간의 목적이다. 그 목적은 더 새
+        릴리스가 나온 순간 끝난다 — 아니면 릴리스 직후 세션이 침묵 구간에 갇힌다."""
+        self.gil("init", "--name", "clew")
+        self.assertIn("올릴까요", self._boot(latest="v9.9.9").stdout)
+        self.assertNotIn("올릴까요", self._boot(latest="v9.9.9").stdout, "같은 버전을 또 물었다")
+        self.assertIn("올릴까요", self._boot(latest="v9.9.10").stdout,
+                      "더 새 릴리스가 났는데 6시간 침묵에 갇혔다")
+
+    def test_docs_install_asks_too(self):
+        """온보딩을 **심는** 자리도 묻는다.
+
+        낡은 gil 이 진입점을 심으면 그 저장소는 처음부터 낡은 워크플로우를 배운다. docs 는
+        부팅 스위치에서 통째로 빠져 있어 여기서만 문의가 없었다."""
+        self.gil("init", "--name", "clew")
+        env = dict(os.environ, GIL_NO_VIEWER="1",
+                   GIL_VERSION_LATEST="v9.9.9", GIL_VERSION_CURRENT="v3.0.0")
+        r = subprocess.run([*GIL_CMD, "docs", "install"], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("올릴까요", r.stdout, "문서를 심는 자리가 안 물었다:\n" + r.stdout)
+
+    def test_gate_block_puts_version_check_before_handoff(self):
+        """대문에 심는 진입점은 **도구 현행성부터** 짚는다.
+
+        이 블록이 다음 세션이 실제로 읽는 레일이다. 여기에 버전 줄이 없으면, 세션은 gil 이
+        이미 깔려 있다는 이유로 낡은 채 handoff 로 직행한다(실사용에서 반복된 실패)."""
+        self.gil("init", "--name", "clew")
+        self.gil("docs", "install")
+        with open(os.path.join(self.repo, "CLAUDE.md"), encoding="utf-8") as f:
+            whole = f.read()
+        # gil 이 관리하는 구간만 본다 — 대문의 나머지는 사람의 것이고 순서를 단언할 수 없다.
+        t = whole.split("<!-- gil:onboarding:begin -->")[1].split("<!-- gil:onboarding:end -->")[0]
+        self.assertIn("gil version --check", t, "진입점에 버전 확인이 없다:\n" + t)
+        self.assertIn("올릴까요", t, "진입점이 알리기만 하고 묻지 않는다")
+        self.assertLess(t.index("gil version --check"), t.index("gil handoff"),
+                        "버전 확인이 handoff 뒤에 있다 — 낡은 도구로 이어받게 된다")
+
+
+class TestMCPVersionAsk(GilFixture):
+    """**MCP 로 도는 세션만 버전 문의를 한 번도 못 받았다** (상현님 실사용).
+
+    mcp.go 의 tool 래퍼는 cmd* 를 직접 부른다 — main 의 부팅 자리(versionAskPrint)를 지나지
+    않는다. CLI 세션은 묻는데 MCP 세션은 안 묻는, 경로에 따라 갈리는 침묵이었다. 그래서
+    최신이 나와도 구버전으로 세션을 통째로 보냈다."""
+
+    def _tool_text(self, tool="gil_log", env_extra=None):
+        import json
+        env = dict(os.environ, GIL_NO_VIEWER="1",
+                   GIL_VERSION_LATEST="v9.9.9", GIL_VERSION_CURRENT="v3.0.0")
+        env.update(env_extra or {})
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        read = lambda: json.loads(p.stdout.readline())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                             "clientInfo": {"name": "t", "version": "1"}}})
+            read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": tool, "arguments": {}}})
+            return read()["result"]["content"][0]["text"]
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
+    def test_tool_response_asks_when_newer_exists(self):
+        self.gil("init", "--name", "clew")
+        t = self._tool_text()
+        self.assertIn("v9.9.9", t, "MCP 응답에 새 버전이 없다:\n" + t)
+        self.assertIn("올릴까요", t, "MCP 툴이 버전업을 묻지 않았다:\n" + t)
+
+    def test_asks_once_then_stays_quiet(self):
+        """6시간 규칙은 MCP 에도 똑같이 선다 — 툴마다 물으면 잡음이 되어 안 읽힌다."""
+        self.gil("init", "--name", "clew")
+        self.assertIn("올릴까요", self._tool_text())
+        self.assertNotIn("올릴까요", self._tool_text())
+
+    def test_no_ask_when_up_to_date(self):
+        self.gil("init", "--name", "clew")
+        t = self._tool_text(env_extra={"GIL_VERSION_LATEST": "v3.0.0"})
+        self.assertNotIn("올릴까요", t, "최신인데 물었다:\n" + t)
+
 
 class TestViewerOwnership(GilFixture):
     """**포트가 열렸다는 사실은 주인을 말해 주지 않는다** (상현님).

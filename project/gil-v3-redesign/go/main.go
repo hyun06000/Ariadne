@@ -78,7 +78,12 @@ func main() {
 	// 새 세션을 열면 init 도 handoff 도 안 부르는 경로가 흔하고, 그러면 그 세션 내내 뷰어가
 	// 없다). init·handoff 는 자기 자리에서 브라우저까지 여니 여기서 중복하지 않는다.
 	switch cmd {
-	case "help", "-h", "--help", "version", "init", "handoff", "viewer", "docs", "mcp":
+	case "help", "-h", "--help", "version", "init", "handoff", "viewer", "mcp":
+		// 자기 자리에서 이미 묻거나(init·handoff), 물을 자리가 아니다(help·version·서버).
+	case "docs":
+		// 온보딩을 저장소에 심는 자리다 — 낡은 gil 이 심으면 그 저장소는 처음부터 낡은
+		// 진입점을 배운다. 뷰어는 띄우지 않되 버전은 묻는다.
+		versionAskPrint()
 	default:
 		ensureViewer()
 		// 부팅(세션의 첫 접촉)에서 버전업을 **묻는다**. 저장소마다 6시간에 한 번이라
