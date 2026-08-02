@@ -265,21 +265,25 @@ func cyclePurpose(chain, cycle, revRange string) string {
 
 // showPurposeContext — 시작 지점에서 목적성을 stderr에 띄운다(정합은 AI가 판단).
 // 참조: _show_purpose_context.
+// **어디에 서 있든 같은 브리핑이 뜬다.** 옛 코드는 HEAD 에서 닿는 범위만 봤다 — 체인 브랜치는
+// dev 나 다른 체인에서 안 닿으므로, 서 있는 자리에 따라 "체인의 목적"과 "기준 문서가 있다"가
+// 통째로 사라졌다(실측: dev 에 서서 open 하면 두 줄이 안 뜬다). 이 브리핑은 **읽히려고**
+// 있는 것이라, 조용히 빠지면 그 자리에서 목적을 다시 읽는 일 자체가 없어진다.
 func showPurposeContext(chain, cycle, cyclePurposeStr string) {
-	cp := chainPurpose(chain, "HEAD")
+	cp := chainPurpose(chain, "--branches")
 	if cp != "" {
 		stderr("─ 체인 [" + chain + "] 목적: " + cp)
 	}
 	// 이 체인에 기준 문서(레퍼런스 트루스)가 있으면 읽고 그에 비추어 정의·판정하라(이슈 #33).
 	// chain-root 커밋 본문에 전문이 있다 — 사이클의 define·가설·성패판정의 잣대.
-	if chainHasReference(chain, "HEAD") {
+	if chainHasReference(chain, "--branches") {
 		stderr("─ 이 체인엔 기준 문서(레퍼런스 트루스)가 있다 — 읽어라: gil log " + chain +
 			" (chain-root 본문) 또는 뷰어 체인 카드. 이 사이클의 정의·가설·성패를 그 기준에 비추어라.")
 	}
 	if cycle != "" {
 		pu := cyclePurposeStr
 		if pu == "" {
-			pu = cyclePurpose(chain, cycle, "HEAD")
+			pu = cyclePurpose(chain, cycle, "--branches")
 		}
 		if pu != "" {
 			stderr("─ 사이클 [" + cycle + "] 목적: " + pu)

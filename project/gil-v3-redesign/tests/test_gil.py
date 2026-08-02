@@ -8268,6 +8268,30 @@ class TestLayerGraphInViewer(GilFixture):
         self.assertIn("층 main ─ dev", txt, txt[:400])
         self.assertIn("search ← dev", txt, txt[:400])
 
+    def test_the_briefing_does_not_depend_on_where_you_stand(self):
+        """어디에 서 있든 같은 브리핑이 뜬다 (상현님).
+
+        체인 브랜치는 dev 나 다른 체인에서 안 닿는다. 그런데 브리핑은 HEAD 에서 닿는 범위만
+        봤다 — 그래서 서 있는 자리에 따라 "체인의 목적"과 "기준 문서가 있다"가 통째로 사라졌다.
+        이 두 줄은 **읽히려고** 있는 것이라, 조용히 빠지면 그 자리에서 목적을 다시 읽는 일
+        자체가 없어진다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "alpha", "--purpose", "알파의 목적", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        self.gil("open", "alpha/c1", "--author", "clew", "--purpose", "P",
+                 "--fits", "기여", "--body", "정의")
+        here = self.gil("step", "alpha/c1", "--kind", "hypothesis", "--title", "H", "--body", "가설",
+                        "--falsify", "F", "--falsify-to", "s1")
+        self.assertIn("체인 [alpha] 목적: 알파의 목적", here.stdout + here.stderr)
+        self._git("checkout", "-q", "dev")            # 층에 서서 같은 체인을 이어간다
+        there = self.gil("step", "alpha/c1", "--kind", "verify", "--title", "V", "--body", "검증",
+                         "--verdict", "supported")
+        out = there.stdout + there.stderr
+        self.assertIn("체인 [alpha] 목적: 알파의 목적", out,
+                      "dev 에 서니 체인의 목적이 브리핑에서 사라진다:\n" + out)
+        self.assertIn("기준 문서", out, "기준 문서가 있다는 사실도 사라진다:\n" + out)
+
     def test_the_full_map_draws_the_declared_parent_too(self):
         """전체맵은 커밋 부모로 그린다 — 그래서 선언한 둘째 부모가 통째로 빠졌다 (상현님).
 

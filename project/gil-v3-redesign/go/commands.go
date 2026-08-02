@@ -3256,7 +3256,9 @@ func cmdChain(args []string) {
 	if h := homeBranch(); (h == "main" || h == "master") && name == h {
 		die("거부: \"" + name + "\" 은 대문 브랜치다 — 배포된 것만 여기 온다(gil deploy).")
 	}
-	if chainPurpose(name, "HEAD") != "" {
+	// 이미 있나는 **모든 가지**에서 본다 — HEAD 에서 닿는 것만 보면, 다른 체인에 서 있을 때
+	// 같은 이름의 체인을 또 만들 수 있다(브랜치 이름 충돌로 걸리기 전까지는 조용하다).
+	if chainPurpose(name, "--branches") != "" {
 		die("거부: 체인 \"" + name + "\" 이미 목적 선언됨 (chain은 새 체인만)")
 	}
 	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+name) {
@@ -3454,7 +3456,7 @@ func cmdChainMerge(args []string) {
 	if !idRe.MatchString(name) {
 		die("거부: 체인 이름 \"" + name + "\"은 소문자·숫자·하이픈만")
 	}
-	if chainPurpose(name, "HEAD") != "" {
+	if chainPurpose(name, "--branches") != "" {
 		die("거부: 체인 \"" + name + "\" 이미 존재")
 	}
 	if strings.TrimSpace(git("status", "--porcelain", "-uno")) != "" {
