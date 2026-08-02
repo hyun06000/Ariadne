@@ -1694,6 +1694,10 @@ svg.dag{display:block}
 /* 날것의 git 그래프 — 등폭 글꼴 그대로, 가로 스크롤(그래프 선이 깨지면 안 된다). */
 .ggwrap{margin-top:8px;padding:10px 12px;background:var(--card);border:1px solid var(--line);
  border-radius:8px;overflow-x:auto}
+/* 레인 이름 칸은 안 밀린다 — 그림만 스크롤한다(오른쪽을 봐도 어느 줄인지 안다). */
+.ggwrap.split{display:flex;gap:0;overflow-x:hidden}
+.gggutcol{flex:0 0 auto}
+.ggscroll{flex:1 1 auto;overflow-x:auto}
 .ggsvg{display:block}
 .ggedge{stroke-width:2;opacity:.85}
 .ggnode circle{stroke:var(--bg);stroke-width:1.2}
@@ -2659,6 +2663,32 @@ function buildStepMap(){
   // 층이 없는 저장소(옛 레이아웃)에서는 아무것도 하지 않는다 — 없는 층을 그리면 거짓말이다.
   const LAYER=(()=>{ try{ return JSON.parse(document.getElementById('layergraphdata')?.textContent||'{}'); }catch(e){ return {}; } })();
   const LAYERED=(LAYER.lanes||[]).includes('dev');
+  // ── 체인마다 제 띠(band) ────────────────────────────────────────────────
+  // 레인을 체인 무관하게 채우면, 커질수록 서로 다른 체인의 사이클이 세로로 뒤섞인다. 그러면
+  // 사이클 박스가 서로를 관통하고, 라벨은 겹침 회피에 밀려 통째로 생략된다(실측: 6체인 111
+  // 커밋에서 체인 이름이 하나도 안 그려졌다 — 겹침 대신 실종).
+  //
+  // 그래서 **한 체인은 붙어 있는 줄들만 쓴다.** 띠의 순서는 층의 선언(main·dev·체인들)과 같다 —
+  // 날것의 git 그래프도 같은 순서로 서므로, 세 그림의 세로축이 하나로 맞는다. 띠 안에서는
+  // 원래 규칙(첫 부모의 줄을 물려받고 다툴 때만 아래로)이 그대로 산다: 되돌아간 가지는 여전히
+  // 제 줄로 갈라진다.
+  (()=>{
+    const chains=[...new Set(VIS.map(n=>n.chain).filter(Boolean))];
+    if(chains.length<2)return;
+    const lanes=LAYER.lanes||[];
+    const key=c=>{ const i=lanes.indexOf(c); return i>=0?i:lanes.length+chains.indexOf(c); };
+    chains.sort((a,b)=>key(a)-key(b));
+    let base=0, top=0;
+    chains.forEach(c=>{
+      const ns=VIS.filter(n=>n.chain===c);
+      const rows=[...new Set(ns.map(n=>row[n.sha]))].sort((a,b)=>a-b);
+      const rank={}; rows.forEach((r,i)=>rank[r]=i);
+      ns.forEach(n=>{ row[n.sha]=base+rank[row[n.sha]]; });
+      top=Math.max(top, base+rows.length-1);
+      base+=rows.length;
+    });
+    maxRow=top;
+  })();
   const LMERGE=[], LDEPLOY=[];
   (LAYER.rows||[]).forEach(c=>{
     const m=/^gil merge: (\S+) → (\S+)/.exec(c.subj||'');
@@ -2830,10 +2860,15 @@ function buildStepMap(){
       svg.appendChild(c);
     });
     const devEvents=[xDevStart];
+    // "원인이 결과보다 뒤에 설 수 없다"는 clamp 가 **순서를 이기지 못하게** 한다. 체인들의 첫
+    // 점이 같은 깊이에 서면 clamp 값이 같아져, 서로 다른 dev 커밋에서 난 갈라짐이 도로 한 점에
+    // 뭉쳤다(실측: 여섯 체인 중 넷이 x=230 에 포갬 — 고친 그 거짓이 스케일에서 되살아났다).
+    // 그래서 clamp 는 걸되, 앞 갈라짐보다는 언제나 오른쪽에 선다.
+    let xForkPrev=-1e9;
     evs.forEach(e=>{
       if(e.kind==='fork'){
-        // 갈라진 자리는 그 체인의 첫 점보다 왼쪽이어야 한다(원인이 결과보다 뒤에 설 수 없다).
-        const x=Math.min(atX(e.at), Math.max(xDevStart, X(e.node.sha)-r*2));
+        const x=Math.max(xForkPrev+6, Math.min(atX(e.at), Math.max(xDevStart, X(e.node.sha)-r*2)));
+        xForkPrev=x;
         curve(x,yDev,X(e.node.sha),Y(e.node.sha),'start',
           '출발: dev → '+e.chain+' (계보상 시조 — 대문은 물려받는다)');
         if(x>xDevStart) dot(x,yDev,'dev','갈라짐: dev → '+e.chain);
@@ -3259,28 +3294,34 @@ function buildGitGraph(){
   // 150px, 점과 이름이 서로 포개졌다(상현님: 너무 겹쳐서 안 보인다). 이제 칸 너비에서 칸 폭을
   // 거꾸로 잡고, SVG 를 그 크기 그대로 놓는다(넘치면 wrap 이 가로로 스크롤한다).
   const laneH=22, padY=16, r=3.5;
-  // 층 이름을 왼쪽에 세우면 그만큼 자리가 필요하다 — 이름과 점이 겹치면 둘 다 못 읽는다.
-  const padX=byLayer?86:14;
-  const avail=Math.max(320, (host.clientWidth||760)-28-140-padX);   // 140 = 오른쪽 이름표 자리
+  // 레인 이름은 **따로 선 칸**에 세운다(아래 gutter). 옛 방식은 그림 안에 그려서, 그림이
+  // 패널보다 넓어 가로로 스크롤하는 순간 이름이 같이 밀려 사라졌다 — 오른쪽을 보는 사람은
+  // 어느 줄이 어느 체인인지 알 수 없었다(실측: 그림 2294px, 패널 651px).
+  const GUT=byLayer?96:0;
+  const padX=14;
+  const avail=Math.max(320, (host.clientWidth||760)-28-140-GUT);   // 140 = 오른쪽 이름표 자리
   const colW=Math.max(26, Math.min(72, avail/Math.max(1,maxDepth)));
   const maxLane=maxL;
-  const W=Math.max(host.clientWidth-28||0, padX+14+Math.max(1,maxDepth)*colW+140);
+  const W=Math.max((host.clientWidth-28-GUT)||0, padX+14+Math.max(1,maxDepth)*colW+140);
   // 이름표가 아래·위로 한 줄씩 비킬 자리를 남긴다 — 자리가 없으면 비킴이 곧 실종이 된다.
   const H=padY*2+maxLane*laneH+34;
   const svg=svgEl('svg',{class:'ggsvg',viewBox:'0 0 '+W+' '+H,width:W,height:H});
   const X=sha=>padX+depth[sha]*colW, Y=sha=>padY+lane[sha]*laneH;
   const color=L=>['var(--node)','#3ddc84','#f59e0b','#e0574a','#2dd4bf','#a78bfa'][L%6];
   // 레인 이름 — 어느 줄이 무엇인지 말하지 않으면 순서를 맞춰 놓아도 대조가 안 된다.
+  // 이름은 gutter(안 밀리는 칸)에, 줄자(점선)는 그림 안에.
+  let gutter=null;
   if(byLayer){
+    gutter=svgEl('svg',{class:'gggutter',viewBox:'0 0 '+GUT+' '+H,width:GUT,height:H});
     const shown={}; rows.forEach(c=>{ shown[c.layer]=true; });
     LANES.concat(['(그 밖)']).forEach((nm,i)=>{
       if(nm!=='(그 밖)' && !shown[nm])return;
       if(nm==='(그 밖)' && maxL<LANES.length)return;
       const y=padY+i*laneH;
-      svg.appendChild(svgEl('line',{class:'gglanerule',x1:padX-6,y1:y,x2:W-6,y2:y}));
+      svg.appendChild(svgEl('line',{class:'gglanerule',x1:0,y1:y,x2:W-6,y2:y}));
       const t=svgEl('text',{class:'gglanename'+(nm==='main'?' main':(nm==='dev'?' dev':'')),
-        x:padX-12,y:y+3.5}); t.textContent=nm.length>11?nm.slice(0,10)+'…':nm;
-      t.appendChild(svgEl('title',{},nm)); svg.appendChild(t);
+        x:GUT-8,y:y+3.5}); t.textContent=nm.length>13?nm.slice(0,12)+'…':nm;
+      t.appendChild(svgEl('title',{},nm)); gutter.appendChild(t);
     });
   }
   rows.forEach(c=>{
@@ -3307,7 +3348,14 @@ function buildGitGraph(){
     (c.refs||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(rf=>{
       const head=/HEAD/.test(rf);
       const txt=rf.replace('HEAD -> ','▶ ').replace(/^tag: /,'🏷 ');
-      const w=txt.length*5.8+6, x=X(c.sha)+r+5, y0=Y(c.sha)+3.5;
+      const w=txt.length*5.8+6;
+      // 판 밖으로 나가면 잘린다 — 오른쪽 끝 커밋의 이름표가 그랬다(실측: 이름표 끝 2401px,
+      // 판 2294px). 넘칠 것 같으면 점 **왼쪽**에 붙인다. 자리를 못 찾는 것보다 방향을 바꾸는
+      // 편이 낫다.
+      const right=X(c.sha)+r+5;
+      const flip = right+w > W-6;
+      const x = flip ? Math.max(padX, X(c.sha)-r-5-w) : right;
+      const y0=Y(c.sha)+3.5;
       // 비키는 자리는 **그림 안**이어야 한다. 위로만 밀다가 viewBox 를 넘긴 이름표는 잘려서
       // 아예 사라졌다(login-c1·search-c1 이 y=-24 에 그려졌다) — 겹침을 고치려다 실종을 만든
       // 셈이다. 그래서 후보를 아래·위로 번갈아 내되, 판 밖은 후보에서 뺀다.
@@ -3320,7 +3368,14 @@ function buildGitGraph(){
       svg.appendChild(svgEl('text',{class:'ggreftxt'+(head?' head':''),x:x,y:y},txt));
     });
   });
-  const wrap=document.createElement('div'); wrap.className='ggwrap'; wrap.appendChild(svg);
+  const wrap=document.createElement('div'); wrap.className='ggwrap';
+  if(gutter){
+    const gcol=document.createElement('div'); gcol.className='gggutcol'; gcol.appendChild(gutter);
+    const scroll=document.createElement('div'); scroll.className='ggscroll'; scroll.appendChild(svg);
+    wrap.classList.add('split'); wrap.appendChild(gcol); wrap.appendChild(scroll);
+  }else{
+    wrap.appendChild(svg);
+  }
   host.replaceChildren(wrap);
 }
 (function initGitGraph(){
