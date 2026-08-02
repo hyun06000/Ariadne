@@ -1360,19 +1360,40 @@ func dagJSON(g graphView, static bool) string {
 	// 가장 가까운 조상 gil 스텝을 찾으려고. 사이클·체인 경계를 넘는 지식 전수(부모 사이클의
 	// 종결 스텝 → 자식 사이클 첫 스텝)가 이 건너뛰기로 진짜 엣지가 된다.
 	nonStepParents := commitParentMap()
+	stepOf := map[string]viewerNode{}
+	for _, n := range g.allNodes {
+		stepOf[n.sha] = n
+	}
 	// nearestStep — sha 조상에서 가장 가까운 gil 스텝 sha 들(비-스텝은 뚫고 올라감).
-	var nearestStep func(sha string, seen map[string]bool) []string
-	nearestStep = func(sha string, seen map[string]bool) []string {
-		if stepSHA[sha] {
-			return []string{sha}
+	//
+	// **체인을 넘는 엣지는 계승일 때만.** 체인 계보에 세운 판정(#53)을 전체맵의 선에도 그대로
+	// 적용한다. 안 그러면 나란히 간 체인이 조상으로 걸린다: 앞 체인이 dev 로 합류한 뒤 열린
+	// 사이클은 그 체인의 스텝을 커밋 조상으로 갖기 때문이다(실측: notification/c1/s1 이
+	// user-authentication/c3/s9 과 followup/c1/s5 두 곳에서 이어받은 것으로 그려졌고,
+	// c2/s1 은 병렬 트랙 observability 의 스텝에서 났다고 그려졌다).
+	//
+	// 버리기만 하면 **진짜 부모까지 잃는다** — 그 자리를 지나 더 올라가야 같은 체인의 앞
+	// 스텝이 나온다. 그래서 멈추지 않고 계속 거슬러 오른다.
+	var nearestStep func(own, sha string, seen map[string]bool) []string
+	nearestStep = func(own, sha string, seen map[string]bool) []string {
+		if st, ok := stepOf[sha]; ok {
+			if st.chain == own || g.parents[own] == st.chain {
+				return []string{sha} // 같은 체인이거나, 진짜 계승이다
+			}
+			// 나란히 간 체인 — 이 스텝은 부모가 아니다. 그 위로 계속 올라간다.
 		}
 		if seen[sha] {
 			return nil
 		}
 		seen[sha] = true
 		var out []string
-		for _, p := range nonStepParents[sha] {
-			out = append(out, nearestStep(p, seen)...)
+		src := nonStepParents[sha]
+		if st, ok := stepOf[sha]; ok {
+			src = st.gitParents // 스텝 커밋이지만 계승이 아니어서 뚫고 지나가는 경우
+			_ = st
+		}
+		for _, p := range src {
+			out = append(out, nearestStep(own, p, seen)...)
 		}
 		return out
 	}
@@ -1383,6 +1404,22 @@ func dagJSON(g graphView, static bool) string {
 		dagTuples = append(dagTuples, [4]string{n.chain + "\x01" + n.cycle, n.step, n.parent, n.supersedes})
 	}
 	dagGone := supersededIDs(dagTuples)
+	// 사이클 첫 스텝에만 붙인다 — 선언은 "이 사이클이 무엇을 잇는가"이지 스텝마다의 것이 아니다.
+	declaredCycleParents := map[string][]string{}
+	firstOfCycle := map[string]string{}
+	for _, n := range g.allNodes {
+		k := n.chain + "\x01" + n.cycle
+		if cur, ok := firstOfCycle[k]; !ok || stepNum(n.step) < stepNum(cur) {
+			firstOfCycle[k] = n.step
+		}
+	}
+	for k, refs := range cycleEntryParentsAll(g) {
+		declaredCycleParents[k] = refs
+	}
+	shaOfStepRef := map[string]string{}
+	for _, n := range g.allNodes {
+		shaOfStepRef[n.chain+"/"+n.cycle+"/"+n.step] = n.sha
+	}
 	var sb strings.Builder
 	sb.WriteString("[")
 	for i, n := range g.allNodes {
@@ -1394,11 +1431,7 @@ func dagJSON(g graphView, static bool) string {
 		seenP := map[string]bool{}
 		var ps []string
 		for _, p := range n.gitParents {
-			if stepSHA[p] {
-				ps = append(ps, p)
-			} else {
-				ps = append(ps, nearestStep(p, seenP)...)
-			}
+			ps = append(ps, nearestStep(n.chain, p, seenP)...)
 		}
 		sb.WriteString(fmt.Sprintf(
 			`{"sha":%q,"chain":%q,"cycle":%q,"step":%q,"kind":%q,"outcome":%q,"here":%t,"parents":[`,
@@ -1408,6 +1441,26 @@ func dagJSON(g graphView, static bool) string {
 				sb.WriteString(",")
 			}
 			sb.WriteString(fmt.Sprintf("%q", p))
+		}
+		sb.WriteString(`],"dparents":[`)
+		// 선언된 사이클 부모(open --parent) 중 **커밋 위상에 없는 것**. 전체맵은 커밋 부모로
+		// 그리므로, 두 갈래를 합친 사이클의 둘째 부모가 여기선 통째로 빠졌다(상현님: c4 의
+		// 부모가 하나다). 선언도 사실이다 — 다만 위상이 아니라 선언이라, 파선으로 구분해 그린다.
+		if n.step != "" && firstOfCycle[n.chain+"\x01"+n.cycle] == n.step {
+			have := map[string]bool{}
+			for _, p := range ps {
+				have[p] = true
+			}
+			j := 0
+			for _, ref := range declaredCycleParents[n.chain+""+n.cycle] {
+				if sha, ok := shaOfStepRef[ref]; ok && !have[sha] && sha != n.sha {
+					if j > 0 {
+						sb.WriteString(",")
+					}
+					sb.WriteString(fmt.Sprintf("%q", sha))
+					j++
+				}
+			}
 		}
 		sb.WriteString(fmt.Sprintf(`],"subj":%q`, n.subject))
 		if n.supersedes != "" {
@@ -1761,6 +1814,8 @@ svg.dag{display:block}
 .snode.gone{opacity:.42}
 .snode.gone circle{stroke-dasharray:3 3}
 .dnode.gone{opacity:.4}
+/* 선언된 부모(커밋 위상엔 없다) — 사실이되 다른 종류의 사실이라 파선으로. */
+.dedge.declared{stroke:var(--edge);stroke-width:1.6;stroke-dasharray:5 4;opacity:.75}
 /* 날것의 git 그래프 — 등폭 글꼴 그대로, 가로 스크롤(그래프 선이 깨지면 안 된다). */
 .ggwrap{margin-top:8px;padding:10px 12px;background:var(--card);border:1px solid var(--line);
  border-radius:8px;overflow-x:auto}
@@ -2719,6 +2774,10 @@ function buildStepMap(){
     return PARENTS[n.chain]===pn.chain;              // 체인 넘기는 진짜 계승일 때만
   });
   VIS.forEach(n=>{ n.gparents=gilParents(n); });
+  // 선언된 부모(위상에 없는 것) — 파선으로 함께 그린다. 접기(집계) 모드에서는 노드가 묶여
+  // 대응이 깨지므로 스텝 모드에서만 쓴다.
+  // 집계(사이클·체인) 모드에서는 노드가 묶여 스텝 대응이 깨지므로 선언 엣지를 쓰지 않는다.
+  VIS.forEach(n=>{ if(MAP_DEPTH!=='step'||!Array.isArray(n.dparents)) n.dparents=[]; });
   const kids={}; VIS.forEach(n=>{ n.gparents.forEach(p=>{ (kids[p]=kids[p]||[]).push(n.sha); }); });
   // x = 위상 깊이(시간, 왼→오른). 계보 부모→자식이 이 x축으로 이어진다. 계보가 끊긴 체인은
   // depth 0 에서 새로 시작한다 — 무관한 체인이 앞 체인 꼬리에 길게 붙지 않는다.
@@ -2905,8 +2964,15 @@ function buildStepMap(){
     // 정한다 — 층 줄에는 depth 축이 없으니 x 는 "몇 번째 사건인가"로만 읽혀야 한다.
     const devIdx={}; (LAYER.devorder||[]).forEach((s,i)=>{ devIdx[s]=i; });
     const ordered=(LAYER.devorder||[]).length>0;
+    // 체인의 **첫 걸음**은 깊이만으로 안 정해진다. 뿌리가 여럿일 수 있어서(계보가 끊긴
+    // 사이클도 깊이 0 이다), 깊이가 같으면 사이클 이름·스텝 번호로 가른다 — c1/s1 이
+    // c2/s1 보다 먼저다. 안 그러면 출발선이 엉뚱한 사이클에 붙어, 정작 첫 걸음은 층과
+    // 안 이어진 것처럼 보인다(상현님: c1/s1 이 dev 와 안 이어져 있다).
+    const stepNo=s=>{ const m=/^s(\d+)/.exec(s||''); return m?+m[1]:0; };
+    const firstKey=n=>[depth[n.sha], (n.cycle||''), stepNo(n.step)];
+    const lessKey=(a,b)=>{ for(let i=0;i<3;i++){ if(a[i]<b[i])return true; if(a[i]>b[i])return false; } return false; };
     const chainFirst=ch=>{ const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return null;
-      let f=ns[0]; ns.forEach(n=>{ if(depth[n.sha]<depth[f.sha]) f=n; }); return f; };
+      let f=ns[0]; ns.forEach(n=>{ if(lessKey(firstKey(n),firstKey(f))) f=n; }); return f; };
     const chainLast=ch=>{ const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return null;
       let l=ns[0]; ns.forEach(n=>{ if(depth[n.sha]>depth[l.sha]) l=n; }); return l; };
     const evs=[];
@@ -3081,6 +3147,13 @@ function buildStepMap(){
   function X_(d){ return padX+r+d*colW; }
   function Y_(rw){ return padTop+r+rw*rowH; }
   // 2) 엣지(부모→자식). backtrack 형제가지=빨강 파선. 경계 넘는(체인 전환) 엣지=주황.
+  VIS.forEach(n=>{ (n.dparents||[]).forEach(p=>{ if(!byId[p])return;
+    const x1=X(p),y1=Y(p),x2=X(n.sha),y2=Y(n.sha), mx=(x1+x2)/2;
+    const e=svgEl('path',{class:'dedge declared',fill:'none',
+      d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2});
+    e.appendChild(svgEl('title',{},'선언된 부모: '+byId[p].cycle+'/'+byId[p].step+' → '+n.cycle+'/'+n.step));
+    svg.appendChild(e);
+  }); });
   VIS.forEach(n=>{ n.gparents.forEach(p=>{ if(!byId[p])return;
     const x1=X(p),y1=Y(p),x2=X(n.sha),y2=Y(n.sha);
     const branch=n.parent&&n.parent!=='null'&&byId[p].step!==n.parent;

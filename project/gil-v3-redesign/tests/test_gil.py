@@ -8266,6 +8266,32 @@ class TestLayerGraphInViewer(GilFixture):
         self.assertIn("층 main ─ dev", txt, txt[:400])
         self.assertIn("search ← dev", txt, txt[:400])
 
+    def test_the_full_map_draws_the_declared_parent_too(self):
+        """전체맵은 커밋 부모로 그린다 — 그래서 선언한 둘째 부모가 통째로 빠졌다 (상현님).
+
+        두 갈래를 합친 사이클의 첫 스텝은 커밋 부모가 하나뿐이다(열 때 선 자리 하나). 선언도
+        사실이므로 함께 그리되, 위상이 아니라 선언이라 파선으로 구분한다.
+        """
+        import json, re
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "login", "--purpose", "로그인", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        for cy in ("c1", "c2"):
+            self.gil("open", f"login/{cy}", "--author", "clew", "--purpose", "P",
+                     "--fits", "기여", "--body", "정의")
+            self.gil("step", f"login/{cy}", "--kind", "success", "--title", "S", "--body", "종합")
+            self.gil("close", f"login/{cy}", "--verdict", "supported")
+        self.gil("open", "login/c3", "--author", "clew", "--purpose", "합친다", "--fits", "기여",
+                 "--parent", "c1", "--parent", "c2", "--inherit", "둘이 남긴 것", "--body", "정의")
+        out_html = os.path.join(self.repo, "g8.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        dag = json.loads(re.search(r'"dagdata"[^>]*>(\[.*?\])</script>',
+                                   open(out_html, encoding="utf-8").read(), re.S).group(1))
+        by = {n["sha"]: f'{n["cycle"]}/{n["step"]}' for n in dag}
+        c3s1 = [n for n in dag if n["cycle"] == "c3" and n["step"] == "s1"][0]
+        drawn = [by[p] for p in c3s1["parents"]] + [by[p] for p in c3s1.get("dparents", [])]
+        self.assertEqual(len(drawn), 2, f"부모 둘을 선언했는데 전체맵엔 {drawn} 뿐이다")
+
     def test_the_normal_flow_is_not_a_violation(self):
         """층에서 난 시조는 앞 체인 위에 '얹힌' 것이 아니다 — fsck 가 정상 흐름을 짖었다.
 
