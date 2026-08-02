@@ -984,6 +984,24 @@ func renderText(g graphView) {
 		work = "✎ 작업중 — " + g.work.summary() + " (미커밋)"
 	}
 	fmt.Printf("(스텝 노드 %d개, 현재위치 팁 %d개 · ▶=현재위치 · %s)\n\n", g.nodeCount, g.tipCount, work)
+	// 층을 맨 위에 — 화면(전체맵)이 두 줄로 말하는 것을 글로도 말한다. 뷰어에만 있으면
+	// 터미널로 일하는 쪽은 체인이 허공에 뜬 것으로 읽는다(그래서 지금 이 줄이 있다).
+	lay := devLayerFacts(func(a ...string) ([]byte, error) { return viewerGit(a...) })
+	if len(lay.order) > 0 {
+		fmt.Printf("층 main ─ dev (%d걸음)\n", len(lay.order)-1)
+		for _, ch := range g.chains {
+			sha, ok := lay.forks[ch.name]
+			if !ok {
+				continue
+			}
+			if i, on := lay.step[sha]; on {
+				fmt.Printf("  ├─ %s ← dev %d걸음째 (%s %s)\n", ch.name, i, sha, clip(lay.subj[sha], 40))
+			} else {
+				fmt.Printf("  ├─ %s ← dev 선언, 실재는 dev 밖(%s) ⚠ gil fsck\n", ch.name, sha)
+			}
+		}
+		fmt.Println()
+	}
 	for _, ch := range g.chains {
 		fmt.Printf("● 체인 %s\n", ch.name)
 		for _, cy := range ch.cycles {

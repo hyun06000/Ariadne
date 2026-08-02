@@ -8246,6 +8246,33 @@ class TestLayerGraphInViewer(GilFixture):
         # 그리고 층 줄 위의 걸음을 실제로 그린다.
         self.assertIn("lanestep", html)
 
+    def test_the_terminal_says_what_the_screen_says(self):
+        """같은 사실을 터미널도 말한다 — 뷰어에만 그리면 반쪽이다 (상현님).
+
+        층에서 **언제** 갈라졌는지는 판단에 쓰인다: 그 뒤 dev 가 쌓은 것을 이 체인은 아직
+        모른다. 그림에만 있으면 터미널로 일하는 쪽은 그걸 모른 채 "dev 에서 났다"까지만 알고
+        판단한다.
+        """
+        self._build()                       # login 이 나고, 배포로 dev 가 자랐다
+        self.gil("chain", "search", "--purpose", "검색", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        ctx = self.gil("context", "search")
+        out = ctx.stdout + ctx.stderr
+        self.assertIn("층:", out, "계보 브리핑이 층을 말하지 않는다: " + out)
+        self.assertRegex(out, r"dev \d+걸음째",
+                         "언제 갈라졌는지가 없다 — '어디서'만으론 무엇을 물려받았는지 모른다")
+        # 텍스트 지도도 층을 맨 위에 얹는다.
+        txt = self.gil("viewer", "--text").stdout
+        self.assertIn("층 main ─ dev", txt, txt[:400])
+        self.assertIn("search ← dev", txt, txt[:400])
+
+    def test_the_first_born_chain_forked_at_the_layers_own_root(self):
+        """먼저 난 체인은 0걸음째 — 층이 열린 그 자리다. 세는 기준이 대문이면 이 수가 커진다."""
+        self._build()
+        out = self.gil("context", "login").stdout + self.gil("context", "login").stderr
+        self.assertIn("층이 열린 그 자리", out,
+                      "층의 첫 체인이 0걸음째로 안 잡힌다(대문의 커밋까지 세고 있다): " + out)
+
 
 class TestShippedDocsMatchTheRepo(GilFixture):
     """배포판이 심는 문서와 이 저장소의 문서가 같아야 한다 (2026-07-31).

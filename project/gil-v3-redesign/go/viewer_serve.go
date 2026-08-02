@@ -1096,7 +1096,6 @@ func layerGraphJSON() string {
 	// 갈라진 것처럼 보인다 — 그림이 없는 동시성을 만든다(상현님, 실사용 관전). 자리는 선언이
 	// 아니라 사실이 정한다: 어느 층의 일인가는 선언이, 어디서 갈라졌나는 커밋 부모가.
 	devRoots := map[string]string{}
-	devRootSHA := "" // 층이 대문에서 갈라진 그 커밋 — devorder 는 여기서부터다(그 앞은 대문).
 	var chainOrder []string
 	for _, rec := range strings.Split(string(out), "\x1e") {
 		rec = strings.Trim(rec, "\n")
@@ -1119,9 +1118,6 @@ func layerGraphJSON() string {
 				fork = first9(ps[0])
 			}
 			devRoots[chain] = fork
-		}
-		if kind == "dev-root" {
-			devRootSHA = first9(f[0])
 		}
 		// 선언이 층을 정한다. 순서가 곧 우선순위다 — 합류는 **받는 쪽**의 일이고(그래서
 		// --into 가 먼저), 그다음이 그 커밋이 속한 체인이다.
@@ -1159,10 +1155,13 @@ func layerGraphJSON() string {
 		}
 		sb.WriteString(fmt.Sprintf("%q", l))
 	}
+	// 갈라진 자리와 층의 순서는 **CLI 와 같은 자에게 묻는다**(devLayerFacts). 화면과 터미널이
+	// 서로 다른 답을 하면, 사람은 어느 쪽을 믿을지부터 고민한다 — 뷰어만 고치는 건 반쪽이다.
+	lay := devLayerFacts(func(a ...string) ([]byte, error) { return viewerGit(a...) })
 	sb.WriteString(`],"devroots":{`)
 	{
 		var dr []string
-		for c := range devRoots {
+		for c := range devRoots { // 선언(Gil-Chain-Orphan)이 있는 체인만 — 시조와 미아는 다르다
 			dr = append(dr, c)
 		}
 		sort.Strings(dr)
@@ -1170,45 +1169,21 @@ func layerGraphJSON() string {
 			if i > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString(fmt.Sprintf("%q:%q", c, devRoots[c]))
+			fork := devRoots[c]
+			if f, ok := lay.forks[c]; ok {
+				fork = f
+			}
+			sb.WriteString(fmt.Sprintf("%q:%q", c, fork))
 		}
 	}
-	// devorder — dev 층이 산 순서(첫 부모 사슬, 오래된 것부터). 전체맵이 출발·합류를 이
-	// 순서대로 왼쪽→오른쪽에 놓는다. 순서가 없으면 "먼저 갈라진 것"과 "나중에 갈라진 것"이
-	// 한 점에 겹쳐, 사람은 git 그래프와 다른 그림을 보게 된다.
+	// devorder — dev 층이 산 순서(첫 부모 사슬, 오래된 것부터, 층이 열린 커밋에서 자른다).
+	// 전체맵이 출발·합류를 이 순서대로 왼쪽→오른쪽에 놓고, 커밋 하나하나를 점으로 찍는다.
 	sb.WriteString(`},"devorder":[`)
-	{
-		var devSeq []string
-		// 로컬에 dev 가 없는 신선한 클론도 있다(그래프가 refs/remotes 에만 있는 경우) — 그때는
-		// origin/dev 를 본다. 둘 다 없으면 순서 없이 넘기고, 화면은 옛 방식(한 점)으로 물러선다.
-		for _, ref := range []string{devBranchName, "origin/" + devBranchName} {
-			o, err := viewerGit("log", "--first-parent", "--format=%H", ref)
-			if err != nil {
-				continue
-			}
-			for _, l := range strings.Split(string(o), "\n") {
-				if l = strings.TrimSpace(l); l != "" {
-					devSeq = append(devSeq, first9(l))
-				}
-			}
-			break
+	for i, s := range lay.order {
+		if i > 0 {
+			sb.WriteString(",")
 		}
-		// 층이 개설된 커밋부터가 dev 다. 그 앞은 대문(main)이 산 구간이라, 층 줄에 얹으면
-		// 대문의 커밋을 dev 의 것으로 세게 된다 — 층 그림이 세는 수가 틀린다.
-		if devRootSHA != "" { // devSeq 는 최신부터 — 층의 뿌리에서 잘라낸다
-			for i, s := range devSeq {
-				if s == devRootSHA {
-					devSeq = devSeq[:i+1]
-					break
-				}
-			}
-		}
-		for i := len(devSeq) - 1; i >= 0; i-- { // git log 는 최신부터 — 뒤집어 오래된 것부터
-			if i < len(devSeq)-1 {
-				sb.WriteString(",")
-			}
-			sb.WriteString(fmt.Sprintf("%q", devSeq[i]))
-		}
+		sb.WriteString(fmt.Sprintf("%q", s))
 	}
 	sb.WriteString(`],"rows":[`)
 	for i, r := range rows {
@@ -1676,10 +1651,10 @@ svg.dag{display:block}
 /* 날것의 git 그래프 — 등폭 글꼴 그대로, 가로 스크롤(그래프 선이 깨지면 안 된다). */
 .ggwrap{margin-top:8px;padding:10px 12px;background:var(--card);border:1px solid var(--line);
  border-radius:8px;overflow-x:auto}
-.ggsvg{display:block;min-width:100%}
+.ggsvg{display:block}
 .ggedge{stroke-width:2;opacity:.85}
 .ggnode circle{stroke:var(--bg);stroke-width:1.2}
-.ggreftxt{font-size:10px;fill:var(--node);text-anchor:middle}
+.ggreftxt{font-size:10px;fill:var(--node);text-anchor:start}
 .ggreftxt.head{fill:var(--here);font-weight:700}
 /* 층 그래프 — 레인 띠는 흐리게(구조를 잡아주되 점을 이기지 않게), 층을 건너는 선은 굵게. */
 /* 층 두 줄(main·dev) — 전체맵 위에 얹는다. 배치는 그대로, 층만 보이게. */
@@ -2988,7 +2963,7 @@ function buildStepMap(){
   host.appendChild(wrap);
   const leg=document.createElement('p'); leg.className='hint';
   if(MAP_DEPTH==='step')
-    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 맨 위 두 줄=<b class="lg-main">main</b>(대문, 배포된 것만 온다)·<b class="lg-dev">dev</b>(모든 작업이 시작하는 층) — 층을 건너는 굵은 선이 출발·합류(gil merge)·배포(gil deploy)다. <b class="lg-dev">dev 줄 위의 작은 점</b>은 그 층이 쌓은 커밋 하나 — 두 갈라짐 사이의 점을 세면 그 사이 dev 가 몇 걸음 갔는지 읽힌다(점에 올리면 제목이 뜬다).점선 박스=사이클(박스 위 작은 글씨=사이클 이름), 점=스텝. <b>체인 이름은 점·박스에 올리면 뜬다</b>(글자를 줄여 그림을 살렸다). <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
+    leg.innerHTML='gil 계보 그래프 — 왼→오른 흐름, 선은 gil 룰(같은 체인의 흐름 + 닫힌 끝에서 태어난 체인 계승)로만 잇는다. 계보가 없는 체인은 이어지지 않고 따로 선다(커밋 조상관계는 사실이지만 여기선 안 그린다 — 적층은 gil fsck 가 짚는다). 맨 위 두 줄=<b class="lg-main">main</b>(대문, 배포된 것만 온다)·<b class="lg-dev">dev</b>(모든 작업이 시작하는 층) — 층을 건너는 굵은 선이 출발·합류(gil merge)·배포(gil deploy)다. <b class="lg-dev">dev 줄 위의 작은 점</b>은 그 층이 쌓은 커밋 하나 — 두 갈라짐 사이의 점을 세면 그 사이 dev 가 몇 걸음 갔는지 읽힌다(점에 올리면 제목이 뜬다). 점선 박스=사이클(박스 위 작은 글씨=사이클 이름), 점=스텝. <b>체인 이름은 점·박스에 올리면 뜬다</b>(글자를 줄여 그림을 살렸다). <b class="lg-cross">주황</b>=체인 전환(부모 체인 종결→자식), <b class="lg-branch">빨강 파선</b>=backtrack, <b class="lg-dead">붉은 점</b>=죽은 잎, <b class="lg-alive">초록 점</b>=산 잎, <b>🚀</b>=배포(공개) 지점, <b>▼</b>=현재위치(HEAD). 점 클릭 → 아래 상세.';
   else
     leg.innerHTML=(MAP_DEPTH==='cycle'?'사이클':'체인')+' 단위 접힌 맵(<b>gil log --depth</b> 뷰어판) — 노드 하나=한 '+(MAP_DEPTH==='cycle'?'사이클':'체인')+'. <b class="lg-alive">초록</b>=solved(산 잎 있음), <b class="lg-dead">붉음</b>=dead, <b>⚡</b>=분기 밟은 solved(죽은 잎도 품음, 일자 solved 와 구분). 엣지=계보. 노드 클릭 → 그 '+(MAP_DEPTH==='cycle'?'사이클 첫 스텝':'체인 첫 사이클')+'으로 이동.';
   host.appendChild(leg);
@@ -3179,17 +3154,23 @@ function buildGitGraph(){
   // 전체맵은 "첫 자식이 줄기를 잇고, 뒤에 갈라진 형제는 아래로 내려간다". git 방식(최신부터
   // 훑으며 빈 레인 잡기)은 줄기가 위에 있으리란 보장이 없어 같은 그래프가 달리 보였다.
   // 그래서 **오래된 것부터** 훑으며 첫 자식에게 부모의 레인을 물려준다.
+  // 레인은 **비면 다시 쓴다.** 옛 코드는 "지금까지 나온 레인은 전부 쓰는 중"으로 쳐서 새 가지가
+  // 날 때마다 한 칸씩 아래로만 갔다 — 400 커밋이면 400줄이고, 그림은 계단 하나가 된다(상현님:
+  // 겹쳐서 안 보인다). 한 레인이 살아 있는 구간은 그 커밋에서 **마지막 자식**까지다. 그 뒤엔 빈다.
+  const lastChild={};                             // sha → 그 커밋을 부모로 삼는 자식 중 가장 나중 것
+  old2new.forEach((c,i)=>{
+    (c.parents||[]).forEach(p=>{ if(idx[p]!==undefined) lastChild[p]=Math.max(lastChild[p]??idx[p], i); });
+  });
   const lane={}, taken={};                        // taken[sha]=부모 레인을 이미 물려준 자식이 있다
   let maxL=0;
-  const used=i=>{ const set={}; return set; };
   old2new.forEach((c,i)=>{
     const ps=(c.parents||[]).filter(p=>idx[p]!==undefined);
     let L=null;
     for(const p of ps){ if(!taken[p]){ L=lane[p]; taken[p]=true; break; } }
     if(L===null||L===undefined){                  // 뿌리이거나, 부모의 줄기를 이미 형제가 가져갔다
       const busy={};
-      old2new.slice(0,i).forEach(o=>{             // 지금 시점에 살아 있는 레인은 피한다
-        if((o.parents||[]).some(p=>idx[p]!==undefined) || true) busy[lane[o.sha]]=true;
+      old2new.slice(0,i).forEach((o,j)=>{         // 아직 오른쪽으로 갈 길이 남은 레인만 피한다
+        if((lastChild[o.sha]??j) >= i) busy[lane[o.sha]]=true;
       });
       L=0; while(busy[L]) L++;
     }
@@ -3210,10 +3191,18 @@ function buildGitGraph(){
   };
   old2new.forEach(c=>depthOf(c.sha));
   let maxDepth=0; old2new.forEach(c=>maxDepth=Math.max(maxDepth,depth[c.sha]));
-  const colW=15, laneH=17, padX=12, padY=14, r=3.5;
+  // **자리를 채운다.** 옛 코드는 colW=15 로 좁게 그린 뒤 width:100%·viewBox 로 늘렸는데,
+  // 높이는 px 로 고정이라 SVG 가 비율을 지키며 가운데에 작게 박혔다 — 750px 짜리 칸에 그림은
+  // 150px, 점과 이름이 서로 포개졌다(상현님: 너무 겹쳐서 안 보인다). 이제 칸 너비에서 칸 폭을
+  // 거꾸로 잡고, SVG 를 그 크기 그대로 놓는다(넘치면 wrap 이 가로로 스크롤한다).
+  const laneH=22, padX=14, padY=16, r=3.5;
+  const avail=Math.max(320, (host.clientWidth||760)-28-140);   // 140 = 오른쪽 이름표 자리
+  const colW=Math.max(26, Math.min(72, avail/Math.max(1,maxDepth)));
   const maxLane=maxL;
-  const W=padX*2+Math.max(1,maxDepth)*colW, H=padY*2+maxLane*laneH+16;
-  const svg=svgEl('svg',{class:'ggsvg',viewBox:'0 0 '+W+' '+H,width:'100%',height:H});
+  const W=Math.max(host.clientWidth-28||0, padX*2+Math.max(1,maxDepth)*colW+140);
+  // 이름표가 아래·위로 한 줄씩 비킬 자리를 남긴다 — 자리가 없으면 비킴이 곧 실종이 된다.
+  const H=padY*2+maxLane*laneH+34;
+  const svg=svgEl('svg',{class:'ggsvg',viewBox:'0 0 '+W+' '+H,width:W,height:H});
   const X=sha=>padX+depth[sha]*colW, Y=sha=>padY+lane[sha]*laneH;
   const color=L=>['var(--node)','#3ddc84','#f59e0b','#e0574a','#2dd4bf','#a78bfa'][L%6];
   rows.forEach(c=>{
@@ -3225,17 +3214,32 @@ function buildGitGraph(){
       svg.appendChild(svgEl('path',{class:'ggedge',d:d,stroke:color(lane[c.sha]),fill:'none'}));
     });
   });
+  const placedRefs=[];  // 이미 놓인 이름표 상자 — 새 이름표는 이걸 피해 앉는다
   rows.forEach(c=>{
     const g=svgEl('g',{class:'ggnode'+(c.gil?' gil':''),transform:'translate('+X(c.sha)+','+Y(c.sha)+')'});
     g.appendChild(svgEl('circle',{r:c.gil?r:r-1.2,fill:color(lane[c.sha])}));
     g.appendChild(svgEl('title',{},c.sha+'  '+c.subj+(c.refs?'\n['+c.refs+']':'')));
     svg.appendChild(g);
     // 브랜치 이름은 **그 ref 가 가리키는 커밋에만** 붙인다 — 그게 가지의 끝이다.
-    (c.refs||'').split(',').map(x=>x.trim()).filter(Boolean).forEach((rf,k)=>{
+    //
+    // 자리는 점 **오른쪽**에, 겹치면 비킨다. 점 위에 가운데 맞춤으로 얹던 옛 방식은 이름이
+    // 길수록 옆 점의 이름을 덮었다(login·login-c1·dev·main 이 한 덩어리로 뭉갰다). 덮인 이름은
+    // 없는 이름과 같다 — 이 그림은 "여기서 갈라졌나"를 눈으로 대조하라고 있는 것이라, 어느
+    // 가지 이름인지 안 읽히면 대조가 성립하지 않는다.
+    (c.refs||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(rf=>{
       const head=/HEAD/.test(rf);
-      const t=svgEl('text',{class:'ggreftxt'+(head?' head':''),x:X(c.sha),y:Y(c.sha)-8-k*11},
-        rf.replace('HEAD -> ','▶ '));
-      svg.appendChild(t);
+      const txt=rf.replace('HEAD -> ','▶ ').replace(/^tag: /,'🏷 ');
+      const w=txt.length*5.8+6, x=X(c.sha)+r+5, y0=Y(c.sha)+3.5;
+      // 비키는 자리는 **그림 안**이어야 한다. 위로만 밀다가 viewBox 를 넘긴 이름표는 잘려서
+      // 아예 사라졌다(login-c1·search-c1 이 y=-24 에 그려졌다) — 겹침을 고치려다 실종을 만든
+      // 셈이다. 그래서 후보를 아래·위로 번갈아 내되, 판 밖은 후보에서 뺀다.
+      const cand=[y0];
+      for(let k=1;k<=6;k++){ cand.push(y0+11*k, y0-11*k); }
+      const fits=cand.filter(y=>y>=11 && y<=H-5);
+      const free=fits.find(y=>!placedRefs.some(b=>x<b.x2&&x+w>b.x1&&y-9<b.y2&&y+3>b.y1));
+      const y=free!==undefined?free:(fits[0]!==undefined?fits[0]:y0);
+      placedRefs.push({x1:x,x2:x+w,y1:y-9,y2:y+3});
+      svg.appendChild(svgEl('text',{class:'ggreftxt'+(head?' head':''),x:x,y:y},txt));
     });
   });
   const wrap=document.createElement('div'); wrap.className='ggwrap'; wrap.appendChild(svg);

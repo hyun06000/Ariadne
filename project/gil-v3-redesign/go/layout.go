@@ -165,6 +165,104 @@ func promoteDevToMain(tag string) (bool, string) {
 // 약한 검사를 경계한다: "dev 의 어느 커밋이든 조상이면 통과"로 짜면, dev 에서 난 체인 위에
 // 얹힌 체인도 통과한다(그 체인 역시 dev 의 자손이므로). 그래서 **부모 커밋이 dev 브랜치에서
 // 실제로 닿는 커밋인가**를 본다 — 체인 위에 얹혔다면 그 부모는 dev 에서 안 닿는다.
+// devLayerFacts — 층이 산 순서와, 각 체인이 **실제로** 갈라진 자리. 뷰어와 CLI 가 같은 답을
+// 하도록 한 군데서 센다: 두 표면이 다르면 사람은 어느 쪽을 믿을지부터 고민한다.
+//
+// order 는 dev-root(층 개설)부터 dev 팁까지 첫 부모 사슬을 오래된 것부터. forks 는 체인 →
+// 그 체인 chain-root 의 첫 부모(9자). step 은 order 안의 자리(0=층이 열린 그 커밋).
+type devLayerFactsT struct {
+	order []string          // 오래된 것부터 — order[0] = dev-root
+	step  map[string]int    // sha9 → 층에서 몇 걸음째
+	subj  map[string]string // sha9 → 그 커밋 제목
+	forks map[string]string // 체인 → 갈라진 dev 커밋(sha9)
+}
+
+func devLayerFacts(run func(...string) ([]byte, error)) devLayerFactsT {
+	f := devLayerFactsT{step: map[string]int{}, subj: map[string]string{}, forks: map[string]string{}}
+	var seq []string // 최신부터
+	for _, ref := range []string{devBranchName, "origin/" + devBranchName} {
+		o, err := run("log", "--first-parent", "--format=%H"+fsep+"%s"+fsep+trailer("Gil-Kind")+sep, ref)
+		if err != nil {
+			continue
+		}
+		for _, rec := range strings.Split(string(o), sep) {
+			rec = strings.Trim(rec, "\n")
+			if strings.TrimSpace(rec) == "" {
+				continue
+			}
+			sha, r1, ok := cut(rec, fsep)
+			if !ok {
+				continue
+			}
+			subj, kind, _ := cut(r1, fsep)
+			s := first9(strings.TrimSpace(sha))
+			seq = append(seq, s)
+			f.subj[s] = strings.TrimSpace(subj)
+			// 층이 개설된 커밋에서 자른다 — 그 앞은 대문(main)이 산 구간이라, 층의 걸음으로
+			// 세면 수가 틀리고 갈라진 자리도 그만큼 밀린다.
+			if strings.TrimSpace(kind) == "dev-root" {
+				break
+			}
+		}
+		break
+	}
+	for i := len(seq) - 1; i >= 0; i-- { // 오래된 것부터
+		f.step[seq[i]] = len(f.order)
+		f.order = append(f.order, seq[i])
+	}
+	// 각 체인이 갈라진 자리 — 선언(Gil-Chain-Orphan)이 아니라 chain-root 의 실제 부모.
+	fmtStr := "%P" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Kind") + fsep +
+		trailer("Gil-Chain-Orphan") + sep
+	o, err := run("log", "--branches", "--remotes", "--format="+fmtStr)
+	if err != nil {
+		return f
+	}
+	for _, rec := range strings.Split(string(o), sep) {
+		par, r1, ok := cut(strings.Trim(rec, "\n"), fsep)
+		if !ok {
+			continue
+		}
+		ch, r2, _ := cut(r1, fsep)
+		kind, orphan, _ := cut(r2, fsep)
+		if strings.TrimSpace(kind) != "chain-root" || strings.TrimSpace(orphan) != devBranchName {
+			continue
+		}
+		if ps := strings.Fields(par); len(ps) > 0 && strings.TrimSpace(ch) != "" {
+			f.forks[strings.TrimSpace(ch)] = first9(ps[0])
+		}
+	}
+	return f
+}
+
+// devLayerFactsCLI — CLI 쪽 러너(현재 저장소). 뷰어는 viewerGit 을 넘긴다(--repo 를 본다).
+func devLayerFactsCLI() devLayerFactsT {
+	return devLayerFacts(func(a ...string) ([]byte, error) {
+		return []byte(git(a...)), nil
+	})
+}
+
+// devForkLine — "이 체인은 층의 어디에서 갈라졌나" 한 줄. 층이 없거나 모르면 빈 문자열.
+func devForkLine(chain string) string {
+	if !hasDevLayer() {
+		return ""
+	}
+	f := devLayerFactsCLI()
+	sha, ok := f.forks[chain]
+	if !ok {
+		return ""
+	}
+	i, on := f.step[sha]
+	if !on {
+		return "  층: 이 체인은 dev 에서 갈라졌다고 선언했는데 실재는 dev 밖(" + sha + ")이다 — gil fsck 가 짚는다."
+	}
+	where := "층이 열린 그 자리"
+	if i > 0 {
+		where = "dev " + itoa(i) + "걸음째"
+	}
+	return "  층: 이 체인은 " + where + "(" + sha + " " + clip(f.subj[sha], 48) + ")에서 갈라졌다 — " +
+		"그 앞의 dev 는 물려받았고, 그 뒤의 dev 는 아직 모른다."
+}
+
 func fsckDevLayer() []string {
 	if !hasDevLayer() {
 		return nil

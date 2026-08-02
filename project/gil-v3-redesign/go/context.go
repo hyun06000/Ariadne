@@ -268,6 +268,11 @@ func lineageBrief(chain, cycle string) []string {
 	if chainHasReference(chain, "--branches") {
 		L = append(L, "  체인 기준 문서(사람이 승인한 레퍼런스 트루스)가 있다 — 전문: gil log "+chain+" (chain-root 본문)")
 	}
+	// 층에서 어디서 갈라졌나. 이게 없으면 "dev 에서 났다"까지만 알고 **언제**를 모른다 —
+	// 그러면 dev 가 그 뒤 쌓은 것을 이미 가진 줄 알고 판단한다(뷰어에만 그리던 사실이다).
+	if ln := devForkLine(chain); ln != "" {
+		L = append(L, ln)
+	}
 	anc := cycleAncestry(chain, cycle)
 	if len(anc) == 0 {
 		L = append(L, "  조상 사이클 없음 — 이 사이클이 이 계보의 시작이다.")
