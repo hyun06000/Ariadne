@@ -8190,6 +8190,31 @@ class TestLayerGraphInViewer(GilFixture):
         # 출발 곡선이 실제로 그려진다(클래스는 런타임에 조립되므로 그 자리의 문구로 확인).
         self.assertIn("출발: dev → ", html)
 
+    def test_a_later_chain_forks_where_it_actually_forked(self):
+        """dev 가 자란 뒤에 난 체인은 **그 자리에서** 갈라진다 — 맨 앞이 아니라.
+
+        옛 코드는 "dev 시조는 모두 dev 팁에서 갈라진다"고 단정하고 모든 출발선을 한 점에서
+        뽑았다. dev 가 커밋을 쌓은 뒤에 체인이 나면 그건 거짓이다 — 나중에 난 체인이 처음부터
+        나란히 달린 것처럼 보이고, 같은 화면의 git 그래프(날것의 %P)와 어긋난다(상현님).
+        """
+        import json, re
+        self._build()  # login 체인이 나고 dev 로 합류하고 배포까지 — dev 가 자랐다
+        self.gil("chain", "search", "--purpose", "검색", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        out_html = os.path.join(self.repo, "g2.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        html = open(out_html, encoding="utf-8").read()
+        data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
+        order = data["devorder"]
+        self.assertTrue(len(order) >= 2, f"dev 가 자랐는데 순서가 없다: {order}")
+        # 나중 체인의 갈라진 자리는 dev 뿌리가 아니라 dev 가 그때까지 자란 자리다.
+        self.assertNotEqual(data["devroots"]["search"], order[0],
+                            "나중에 난 체인을 dev 첫 커밋에서 갈라진 것으로 그린다")
+        self.assertIn(data["devroots"]["search"], order,
+                      "갈라진 자리가 dev 층의 커밋이 아니다")
+        # 먼저 난 체인은 여전히 제자리에서 — 사실이 바뀌지 않았다.
+        self.assertIn(data["devroots"]["login"], order)
+
 
 class TestShippedDocsMatchTheRepo(GilFixture):
     """배포판이 심는 문서와 이 저장소의 문서가 같아야 한다 (2026-07-31).

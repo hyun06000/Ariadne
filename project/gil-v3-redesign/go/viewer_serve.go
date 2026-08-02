@@ -1091,7 +1091,11 @@ func layerGraphJSON() string {
 	type row struct{ sha, parents, refs, subj, layer string }
 	var rows []row
 	seen := map[string]bool{}
-	devRoots := map[string]bool{}
+	// 체인 → **실제로 갈라진 dev 커밋**(chain-root 의 첫 부모). 선언(Gil-Chain-Orphan: dev)만
+	// 보고 "모두 dev 팁에서 갈라졌다"고 그리면, dev 가 커밋을 쌓은 뒤에 난 체인이 맨 앞에서
+	// 갈라진 것처럼 보인다 — 그림이 없는 동시성을 만든다(상현님, 실사용 관전). 자리는 선언이
+	// 아니라 사실이 정한다: 어느 층의 일인가는 선언이, 어디서 갈라졌나는 커밋 부모가.
+	devRoots := map[string]string{}
 	var chainOrder []string
 	for _, rec := range strings.Split(string(out), "\x1e") {
 		rec = strings.Trim(rec, "\n")
@@ -1109,7 +1113,11 @@ func layerGraphJSON() string {
 		// dev 에서 났다는 **선언**. 이게 있어야 전체맵이 그 체인의 출발을 층에 묶는다 —
 		// 묶지 않으면 시조가 화면에서 orphan(끊긴 계보)처럼 보인다. 시조와 미아는 다르다.
 		if strings.TrimSpace(f[8]) == devBranchName && chain != "" {
-			devRoots[chain] = true
+			fork := ""
+			if ps := strings.Fields(f[1]); len(ps) > 0 {
+				fork = first9(ps[0])
+			}
+			devRoots[chain] = fork
 		}
 		// 선언이 층을 정한다. 순서가 곧 우선순위다 — 합류는 **받는 쪽**의 일이고(그래서
 		// --into 가 먼저), 그다음이 그 커밋이 속한 체인이다.
@@ -1147,7 +1155,7 @@ func layerGraphJSON() string {
 		}
 		sb.WriteString(fmt.Sprintf("%q", l))
 	}
-	sb.WriteString(`],"devroots":[`)
+	sb.WriteString(`],"devroots":{`)
 	{
 		var dr []string
 		for c := range devRoots {
@@ -1158,7 +1166,34 @@ func layerGraphJSON() string {
 			if i > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString(fmt.Sprintf("%q", c))
+			sb.WriteString(fmt.Sprintf("%q:%q", c, devRoots[c]))
+		}
+	}
+	// devorder — dev 층이 산 순서(첫 부모 사슬, 오래된 것부터). 전체맵이 출발·합류를 이
+	// 순서대로 왼쪽→오른쪽에 놓는다. 순서가 없으면 "먼저 갈라진 것"과 "나중에 갈라진 것"이
+	// 한 점에 겹쳐, 사람은 git 그래프와 다른 그림을 보게 된다.
+	sb.WriteString(`},"devorder":[`)
+	{
+		var devSeq []string
+		// 로컬에 dev 가 없는 신선한 클론도 있다(그래프가 refs/remotes 에만 있는 경우) — 그때는
+		// origin/dev 를 본다. 둘 다 없으면 순서 없이 넘기고, 화면은 옛 방식(한 점)으로 물러선다.
+		for _, ref := range []string{devBranchName, "origin/" + devBranchName} {
+			o, err := viewerGit("log", "--first-parent", "--format=%H", ref)
+			if err != nil {
+				continue
+			}
+			for _, l := range strings.Split(string(o), "\n") {
+				if l = strings.TrimSpace(l); l != "" {
+					devSeq = append(devSeq, first9(l))
+				}
+			}
+			break
+		}
+		for i := len(devSeq) - 1; i >= 0; i-- { // git log 는 최신부터 — 뒤집어 오래된 것부터
+			if i < len(devSeq)-1 {
+				sb.WriteString(",")
+			}
+			sb.WriteString(fmt.Sprintf("%q", devSeq[i]))
 		}
 	}
 	sb.WriteString(`],"rows":[`)
@@ -2588,7 +2623,7 @@ function buildStepMap(){
   const LMERGE=[], LDEPLOY=[];
   (LAYER.rows||[]).forEach(c=>{
     const m=/^gil merge: (\S+) → (\S+)/.exec(c.subj||'');
-    if(m&&m[2]==='dev') LMERGE.push(m[1]);
+    if(m&&m[2]==='dev') LMERGE.push({chain:m[1], sha:c.sha}); // sha: dev 순서대로 놓으려고
     const d=/^gil deploy (\S+):.*승격/.exec(c.subj||'');
     if(d) LDEPLOY.push(d[1]);
   });
@@ -2680,26 +2715,67 @@ function buildStepMap(){
     dot(xMainStart,yMain,'main','대문(main) — 여기서 층이 갈라진다');
     curve(xMainStart,yMain,xDevStart,yDev,'fork','dev 는 대문에서 갈라진 층이다 (gil init)');
     dot(xDevStart,yDev,'dev','dev 층 시작');
-    // (2) dev → 각 체인의 첫 점. 선언이 dev 시조인 체인만 — 시조와 미아는 다르다.
+    // (2)(3) dev 위의 사건들 — 갈라짐(체인의 출발)과 합류(gil merge).
     //
-    // **하나의 점에서 갈라진다.** 체인마다 출발점을 따로 찍었더니 서로 다른 자리에서 난
-    // 것처럼 보였는데, 그건 사실이 아니다: dev 시조들은 모두 같은 커밋(dev 팁)에서 갈라진다.
-    // 그림이 사실과 다르면 사람은 없는 순서를 읽는다 — 이 저장소가 계보로 값을 치른 자리다.
-    const devEvents=[xDevStart];
-    (LAYER.devroots||[]).forEach(ch=>{
-      const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return;
-      let first=ns[0]; ns.forEach(n=>{ if(depth[n.sha]<depth[first.sha]) first=n; });
-      curve(xDevStart,yDev,X(first.sha),Y(first.sha),'start',
-        '출발: dev → '+ch+' (계보상 시조 — 대문은 물려받는다)');
+    // **한 점에서 갈라지지 않는다.** 옛 코드는 모든 dev 시조를 xDevStart 한 점에서 뽑았다.
+    // 근거는 "dev 시조들은 모두 dev 팁에서 갈라진다"였는데, 그게 사실이 아니다: dev 가
+    // 커밋을 쌓은 뒤에 난 체인은 **그 중간 커밋**에서 갈라진다. 한 점에 겹쳐 그리면 나중에
+    // 난 체인이 처음부터 나란히 달린 것처럼 보이고, 같은 화면의 git 그래프(날것의 %P)와
+    // 어긋난다(상현님). 그림이 사실과 다르면 사람은 없는 동시성을 읽는다.
+    //
+    // 그래서 자리를 dev 자신의 순서(devorder — 첫 부모 사슬)로 정한다. 갈라짐은 chain-root
+    // 의 실제 부모 커밋 자리에, 합류는 그 머지 커밋 자리에. 순서만 쓰고 간격은 화면이
+    // 정한다 — 층 줄에는 depth 축이 없으니 x 는 "몇 번째 사건인가"로만 읽혀야 한다.
+    const devIdx={}; (LAYER.devorder||[]).forEach((s,i)=>{ devIdx[s]=i; });
+    const ordered=(LAYER.devorder||[]).length>0;
+    const chainFirst=ch=>{ const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return null;
+      let f=ns[0]; ns.forEach(n=>{ if(depth[n.sha]<depth[f.sha]) f=n; }); return f; };
+    const chainLast=ch=>{ const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return null;
+      let l=ns[0]; ns.forEach(n=>{ if(depth[n.sha]>depth[l.sha]) l=n; }); return l; };
+    const evs=[];
+    Object.keys(LAYER.devroots||{}).forEach(ch=>{
+      const f=chainFirst(ch); if(!f)return;
+      const fork=(LAYER.devroots||{})[ch];
+      evs.push({kind:'fork', chain:ch, node:f, at:(fork in devIdx)?devIdx[fork]:0});
     });
-    // (3) 각 체인 → dev 합류(gil merge).
-    LMERGE.forEach(ch=>{
-      const ns=VIS.filter(n=>n.chain===ch); if(!ns.length)return;
-      let last=ns[0]; ns.forEach(n=>{ if(depth[n.sha]>depth[last.sha]) last=n; });
-      const x1=X(last.sha), y1=Y(last.sha);
-      const x2=Math.min(xR-40, x1+runFor(y1-yDev));
-      curve(x1,y1,x2,yDev,'merge','합류: '+ch+' → dev (gil merge)');
-      dot(x2,yDev,'dev','합류: '+ch+' → dev'); devEvents.push(x2);
+    LMERGE.forEach(m=>{
+      const l=chainLast(m.chain); if(!l)return;
+      evs.push({kind:'merge', chain:m.chain, node:l, at:(m.sha in devIdx)?devIdx[m.sha]:Infinity});
+    });
+    // dev 순서대로. 같은 자리(같은 커밋)면 갈라짐이 먼저 — 합류는 받는 쪽의 일이라 뒤에 온다.
+    evs.sort((a,b)=> (a.at-b.at) || (a.kind==='fork'?-1:1));
+    // 같은 dev 커밋에서 난 갈라짐은 **같은 점**에서 나와야 한다(그건 사실이다). 그래서 자리는
+    // 사건이 아니라 커밋 단위로 정한다: 그 커밋에서 난 체인들의 첫 점 중 가장 왼쪽보다 조금
+    // 왼쪽. dev 뿌리(0번)는 층이 시작한 그 점 그대로.
+    const forkX={};
+    evs.filter(e=>e.kind==='fork').forEach(e=>{
+      const want = (!ordered || e.at===0) ? xDevStart
+                 : Math.min(X(e.node.sha)-colW*0.6, xR-60);
+      forkX[e.at] = (e.at in forkX) ? Math.min(forkX[e.at], want) : want;
+    });
+    // 그리고 **다른 커밋이면 다른 자리**여야 한다. 자리를 그 체인의 첫 점에서만 끌어오면,
+    // 나중에 난 체인이 (합류가 없어 깊이가 얕은 탓에) 앞 체인과 같은 x 로 도로 겹친다 —
+    // 고치려던 그 거짓이 그대로 돌아온다. 그래서 dev 순서가 다르면 최소 SEP 만큼 벌린다.
+    // 간격은 눈금이 아니라 **순서의 표시**다: 층 줄에는 depth 축이 없다.
+    const SEP=14;
+    const devEvents=[xDevStart];
+    let xPrev=xDevStart, atPrev=null;
+    evs.forEach(e=>{
+      const gap = (atPrev===null || e.at===atPrev) ? 0 : SEP;
+      if(e.kind==='fork'){
+        // 갈라진 자리는 그 체인의 첫 점보다 왼쪽이어야 한다(원인이 결과보다 뒤에 설 수 없다).
+        const x=Math.min(Math.max(xPrev+gap, forkX[e.at]), Math.max(xDevStart, X(e.node.sha)-r*2));
+        curve(x,yDev,X(e.node.sha),Y(e.node.sha),'start',
+          '출발: dev → '+e.chain+' (계보상 시조 — 대문은 물려받는다)');
+        if(x>xDevStart) dot(x,yDev,'dev','갈라짐: dev → '+e.chain);
+        devEvents.push(x); xPrev=Math.max(xPrev,x); atPrev=e.at;
+      }else{
+        const x1=X(e.node.sha), y1=Y(e.node.sha);
+        const x2=Math.max(xPrev+gap, Math.min(xR-40, x1+runFor(y1-yDev)));
+        curve(x1,y1,x2,yDev,'merge','합류: '+e.chain+' → dev (gil merge)');
+        dot(x2,yDev,'dev','합류: '+e.chain+' → dev');
+        devEvents.push(x2); xPrev=Math.max(xPrev,x2); atPrev=e.at;
+      }
     });
     // (4) dev → 대문(gil deploy). **마지막 합류 자리에서** 오른다 — 허공에서 시작하지 않는다.
     const xDevLast=Math.max(...devEvents);
