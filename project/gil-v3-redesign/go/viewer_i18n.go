@@ -103,6 +103,401 @@ var i18nDict = map[string]map[string]string{
 		"zh-TW": "還沒有 gil 鏈。建立一條，它就會作為節點出現在這裡。",
 	},
 
+	// ── 이 화면 읽는 법(온보딩) ──
+	// 처음 온 사람이 가장 먼저 읽는 자리다. 관전 도구는 관전자를 가르치지 않으면 그림일 뿐이다.
+	"guide.summary": {
+		"ko": "이 화면 읽는 법 — 체인 · 사이클 · 스텝",
+		"en": "How to read this screen — chains, cycles, steps",
+		"zh-CN": "如何看懂这个界面——链 · 循环 · 步骤",
+		"zh-TW": "如何看懂這個介面——鏈 · 循環 · 步驟",
+	},
+	"guide.toggle": {
+		"ko": "(펼치기/접기)", "en": "(show/hide)",
+		"zh-CN": "（展开／收起）", "zh-TW": "（展開／收合）",
+	},
+	"guide.intro": {
+		"ko": "<b>gil 은 AI 가 문제를 푼 <i>생각의 과정</i>을 git 커밋으로 남긴 것입니다.</b> 이 화면의 점 하나하나가 실제 커밋이고, 선은 “무엇에서 무엇이 나왔나”입니다.",
+		"en": "<b>gil records the <i>thinking</i> an AI did to solve a problem, as git commits.</b> Every dot on this screen is a real commit, and every line says “this came out of that”.",
+		"zh-CN": "<b>gil 把 AI 解决问题的<i>思考过程</i>记录成 git 提交。</b>屏幕上的每个圆点都是一次真实的提交，每条连线都在说“这个是从那个来的”。",
+		"zh-TW": "<b>gil 把 AI 解決問題的<i>思考過程</i>記錄成 git 提交。</b>畫面上的每個圓點都是一次真實的提交，每條連線都在說「這個是從那個來的」。",
+	},
+	"guide.li.chain": {
+		"ko": "<b>체인</b> — 가장 큰 줄기(한 덩어리의 목적). 예: “전기요금이 왜 두 배가 됐나”. 체인마다 사람이 세운 <b>기준 문서</b>가 붙습니다.",
+		"en": "<b>Chain</b> — the largest thread (one whole purpose). For example: “why did the electricity bill double?”. Every chain carries a <b>reference document</b> a person set.",
+		"zh-CN": "<b>链</b>——最大的脉络（一个完整的目的）。例如：“电费为什么翻了一倍”。每条链都附有由人设定的<b>基准文件</b>。",
+		"zh-TW": "<b>鏈</b>——最大的脈絡（一個完整的目的）。例如：「電費為什麼翻了一倍」。每條鏈都附有由人設定的<b>基準文件</b>。",
+	},
+	"guide.li.cycle": {
+		"ko": "<b>사이클</b> — 그 목적을 쪼갠 <b>하나의 작은 문제</b>. 문제 정의 → 가설 → 검증 → 분석 → 종결로 한 바퀴 돕니다.",
+		"en": "<b>Cycle</b> — <b>one small problem</b> that purpose was split into. It goes around once: define → hypothesis → verify → analyze → close.",
+		"zh-CN": "<b>循环</b>——把那个目的拆开后的<b>一个小问题</b>。走完一圈：问题定义 → 假设 → 验证 → 分析 → 终结。",
+		"zh-TW": "<b>循環</b>——把那個目的拆開後的<b>一個小問題</b>。走完一圈：問題定義 → 假設 → 驗證 → 分析 → 終結。",
+	},
+	"guide.li.step": {
+		"ko": "<b>스텝</b> — 그 한 바퀴 안의 <b>한 걸음</b>(점 하나 = 커밋 하나). 점을 누르면 그 걸음의 보고서가 아래에 열립니다.",
+		"en": "<b>Step</b> — <b>one move</b> within that lap (one dot = one commit). Click a dot and that move's report opens below.",
+		"zh-CN": "<b>步骤</b>——这一圈里的<b>一步</b>（一个圆点＝一次提交）。点击圆点，该步的报告会在下方打开。",
+		"zh-TW": "<b>步驟</b>——這一圈裡的<b>一步</b>（一個圓點＝一次提交）。點擊圓點，該步的報告會在下方開啟。",
+	},
+
+	// 안내 그림. SVG <text> 는 줄바꿈이 없으니 **짧게** 옮긴다 — 길면 그림 밖으로 나간다.
+	"diag.aria": {
+		"ko": "체인 안에 사이클, 사이클 안에 스텝이 있는 구조 그림",
+		"en": "A diagram: cycles sit inside a chain, steps sit inside a cycle",
+		"zh-CN": "结构图：链中包含循环，循环中包含步骤",
+		"zh-TW": "結構圖：鏈中包含循環，循環中包含步驟",
+	},
+	"diag.chain": {
+		"ko": "체인 — 하나의 큰 목적 “전기요금이 왜 두 배가 됐나”",
+		"en": "Chain — one big purpose: “why did the bill double?”",
+		"zh-CN": "链——一个大目的：“电费为什么翻倍”",
+		"zh-TW": "鏈——一個大目的：「電費為什麼翻倍」",
+	},
+	"diag.cycle1": {
+		"ko": "사이클 1 — 작은 문제 “언제 늘었나”",
+		"en": "Cycle 1 — small problem: “when did it rise?”",
+		"zh-CN": "循环 1 — 小问题：“何时开始上涨”",
+		"zh-TW": "循環 1 — 小問題：「何時開始上漲」",
+	},
+	"diag.cycle2": {
+		"ko": "사이클 2 — “어느 기기인가”",
+		"en": "Cycle 2 — “which appliance?”",
+		"zh-CN": "循环 2 — “是哪台电器”",
+		"zh-TW": "循環 2 — 「是哪台電器」",
+	},
+	"diag.k.define": {
+		"ko": "문제정의", "en": "define", "zh-CN": "问题定义", "zh-TW": "問題定義",
+	},
+	"diag.k.hypothesis": {
+		"ko": "가설", "en": "hypothesis", "zh-CN": "假设", "zh-TW": "假設",
+	},
+	"diag.k.verify": {
+		"ko": "검증", "en": "verify", "zh-CN": "验证", "zh-TW": "驗證",
+	},
+	"diag.k.analyze": {
+		"ko": "분석", "en": "analyze", "zh-CN": "分析", "zh-TW": "分析",
+	},
+	"diag.k.success": {
+		"ko": "성공", "en": "success", "zh-CN": "成功", "zh-TW": "成功",
+	},
+	"diag.k.verifying": {
+		"ko": "검증 중", "en": "verifying", "zh-CN": "验证中", "zh-TW": "驗證中",
+	},
+	"diag.dead": {
+		"ko": "막다른 길 — 지우지 않고 남긴다",
+		"en": "dead end — kept, not deleted",
+		"zh-CN": "死路——保留，不删除", "zh-TW": "死路——保留，不刪除",
+	},
+	// 이 라벨은 사이클 이름과 같은 줄에 있었고, 영어에서 그 이름을 덮었다. 짧게 줄이는 것은
+	// 언어마다 다시 부딪히고 뜻만 깎는다 — 그래서 그림에서 **한 줄 위로** 뺐다(y=64→46).
+	"diag.here": {
+		"ko": "지금 여기", "en": "you are here", "zh-CN": "当前位置", "zh-TW": "目前位置",
+	},
+	"diag.cap1": {
+		"ko": "점 하나 = git 커밋 하나 = 한 걸음. 점을 누르면 그 걸음의 보고서가 열립니다.",
+		"en": "One dot = one git commit = one move. Click a dot to open that move's report.",
+		"zh-CN": "一个圆点＝一次 git 提交＝一步。点击圆点即可打开该步的报告。",
+		"zh-TW": "一個圓點＝一次 git 提交＝一步。點擊圓點即可開啟該步的報告。",
+	},
+	"diag.cap2": {
+		"ko": "사이클이 끝나면 다음 사이클로 — 그렇게 큰 목적(체인)을 작은 문제로 정복합니다.",
+		"en": "When a cycle closes, the next begins — that is how a big purpose falls to small problems.",
+		"zh-CN": "一个循环结束就进入下一个——大目的就是这样被小问题逐一攻克的。",
+		"zh-TW": "一個循環結束就進入下一個——大目的就是這樣被小問題逐一攻克的。",
+	},
+
+	"guide.legend.marks": {
+		"ko": "<b>점의 색과 표식</b> — <span class=\"lg-alive\">초록</span>=성공으로 끝난 가지 · <span class=\"lg-dead\">빨강</span>=막다른 길(지우지 않고 <b>벽의 지도</b>로 남깁니다) · <span class=\"lg-cross\">주황 ▼</span>=지금 작업 중인 자리 · 🚀=여기서 배포됨 · ⟲정정=앞 걸음을 다시 쓴 것 · <span class=\"gdim\">흐린 점</span>=정정으로 대체된 옛 가지(이력엔 남습니다).",
+		"en": "<b>What the colours mean</b> — <span class=\"lg-alive\">green</span> = a branch that ended in success · <span class=\"lg-dead\">red</span> = a dead end (kept, as a <b>map of the walls</b>) · <span class=\"lg-cross\">orange ▼</span> = where the work is right now · 🚀 = shipped from here · ⟲ = a move rewritten · <span class=\"gdim\">faded dot</span> = the old branch that rewrite replaced (still in the history).",
+		"zh-CN": "<b>颜色与标记</b>——<span class=\"lg-alive\">绿色</span>＝以成功收尾的分支 · <span class=\"lg-dead\">红色</span>＝死路（保留下来，作为<b>墙的地图</b>） · <span class=\"lg-cross\">橙色 ▼</span>＝当前正在进行的位置 · 🚀＝从此处发布 · ⟲＝重写过的一步 · <span class=\"gdim\">淡色圆点</span>＝被该重写取代的旧分支（仍留在历史中）。",
+		"zh-TW": "<b>顏色與標記</b>——<span class=\"lg-alive\">綠色</span>＝以成功收尾的分支 · <span class=\"lg-dead\">紅色</span>＝死路（保留下來，作為<b>牆的地圖</b>） · <span class=\"lg-cross\">橙色 ▼</span>＝目前正在進行的位置 · 🚀＝從此處發布 · ⟲＝重寫過的一步 · <span class=\"gdim\">淡色圓點</span>＝被該重寫取代的舊分支（仍留在歷史中）。",
+	},
+	"guide.legend.dead": {
+		"ko": "<b>막다른 길이 남아 있는 건 고장이 아닙니다.</b> 무엇을 시도했다가 왜 접었는지가 남아야 같은 길을 두 번 걷지 않습니다 — gil 이 남기려는 것이 바로 그것입니다.",
+		"en": "<b>Dead ends left on the map are not a defect.</b> What was tried and why it was abandoned has to survive, or the same road gets walked twice — that is exactly what gil is here to keep.",
+		"zh-CN": "<b>图上留着死路，并不是故障。</b>试过什么、为什么放弃，这些必须留下来，否则同一条路会走第二遍——gil 要保留的正是这个。",
+		"zh-TW": "<b>圖上留著死路，並不是故障。</b>試過什麼、為什麼放棄，這些必須留下來，否則同一條路會走第二遍——gil 要保留的正是這個。",
+	},
+	"guide.legend.where": {
+		"ko": "<b>어디부터 보나</b> — 아래 <b>전체맵</b>이 전체 흐름입니다(왼→오른쪽). 거기서 점을 누르면 <b>스텝 그래프</b>와 <b>스텝 디테일</b>이 그 자리로 갑니다. 위쪽 <b>▼ 현재위치로</b> 버튼은 언제나 지금 작업 중인 자리로 데려갑니다. 체인·사이클 단위로 크게 보고 싶으면 아래 접힌 <b>체인 그래프</b>·<b>사이클 그래프</b>를 펼치세요.",
+		"en": "<b>Where to start</b> — the <b>overview map</b> below is the whole flow (left to right). Click a dot there and the <b>step graph</b> and <b>step detail</b> follow you to it. The <b>▼ Go to HEAD</b> button up top always takes you to where the work is now. To see it in bigger units, unfold the <b>chain graph</b> or <b>cycle graph</b> below.",
+		"zh-CN": "<b>从哪里看起</b>——下方的<b>全局图</b>就是完整脉络（由左至右）。在那里点击圆点，<b>步骤图</b>与<b>步骤详情</b>会一同跟到该处。顶部的<b>▼ 前往当前位置</b>按钮随时把你带到正在进行的地方。想以更大的单位查看，就展开下方的<b>链图</b>或<b>循环图</b>。",
+		"zh-TW": "<b>從哪裡看起</b>——下方的<b>全局圖</b>就是完整脈絡（由左至右）。在那裡點擊圓點，<b>步驟圖</b>與<b>步驟詳情</b>會一同跟到該處。頂部的<b>▼ 前往目前位置</b>按鈕隨時把你帶到正在進行的地方。想以更大的單位檢視，就展開下方的<b>鏈圖</b>或<b>循環圖</b>。",
+	},
+
+	// ── 사람이 실제로 누르는 자리(인터뷰·승인·확정본) ──
+	// 여기가 한국어로 남으면 관전자는 **읽기만 하고 아무것도 못 한다**. 화면 절반이 옮겨진
+	// 상태에서 정작 손잡이만 못 읽는 것이 가장 나쁘다.
+	"pane.prune": {
+		"ko": "🗑 삭제 승인 대기 — 사람만 누를 수 있습니다",
+		"en": "🗑 Awaiting your approval to delete — only a person can press this",
+		"zh-CN": "🗑 等待删除批准——只有人可以按下",
+		"zh-TW": "🗑 等待刪除批准——只有人可以按下",
+	},
+	"pane.reference": {
+		"ko": "✅ 확정된 기준 문서", "en": "✅ Reference documents, settled",
+		"zh-CN": "✅ 已确定的基准文件", "zh-TW": "✅ 已確定的基準文件",
+	},
+	"pane.interview": {
+		"ko": "📋 인터뷰 — 기준 문서 만들기",
+		"en": "📋 Interview — building the reference document",
+		"zh-CN": "📋 访谈——共同拟定基准文件",
+		"zh-TW": "📋 訪談——共同擬定基準文件",
+	},
+
+	"prune.head": {
+		"ko": "삭제 요청: {target}  ({sha})", "en": "Delete requested: {target}  ({sha})",
+		"zh-CN": "删除请求：{target}（{sha}）", "zh-TW": "刪除請求：{target}（{sha}）",
+	},
+	"prune.approve": {
+		"ko": "이 삭제를 승인합니다", "en": "I approve this deletion",
+		"zh-CN": "我批准此次删除", "zh-TW": "我批准此次刪除",
+	},
+	"prune.armed": {
+		"ko": " 5초 안에 한 번 더 누르면 승인됩니다",
+		"en": " press once more within 5 seconds to approve",
+		"zh-CN": " 5 秒内再按一次即批准", "zh-TW": " 5 秒內再按一次即批准",
+	},
+	"prune.approving": {
+		"ko": " 승인 중…", "en": " approving…", "zh-CN": " 批准中…", "zh-TW": " 批准中…",
+	},
+	"prune.approved": {
+		"ko": " ✓ 승인됨 — 실행: gil prune {target} --confirm {target} --reason <왜>",
+		"en": " ✓ approved — now run: gil prune {target} --confirm {target} --reason <why>",
+		"zh-CN": " ✓ 已批准——接着执行：gil prune {target} --confirm {target} --reason <原因>",
+		"zh-TW": " ✓ 已批准——接著執行：gil prune {target} --confirm {target} --reason <原因>",
+	},
+	"prune.withdraw": {
+		"ko": "요청 철회", "en": "Withdraw request", "zh-CN": "撤回请求", "zh-TW": "撤回請求",
+	},
+	"prune.withdraw.title": {
+		"ko": "아무것도 지우지 않고 이 요청을 거둔다(이력엔 남는다)",
+		"en": "Take this request back without deleting anything (it stays in the history)",
+		"zh-CN": "不删除任何内容，只撤回此请求（历史中仍会留下）",
+		"zh-TW": "不刪除任何內容，只撤回此請求（歷史中仍會留下）",
+	},
+	"prune.withdrawing": {
+		"ko": " 철회 중…", "en": " withdrawing…", "zh-CN": " 撤回中…", "zh-TW": " 撤回中…",
+	},
+
+	"ref.just": {
+		"ko": "✓ 방금 제출한 답이 기준 문서로 확정됐습니다 — ",
+		"en": "✓ The answer you just sent is now the reference document — ",
+		"zh-CN": "✓ 你刚提交的回答已确定为基准文件——",
+		"zh-TW": "✓ 你剛提交的回答已確定為基準文件——",
+	},
+	"ref.sum": {
+		"ko": "체인 {chain} 기준 문서 ({sha}) · ",
+		"en": "reference document for chain {chain} ({sha}) · ",
+		"zh-CN": "链 {chain} 的基准文件（{sha}） · ",
+		"zh-TW": "鏈 {chain} 的基準文件（{sha}） · ",
+	},
+	"ref.state.waiting": {
+		"ko": "⏳ 에이전트가 기다리는 중", "en": "⏳ the agent is waiting",
+		"zh-CN": "⏳ 代理正在等待", "zh-TW": "⏳ 代理正在等待",
+	},
+	"ref.state.seen": {
+		"ko": "✓ 에이전트가 읽었습니다", "en": "✓ the agent has read it",
+		"zh-CN": "✓ 代理已读取", "zh-TW": "✓ 代理已讀取",
+	},
+	"ref.state.unseen": {
+		"ko": "· 아직 안 읽음", "en": "· not read yet",
+		"zh-CN": "· 尚未读取", "zh-TW": "· 尚未讀取",
+	},
+	"ref.empty": {
+		"ko": "(본문 없음)", "en": "(no body)", "zh-CN": "（无正文）", "zh-TW": "（無正文）",
+	},
+
+	"iv.head": {
+		"ko": "체인 <b>{chain}</b> 의 기준 문서를 함께 만든다 — 문제 풀듯 답하고 제출하세요.",
+		"en": "Let's build the reference document for chain <b>{chain}</b> — answer as you would solve a problem, then send it.",
+		"zh-CN": "一起来拟定链 <b>{chain}</b> 的基准文件——像解题那样作答，然后提交。",
+		"zh-TW": "一起來擬定鏈 <b>{chain}</b> 的基準文件——像解題那樣作答，然後提交。",
+	},
+	"iv.waiting": {
+		"ko": "⏳ 에이전트가 이 답을 기다리는 중 — 제출하면 곧바로 이어집니다.",
+		"en": "⏳ The agent is waiting on this answer — send it and the work resumes right away.",
+		"zh-CN": "⏳ 代理正在等这个回答——提交后工作会立即继续。",
+		"zh-TW": "⏳ 代理正在等這個回答——提交後工作會立即繼續。",
+	},
+	"iv.notwaiting": {
+		"ko": "· 지금은 아무도 기다리고 있지 않습니다. 제출은 저장되고, 에이전트는 다음 접촉 때 읽습니다.",
+		"en": "· Nobody is waiting right now. Your answer is saved, and the agent reads it on its next contact.",
+		"zh-CN": "· 目前没有人在等。提交会被保存，代理会在下次接触时读取。",
+		"zh-TW": "· 目前沒有人在等。提交會被保存，代理會在下次接觸時讀取。",
+	},
+	"iv.submit": {
+		"ko": "제출 — 기준 문서로 저장", "en": "Send — save as the reference document",
+		"zh-CN": "提交——保存为基准文件", "zh-TW": "提交——儲存為基準文件",
+	},
+	"iv.restored": {
+		"ko": "· 쓰시던 내용을 복원했습니다(이 브라우저에만 저장됩니다). 제출하면 지워집니다.",
+		"en": "· Restored what you were writing (kept in this browser only). It clears once you send.",
+		"zh-CN": "· 已恢复你之前写的内容（仅保存在这台浏览器）。提交后即清除。",
+		"zh-TW": "· 已恢復你之前寫的內容（僅保存在這台瀏覽器）。提交後即清除。",
+	},
+	"iv.deferred": {
+		"ko": "새 기록이 도착했지만, 답을 쓰는 중이라 새로고침을 미뤘습니다 — 쓰던 내용은 그대로 있습니다.",
+		"en": "New records arrived, but the refresh is held while you are writing — nothing you typed was lost.",
+		"zh-CN": "有新记录到达，但你正在作答，刷新已暂缓——你写的内容原样保留。",
+		"zh-TW": "有新紀錄到達，但你正在作答，重新整理已暫緩——你寫的內容原樣保留。",
+	},
+	"iv.failed": {
+		"ko": " ✕ 제출 실패: ", "en": " ✕ could not send: ",
+		"zh-CN": " ✕ 提交失败：", "zh-TW": " ✕ 提交失敗：",
+	},
+	"iv.failed.hint": {
+		"ko": "답은 아직 제출되지 않았습니다(사라지지도 않았습니다). <b>새로고침한 뒤 다시 제출</b>해 주세요 — 입력한 내용은 이 브라우저에 저장돼 있어 새로고침해도 되살아납니다.",
+		"en": "Your answer has not been sent (and it has not been lost either). Please <b>refresh and send again</b> — what you typed is kept in this browser and comes back after the refresh.",
+		"zh-CN": "回答尚未提交（也没有丢失）。请<b>刷新后重新提交</b>——你输入的内容保存在这台浏览器里，刷新后会恢复。",
+		"zh-TW": "回答尚未提交（也沒有遺失）。請<b>重新整理後再次提交</b>——你輸入的內容保存在這台瀏覽器裡，重新整理後會恢復。",
+	},
+
+	"card.dupwarn": {
+		"ko": "⚠ 이 사이클엔 번호가 겹치는 스텝이 있다({dups}) — 옛 gil(≤3.28)이 찍은 구간이다. 뷰어는 커밋 sha 를 정체성으로 삼아 그대로 그린다. 전체 점검: gil fsck",
+		"en": "⚠ This cycle has steps with colliding numbers ({dups}) — a stretch stamped by an old gil (≤3.28). The viewer takes the commit sha as identity and draws it as it is. To check everything: gil fsck",
+		"zh-CN": "⚠ 本循环中有编号重复的步骤（{dups}）——这是旧版 gil（≤3.28）留下的区段。查看器以提交 sha 为身份，照原样绘制。全面检查：gil fsck",
+		"zh-TW": "⚠ 本循環中有編號重複的步驟（{dups}）——這是舊版 gil（≤3.28）留下的區段。檢視器以提交 sha 為身分，照原樣繪製。全面檢查：gil fsck",
+	},
+	"card.stepgraph.failed": {
+		"ko": "✕ 이 사이클의 스텝 그래프를 그리지 못했다: {err}  (데이터는 그대로다 — 뷰어의 렌더만 실패했다. gil fsck 로 그래프를 점검하라.)",
+		"en": "✕ Could not draw the step graph for this cycle: {err}  (the data is intact — only the viewer's render failed. Check the graph with gil fsck.)",
+		"zh-CN": "✕ 无法绘制本循环的步骤图：{err}（数据完好——只是查看器的渲染失败。请用 gil fsck 检查图谱。）",
+		"zh-TW": "✕ 無法繪製本循環的步驟圖：{err}（資料完好——只是檢視器的渲染失敗。請用 gil fsck 檢查圖譜。）",
+	},
+
+	// ── 나머지 패널과 그래프 ──
+	"pane.gitgraph": {
+		"ko": "git 그래프 (날것)", "en": "git graph (raw)",
+		"zh-CN": "git 图（原始）", "zh-TW": "git 圖（原始）",
+	},
+	"pane.gitgraph.toggle": {
+		"ko": "(펼치기 — gil 계보가 진짜 브랜치인지 여기서 점검한다)",
+		"en": "(unfold — check here whether gil's lineage is real branching)",
+		"zh-CN": "（展开——在此核对 gil 的谱系是否真的分了支）",
+		"zh-TW": "（展開——在此核對 gil 的譜系是否真的分了支）",
+	},
+	"pane.gitgraph.hint": {
+		"ko": "gil 이 그리는 계보와 <b>git 자신의 그림</b>이 같은지 보는 자리다. 선언만 하고 실제로 갈라지지 않으면 그 계보는 거짓이고, 그건 여기서 바로 드러난다. 점=커밋 · 선=부모 · 칩=브랜치 이름. 최근 400개.",
+		"en": "This is where you check gil's lineage against <b>git's own picture</b>. A lineage that is declared but never actually branched is a lie, and it shows up right here. Dot = commit · line = parent · chip = branch name. Last 400.",
+		"zh-CN": "这里是把 gil 画的谱系与 <b>git 自己的图</b>相对照的地方。只作声明却没有真正分支的谱系是假的，在这里会立刻暴露。点＝提交 · 线＝父提交 · 标签＝分支名。最近 400 条。",
+		"zh-TW": "這裡是把 gil 畫的譜系與 <b>git 自己的圖</b>相對照的地方。只作聲明卻沒有真正分支的譜系是假的，在這裡會立刻暴露。點＝提交 · 線＝父提交 · 標籤＝分支名。最近 400 條。",
+	},
+	"pane.chaingraph": {
+		"ko": "체인 그래프", "en": "Chain graph", "zh-CN": "链图", "zh-TW": "鏈圖",
+	},
+	"pane.chaingraph.hint": {
+		"ko": "동그라미 = 체인(숫자는 사이클 수), 선 = 계보(부모→자식). ▼ = 현재위치(HEAD). <b>노드 클릭 → 아래 사이클 그래프.</b>",
+		"en": "Circle = chain (the number is how many cycles), line = lineage (parent → child). ▼ = HEAD. <b>Click a node for the cycle graph below.</b>",
+		"zh-CN": "圆圈＝链（数字为循环数），连线＝谱系（父→子）。▼＝当前位置（HEAD）。<b>点击节点查看下方的循环图。</b>",
+		"zh-TW": "圓圈＝鏈（數字為循環數），連線＝譜系（父→子）。▼＝目前位置（HEAD）。<b>點擊節點查看下方的循環圖。</b>",
+	},
+	"pane.cyclegraph": {
+		"ko": "사이클 그래프", "en": "Cycle graph", "zh-CN": "循环图", "zh-TW": "循環圖",
+	},
+	"pane.stepgraph": {
+		"ko": "스텝 그래프", "en": "Step graph", "zh-CN": "步骤图", "zh-TW": "步驟圖",
+	},
+	"pane.stepdetail": {
+		"ko": "스텝 디테일", "en": "Step detail", "zh-CN": "步骤详情", "zh-TW": "步驟詳情",
+	},
+	"pane.unfold": {
+		"ko": "(펼치기)", "en": "(unfold)", "zh-CN": "（展开）", "zh-TW": "（展開）",
+	},
+
+	// 사람이 승인·기각하는 pending 잎.
+	"pend.msg": {
+		"ko": "⏳ 사람 답 대기 —", "en": "⏳ waiting on you —",
+		"zh-CN": "⏳ 等待你的答复 ——", "zh-TW": "⏳ 等待你的答覆 ——",
+	},
+	"pend.approve": {
+		"ko": "✓ 승인(산 잎)", "en": "✓ Approve (living leaf)",
+		"zh-CN": "✓ 批准（活叶）", "zh-TW": "✓ 批准（活葉）",
+	},
+	"pend.reject": {
+		"ko": "✕ 기각(되돌림)", "en": "✕ Reject (send it back)",
+		"zh-CN": "✕ 驳回（退回）", "zh-TW": "✕ 駁回（退回）",
+	},
+	"pend.working": {
+		"ko": " 처리 중…", "en": " working…", "zh-CN": " 处理中…", "zh-TW": " 處理中…",
+	},
+	"pend.done": {
+		"ko": " ✓ 완료 — 갱신 중", "en": " ✓ done — refreshing",
+		"zh-CN": " ✓ 完成——正在刷新", "zh-TW": " ✓ 完成——正在重新整理",
+	},
+
+	"prune.armed2": {
+		"ko": "정말 지웁니다 — 한 번 더", "en": "Really delete — once more",
+		"zh-CN": "确认删除——再按一次", "zh-TW": "確認刪除——再按一次",
+	},
+	"prune.timeout": {
+		"ko": " (시간이 지나 취소됨)", "en": " (timed out, cancelled)",
+		"zh-CN": " （超时，已取消）", "zh-TW": " （逾時，已取消）",
+	},
+	"prune.withdrawn": {
+		"ko": " ✓ 요청을 거뒀다 — 아무것도 지워지지 않았다",
+		"en": " ✓ request withdrawn — nothing was deleted",
+		"zh-CN": " ✓ 已撤回请求——什么都没有删除",
+		"zh-TW": " ✓ 已撤回請求——什麼都沒有刪除",
+	},
+
+	"ref.pinned": {
+		"ko": "📌 이 체인의 기준 문서 — 판단은 여기에 비추어라 ({sha}) · ",
+		"en": "📌 This chain's reference document — judge against this ({sha}) · ",
+		"zh-CN": "📌 本链的基准文件——一切判断以此为准（{sha}） · ",
+		"zh-TW": "📌 本鏈的基準文件——一切判斷以此為準（{sha}） · ",
+	},
+	"ref.dismiss.title": {
+		"ko": "이 확정본은 그만 보기(다음 차수가 오면 다시 뜹니다)",
+		"en": "Stop showing this one (it returns when a new round arrives)",
+		"zh-CN": "不再显示这一版（下一轮到来时会再出现）",
+		"zh-TW": "不再顯示這一版（下一輪到來時會再出現）",
+	},
+
+	"iv.refresh": {
+		"ko": "지금 새로고침", "en": "Refresh now", "zh-CN": "立即刷新", "zh-TW": "立即重新整理",
+	},
+	"iv.refresh.title": {
+		"ko": "입력하신 내용은 저장돼 있어 새로고침해도 되살아납니다",
+		"en": "What you typed is saved — it comes back after the refresh",
+		"zh-CN": "你输入的内容已保存，刷新后会恢复",
+		"zh-TW": "你輸入的內容已保存，重新整理後會恢復",
+	},
+	"iv.saving": {
+		"ko": " 저장 중…", "en": " saving…", "zh-CN": " 保存中…", "zh-TW": " 儲存中…",
+	},
+	"iv.saved": {
+		"ko": " ✓ 기준 문서로 확정됐습니다 — 화면을 갱신합니다",
+		"en": " ✓ settled as the reference document — refreshing the screen",
+		"zh-CN": " ✓ 已确定为基准文件——正在刷新画面",
+		"zh-TW": " ✓ 已確定為基準文件——正在重新整理畫面",
+	},
+
+	"report.loading": {
+		"ko": "(불러오는 중…)", "en": "(loading…)", "zh-CN": "（加载中…）", "zh-TW": "（載入中…）",
+	},
+	"report.failed": {
+		"ko": "(보고서를 불러오지 못했다: {status})", "en": "(could not load the report: {status})",
+		"zh-CN": "（无法加载报告：{status}）", "zh-TW": "（無法載入報告：{status}）",
+	},
+	"report.neterr": {
+		"ko": "(네트워크 오류: {err})", "en": "(network error: {err})",
+		"zh-CN": "（网络错误：{err}）", "zh-TW": "（網路錯誤：{err}）",
+	},
+	"head.gohere.missing": {
+		"ko": "현재위치가 그래프에 없다", "en": "HEAD is not on the graph",
+		"zh-CN": "当前位置不在图上", "zh-TW": "目前位置不在圖上",
+	},
+	"gitgraph.empty": {
+		"ko": "커밋이 없다.", "en": "No commits.", "zh-CN": "没有提交。", "zh-TW": "沒有提交。",
+	},
+	"viewer.partfail": {
+		"ko": "⚠ 뷰어의 일부({name})를 그리지 못했다: {err}  — 나머지는 그대로 보인다.",
+		"en": "⚠ One part of the viewer ({name}) failed to draw: {err}  — everything else is still shown.",
+		"zh-CN": "⚠ 查看器的一部分（{name}）未能绘制：{err}——其余部分照常显示。",
+		"zh-TW": "⚠ 檢視器的一部分（{name}）未能繪製：{err}——其餘部分照常顯示。",
+	},
+
 	// ── 전체맵 ──
 	"map.head": {
 		"ko": "전체맵", "en": "Overview map",
@@ -133,6 +528,52 @@ var i18nDict = map[string]map[string]string{
 		"en": "By step — the full DAG of step commits",
 		"zh-CN": "按步骤——所有步骤提交构成的 DAG",
 		"zh-TW": "按步驟——所有步驟提交構成的 DAG",
+	},
+
+	// 전체맵 조작부 — 필터·줌. 그림을 항해하는 손잡이라 여기가 한국어로 남으면 그림만 영어인
+	// 반쪽 화면이 된다.
+	"map.filter.label": {
+		"ko": "체인:", "en": "Chain:", "zh-CN": "链：", "zh-TW": "鏈：",
+	},
+	"map.filter.all": {
+		"ko": "전체 ({n}개 체인)", "en": "All ({n} chains)",
+		"zh-CN": "全部（{n} 条链）", "zh-TW": "全部（{n} 條鏈）",
+	},
+	"map.filter.only": {
+		"ko": "— 이 체인만 그린다(다른 체인은 숨김). 계보 전체는 \"전체\".",
+		"en": "— drawing this chain only (others hidden). Pick “All” for the whole lineage.",
+		"zh-CN": "— 只绘制这条链（其他隐藏）。要看完整谱系请选“全部”。",
+		"zh-TW": "— 只繪製這條鏈（其他隱藏）。要看完整譜系請選「全部」。",
+	},
+	"map.zoom.in": {
+		"ko": "확대", "en": "Zoom in", "zh-CN": "放大", "zh-TW": "放大",
+	},
+	"map.zoom.out": {
+		"ko": "축소", "en": "Zoom out", "zh-CN": "缩小", "zh-TW": "縮小",
+	},
+	"map.zoom.fit": {
+		"ko": "전체", "en": "Fit", "zh-CN": "全览", "zh-TW": "全覽",
+	},
+	"map.zoom.fit.title": {
+		"ko": "전체 보기(리셋)", "en": "Fit everything (reset)",
+		"zh-CN": "全部显示（重置）", "zh-TW": "全部顯示（重置）",
+	},
+	"map.zoom.hint": {
+		"ko": "Ctrl+휠=줌 · 확대 후 드래그=이동 · 미니맵 클릭=그 자리로",
+		"en": "Ctrl+wheel = zoom · drag when zoomed = pan · click the minimap to jump there",
+		"zh-CN": "Ctrl+滚轮＝缩放 · 放大后拖动＝平移 · 点击小地图＝跳到该处",
+		"zh-TW": "Ctrl+滾輪＝縮放 · 放大後拖曳＝平移 · 點擊小地圖＝跳到該處",
+	},
+	// 그래프 안의 '작업중' 유령 노드 — 미커밋 작업이 어디서 벌어지는지.
+	"map.work.label": {
+		"ko": "작업중", "en": "working", "zh-CN": "进行中", "zh-TW": "進行中",
+	},
+	"map.work.label.pen": {
+		"ko": "✎ 작업중", "en": "✎ working", "zh-CN": "✎ 进行中", "zh-TW": "✎ 進行中",
+	},
+	"map.work.tip": {
+		"ko": "✎ 작업중(미커밋) — ", "en": "✎ working (uncommitted) — ",
+		"zh-CN": "✎ 进行中（未提交）—— ", "zh-TW": "✎ 進行中（未提交）—— ",
 	},
 
 	// 전체맵(스텝) 범례. 은유가 많은 자리라 직역하지 않는다 — 각 언어에서 **읽히는 글**로

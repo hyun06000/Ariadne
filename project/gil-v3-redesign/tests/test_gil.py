@@ -8924,6 +8924,25 @@ class TestViewerLanguages(GilFixture):
             self.assertNotIn(written, blob,
                              f"사용자가 쓴 글 '{written}' 이 번역 사전에 들어갔다")
 
+    def test_no_new_ui_string_bypasses_the_dictionary(self):
+        """**사전을 거치지 않고 박은 문구는 영어 화면에서 조용히 한국어로 남는다.**
+
+        이게 이 작업이 썩는 방식이다: 반년 뒤 누가 화면에 한 줄 더 붙이면서 사전을 잊고,
+        아무도 그걸 모른 채 영어 화면만 낡는다. 소스에서 직접 막는다 — 뷰어의 JS 가 화면에
+        찍는 글은 T() 를 타야 한다(마크업의 한국어 원문은 data-i18n 이 짝이라 예외)."""
+        import re
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "go", "viewer_serve.go")
+        with open(src, encoding="utf-8") as f:
+            lines = f.readlines()
+        bad = []
+        for i, ln in enumerate(lines, 1):
+            if ln.lstrip().startswith("//"):
+                continue
+            if re.search(r"(textContent|innerHTML|\.title)\s*=\s*'[^']*[가-힣]", ln):
+                bad.append(f"{i}: {ln.strip()[:70]}")
+        self.assertEqual(bad, [], "사전을 안 거친 화면 문구가 있다:\n" + "\n".join(bad))
+
     def test_serve_rejects_an_unknown_language(self):
         """모르는 언어를 조용히 무시하면 사람은 왜 안 바뀌는지 모른다."""
         self.gil("init", "--name", "clew")

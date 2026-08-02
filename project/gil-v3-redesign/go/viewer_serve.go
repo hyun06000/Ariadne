@@ -662,17 +662,17 @@ func renderHTML(g graphView, static bool) string {
 	// textarea·라디오·체크박스를 그리고, 제출 시 POST /interview 로 답변을 넘긴다.
 	// 삭제 승인 카드 — 비가역 행위는 사람 손에서만 눌린다.
 	if !static && len(g.prunes) > 0 {
-		b.WriteString(`<section class="pane" id="pane-prune"><h2 class="panehead">🗑 삭제 승인 대기 — 사람만 누를 수 있습니다</h2><div id="prunes"></div></section>`)
+		b.WriteString(`<section class="pane" id="pane-prune"><h2 class="panehead"` + i18nAttr("pane.prune") + `>` + i18nT("pane.prune") + `</h2><div id="prunes"></div></section>`)
 		b.WriteString(`<script id="prunedata" type="application/json">` + prunesJSON(g) + `</script>`)
 	}
 	// 제출의 **결과**가 화면에 남아야 한다(상현님: 제출해도 아무 일도 안 일어난다). 확정된
 	// 기준 문서와, 그 답이 에이전트에게 도달했는지를 지속적으로 보여준다.
 	if len(g.references) > 0 {
-		b.WriteString(`<section class="pane" id="pane-reference"><h2 class="panehead">✅ 확정된 기준 문서</h2><div id="references"></div></section>`)
+		b.WriteString(`<section class="pane" id="pane-reference"><h2 class="panehead"` + i18nAttr("pane.reference") + `>` + i18nT("pane.reference") + `</h2><div id="references"></div></section>`)
 		b.WriteString(`<script id="referencedata" type="application/json">` + referencesJSON(g) + `</script>`)
 	}
 	if !static && len(g.interviews) > 0 {
-		b.WriteString(`<section class="pane" id="pane-interview"><h2 class="panehead">📋 인터뷰 — 기준 문서 만들기</h2><div id="interviews"></div></section>`)
+		b.WriteString(`<section class="pane" id="pane-interview"><h2 class="panehead"` + i18nAttr("pane.interview") + `>` + i18nT("pane.interview") + `</h2><div id="interviews"></div></section>`)
 		b.WriteString(`<script id="interviewdata" type="application/json">` + interviewsJSON(g) + `</script>`)
 	}
 	if len(g.chains) == 0 {
@@ -683,23 +683,22 @@ func renderHTML(g graphView, static bool) string {
 		// 않으면 그림일 뿐이다. 맨 위에 접이식 안내를 두되, **처음 온 사람에게는 펼쳐** 둔다
 		// (한 번 닫으면 그 브라우저에선 계속 닫힌 채 — localStorage).
 		b.WriteString(`<section class="pane" id="pane-guide"><details id="guide"><summary class="panehead">` +
-			`이 화면 읽는 법 — 체인 · 사이클 · 스텝 <span class="gtoggle">(펼치기/접기)</span></summary>` +
+			`<span` + i18nAttr("guide.summary") + `>` + i18nT("guide.summary") + `</span> <span class="gtoggle"` + i18nAttr("guide.toggle") + `>` + i18nT("guide.toggle") + `</span></summary>` +
 			`<div class="guide">` +
-			`<p><b>gil 은 AI 가 문제를 푼 <i>생각의 과정</i>을 git 커밋으로 남긴 것입니다.</b> ` +
-			`이 화면의 점 하나하나가 실제 커밋이고, 선은 “무엇에서 무엇이 나왔나”입니다.</p>` +
+			`<p` + i18nAttr("guide.intro") + `>` + i18nT("guide.intro") + `</p>` +
 			`<ul>` +
-			`<li><b>체인</b> — 가장 큰 줄기(한 덩어리의 목적). 예: “전기요금이 왜 두 배가 됐나”. 체인마다 사람이 세운 <b>기준 문서</b>가 붙습니다.</li>` +
-			`<li><b>사이클</b> — 그 목적을 쪼갠 <b>하나의 작은 문제</b>. 문제 정의 → 가설 → 검증 → 분석 → 종결로 한 바퀴 돕니다.</li>` +
-			`<li><b>스텝</b> — 그 한 바퀴 안의 <b>한 걸음</b>(점 하나 = 커밋 하나). 점을 누르면 그 걸음의 보고서가 아래에 열립니다.</li>` +
+			`<li` + i18nAttr("guide.li.chain") + `>` + i18nT("guide.li.chain") + `</li>` +
+			`<li` + i18nAttr("guide.li.cycle") + `>` + i18nT("guide.li.cycle") + `</li>` +
+			`<li` + i18nAttr("guide.li.step") + `>` + i18nT("guide.li.step") + `</li>` +
 			`</ul>` +
 			// 글만으로는 한눈에 안 들어온다(상현님) — 실제 그래프와 **같은 색·모양**의 그림 하나.
 			// 여기 쓰인 파랑/초록/빨강/주황은 아래 진짜 그래프의 그 색 그대로다.
 			`<svg class="gdiagram" viewBox="0 0 700 250" role="img" ` +
-			`aria-label="체인 안에 사이클, 사이클 안에 스텝이 있는 구조 그림">` +
+			`aria-label="` + i18nT("diag.aria") + `">` +
 			`<rect x="8" y="34" width="684" height="150" rx="12" class="gd-chain"/>` +
-			`<text x="18" y="26" class="gd-lbl gd-lbl-chain">체인 — 하나의 큰 목적 “전기요금이 왜 두 배가 됐나”</text>` +
+			`<text x="18" y="26" class="gd-lbl gd-lbl-chain"` + i18nAttr("diag.chain") + `>` + i18nT("diag.chain") + `</text>` +
 			`<rect x="24" y="52" width="404" height="116" rx="9" class="gd-cyc"/>` +
-			`<text x="34" y="70" class="gd-lbl">사이클 1 — 작은 문제 “언제 늘었나”</text>` +
+			`<text x="34" y="70" class="gd-lbl"` + i18nAttr("diag.cycle1") + `>` + i18nT("diag.cycle1") + `</text>` +
 			`<line x1="60" y1="104" x2="140" y2="104" class="gd-edge"/>` +
 			`<line x1="140" y1="104" x2="220" y2="104" class="gd-edge"/>` +
 			`<line x1="220" y1="104" x2="300" y2="104" class="gd-edge"/>` +
@@ -711,38 +710,30 @@ func renderHTML(g graphView, static bool) string {
 			`<circle cx="300" cy="104" r="11" class="gd-n"/>` +
 			`<circle cx="380" cy="104" r="11" class="gd-n gd-alive"/>` +
 			`<circle cx="140" cy="148" r="11" class="gd-n gd-deadn"/>` +
-			`<text x="60" y="128" class="gd-k">문제정의</text>` +
-			`<text x="140" y="128" class="gd-k">가설</text>` +
-			`<text x="220" y="128" class="gd-k">검증</text>` +
-			`<text x="300" y="128" class="gd-k">분석</text>` +
-			`<text x="380" y="128" class="gd-k">성공</text>` +
-			`<text x="176" y="153" class="gd-k gd-kdead">막다른 길 — 지우지 않고 남긴다</text>` +
+			`<text x="60" y="128" class="gd-k"` + i18nAttr("diag.k.define") + `>` + i18nT("diag.k.define") + `</text>` +
+			`<text x="140" y="128" class="gd-k"` + i18nAttr("diag.k.hypothesis") + `>` + i18nT("diag.k.hypothesis") + `</text>` +
+			`<text x="220" y="128" class="gd-k"` + i18nAttr("diag.k.verify") + `>` + i18nT("diag.k.verify") + `</text>` +
+			`<text x="300" y="128" class="gd-k"` + i18nAttr("diag.k.analyze") + `>` + i18nT("diag.k.analyze") + `</text>` +
+			`<text x="380" y="128" class="gd-k"` + i18nAttr("diag.k.success") + `>` + i18nT("diag.k.success") + `</text>` +
+			`<text x="176" y="153" class="gd-k gd-kdead"` + i18nAttr("diag.dead") + `>` + i18nT("diag.dead") + `</text>` +
 			`<rect x="444" y="52" width="236" height="116" rx="9" class="gd-cyc"/>` +
-			`<text x="454" y="70" class="gd-lbl">사이클 2 — “어느 기기인가”</text>` +
+			`<text x="454" y="70" class="gd-lbl"` + i18nAttr("diag.cycle2") + `>` + i18nT("diag.cycle2") + `</text>` +
 			`<line x1="480" y1="104" x2="560" y2="104" class="gd-edge"/>` +
 			`<line x1="560" y1="104" x2="640" y2="104" class="gd-edge"/>` +
 			`<circle cx="480" cy="104" r="11" class="gd-n"/>` +
 			`<circle cx="560" cy="104" r="11" class="gd-n"/>` +
 			`<circle cx="640" cy="104" r="11" class="gd-n gd-here"/>` +
 			`<path d="M 640 78 l -7 -11 l 14 0 z" class="gd-arrow"/>` +
-			`<text x="640" y="64" class="gd-k gd-khere">지금 여기</text>` +
-			`<text x="480" y="128" class="gd-k">문제정의</text>` +
-			`<text x="560" y="128" class="gd-k">가설</text>` +
-			`<text x="640" y="128" class="gd-k">검증 중</text>` +
-			`<text x="18" y="207" class="gd-cap">점 하나 = git 커밋 하나 = 한 걸음. 점을 누르면 그 걸음의 보고서가 열립니다.</text>` +
-			`<text x="18" y="230" class="gd-cap">사이클이 끝나면 다음 사이클로 — 그렇게 큰 목적(체인)을 작은 문제로 정복합니다.</text>` +
+			`<text x="640" y="46" class="gd-k gd-khere"` + i18nAttr("diag.here") + `>` + i18nT("diag.here") + `</text>` +
+			`<text x="480" y="128" class="gd-k"` + i18nAttr("diag.k.define") + `>` + i18nT("diag.k.define") + `</text>` +
+			`<text x="560" y="128" class="gd-k"` + i18nAttr("diag.k.hypothesis") + `>` + i18nT("diag.k.hypothesis") + `</text>` +
+			`<text x="640" y="128" class="gd-k"` + i18nAttr("diag.k.verifying") + `>` + i18nT("diag.k.verifying") + `</text>` +
+			`<text x="18" y="207" class="gd-cap"` + i18nAttr("diag.cap1") + `>` + i18nT("diag.cap1") + `</text>` +
+			`<text x="18" y="230" class="gd-cap"` + i18nAttr("diag.cap2") + `>` + i18nT("diag.cap2") + `</text>` +
 			`</svg>` +
-			`<p class="glegend"><b>점의 색과 표식</b> — ` +
-			`<span class="lg-alive">초록</span>=성공으로 끝난 가지 · ` +
-			`<span class="lg-dead">빨강</span>=막다른 길(지우지 않고 <b>벽의 지도</b>로 남깁니다) · ` +
-			`<span class="lg-cross">주황 ▼</span>=지금 작업 중인 자리 · ` +
-			`🚀=여기서 배포됨 · ⟲정정=앞 걸음을 다시 쓴 것 · <span class="gdim">흐린 점</span>=정정으로 대체된 옛 가지(이력엔 남습니다).</p>` +
-			`<p class="glegend"><b>막다른 길이 남아 있는 건 고장이 아닙니다.</b> ` +
-			`무엇을 시도했다가 왜 접었는지가 남아야 같은 길을 두 번 걷지 않습니다 — gil 이 남기려는 것이 바로 그것입니다.</p>` +
-			`<p class="glegend"><b>어디부터 보나</b> — 아래 <b>전체맵</b>이 전체 흐름입니다(왼→오른쪽). ` +
-			`거기서 점을 누르면 <b>스텝 그래프</b>와 <b>스텝 디테일</b>이 그 자리로 갑니다. ` +
-			`위쪽 <b>▼ 현재위치로</b> 버튼은 언제나 지금 작업 중인 자리로 데려갑니다. ` +
-			`체인·사이클 단위로 크게 보고 싶으면 아래 접힌 <b>체인 그래프</b>·<b>사이클 그래프</b>를 펼치세요.</p>` +
+			`<p class="glegend"` + i18nAttr("guide.legend.marks") + `>` + i18nT("guide.legend.marks") + `</p>` +
+			`<p class="glegend"` + i18nAttr("guide.legend.dead") + `>` + i18nT("guide.legend.dead") + `</p>` +
+			`<p class="glegend"` + i18nAttr("guide.legend.where") + `>` + i18nT("guide.legend.where") + `</p>` +
 			`</div></details></section>`)
 		// 탭 없이 세로로: 안내 → 전체맵 → (접힘)체인 → (접힘)사이클 → 스텝 → 디테일.
 		// 기본 열림은 **전체맵·스텝 그래프·스텝 디테일** 셋이다(필드테스트: 처음 온 사람은
@@ -758,21 +749,19 @@ func renderHTML(g graphView, static bool) string {
 		// 갈라지지 않으면 아무 의미가 없다 — 그러니 사람이 직접 점검할 수 있어야 한다.
 		// 커밋·부모·브랜치 이름을 그대로 심고, 화면에서 레인 배치로 그린다(ASCII 는 사람이 못 읽는다).
 		b.WriteString(`<section class="pane"><details id="det-gitgraph"><summary class="panehead">` +
-			`git 그래프 (날것) <span class="gtoggle">(펼치기 — gil 계보가 진짜 브랜치인지 여기서 점검한다)</span></summary>` +
-			`<p class="hint">gil 이 그리는 계보와 <b>git 자신의 그림</b>이 같은지 보는 자리다. ` +
-			`선언만 하고 실제로 갈라지지 않으면 그 계보는 거짓이고, 그건 여기서 바로 드러난다. ` +
-			`점=커밋 · 선=부모 · 칩=브랜치 이름. 최근 400개.</p>` +
+			`<span` + i18nAttr("pane.gitgraph") + `>` + i18nT("pane.gitgraph") + `</span> <span class="gtoggle"` + i18nAttr("pane.gitgraph.toggle") + `>` + i18nT("pane.gitgraph.toggle") + `</span></summary>` +
+			`<p class="hint"` + i18nAttr("pane.gitgraph.hint") + `>` + i18nT("pane.gitgraph.hint") + `</p>` +
 			`<div id="gitgraph"></div></details></section>`)
 		b.WriteString(`<script id="gitgraphdata" type="application/json">` + gitGraphJSON() + `</script>`)
-		b.WriteString(`<section class="pane"><details id="det-chain"><summary class="panehead">체인 그래프 <span class="gtoggle">(펼치기)</span></summary><div id="view-chain">`)
+		b.WriteString(`<section class="pane"><details id="det-chain"><summary class="panehead"><span` + i18nAttr("pane.chaingraph") + `>` + i18nT("pane.chaingraph") + `</span> <span class="gtoggle"` + i18nAttr("pane.unfold") + `>` + i18nT("pane.unfold") + `</span></summary><div id="view-chain">`)
 		b.WriteString(fmt.Sprintf(
 			`<svg id="graph" viewBox="0 0 %d %d" width="%d" height="%d"><g id="edges">%s</g><g id="nodes">%s</g></svg>`,
 			w, h, w, h, edges.String(), nodes.String()))
-		b.WriteString(`<p class="hint">동그라미 = 체인(숫자는 사이클 수), 선 = 계보(부모→자식). ▼ = 현재위치(HEAD). <b>노드 클릭 → 아래 사이클 그래프.</b></p>`)
+		b.WriteString(`<p class="hint"` + i18nAttr("pane.chaingraph.hint") + `>` + i18nT("pane.chaingraph.hint") + `</p>`)
 		b.WriteString(`</div></details></section>`)
-		b.WriteString(`<section class="pane" id="pane-card" hidden><details id="det-cycle"><summary class="panehead">사이클 그래프 <span class="gtoggle">(펼치기)</span></summary><div id="card"></div></details></section>`)
-		b.WriteString(`<section class="pane" id="pane-step" hidden><h2 class="panehead">스텝 그래프</h2><div id="stepcard"></div></section>`)
-		b.WriteString(`<section class="pane" id="pane-report" hidden><h2 class="panehead">스텝 디테일</h2><div id="reportcard"></div></section>`)
+		b.WriteString(`<section class="pane" id="pane-card" hidden><details id="det-cycle"><summary class="panehead"><span` + i18nAttr("pane.cyclegraph") + `>` + i18nT("pane.cyclegraph") + `</span> <span class="gtoggle"` + i18nAttr("pane.unfold") + `>` + i18nT("pane.unfold") + `</span></summary><div id="card"></div></details></section>`)
+		b.WriteString(`<section class="pane" id="pane-step" hidden><h2 class="panehead"` + i18nAttr("pane.stepgraph") + `>` + i18nT("pane.stepgraph") + `</h2><div id="stepcard"></div></section>`)
+		b.WriteString(`<section class="pane" id="pane-report" hidden><h2 class="panehead"` + i18nAttr("pane.stepdetail") + `>` + i18nT("pane.stepdetail") + `</h2><div id="reportcard"></div></section>`)
 		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g, static) + `</script>`)
 		b.WriteString(`<script id="parentdata" type="application/json">` + parentsJSON(g) + `</script>`)
 		b.WriteString(`<script id="dagdata" type="application/json">` + dagJSON(g, static) + `</script>`)
@@ -1998,6 +1987,7 @@ poll();
 `
 
 const js = `
+const SVGNS='http://www.w3.org/2000/svg';
 // ── 화면 언어 ──────────────────────────────────────────────────────────────────
 // 사전은 페이지에 통째로 실려 온다(viewer_i18n.go). 그래서 토글이 왕복 없이 즉시 먹고,
 // 서버 없는 정적 출력에서도 그대로 돈다. 마크업의 한국어 원문은 그대로 두고 갈아끼우므로
@@ -2049,7 +2039,10 @@ function applyLang(){
     let args=null;
     const raw=el.getAttribute('data-i18n-args');
     if(raw){ try{ args=JSON.parse(raw); }catch(e){} }
-    el.innerHTML=T(el.getAttribute('data-i18n'),args);
+    const key=el.getAttribute('data-i18n');
+    // SVG 안의 글은 innerHTML 로 갈면 안 된다(마크업이 아니라 글자다) — textContent 로.
+    if(el.ownerSVGElement||el.namespaceURI===SVGNS) el.textContent=T(key,args);
+    else el.innerHTML=T(key,args);
   });
   document.querySelectorAll('[data-i18n-title]').forEach(el=>{
     el.title=T(el.getAttribute('data-i18n-title'));
@@ -2064,8 +2057,12 @@ function setLang(l){
   // 자기가 무슨 언어를 보고 있는지 토글에게 물어볼 수 없게 된다.
   const sel=document.querySelector('.langsel');
   if(sel&&sel.value!==l) sel.value=l;
-  // 그림 안의 글(범례 등)은 다시 그려야 바뀐다 — 그 자리는 innerHTML 이 아니라 코드가 만든다.
-  if(typeof buildStepMap==='function'){ try{ buildStepMap(); }catch(e){} }
+  // 코드가 만드는 자리(그림 안의 범례·카드·폼)는 data-i18n 이 닿지 않는다 — 다시 그린다.
+  // 인터뷰 폼은 한 글자마다 초안이 저장되므로 다시 그려도 쓰던 답을 잃지 않는다(그게 아니면
+  // 언어를 바꿨다는 이유로 답이 날아간다 — 언어 토글이 덫이 되는 자리다).
+  ['buildStepMap','buildPrunes','buildReferences','buildInterviews'].forEach(fn=>{
+    if(typeof window[fn]==='function'){ try{ window[fn](); }catch(e){ console.error('[gil viewer] '+fn,e); } }
+  });
 }
 function buildLangToggle(){
   const host=document.getElementById('langpick');
@@ -2083,7 +2080,6 @@ function buildLangToggle(){
   host.appendChild(sel);
 }
 
-const SVGNS='http://www.w3.org/2000/svg';
 const DATA=JSON.parse(document.getElementById('cycledata')?.textContent||'{}');
 const PARENTS=JSON.parse(document.getElementById('parentdata')?.textContent||'{}');
 const DAG=JSON.parse(document.getElementById('dagdata')?.textContent||'[]');
@@ -2448,14 +2444,14 @@ function openStepCard(chain,cyc){
       svg.appendChild(svgEl('path',{class:'stepedge work',fill:'none',
         d:'M '+(X(anchor.sha)+r)+' '+Y(anchor.sha)+' L '+(wx-r)+' '+wy}));
       const wg=svgEl('g',{class:'snode working',transform:'translate('+wx+','+wy+')'});
-      wg.appendChild(svgEl('title',{},'✎ 작업중(미커밋) — '+WORK.summary+
+      wg.appendChild(svgEl('title',{},T('map.work.tip')+WORK.summary+
         (WORK.branch?'\n브랜치: '+WORK.branch:'')+
         (WORK.ahead?'\n앵커 이후 평범한 커밋 '+WORK.ahead+'개':'')+
         (WORK.files&&WORK.files.length?'\n'+WORK.files.join('\n'):'')+
         '\n커밋하면 이 자리에 진짜 스텝이 선다.'));
       wg.appendChild(svgEl('circle',{r:r}));
       wg.appendChild(svgEl('text',{class:'sid',dy:3},'✎'));
-      wg.appendChild(svgEl('text',{class:'skind',dy:r+16},'작업중'));
+      wg.appendChild(svgEl('text',{class:'skind',dy:r+16},T('map.work.label')));
       // 현재위치는 여기다 — 커밋된 잎이 아니라 손이 움직이는 자리(상현님).
       wg.appendChild(svgEl('text',{class:'headlbl',dy:-r-14},'HEAD'));
       wg.appendChild(svgEl('path',{class:'headarrow',d:'M 0 '+(-r-11)+' l -5 -8 l 10 0 z'}));
@@ -2478,8 +2474,7 @@ function openStepCard(chain,cyc){
   if(dups.length){
     const warn=document.createElement('div');
     warn.className='cardwarn';
-    warn.textContent='⚠ 이 사이클엔 번호가 겹치는 스텝이 있다('+dups.join(', ')+') — 옛 gil(≤3.28)이 찍은 구간이다. '+
-      '뷰어는 커밋 sha 를 정체성으로 삼아 그대로 그린다. 전체 점검: gil fsck';
+    warn.textContent=T('card.dupwarn',{dups:dups.join(', ')});
     sc.appendChild(warn);
   }
   }catch(err){
@@ -2487,8 +2482,7 @@ function openStepCard(chain,cyc){
     // 카드 안에 찍는다 — 사람이 "안 뜬다" 대신 "이래서 안 뜬다"를 본다.
     const box=document.createElement('div');
     box.className='cardwarn err';
-    box.textContent='✕ 이 사이클의 스텝 그래프를 그리지 못했다: '+(err&&err.message?err.message:err)+
-      '  (데이터는 그대로다 — 뷰어의 렌더만 실패했다. gil fsck 로 그래프를 점검하라.)';
+    box.textContent=T('card.stepgraph.failed',{err:(err&&err.message?err.message:err)});
     sc.appendChild(box);
   }
   showPane('pane-step',true);
@@ -2580,7 +2574,7 @@ function goHere(){
   // 현재위치가 그래프 밖이면(대문·빈 저장소) 그 사실을 말한다 — 조용히 아무 일도 안 하면
   // 버튼이 고장 난 것으로 읽힌다.
   const b=document.getElementById('gohere');
-  if(b){ const t=b.textContent; b.textContent='현재위치가 그래프에 없다'; setTimeout(()=>b.textContent=t,2000); }
+  if(b){ const t=b.textContent; b.textContent=T('head.gohere.missing'); setTimeout(()=>b.textContent=t,2000); }
 }
 function flashHere(){
   setTimeout(()=>{
@@ -2638,18 +2632,18 @@ async function openReport(chain,cycle,n){
   if(n.kind==='pending' && !LIVE_STATIC){
     const box=document.createElement('div');
     box.className='pendbox';
-    const msg=document.createElement('span'); msg.className='pendmsg'; msg.textContent='⏳ 사람 답 대기 —';
-    const ok=document.createElement('button'); ok.className='pendbtn approve'; ok.textContent='✓ 승인(산 잎)';
-    const no=document.createElement('button'); no.className='pendbtn reject'; no.textContent='✕ 기각(되돌림)';
+    const msg=document.createElement('span'); msg.className='pendmsg'; msg.textContent=T('pend.msg');
+    const ok=document.createElement('button'); ok.className='pendbtn approve'; ok.textContent=T('pend.approve');
+    const no=document.createElement('button'); no.className='pendbtn reject'; no.textContent=T('pend.reject');
     const status=document.createElement('span'); status.className='pendstatus';
     const act=async(kind)=>{
-      ok.disabled=no.disabled=true; status.textContent=' 처리 중…';
+      ok.disabled=no.disabled=true; status.textContent=T('pend.working');
       const qs='chain='+encodeURIComponent(chain)+'&cycle='+encodeURIComponent(cycle)+
         (kind==='reject'?'&to=s1':''); // 기각은 사이클 뿌리 define(s1)로 되돌린다
       try{
         const res=await fetch('/'+kind+'?'+qs,{method:'POST'});
         const txt=await res.text();
-        if(res.ok){ status.textContent=' ✓ 완료 — 갱신 중'; setTimeout(()=>location.reload(),400); }
+        if(res.ok){ status.textContent=T('pend.done'); setTimeout(()=>location.reload(),400); }
         else{ status.textContent=' ✕ '+txt.split('\n')[0]; ok.disabled=no.disabled=false; }
       }catch(e){ status.textContent=' ✕ '+e; ok.disabled=no.disabled=false; }
     };
@@ -2665,7 +2659,7 @@ async function openReport(chain,cycle,n){
   // 본문(제목+body)을 마크다운으로 렌더(피드백 6·7). /step 에서 원문을 가져온다.
   const body=document.createElement('div');
   body.className='report md';
-  body.textContent='(불러오는 중…)';
+  body.textContent=T('report.loading');
   rc.appendChild(body);
   showPane('pane-report',true);
   // 정적 build: 본문이 노드에 인라인 임베드돼 있으면 서버 페치 없이 바로 렌더.
@@ -2679,8 +2673,8 @@ async function openReport(chain,cycle,n){
       let raw=await res.text();
       raw=stripTrailers(raw); // Gil-* 트레일러 블록 제거(메타는 위 배지로 이미 보임)
       body.innerHTML=renderMarkdown(raw);
-    }else{ body.textContent='(보고서를 불러오지 못했다: '+res.status+')'; }
-  }catch(e){ body.textContent='(네트워크 오류: '+e+')'; }
+    }else{ body.textContent=T('report.failed',{status:res.status}); }
+  }catch(e){ body.textContent=T('report.neterr',{err:e}); }
 }
 
 // stripTrailers — 커밋 메시지 끝의 Gil-*: 트레일러 블록을 떼어낸다(마지막 문단이 트레일러면).
@@ -2806,11 +2800,11 @@ let MAP_CHAIN=(()=>{ try{ return localStorage.getItem('gilMapChain')||''; }catch
 // select 로 둔다. 고른 값은 localStorage 에 남아 폴링 리로드를 넘어 유지된다.
 function chainFilterBar(chains){
   const bar=document.createElement('div'); bar.className='dagbar';
-  const lab=document.createElement('span'); lab.className='zhint'; lab.textContent='체인:';
+  const lab=document.createElement('span'); lab.className='zhint'; lab.textContent=T('map.filter.label');
   const sel=document.createElement('select');
   const mk=(v,t)=>{const o=document.createElement('option');o.value=v;o.textContent=t;
     if(v===MAP_CHAIN)o.selected=true;sel.appendChild(o);};
-  mk('','전체 ('+chains.length+'개 체인)');
+  mk('',T('map.filter.all',{n:chains.length}));
   chains.forEach(c=>mk(c,c));
   sel.addEventListener('change',()=>{
     MAP_CHAIN=sel.value;
@@ -2820,7 +2814,7 @@ function chainFilterBar(chains){
   bar.appendChild(lab); bar.appendChild(sel);
   if(MAP_CHAIN){
     const hint=document.createElement('span'); hint.className='zhint';
-    hint.textContent='— 이 체인만 그린다(다른 체인은 숨김). 계보 전체는 "전체".';
+    hint.textContent=T('map.filter.only');
     bar.appendChild(hint);
   }
   return bar;
@@ -3321,14 +3315,14 @@ function buildStepMap(){
       svg.appendChild(svgEl('path',{class:'dedge work',fill:'none',
         d:'M '+(X(anchor.sha)+r)+' '+Y(anchor.sha)+' L '+(wx-r)+' '+wy}));
       const wg=svgEl('g',{class:'dnode working',transform:'translate('+wx+','+wy+')'});
-      const tip='✎ 작업중(미커밋) — '+WORK.summary+
+      const tip=T('map.work.tip')+WORK.summary+
         (WORK.branch?'\n브랜치: '+WORK.branch:'')+
         (WORK.ahead?'\n앵커 이후 평범한 커밋 '+WORK.ahead+'개':'')+
         (WORK.files&&WORK.files.length?'\n'+WORK.files.join('\n'):'')+
         '\n커밋하면 이 자리에 진짜 스텝이 선다.';
       wg.appendChild(svgEl('title',{},tip));
       wg.appendChild(svgEl('circle',{r:agg?r+2:r}));
-      const lb=svgEl('text',{class:'worklbl',x:0,y:-(r+6)}); lb.textContent='✎ 작업중'; wg.appendChild(lb);
+      const lb=svgEl('text',{class:'worklbl',x:0,y:-(r+6)}); lb.textContent=T('map.work.label.pen'); wg.appendChild(lb);
       // 현재위치는 손이 움직이는 자리다(상현님) — 커밋된 마지막 스텝이 아니라 이 자리.
       // 전체맵과 스텝 그래프가 같은 말을 하게 한다(둘이 다르면 어느 쪽이 참인지 모른다).
       if(anchor.here){
@@ -3383,11 +3377,11 @@ function enableZoomPan(wrap,svg,W,H){
   const bar=document.createElement('div'); bar.className='dagbar';
   const btn=(label,title,fn)=>{const b=document.createElement('button');b.textContent=label;b.title=title;
     b.addEventListener('click',ev=>{ev.stopPropagation();fn();});bar.appendChild(b);};
-  btn('＋','확대',()=>{const c=center();zoomAt(1/1.4,c.x,c.y);});
-  btn('−','축소',()=>{const c=center();zoomAt(1.4,c.x,c.y);});
-  btn('전체','전체 보기(리셋)',()=>{vb={x:0,y:0,w:W,h:H};apply();});
+  btn('＋',T('map.zoom.in'),()=>{const c=center();zoomAt(1/1.4,c.x,c.y);});
+  btn('−',T('map.zoom.out'),()=>{const c=center();zoomAt(1.4,c.x,c.y);});
+  btn(T('map.zoom.fit'),T('map.zoom.fit.title'),()=>{vb={x:0,y:0,w:W,h:H};apply();});
   const zh=document.createElement('span'); zh.className='zhint';
-  zh.textContent='Ctrl+휠=줌 · 확대 후 드래그=이동 · 미니맵 클릭=그 자리로'; bar.appendChild(zh);
+  zh.textContent=T('map.zoom.hint'); bar.appendChild(zh);
   // 미니맵(이슈 #79): 확대하면 전체 속 위치를 잃는다. 전체 축소본에 지금 보는 창을 그리고,
   // 클릭·드래그로 그 자리로 뛴다. 큰 그래프에서 확대 없이는 읽을 수 없고, 확대하면 길을
   // 잃는 딜레마를 푸는 최소 장치다. 노드를 다시 그리지 않고 원본 SVG 를 통째로 복제한다.
@@ -3527,7 +3521,7 @@ function buildGitGraph(){
   const host=document.getElementById('gitgraph');
   if(!host)return;
   const rows=JSON.parse(document.getElementById('gitgraphdata')?.textContent||'[]');
-  if(!rows.length){ host.textContent='커밋이 없다.'; return; }
+  if(!rows.length){ host.textContent=T('gitgraph.empty'); return; }
   const LAYER=(()=>{ try{ return JSON.parse(document.getElementById('layergraphdata')?.textContent||'{}'); }catch(e){ return {}; } })();
   const LAYERED=(LAYER.lanes||[]).includes('dev');
   // 전체맵과 같은 눈높이로 **간결하게**: 왼→오른 흐름, 점=커밋, 선=부모, 칩=브랜치 이름만.
@@ -3727,13 +3721,13 @@ function buildPrunes(){
   PRUNES.forEach(p=>{
     const card=document.createElement('div'); card.className='prunecard';
     const head=document.createElement('div'); head.className='prunehead';
-    head.textContent='삭제 요청: '+p.target+'  ('+p.sha+')';
+    head.textContent=T('prune.head',{target:p.target,sha:p.sha});
     const body=document.createElement('div'); body.className='prunebody'; body.textContent=p.body;
-    const btn=document.createElement('button'); btn.className='prunebtn'; btn.textContent='이 삭제를 승인합니다';
+    const btn=document.createElement('button'); btn.className='prunebtn'; btn.textContent=T('prune.approve');
     // 요청을 올린 순간 빠져나올 수 없으면 그 문은 문이 아니라 덫이다(이슈 #91). 철회는
     // 아무것도 지우지 않으므로 승인과 같은 무게의 문을 달지 않는다 — 카드만 걷는다.
-    const wbtn=document.createElement('button'); wbtn.className='prunewd'; wbtn.textContent='요청 철회';
-    wbtn.title='아무것도 지우지 않고 이 요청을 거둔다(이력엔 남는다)';
+    const wbtn=document.createElement('button'); wbtn.className='prunewd'; wbtn.textContent=T('prune.withdraw');
+    wbtn.title=T('prune.withdraw.title');
     const st=document.createElement('span'); st.style.marginLeft='10px'; st.style.fontSize='12px';
     // **브라우저 대화상자에 문을 걸지 않는다**(이슈 #96). confirm() 이 막히는 환경(차단
     // 설정·자동화 브라우저·포커스를 잃은 창)에서는 아무 흔적 없이 return 해서, 사람 눈에는
@@ -3742,30 +3736,30 @@ function buildPrunes(){
     let armed=0;
     btn.addEventListener('click',async()=>{
       if(!armed){
-        armed=Date.now(); btn.textContent='정말 지웁니다 — 한 번 더';
-        btn.classList.add('armed'); st.textContent=' 5초 안에 한 번 더 누르면 승인됩니다';
-        setTimeout(()=>{ if(armed){ armed=0; btn.textContent='이 삭제를 승인합니다';
-          btn.classList.remove('armed'); st.textContent=' (시간이 지나 취소됨)'; } },5000);
+        armed=Date.now(); btn.textContent=T('prune.armed2');
+        btn.classList.add('armed'); st.textContent=T('prune.armed');
+        setTimeout(()=>{ if(armed){ armed=0; btn.textContent=T('prune.approve');
+          btn.classList.remove('armed'); st.textContent=T('prune.timeout'); } },5000);
         return;
       }
       armed=0; btn.classList.remove('armed');
-      btn.disabled=true; st.textContent=' 승인 중…';
+      btn.disabled=true; st.textContent=T('prune.approving');
       try{
         const res=await fetch('/prune-approve?target='+encodeURIComponent(p.target),{method:'POST'});
         const t=await res.text();
         // 승인한 사람이 **다음에 무엇을 쳐야 하는지** 그 자리에서 준다(이슈 #96 곁다리):
         // 지금까지는 "CLI 확인 문구가 더 필요하다"고만 하고 그 한 줄을 안 적었다.
-        if(res.ok){ st.textContent=' ✓ 승인됨 — 실행: gil prune '+p.target+' --confirm '+p.target+' --reason <왜>';
+        if(res.ok){ st.textContent=T('prune.approved',{target:p.target});
           setTimeout(()=>location.reload(),2500); }
-        else{ st.textContent=' ✕ '+t.split('\n')[0]; btn.textContent='이 삭제를 승인합니다'; btn.disabled=false; }
-      }catch(e){ st.textContent=' ✕ '+e; btn.textContent='이 삭제를 승인합니다'; btn.disabled=false; }
+        else{ st.textContent=' ✕ '+t.split('\n')[0]; btn.textContent=T('prune.approve'); btn.disabled=false; }
+      }catch(e){ st.textContent=' ✕ '+e; btn.textContent=T('prune.approve'); btn.disabled=false; }
     });
     wbtn.addEventListener('click',async()=>{
-      wbtn.disabled=true; st.textContent=' 철회 중…';
+      wbtn.disabled=true; st.textContent=T('prune.withdrawing');
       try{
         const res=await fetch('/prune-withdraw?target='+encodeURIComponent(p.target),{method:'POST'});
         const t=await res.text();
-        if(res.ok){ st.textContent=' ✓ 요청을 거뒀다 — 아무것도 지워지지 않았다'; setTimeout(()=>location.reload(),900); }
+        if(res.ok){ st.textContent=T('prune.withdrawn'); setTimeout(()=>location.reload(),900); }
         else{ st.textContent=' ✕ '+t.split('\n')[0]; wbtn.disabled=false; }
       }catch(e){ st.textContent=' ✕ '+e; wbtn.disabled=false; }
     });
@@ -3795,11 +3789,11 @@ function refBlock(chain){
   if(!r)return null;
   const det=document.createElement('details'); det.className='refcard';
   const sum=document.createElement('summary'); sum.className='refsum';
-  const state=r.waiting?'⏳ 에이전트가 기다리는 중':(r.seen?'✓ 에이전트가 읽었습니다':'· 아직 안 읽음');
-  sum.textContent='📌 이 체인의 기준 문서 — 판단은 여기에 비추어라 ('+r.sha+') · '+state;
+  const state=T(r.waiting?'ref.state.waiting':(r.seen?'ref.state.seen':'ref.state.unseen'));
+  sum.textContent=T('ref.pinned',{sha:r.sha})+state;
   det.appendChild(sum);
   const body=document.createElement('div'); body.className='refbody';
-  body.innerHTML=renderMarkdown(r.text||'(본문 없음)');
+  body.innerHTML=renderMarkdown(r.text||T('ref.empty'));
   det.appendChild(body);
   return det;
 }
@@ -3827,15 +3821,15 @@ function buildReferences(){
     if(just===r.chain)det.open=true;               // 방금 제출한 것만 펼친 채로
     const sum=document.createElement('summary'); sum.className='refsum';
     const state=r.waiting?'⏳ 에이전트가 기다리는 중':(r.seen?'✓ 에이전트가 읽었습니다':'· 아직 안 읽음');
-    sum.textContent=(just===r.chain?'✓ 방금 제출한 답이 기준 문서로 확정됐습니다 — ':'')+
-      '체인 '+r.chain+' 기준 문서 ('+r.sha+') · '+state;
+    sum.textContent=(just===r.chain?T('ref.just'):'')+
+      T('ref.sum',{chain:r.chain,sha:r.sha})+state;
     det.appendChild(sum);
     const body=document.createElement('div'); body.className='refbody';
-    body.innerHTML=renderMarkdown(r.text||'(본문 없음)');
+    body.innerHTML=renderMarkdown(r.text||T('ref.empty'));
     det.appendChild(body);
     card.appendChild(det);
     const x=document.createElement('button'); x.className='card-close refx'; x.textContent='✕';
-    x.title='이 확정본은 그만 보기(다음 차수가 오면 다시 뜹니다)';
+    x.title=T('ref.dismiss.title');
     x.addEventListener('click',()=>{
       try{ localStorage.setItem('gil-ref-seen-'+r.chain,r.sha); }catch(e){}
       card.remove();
@@ -3888,9 +3882,9 @@ window.__gilIvNotifyStale=function(){
   const bar=document.createElement('div'); bar.id='ivstalebar'; bar.className='ivwait on';
   bar.style.cssText='margin:8px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
   const t=document.createElement('span');
-  t.textContent='새 기록이 도착했지만, 답을 쓰는 중이라 새로고침을 미뤘습니다 — 쓰던 내용은 그대로 있습니다.';
-  const b=document.createElement('button'); b.className='ivsubmit'; b.textContent='지금 새로고침';
-  b.title='입력하신 내용은 저장돼 있어 새로고침해도 되살아납니다';
+  t.textContent=T('iv.deferred');
+  const b=document.createElement('button'); b.className='ivsubmit'; b.textContent=T('iv.refresh');
+  b.title=T('iv.refresh.title');
   b.addEventListener('click',()=>location.reload());
   bar.appendChild(t); bar.appendChild(b);
   const host=document.getElementById('interviews');
@@ -3904,13 +3898,12 @@ function buildInterviews(){
   INTERVIEWS.forEach(iv=>{
     const card=document.createElement('div'); card.className='ivcard';
     const head=document.createElement('div'); head.className='ivhead';
-    head.innerHTML='체인 <b>'+esc(iv.chain)+'</b> 의 기준 문서를 함께 만든다 — 문제 풀듯 답하고 제출하세요.';
+    head.innerHTML=T('iv.head',{chain:esc(iv.chain)});
     card.appendChild(head);
     // 기다리는 사람이 보이게(이슈 #82) — 제출하고 아무 반응이 없으면 "놓쳤나"를 의심하게 된다.
     const wait=document.createElement('div');
     wait.className='ivwait'+(iv.waiting?' on':'');
-    wait.textContent=iv.waiting?'⏳ 에이전트가 이 답을 기다리는 중 — 제출하면 곧바로 이어집니다.'
-                               :'· 지금은 아무도 기다리고 있지 않습니다. 제출은 저장되고, 에이전트는 다음 접촉 때 읽습니다.';
+    wait.textContent=T(iv.waiting?'iv.waiting':'iv.notwaiting');
     card.appendChild(wait);
     const form=document.createElement('form'); form.className='ivform';
     const draft=ivLoadDraft(iv.chain);            // 앞선 리로드에서 살아남은 초안
@@ -3940,7 +3933,7 @@ function buildInterviews(){
       form.appendChild(fld);
     });
     const foot=document.createElement('div'); foot.className='ivfoot';
-    const submit=document.createElement('button'); submit.type='submit'; submit.className='ivsubmit'; submit.textContent='제출 — 기준 문서로 저장';
+    const submit=document.createElement('button'); submit.type='submit'; submit.className='ivsubmit'; submit.textContent=T('iv.submit');
     const status=document.createElement('span'); status.className='ivstatus';
     foot.appendChild(submit); foot.appendChild(status);
     form.appendChild(foot);
@@ -3950,7 +3943,7 @@ function buildInterviews(){
     form.addEventListener('change',saveNow);
     if(Object.keys(draft).length){
       const back=document.createElement('div'); back.className='ivwait';
-      back.textContent='· 쓰시던 내용을 복원했습니다(이 브라우저에만 저장됩니다). 제출하면 지워집니다.';
+      back.textContent=T('iv.restored');
       form.insertBefore(back,form.firstChild);
     }
     form.addEventListener('submit',async ev=>{
@@ -3963,13 +3956,13 @@ function buildInterviews(){
         else if(q.type==='checkbox'){ a=[...form.querySelectorAll('[name="'+nm+'"]:checked')].map(e=>e.value); }
         return {q:q.q, type:q.type, answer:a};
       });
-      submit.disabled=true; status.textContent=' 저장 중…';
+      submit.disabled=true; status.textContent=T('iv.saving');
       try{
         const res=await fetch('/interview?chain='+encodeURIComponent(iv.chain),
           {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(answers)});
         const txt=await res.text();
         if(res.ok){
-          status.textContent=' ✓ 기준 문서로 확정됐습니다 — 화면을 갱신합니다';
+          status.textContent=T('iv.saved');
           ivClearDraft(iv.chain);   // 도착한 뒤에만 지운다(제출 실패면 초안은 그대로 남는다)
           try{ sessionStorage.setItem('gil-just-submitted',iv.chain); }catch(e){}
           setTimeout(()=>location.reload(),700);
@@ -3985,13 +3978,12 @@ function buildInterviews(){
         let alive=false;
         const probe=window.__gilPollUrl;
         if(probe){ try{ const p=await fetch(probe,{cache:'no-store'}); alive=p.ok; }catch(_){} }
-        status.textContent=alive?(' ✕ 제출 실패: '+e):
+        status.textContent=alive?(T('iv.failed')+e):
           ' ✕ 뷰어 서버에 닿지 못했습니다 — 이 페이지를 띄운 서버가 꺼졌거나 다시 떴습니다.';
         if(!alive){
           const hint=document.createElement('div');
           hint.className='ivwait';
-          hint.innerHTML='답은 아직 제출되지 않았습니다(사라지지도 않았습니다). '+
-            '<b>새로고침한 뒤 다시 제출</b>해 주세요 — 입력한 내용은 이 브라우저에 저장돼 있어 새로고침해도 되살아납니다.'+
+          hint.innerHTML=T('iv.failed.hint')+
             '<br>서버가 꺼져 있으면 터미널에서: <code>gil viewer serve</code>';
           form.appendChild(hint);
         }
@@ -4011,7 +4003,7 @@ function step(name, fn){
     console.error('[gil viewer] '+name+' 실패:', e);
     const b=document.createElement('div');
     b.style.cssText='margin:8px 12px;padding:8px 12px;border:1px solid #c33;border-radius:6px;color:#c33;font:12px ui-monospace,monospace';
-    b.textContent='⚠ 뷰어의 일부('+name+')를 그리지 못했다: '+(e&&e.message||e)+'  — 나머지는 그대로 보인다.';
+    b.textContent=T('viewer.partfail',{name:name,err:(e&&e.message||e)});
     document.body.insertBefore(b, document.body.firstChild);
   }
 }
