@@ -2774,6 +2774,24 @@ function buildStepMap(){
       if(tip)p.appendChild(svgEl('title',{},tip));
       svg.appendChild(p); return p;
     };
+    // 출발선은 **꺾어 내린다**(곡선 아님). 여섯 체인이 층에서 사선으로 내려오면 그 사선들이
+    // 첫 칸의 점·엣지를 가로질러 서로 겹치고, 시작 지점이 뭉개진다(상현님: 다닥다닥 붙어
+    // 구분이 안 된다). 갈라진 자리마다 **제 세로선**으로 내려가면 선이 서로 안 겹치고, 어느
+    // 선이 어느 체인으로 갔는지가 눈으로 따라진다 — git 그래프가 쓰는 그 꺾임이다.
+    const elbowDown=(x1,y1,x2,y2,cls,tip)=>{
+      const R=Math.min(9, Math.max(4,(x2-x1)/2));
+      const p=svgEl('path',{class:'laneedge '+cls,fill:'none',
+        d:'M '+x1+' '+y1+' V '+(y2-R)+' Q '+x1+' '+y2+' '+(x1+R)+' '+y2+' H '+x2});
+      if(tip)p.appendChild(svgEl('title',{},tip));
+      svg.appendChild(p); return p;
+    };
+    const elbowUp=(x1,y1,x2,y2,cls,tip)=>{   // 합류: 오른쪽으로 달리다 제 세로선으로 올라간다
+      const R=Math.min(9, Math.max(4,(x2-x1)/2));
+      const p=svgEl('path',{class:'laneedge '+cls,fill:'none',
+        d:'M '+x1+' '+y1+' H '+(x2-R)+' Q '+x2+' '+y1+' '+x2+' '+(y1-R)+' V '+y2});
+      if(tip)p.appendChild(svgEl('title',{},tip));
+      svg.appendChild(p); return p;
+    };
     const dot=(x,y,cls,tip)=>{
       const c=svgEl('circle',{class:'lanedot '+cls,cx:x,cy:y,r:4});
       if(tip)c.appendChild(svgEl('title',{},tip)); svg.appendChild(c); return c;
@@ -2864,19 +2882,26 @@ function buildStepMap(){
     // 점이 같은 깊이에 서면 clamp 값이 같아져, 서로 다른 dev 커밋에서 난 갈라짐이 도로 한 점에
     // 뭉쳤다(실측: 여섯 체인 중 넷이 x=230 에 포갬 — 고친 그 거짓이 스케일에서 되살아났다).
     // 그래서 clamp 는 걸되, 앞 갈라짐보다는 언제나 오른쪽에 선다.
-    let xForkPrev=-1e9;
+    // 내려가는 세로선은 **점밭 왼쪽 여백에서만** 달린다. 각자 제 첫 점 바로 왼쪽에서 떨어지게
+    // 하면, 그 세로선이 위쪽 띠들의 사이클 박스를 뚫고 내려간다(체인이 여섯이면 여섯 번).
+    // 층 왼쪽 여백(LANEPAD)은 이러라고 있는 자리다: 모든 첫 점보다 왼쪽에서, 서로 벌려서.
+    const forkEvs=evs.filter(e=>e.kind==='fork');
+    const minFirstX=Math.min(...forkEvs.map(e=>X(e.node.sha)));
+    const forkSlots=[...new Set(forkEvs.map(e=>e.at))].sort((a,b)=>a-b);
+    const slotGap=(minFirstX-10-xDevStart)/(forkSlots.length+1);
+    const slotX={}; forkSlots.forEach((at,i)=>{ slotX[at]=xDevStart+slotGap*(i+1); });
     evs.forEach(e=>{
       if(e.kind==='fork'){
-        const x=Math.max(xForkPrev+6, Math.min(atX(e.at), Math.max(xDevStart, X(e.node.sha)-r*2)));
-        xForkPrev=x;
-        curve(x,yDev,X(e.node.sha),Y(e.node.sha),'start',
+        const x=(slotX[e.at]!==undefined && slotGap>6) ? slotX[e.at]
+              : Math.min(atX(e.at), Math.max(xDevStart, X(e.node.sha)-r*2));
+        elbowDown(x,yDev,X(e.node.sha),Y(e.node.sha),'start',
           '출발: dev → '+e.chain+' (계보상 시조 — 대문은 물려받는다)');
         if(x>xDevStart) dot(x,yDev,'dev','갈라짐: dev → '+e.chain);
         devEvents.push(x);
       }else{
         const x1=X(e.node.sha), y1=Y(e.node.sha);
         const x2=isFinite(e.at)?atX(e.at):Math.min(xR-40, x1+runFor(y1-yDev));
-        curve(x1,y1,x2,yDev,'merge','합류: '+e.chain+' → dev (gil merge)');
+        elbowUp(x1,y1,x2,yDev,'merge','합류: '+e.chain+' → dev (gil merge)');
         dot(x2,yDev,'dev','합류: '+e.chain+' → dev');
         devEvents.push(x2);
       }
@@ -3337,17 +3362,30 @@ function buildGitGraph(){
   rows.forEach(c=>{
     const g=svgEl('g',{class:'ggnode'+(c.gil?' gil':''),transform:'translate('+X(c.sha)+','+Y(c.sha)+')'});
     g.appendChild(svgEl('circle',{r:c.gil?r:r-1.2,fill:color(lane[c.sha])}));
-    g.appendChild(svgEl('title',{},c.sha+'  '+c.subj+(c.refs?'\n['+c.refs+']':'')));
+    g.appendChild(svgEl('title',{},c.sha+'  '+c.subj+
+      (c.layer?'\n층: '+c.layer:'')+(c.refs?'\n['+c.refs+']':'')));
     svg.appendChild(g);
     // 브랜치 이름은 **그 ref 가 가리키는 커밋에만** 붙인다 — 그게 가지의 끝이다.
+    //
+    // 그리고 **길게 적지 않는다**(상현님). 40자짜리 이름을 그림에 다 적으면 그림보다 글자가
+    // 커져, 이름이 점을 덮고 선을 끊는다. 여기서 눈으로 볼 것은 "몇 갈래로 갈라졌나"지
+    // "이름이 무엇인가"가 아니다 — 이름은 **올리면 뜬다**(점 툴팁에 전부, 이름표에도 전문).
+    // 한 커밋에 ref 가 여럿이면 첫 하나만 적고 나머지는 +N 으로 접는다.
     //
     // 자리는 점 **오른쪽**에, 겹치면 비킨다. 점 위에 가운데 맞춤으로 얹던 옛 방식은 이름이
     // 길수록 옆 점의 이름을 덮었다(login·login-c1·dev·main 이 한 덩어리로 뭉갰다). 덮인 이름은
     // 없는 이름과 같다 — 이 그림은 "여기서 갈라졌나"를 눈으로 대조하라고 있는 것이라, 어느
     // 가지 이름인지 안 읽히면 대조가 성립하지 않는다.
-    (c.refs||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(rf=>{
+    const all=(c.refs||'').split(',').map(x=>x.trim()).filter(Boolean);
+    // 한 커밋의 ref 는 하나만 적는다(HEAD 가 있으면 그것부터 — 사람이 제일 찾는 자리다).
+    const pick=all.find(x=>/HEAD/.test(x))||all[0];
+    (pick?[pick]:[]).forEach(rf=>{
       const head=/HEAD/.test(rf);
-      const txt=rf.replace('HEAD -> ','▶ ').replace(/^tag: /,'🏷 ');
+      const full=rf.replace('HEAD -> ','▶ ').replace(/^tag: /,'🏷 ');
+      // 이름은 짧게, 전문은 올리면. 체인 이름이 길수록 뒤가 중요하다(…-c2 가 어느 사이클인지)
+      // — 그래서 뒤를 살리고 가운데를 접는다.
+      const short=s=>s.length<=16?s:s.slice(0,7)+'…'+s.slice(-8);
+      const txt=short(full)+(all.length>1?' +'+(all.length-1):'');
       const w=txt.length*5.8+6;
       // 판 밖으로 나가면 잘린다 — 오른쪽 끝 커밋의 이름표가 그랬다(실측: 이름표 끝 2401px,
       // 판 2294px). 넘칠 것 같으면 점 **왼쪽**에 붙인다. 자리를 못 찾는 것보다 방향을 바꾸는
@@ -3355,7 +3393,8 @@ function buildGitGraph(){
       const right=X(c.sha)+r+5;
       const flip = right+w > W-6;
       const x = flip ? Math.max(padX, X(c.sha)-r-5-w) : right;
-      const y0=Y(c.sha)+3.5;
+      // 기본 자리는 점 **위**다 — 줄에 얹으면 이름이 선을 끊어 가지가 이어져 보이지 않는다.
+      const y0=Y(c.sha)-7;
       // 비키는 자리는 **그림 안**이어야 한다. 위로만 밀다가 viewBox 를 넘긴 이름표는 잘려서
       // 아예 사라졌다(login-c1·search-c1 이 y=-24 에 그려졌다) — 겹침을 고치려다 실종을 만든
       // 셈이다. 그래서 후보를 아래·위로 번갈아 내되, 판 밖은 후보에서 뺀다.
@@ -3365,7 +3404,9 @@ function buildGitGraph(){
       const free=fits.find(y=>!placedRefs.some(b=>x<b.x2&&x+w>b.x1&&y-9<b.y2&&y+3>b.y1));
       const y=free!==undefined?free:(fits[0]!==undefined?fits[0]:y0);
       placedRefs.push({x1:x,x2:x+w,y1:y-9,y2:y+3});
-      svg.appendChild(svgEl('text',{class:'ggreftxt'+(head?' head':''),x:x,y:y},txt));
+      const t=svgEl('text',{class:'ggreftxt'+(head?' head':''),x:x,y:y},txt);
+      t.appendChild(svgEl('title',{},all.join('\n')));   // 전문은 올리면 뜬다
+      svg.appendChild(t);
     });
   });
   const wrap=document.createElement('div'); wrap.className='ggwrap';
