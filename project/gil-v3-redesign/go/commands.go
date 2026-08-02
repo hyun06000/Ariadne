@@ -869,6 +869,13 @@ func cmdOpen(args []string) {
 		if sha := cycleTipSHA(chain, (*parents)[0]); sha != "" {
 			from = sha
 		}
+	} else if sha := lastCycleTipOfChain(chain); sha != "" {
+		// **선언이 없어도 HEAD 에 기대지 않는다.** 새 사이클은 그 체인이 방금까지 서 있던
+		// 자리 — 이 체인의 마지막 사이클 — 에서 갈라진다. HEAD 를 쓰면 그때 사람이/스크립트가
+		// 어느 브랜치에 서 있었느냐가 계보가 된다(실측: notification/c2 의 커밋 부모가 남의
+		// 체인인 observability 의 스텝이었다. 다른 체인 일을 잠깐 보다 열었을 뿐인데).
+		// 사이클이 어느 체인의 것인가는 **여는 순간 이미 정해져 있다**(ref 가 그 이름이다).
+		from = sha
 	}
 	commitOn(cb, from, subject, body, tr, true)
 	println2("open: " + ref + "/s1 define (브랜치 " + cb + ")")
@@ -2497,6 +2504,34 @@ func cmdInterview(args []string) {
 			"  그제서야 다음으로 넘어간다. 스스로 더 생각해 진행하지 마라 — 사람의 답이 기준이다.")
 	}
 	interviewAsk(chain, *ask, *title, nil)
+}
+
+
+// lastCycleTipOfChain — 이 체인에서 **가장 나중에 열린 사이클**의 팁 커밋. 새 사이클이
+// 갈라져 나올 자리다(선언한 --parent 가 없을 때). 사이클이 하나도 없으면 체인 루트,
+// 그것도 없으면 "".
+//
+// "가장 나중"은 git log 순서로 본다 — 사이클 이름은 자유 문자열이라 c10 이 c9 뒤라는 보장이
+// 없고, 이름 정렬로 고르면 문자열이 계보를 정하게 된다.
+func lastCycleTipOfChain(chain string) string {
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep + trailer("Gil-Kind") + sep
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		ch, rest, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok {
+			continue
+		}
+		cy, kind, _ := cut(rest, fsep)
+		if strings.TrimSpace(ch) != chain || strings.TrimSpace(kind) != "define" {
+			continue
+		}
+		if tip := cycleTipSHA(chain, strings.TrimSpace(cy)); tip != "" {
+			return tip
+		}
+	}
+	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+chain) {
+		return strings.TrimSpace(git("rev-parse", "refs/heads/"+chain))
+	}
+	return ""
 }
 
 // cycleTipSHA — 그 사이클(또는 체인)의 팁 커밋. 되돌아가 분기를 칠 **실재하는 자리**다.

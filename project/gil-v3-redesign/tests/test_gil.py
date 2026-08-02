@@ -218,9 +218,11 @@ class GilFixture(unittest.TestCase):
             r = subprocess.run([*GIL_CMD, "log", "--depth", "step", chain],
                                cwd=self.repo, capture_output=True, text=True, env=env)
             cyc = ref.split("/", 1)[1]
-            seg = r.stdout.split(cyc, 1)[-1] if cyc in r.stdout else ""
-            # 이 사이클에 이미 있는 kind 로 다음 필요한 kind 판단
-            have = [k for k in chain_order if ("[" + k + "]") in r.stdout]
+            # **이 사이클의 줄만 본다.** 체인 전체를 훑으면 앞 사이클이 이미 밟은 kind 를 보고
+            # "여긴 다 있다"고 판단해 아무것도 안 채운다 — 새 사이클이 앞 사이클의 끝에서
+            # 갈라지면(그게 옳다) 그 걸음들이 조상으로 함께 보이기 때문이다.
+            mine = [ln for ln in r.stdout.splitlines() if f"{chain}/{cyc}/" in ln]
+            have = [k for k in chain_order if any(("[" + k + "]") in ln for ln in mine)]
             nxt = None
             for i, k in enumerate(chain_order[:need_upto]):
                 if k not in have:
