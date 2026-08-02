@@ -1201,7 +1201,11 @@ func gitGraphJSON() string {
 	// --topo-order: 날짜순으로 섞으면 한 가지의 커밋들이 다른 가지 사이사이에 끼어 그림이
 	// 읽히지 않는다. 위상 순서로 묶어야 "이 가지가 여기서 갈라졌다"가 눈에 들어온다.
 	out, err := viewerGit("log", "--all", "--topo-order", "-n", "400",
-		"--format=%H\x1f%P\x1f%D\x1f%s\x1e")
+		"--format=%H\x1f%P\x1f%D\x1f%s\x1f"+
+			"%(trailers:key=Gil-Chain,valueonly)\x1f"+
+			"%(trailers:key=Gil-Kind,valueonly)\x1f"+
+			"%(trailers:key=Gil-Merge-Into,valueonly)\x1f"+
+			"%(trailers:key=Gil-Deploy,valueonly)\x1e")
 	if err != nil {
 		return "[]"
 	}
@@ -1209,28 +1213,67 @@ func gitGraphJSON() string {
 	for _, n := range viewerCollectNodes() {
 		gil[n.full] = true
 	}
-	var sb strings.Builder
-	sb.WriteString("[")
-	first := true
-	for _, rec := range strings.Split(string(out), "\x1e") {
-		rec = strings.Trim(rec, "\n")
-		if strings.TrimSpace(rec) == "" {
+	type rec struct{ sha, full, parents, refs, subj, layer string }
+	var rows []rec
+	firstParent := map[string]string{}
+	for _, r := range strings.Split(string(out), "\x1e") {
+		r = strings.Trim(r, "\n")
+		if strings.TrimSpace(r) == "" {
 			continue
 		}
-		f := strings.SplitN(rec, "\x1f", 4)
-		if len(f) < 4 {
+		f := strings.SplitN(r, "\x1f", 8)
+		if len(f) < 8 {
 			continue
 		}
-		if !first {
-			sb.WriteString(",")
-		}
-		first = false
 		var ps []string
 		for _, p := range strings.Fields(f[1]) {
 			ps = append(ps, fmt.Sprintf("%q", first9(p)))
 		}
-		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":[%s],"refs":%q,"subj":%q,"gil":%t}`,
-			first9(f[0]), strings.Join(ps, ","), strings.TrimSpace(f[2]), f[3], gil[f[0]]))
+		if len(ps) > 0 {
+			firstParent[first9(f[0])] = strings.Trim(ps[0], `"`)
+		}
+		// 층 판정은 layerGraphJSON 과 **같은 규칙**이다(합류는 받는 쪽의 일 → --into 가 먼저).
+		// 두 그림이 같은 커밋을 다른 층으로 치면 나란히 놓을 이유가 없어진다.
+		layer := ""
+		switch chain, kind, into, deploy :=
+			strings.TrimSpace(f[4]), strings.TrimSpace(f[5]), strings.TrimSpace(f[6]), strings.TrimSpace(f[7]); {
+		case into != "":
+			layer = into
+		case chain != "":
+			layer = chain
+		case kind == "dev-root" || deploy != "":
+			layer = devBranchName
+		}
+		rows = append(rows, rec{first9(f[0]), strings.TrimSpace(f[0]), "[" + strings.Join(ps, ",") + "]",
+			strings.TrimSpace(f[2]), f[3], layer})
+	}
+	// 트레일러가 없는 평범 커밋은 **첫 부모의 층을 물려받는다** — 체인 브랜치 위의 평범
+	// 커밋은 그 체인의 일이고, dev 위의 평범 커밋은 층의 일이다. 안 물려주면 그것들이 전부
+	// main 으로 떨어져, 대문 레인에 남의 커밋이 줄줄이 선다.
+	byIdx := map[string]int{}
+	for i, r := range rows {
+		byIdx[r.sha] = i
+	}
+	for i := len(rows) - 1; i >= 0; i-- { // rows 는 최신부터 — 오래된 것부터 물려준다
+		if rows[i].layer != "" {
+			continue
+		}
+		if j, ok := byIdx[firstParent[rows[i].sha]]; ok {
+			rows[i].layer = rows[j].layer
+		}
+	}
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, r := range rows {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		layer := r.layer
+		if layer == "" {
+			layer = "main"
+		}
+		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":%s,"refs":%q,"subj":%q,"gil":%t,"layer":%q}`,
+			r.sha, r.parents, r.refs, r.subj, gil[r.full], layer))
 	}
 	sb.WriteString("]")
 	return sb.String()
@@ -1655,6 +1698,11 @@ svg.dag{display:block}
 .ggedge{stroke-width:2;opacity:.85}
 .ggnode circle{stroke:var(--bg);stroke-width:1.2}
 .ggreftxt{font-size:10px;fill:var(--node);text-anchor:start}
+/* 날것 그래프의 레인 이름 — 전체맵과 같은 순서(main·dev·체인들)임을 눈으로 잇는 자리. */
+.gglanerule{stroke:var(--line);stroke-width:1;opacity:.25;stroke-dasharray:3 3}
+.gglanename{font:600 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-anchor:end;fill:var(--dim);opacity:.9}
+.gglanename.main{fill:#e0574a}
+.gglanename.dev{fill:#2dd4bf}
 .ggreftxt.head{fill:var(--here);font-weight:700}
 /* 층 그래프 — 레인 띠는 흐리게(구조를 잡아주되 점을 이기지 않게), 층을 건너는 선은 굵게. */
 /* 층 두 줄(main·dev) — 전체맵 위에 얹는다. 배치는 그대로, 층만 보이게. */
@@ -3145,6 +3193,8 @@ function buildGitGraph(){
   if(!host)return;
   const rows=JSON.parse(document.getElementById('gitgraphdata')?.textContent||'[]');
   if(!rows.length){ host.textContent='커밋이 없다.'; return; }
+  const LAYER=(()=>{ try{ return JSON.parse(document.getElementById('layergraphdata')?.textContent||'{}'); }catch(e){ return {}; } })();
+  const LAYERED=(LAYER.lanes||[]).includes('dev');
   // 전체맵과 같은 눈높이로 **간결하게**: 왼→오른 흐름, 점=커밋, 선=부모, 칩=브랜치 이름만.
   // 커밋마다 sha·제목을 늘어놓으면 그건 그림이 아니라 목록이다(그리고 ASCII 와 다를 바 없다).
   // 자세한 것은 점에 얹은 툴팁으로 — 눈으로 보는 것은 **몇 갈래로 갈라졌나** 하나다.
@@ -3163,9 +3213,22 @@ function buildGitGraph(){
   });
   const lane={}, taken={};                        // taken[sha]=부모 레인을 이미 물려준 자식이 있다
   let maxL=0;
+  // **세로 자리는 전체맵과 같은 순서로.** 두 그림을 나란히 두는 이유가 대조인데, 같은 것이
+  // 다른 자리에 있으면 대조가 성립하지 않는다(상현님: main 이 아래로 뻗어 너무 다르게 보인다).
+  // 위상(점·선)은 날것 그대로다 — 레인 번호는 git 그래프에서 원래 아무 뜻이 없고, 뜻은 선이
+  // 진다. 그래서 순서만 층의 선언(main·dev·체인들)에 맞춘다. 사실을 바꾸는 게 아니라
+  // **같은 사실을 같은 모양으로** 놓는 일이다. 층이 없는 저장소는 옛 방식(위상)으로 둔다.
+  const LANES=(LAYER.lanes||[]);
+  const laneOf={}; LANES.forEach((n,i)=>laneOf[n]=i);
+  const byLayer=LAYERED && rows.some(c=>c.layer&&laneOf[c.layer]!==undefined);
   old2new.forEach((c,i)=>{
     const ps=(c.parents||[]).filter(p=>idx[p]!==undefined);
     let L=null;
+    if(byLayer){
+      L = laneOf[c.layer];
+      if(L===undefined) L = LANES.length;         // 선언에 없는 것(옛 브랜치 등)은 맨 아래로
+      lane[c.sha]=L; if(L>maxL) maxL=L; return;
+    }
     for(const p of ps){ if(!taken[p]){ L=lane[p]; taken[p]=true; break; } }
     if(L===null||L===undefined){                  // 뿌리이거나, 부모의 줄기를 이미 형제가 가져갔다
       const busy={};
@@ -3195,16 +3258,31 @@ function buildGitGraph(){
   // 높이는 px 로 고정이라 SVG 가 비율을 지키며 가운데에 작게 박혔다 — 750px 짜리 칸에 그림은
   // 150px, 점과 이름이 서로 포개졌다(상현님: 너무 겹쳐서 안 보인다). 이제 칸 너비에서 칸 폭을
   // 거꾸로 잡고, SVG 를 그 크기 그대로 놓는다(넘치면 wrap 이 가로로 스크롤한다).
-  const laneH=22, padX=14, padY=16, r=3.5;
-  const avail=Math.max(320, (host.clientWidth||760)-28-140);   // 140 = 오른쪽 이름표 자리
+  const laneH=22, padY=16, r=3.5;
+  // 층 이름을 왼쪽에 세우면 그만큼 자리가 필요하다 — 이름과 점이 겹치면 둘 다 못 읽는다.
+  const padX=byLayer?86:14;
+  const avail=Math.max(320, (host.clientWidth||760)-28-140-padX);   // 140 = 오른쪽 이름표 자리
   const colW=Math.max(26, Math.min(72, avail/Math.max(1,maxDepth)));
   const maxLane=maxL;
-  const W=Math.max(host.clientWidth-28||0, padX*2+Math.max(1,maxDepth)*colW+140);
+  const W=Math.max(host.clientWidth-28||0, padX+14+Math.max(1,maxDepth)*colW+140);
   // 이름표가 아래·위로 한 줄씩 비킬 자리를 남긴다 — 자리가 없으면 비킴이 곧 실종이 된다.
   const H=padY*2+maxLane*laneH+34;
   const svg=svgEl('svg',{class:'ggsvg',viewBox:'0 0 '+W+' '+H,width:W,height:H});
   const X=sha=>padX+depth[sha]*colW, Y=sha=>padY+lane[sha]*laneH;
   const color=L=>['var(--node)','#3ddc84','#f59e0b','#e0574a','#2dd4bf','#a78bfa'][L%6];
+  // 레인 이름 — 어느 줄이 무엇인지 말하지 않으면 순서를 맞춰 놓아도 대조가 안 된다.
+  if(byLayer){
+    const shown={}; rows.forEach(c=>{ shown[c.layer]=true; });
+    LANES.concat(['(그 밖)']).forEach((nm,i)=>{
+      if(nm!=='(그 밖)' && !shown[nm])return;
+      if(nm==='(그 밖)' && maxL<LANES.length)return;
+      const y=padY+i*laneH;
+      svg.appendChild(svgEl('line',{class:'gglanerule',x1:padX-6,y1:y,x2:W-6,y2:y}));
+      const t=svgEl('text',{class:'gglanename'+(nm==='main'?' main':(nm==='dev'?' dev':'')),
+        x:padX-12,y:y+3.5}); t.textContent=nm.length>11?nm.slice(0,10)+'…':nm;
+      t.appendChild(svgEl('title',{},nm)); svg.appendChild(t);
+    });
+  }
   rows.forEach(c=>{
     (c.parents||[]).forEach(p=>{
       if(idx[p]===undefined)return;

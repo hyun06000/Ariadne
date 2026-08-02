@@ -8266,6 +8266,34 @@ class TestLayerGraphInViewer(GilFixture):
         self.assertIn("층 main ─ dev", txt, txt[:400])
         self.assertIn("search ← dev", txt, txt[:400])
 
+    def test_the_raw_graph_stands_in_the_same_order(self):
+        """날것의 git 그래프도 전체맵과 **같은 세로 순서**로 선다 (상현님).
+
+        두 그림을 나란히 두는 이유는 대조인데, main 이 아래로 뻗고 체인이 위로 가면 같은
+        사실이 다른 모양이 되어 대조가 성립하지 않는다. 위상(점·선)은 날것 그대로 두고,
+        레인 **순서**만 층의 선언에 맞춘다 — git 그래프에서 레인 번호는 원래 뜻이 없다.
+        """
+        import json, re
+        html = self._build()
+        rows = json.loads(re.search(r'"gitgraphdata"[^>]*>(\[.*?\])</script>', html, re.S).group(1))
+        self.assertTrue(rows, "날것 그래프에 커밋이 없다")
+        layers = {c["layer"] for c in rows}
+        self.assertIn("main", layers)
+        self.assertIn("dev", layers)
+        self.assertIn("login", layers, f"체인의 커밋이 자기 층으로 안 잡힌다: {layers}")
+        # 트레일러 없는 평범 커밋도 첫 부모의 층을 물려받는다 — 안 그러면 대문 레인에
+        # 남의 커밋이 줄줄이 선다.
+        self._git("checkout", "-q", "dev")
+        self._git("commit", "-q", "--allow-empty", "-m", "dev: 평범한 손질")
+        out_html = os.path.join(self.repo, "g4.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        html2 = open(out_html, encoding="utf-8").read()
+        rows2 = json.loads(re.search(r'"gitgraphdata"[^>]*>(\[.*?\])</script>', html2, re.S).group(1))
+        plain = [c for c in rows2 if c["subj"] == "dev: 평범한 손질"]
+        self.assertTrue(plain, "방금 만든 평범 커밋이 그래프에 없다")
+        self.assertEqual(plain[0]["layer"], "dev",
+                         "dev 위의 평범 커밋이 대문(main)의 것으로 잡힌다")
+
     def test_the_first_born_chain_forked_at_the_layers_own_root(self):
         """먼저 난 체인은 0걸음째 — 층이 열린 그 자리다. 세는 기준이 대문이면 이 수가 커진다."""
         self._build()
