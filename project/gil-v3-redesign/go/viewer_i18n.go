@@ -576,6 +576,13 @@ var i18nDict = map[string]map[string]string{
 		"zh-CN": "✎ 进行中（未提交）—— ", "zh-TW": "✎ 進行中（未提交）—— ",
 	},
 
+	"map.sprout": {
+		"ko": "체인의 기준선에서 곧장 난 사이클 — 앞 사이클을 이어받은 것이 아니다(정석 발아).",
+		"en": "This cycle sprouted straight from the chain's baseline — it did not inherit from a previous cycle.",
+		"zh-CN": "此循环直接从链的基准线发芽——并非承继自前一个循环。",
+		"zh-TW": "此循環直接從鏈的基準線發芽——並非承繼自前一個循環。",
+	},
+
 	// 전체맵(스텝) 범례. 은유가 많은 자리라 직역하지 않는다 — 각 언어에서 **읽히는 글**로
 	// 다시 썼다. 뜻은 하나도 빼지 않되 문장은 그 언어의 것이다.
 	"map.legend.step": {

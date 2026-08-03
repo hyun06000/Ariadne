@@ -154,8 +154,16 @@ func cmdMerge(args []string) {
 	}
 }
 
-// cycleBranchOf — "<chain>/<cycle>" 을 그 사이클의 브랜치 이름으로. 그 형태가 아니거나
-// 브랜치가 없으면 "" (그러면 인자를 그대로 둔다 — git ref 로 받는 길은 그대로 산다).
+// cycleBranchOf — "<chain>/<cycle>" 을 **그 사이클이 실제로 끝난 자리**로.
+//
+// 이름이 <chain>-<cycle> 인 브랜치를 그대로 쓰면 안 된다. 정정(--supersede)이나 재분기
+// (--to)를 거친 사이클은 척추와 종결이 **분기 브랜치**(…-sNbM)에 살고, 사이클 본 브랜치는
+// 정정된 그 자리에 멈춰 있다. 그 낡은 브랜치를 합치면 **성공한 작업과 close 가 통째로 빠진
+// 채** 합류가 성공했다고 보고된다 — 복잡한 나무를 지어 git 과 대조해서야 드러났다(a2 의
+// s3~s10 과 close 가 체인에 없었고, 아무도 아무 말을 안 했다).
+//
+// 그래서 이름이 아니라 **사실**로 찾는다: 그 사이클의 종결(close) 커밋, 없으면 가장 늦은
+// 스텝. 그 커밋을 담은 브랜치가 있으면 이름으로, 없으면 sha 로 돌려준다.
 func cycleBranchOf(a string) string {
 	ch, cy, ok := strings.Cut(strings.TrimSpace(a), "/")
 	if !ok || ch == "" || cy == "" || strings.Contains(cy, "/") {
@@ -164,9 +172,42 @@ func cycleBranchOf(a string) string {
 	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+a) {
 		return "" // 그런 이름의 브랜치가 실제로 있다 — 사람이 가리킨 것을 존중한다
 	}
-	br := ch + "-" + cy
-	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+br) {
-		return br
+	end := cycleEndSHA(ch, cy)
+	if end == "" {
+		return ""
 	}
-	return ""
+	// 그 커밋을 **끝으로 갖는** 브랜치가 있으면 이름으로 부른다(출력이 읽히게).
+	for _, b := range branches() {
+		if strings.TrimSpace(git("rev-parse", b)) == end {
+			return b
+		}
+	}
+	return end
+}
+
+// cycleEndSHA — 그 사이클이 실제로 끝난 커밋. 종결(close)이 있으면 그것, 없으면 가장 늦은
+// 스텝. 정정·재분기로 가지가 갈렸어도 **사실**을 따라가므로 낡은 자리를 짚지 않는다.
+func cycleEndSHA(chain, cycle string) string {
+	fmtStr := "%H" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +
+		trailer("Gil-Kind") + fsep + trailer("Gil-Step") + sep
+	best, bestN := "", -1
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		sha, r1, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok {
+			continue
+		}
+		c, r2, _ := cut(r1, fsep)
+		cy, r3, _ := cut(r2, fsep)
+		kind, step, _ := cut(r3, fsep)
+		if strings.TrimSpace(c) != chain || strings.TrimSpace(cy) != cycle {
+			continue
+		}
+		if strings.TrimSpace(kind) == "close" {
+			return strings.TrimSpace(sha) // 종결이 곧 그 사이클의 끝이다
+		}
+		if n := stepNum(strings.TrimSpace(step)); n > bestN {
+			best, bestN = strings.TrimSpace(sha), n
+		}
+	}
+	return best
 }

@@ -9338,6 +9338,131 @@ class TestCycleOutputsFindTheirWayToTheChain(GilFixture):
         self.assertIn("--into <chain>", r.stdout + r.stderr)
 
 
+class TestSproutIsNotAnOrphan(GilFixture):
+    """**정석 발아가 고아로 그려졌다** (이슈 #104, 실측 저장소에서 s1 의 8/15).
+
+    전체맵의 진입선은 커밋 조상을 거슬러 **스텝 커밋**을 찾아 그렸다. 체인의 기준선
+    (chain-root·인터뷰·기준문서)만 있고 스텝이 없으면 선이 없어 미아처럼 떴고, 반대로 조상에
+    스텝이 있으면 사이 커밋을 건너뛰어 먼 스텝에 붙어 **없는 계승을 주장**했다.
+
+    결과가 뒤집혀 있었다: 체인 기준선에서 곧장 난 **정석 발아는 벌점**(선 없음), 우연히 스텝
+    위에 얹힌 발아는 가산점(선 있음). gil 이 가르치는 정석과 시각 신호가 정확히 역전됐다."""
+
+    def _dag(self):
+        import json, re
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        m = re.search(r'id="dagdata"[^>]*>(.*?)</script>', html, re.S)
+        self.assertIsNotNone(m, "전체맵 데이터가 없다")
+        return json.loads(m.group(1))
+
+    def _cycle(self, chain, cycle):
+        self.gil("open", f"{chain}/{cycle}", "--author", "clew", "--purpose", "작은 문제")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "success", "--title", "성공")
+        self.gil("close", f"{chain}/{cycle}", "--verdict", "supported")
+
+    def test_a_cycle_born_on_the_chain_baseline_is_marked_as_sprouted(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle("c", "c001")
+        first = [n for n in self._dag() if n["cycle"] == "c001" and n["step"] == "s1"]
+        self.assertEqual(len(first), 1, "c001/s1 을 못 찾았다")
+        n = first[0]
+        self.assertEqual(n["parents"], [], "체인 기준선에서 났는데 부모 스텝을 지어냈다")
+        self.assertTrue(n.get("sprout"),
+                        "정석 발아인데 미아와 똑같이 그려진다 — 화면에서 벌점을 받는다")
+
+    def test_it_does_not_reach_past_the_chain_baseline_to_claim_a_parent(self):
+        """건너뛰어 붙는 선은 없는 계승을 주장한다 — 앞 사이클을 건너뛰면 더 그렇다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle("c", "c001")
+        # 체인 기준선을 한 겹 더 얹는다 — 인터뷰를 심고 사람 답까지 확정하면 그 체인의
+        # 기준문서 커밋(스텝 아님)이 체인 브랜치 끝에 선다. 리포트의 'reference' 자리다.
+        self.gil("interview", "c", "--ask", "-", input='[{"q":"다음 기준은?","type":"text"}]')
+        refp = os.path.join(self.repo, "reference-c.md")
+        with open(refp, "w", encoding="utf-8") as f:
+            f.write("# 다음 기준\n답: 두 번째 기준")
+        self.gil("interview", "c", "--resolve", "reference-c.md")
+        os.remove(refp)
+        self._cycle("c", "c002")
+        n = [x for x in self._dag() if x["cycle"] == "c002" and x["step"] == "s1"][0]
+        for p in n["parents"]:
+            self.assertNotIn("c001", p,
+                             "체인 기준선을 뚫고 앞 사이클 스텝에 붙었다 — 없는 계승이다")
+
+    def test_a_real_inheritance_still_draws_its_line(self):
+        """진짜 이어받음까지 지우면 안 된다 — 스텁은 없는 것을 채우는 장치가 아니다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle("c", "c001")
+        self.gil("open", "c/c002", "--author", "clew", "--purpose", "이어받는다",
+                 "--parent", "c001", "--inherit", "c001 의 결론을 전제로 삼는다")
+        n = [x for x in self._dag() if x["cycle"] == "c002" and x["step"] == "s1"][0]
+        self.assertTrue(n["parents"] or n.get("sprout"),
+                        "이어받았다고 선언했는데 화면에 아무 자취가 없다")
+
+
+class TestTheCycleEndIsAFactNotAName(GilFixture):
+    """**사이클의 끝을 이름으로 찾으면 낡은 자리를 짚는다.**
+
+    복잡한 나무를 직접 지어 git 과 대조하다 잡았다 — 규칙 시험으로는 안 걸렸다.
+    정정(--supersede)이나 재분기(--to)를 거친 사이클은 척추와 종결이 **분기 브랜치**(…-sNbM)
+    에 살고, `<chain>-<cycle>` 이라는 이름의 브랜치는 정정된 그 자리에 멈춰 있다.
+
+    그 낡은 이름을 짚어서 두 곳이 조용히 틀렸다:
+      · `gil merge <chain>/<cycle> --into <chain>` 이 **성공한 작업과 close 를 빼놓고** 합쳤다.
+      · `gil open --parent <cycle>` 이 **버려진 가설 위에서** 새 사이클을 갈랐다.
+    둘 다 실패하지 않았다 — 성공했다고 말하면서 틀렸다. 그게 가장 비싼 종류다."""
+
+    def _cycle_with_supersede(self, chain, cycle):
+        """s2(가설)를 정정해 척추를 분기 브랜치로 보낸 뒤 완주·종결한다."""
+        self.gil("open", f"{chain}/{cycle}", "--author", "clew", "--purpose", "문제", "--body", "정의")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "hypothesis", "--title", "틀린 가설",
+                 "--falsify", "F", "--falsify-to", "s1")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "hypothesis", "--title", "고친 가설",
+                 "--falsify", "F2", "--falsify-to", "s1", "--supersede", "s2",
+                 "--inherit", "반증조건이 느슨했다")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "success", "--title", "성공")
+        self.gil("close", f"{chain}/{cycle}", "--verdict", "supported")
+
+    def _sha_of(self, pattern):
+        out = self._git("log", "--all", "--format=%H\x1f%s").stdout
+        for ln in out.splitlines():
+            sha, _, subj = ln.partition("\x1f")
+            if pattern in subj:
+                return sha.strip()
+        self.fail(f"'{pattern}' 커밋을 못 찾았다")
+
+    def test_merge_carries_the_whole_spine_not_the_stale_branch(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle_with_supersede("c", "c001")
+        r = self.gil("merge", "c/c001", "--into", "c", "--reason", "산출물은 체인의 것")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for what in ("c/c001 close", "success"):
+            sha = self._sha_of(what)
+            self.assertEqual(self._git("merge-base", "--is-ancestor", sha, "c").returncode, 0,
+                             f"합류했다면서 '{what}' 가 체인에 없다 — 낡은 브랜치를 합쳤다")
+
+    def test_open_parent_branches_from_where_the_cycle_actually_ended(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle_with_supersede("c", "c001")
+        self.gil("open", "c/c002", "--author", "clew", "--purpose", "다음",
+                 "--parent", "c001", "--inherit", "c001 의 결론")
+        s1 = self._sha_of("c/c002/s1 define")
+        dead = self._sha_of("틀린 가설")          # 정정으로 버려진 가설
+        end = self._sha_of("c/c001 close")
+        self.assertEqual(self._git("merge-base", "--is-ancestor", end, s1).returncode, 0,
+                         "부모 사이클의 종결에서 갈라지지 않았다")
+        self.assertNotEqual(self._git("merge-base", "--is-ancestor", dead, s1).returncode, 0,
+                            "버려진 가설 위에서 새 사이클이 났다 — 정정이 무의미해진다")
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 

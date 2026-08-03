@@ -2614,6 +2614,14 @@ func cycleTipSHA(chain, parent string) string {
 	if p == "" {
 		return ""
 	}
+	// **이름보다 사실이 먼저다.** 옛 코드는 <chain>-<cycle> 브랜치를 먼저 봤는데, 정정
+	// (--supersede)이나 재분기(--to)를 거친 사이클은 척추와 종결이 **분기 브랜치**에 살고
+	// 그 이름의 브랜치는 정정된 자리에 멈춰 있다. 그래서 `--parent a2` 로 연 사이클이
+	// **버려진 가설 위에서** 갈라졌다 — 복잡한 나무를 지어 git 과 대조해서야 드러났다.
+	// 종결(close)이 있으면 그것이 그 사이클의 끝이다.
+	if end := cycleEndSHA(chain, p); end != "" {
+		return end
+	}
 	for _, ref := range []string{"refs/heads/" + cycleBranch(chain, p), "refs/heads/" + p} {
 		if gitOK("rev-parse", "--verify", "-q", ref) {
 			return strings.TrimSpace(git("rev-parse", ref))

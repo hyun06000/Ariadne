@@ -1393,6 +1393,9 @@ func dagJSON(g graphView, static bool) string {
 	for _, n := range g.allNodes {
 		stepOf[n.sha] = n
 	}
+	// **체인의 기준선**(chain-root·인터뷰·기준문서 등 — 그 체인의 것이지만 스텝은 아닌 커밋).
+	// 여기서 난 사이클이 정석 발아다(이슈 #104).
+	chainBase := chainLevelCommits()
 	// nearestStep — sha 조상에서 가장 가까운 gil 스텝 sha 들(비-스텝은 뚫고 올라감).
 	//
 	// **체인을 넘는 엣지는 계승일 때만.** 체인 계보에 세운 판정(#53)을 전체맵의 선에도 그대로
@@ -1410,6 +1413,19 @@ func dagJSON(g graphView, static bool) string {
 				return []string{sha} // 같은 체인이거나, 진짜 계승이다
 			}
 			// 나란히 간 체인 — 이 스텝은 부모가 아니다. 그 위로 계속 올라간다.
+		}
+		// **자기 체인의 기준선에서 멈춘다**(이슈 #104). 여기까지 왔다는 것은 이 사이클이
+		// 체인의 기준선(chain-root·인터뷰·기준문서)에서 곧장 났다는 뜻이다 — 즉 **정석 발아**다.
+		// 옛 코드는 이 커밋들을 뚫고 더 올라가, 앞 사이클의 스텝에 붙거나(건너뛴 사이클이
+		// 있으면 "그 성공의 직계 후속"으로 거짓 주장) 아무것도 못 찾고 선을 안 그렸다.
+		// 그래서 화면에서 **정석 발아는 벌점(선 없음), 우연히 스텝 위에 얹힌 발아는 가산점**
+		// 이 됐다 — gil 이 가르치는 정석과 시각 신호가 정확히 역전됐다.
+		// 다만 **이어받음을 선언한 체인은 예외**다. 시조(--from 없음)의 기준선 너머에는 층과
+		// 앞 체인이 있을 뿐이라 그 자리를 지나가면 없는 계승을 그리게 되지만, `--from <앞 체인>`
+		// 을 선언한 체인의 기준선 너머에는 **바로 그 앞 체인의 끝**이 있다 — 그건 진짜 계승이고
+		// 그리는 것이 옳다. 처음엔 이 갈래 없이 막았다가 경계 넘는 전수를 끊어 먹었다.
+		if chainBase[sha] == own && g.parents[own] == "" {
+			return nil
 		}
 		if seen[sha] {
 			return nil
@@ -1462,9 +1478,22 @@ func dagJSON(g graphView, static bool) string {
 		for _, p := range n.gitParents {
 			ps = append(ps, nearestStep(n.chain, p, seenP)...)
 		}
+		// **정석 발아를 무계보와 구분한다**(이슈 #104(b)). 부모 스텝이 없더라도, 커밋 부모가
+		// 자기 체인의 기준선이면 그건 미아가 아니라 "체인에서 곧장 난" 것이다. 화면이 둘을
+		// 같게 그리면 사람은 "orphan 인데 git 엔 부모가 있네?"라는 불신을 갖는다(실제로 그렇게
+		// 발견됐다). 아무것도 안 그리는 대신 발아 표식을 준다.
+		sprout := false
+		if len(ps) == 0 && g.parents[n.chain] == "" {
+			for _, p := range n.gitParents {
+				if chainBase[p] == n.chain {
+					sprout = true
+					break
+				}
+			}
+		}
 		sb.WriteString(fmt.Sprintf(
-			`{"sha":%q,"chain":%q,"cycle":%q,"step":%q,"kind":%q,"outcome":%q,"here":%t,"parents":[`,
-			n.sha, n.chain, n.cycle, n.step, n.kind, n.outcome, nhere))
+			`{"sha":%q,"chain":%q,"cycle":%q,"step":%q,"kind":%q,"outcome":%q,"here":%t,"sprout":%t,"parents":[`,
+			n.sha, n.chain, n.cycle, n.step, n.kind, n.outcome, nhere, sprout))
 		for j, p := range ps {
 			if j > 0 {
 				sb.WriteString(",")
@@ -1816,6 +1845,10 @@ svg.dag{display:block}
 .dag .dedge{stroke:var(--edge);stroke-width:1.5}
 .dag .dedge.cross{stroke:var(--here);stroke-width:2}
 .dag .dedge.branch{stroke:#ff6b6b;stroke-dasharray:4 3}
+/* 발아 스텁 — 체인 기준선에서 곧장 난 사이클(이슈 #104). 흐린 점선: 부모 스텝은 없지만
+   미아도 아니다. 이 구분이 없으면 정석 발아가 화면에서 벌점을 받는다. */
+.dag .dedge.sprout{stroke:var(--dim);stroke-width:1.5;stroke-dasharray:2 3;opacity:.55}
+.dag .sproutcap{fill:var(--dim);opacity:.55}
 .dag .dnode{cursor:pointer}
 .dag .dnode circle{fill:var(--node);stroke:var(--bg);stroke-width:1.5}
 .dag .dnode.k-dead circle{fill:#ff6b6b}
@@ -3291,6 +3324,18 @@ function buildStepMap(){
     const mx=(x1+x2)/2;
     svg.appendChild(svgEl('path',{class:cls,fill:'none',d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
   }); });
+  // 3-0) **발아 스텁**(이슈 #104). 부모 스텝은 없지만 체인의 기준선에서 난 사이클 —
+  // 정석 발아다. 아무것도 안 그리면 미아와 구별되지 않아 "orphan 인데 git 엔 부모가 있네?"
+  // 라는 불신이 생긴다. 없는 부모를 지어내지 않되, **여기서 났다**는 것은 말한다.
+  VIS.forEach(n=>{
+    if(!n.sprout)return;
+    const x=X(n.sha), y=Y(n.sha);
+    svg.appendChild(svgEl('path',{class:'dedge sprout',fill:'none',
+      d:'M '+(x-colW*0.55)+' '+y+' L '+(x-r-1)+' '+y}));
+    const st=svgEl('circle',{class:'sproutcap',cx:x-colW*0.55,cy:y,r:2.5});
+    st.appendChild(svgEl('title',{},T('map.sprout')));
+    svg.appendChild(st);
+  });
   // 3) 노드 + HEAD ▼. 스텝 모드=작은 점(글씨 없음). 집계 모드=큰 점+이름 라벨(+⚡분기).
   VIS.forEach(n=>{
     const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':'')+(agg?' agg':'')+(n.gone?' gone':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
@@ -3624,15 +3669,22 @@ function buildGitGraph(){
   let gutter=null;
   if(byLayer){
     gutter=svgEl('svg',{class:'gggutter',viewBox:'0 0 '+GUT+' '+H,width:GUT,height:H});
-    const shown={}; rows.forEach(c=>{ shown[c.layer]=true; });
+    // **몇 개인지 함께 적는다**(이슈 #100②). 이 그림은 가로로 스크롤되므로, 왼쪽만 보고 있으면
+    // 오른쪽에 있는 레인이 **비어 보인다** — 실측: 보이는 폭 529 에 그래프 폭 1416 이라
+    // beta·gamma·delta 가 통째로 화면 밖이었고, 그 줄들은 "그 체인엔 아무것도 없다"로 읽혔다.
+    // 개수 한 자리가 "없는 것"과 "지금 안 보이는 것"을 가른다.
+    const shown={}; rows.forEach(c=>{ shown[c.layer]=(shown[c.layer]||0)+1; });
     LANES.concat(['(그 밖)']).forEach((nm,i)=>{
       if(nm!=='(그 밖)' && !shown[nm])return;
       if(nm==='(그 밖)' && maxL<LANES.length)return;
       const y=padY+i*laneH;
       svg.appendChild(svgEl('line',{class:'gglanerule',x1:0,y1:y,x2:W-6,y2:y}));
+      const n=shown[nm]||0;
+      const cap=n?' '+n:'';
+      const room=13-cap.length;
       const t=svgEl('text',{class:'gglanename'+(nm==='main'?' main':(nm==='dev'?' dev':'')),
-        x:GUT-8,y:y+3.5}); t.textContent=nm.length>13?nm.slice(0,12)+'…':nm;
-      t.appendChild(svgEl('title',{},nm)); gutter.appendChild(t);
+        x:GUT-8,y:y+3.5}); t.textContent=(nm.length>room?nm.slice(0,room-1)+'…':nm)+cap;
+      t.appendChild(svgEl('title',{},nm+(n?' — 커밋 '+n+'개':''))); gutter.appendChild(t);
     });
   }
   rows.forEach(c=>{

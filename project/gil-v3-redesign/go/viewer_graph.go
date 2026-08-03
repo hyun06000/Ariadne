@@ -1093,3 +1093,46 @@ func stepNum(s string) int {
 	}
 	return n
 }
+
+// chainLevelCommits — sha9 → 체인. **그 체인의 커밋이지만 스텝은 아닌 것들**(chain-root·
+// 인터뷰·기준문서·intake). 사이클이 여기서 났다면 그건 앞 사이클을 이어받은 것이 아니라
+// **체인의 기준선에서 곧장 난 것**이다 — gil 이 가르치는 정석 발아(이슈 #104).
+func chainLevelCommits() map[string]string {
+	const fs = "\x1f"
+	const rs = "\x1e"
+	out, err := viewerLog("--format=%H" + fs + trailer("Gil-Chain") + fs + trailer("Gil-Step") +
+		fs + trailer("Gil-Cycle") + fs + trailer("Gil-Merge") + rs)
+	if err != nil {
+		return nil
+	}
+	m := map[string]string{}
+	for _, rec := range strings.Split(string(out), rs) {
+		rec = strings.TrimSpace(rec)
+		if rec == "" {
+			continue
+		}
+		f := strings.SplitN(rec, fs, 5)
+		if len(f) < 5 || len(strings.TrimSpace(f[0])) < 9 {
+			continue
+		}
+		ch, st := strings.TrimSpace(f[1]), strings.TrimSpace(f[2])
+		cy, mg := strings.TrimSpace(f[3]), strings.TrimSpace(f[4])
+		if ch == "" || st != "" {
+			continue // 체인 밖이거나, 스텝 커밋이다
+		}
+		// **사이클의 것은 기준선이 아니다.** close 커밋은 Gil-Chain 은 있고 Gil-Step 은 없어서
+		// 처음엔 기준선으로 잘못 셌다 — 그러면 앞 사이클의 close 를 딛고 열린 사이클이 제
+		// 부모(앞 사이클의 스텝)를 잃고 '발아'로 그려진다. 복잡한 나무를 지어 git 과 대조해서야
+		// 드러났다(--parent a1 로 연 a2 가 고아처럼 떴다). 기준선은 **어느 사이클에도 안 속한**
+		// 체인의 커밋이다: chain-root·인터뷰·기준문서.
+		if cy != "" {
+			continue
+		}
+		// 합류(gil merge)는 기준선이 아니라 **접합점**이다 — 그 너머에 진짜 계보가 있다.
+		if mg != "" {
+			continue
+		}
+		m[strings.TrimSpace(f[0])[:9]] = ch
+	}
+	return m
+}
