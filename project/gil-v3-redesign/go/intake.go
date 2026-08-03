@@ -348,7 +348,9 @@ func intakeResolve(slug, refFile string) {
 		{"Gil-Intake", slug}, {"Gil-Chain", slug}, {"Gil-Kind", "intake-reference"},
 		{"Gil-Reference", "true"}, {"Gil-Interview", "done"},
 	}
-	commit(subject, full, tr, true)
+	// 확정된 답도 앞머리다 — 질문을 심은 자리와 **같은 층**에 앉아야 한 줄로 읽힌다.
+	// (질문은 dev 에, 답은 그때 서 있던 브랜치에 앉으면 앞머리가 두 곳으로 찢어진다.)
+	commitOn(frontMatterBranch(), "", subject, full, tr, true)
 	println2("intake: " + slug + " — 사람의 답이 확정됐다(" + itoa(round) + "차).")
 	println2("  ▸ 더 물을 것이 남았으면 차수를 더해라 — 앞 답은 지워지지 않고 쌓인다:")
 	println2("      gil intake " + slug + " --ask <질문JSON>")

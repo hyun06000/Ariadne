@@ -183,13 +183,24 @@ func chainPreamble(cs []*lcommit, root string, byS map[string]*lcommit) (pre []*
 // dirtyChainTips — 체인 커밋을 담고 있으면서 **끝이 gil 커밋이 아닌** 브랜치들(이슈 #95③).
 func dirtyChainTips(byS map[string]*lcommit, chains []string) []string {
 	var out []string
+	home := homeBranch()
 	for _, b := range branches() {
+		// **층 브랜치는 체인 브랜치가 아니다**(이슈 #101). 이 검사는 "체인 브랜치의 끝이
+		// 평범한 커밋이면 그 사이클이 통째로 빠진다"를 막으려는 것인데, 체인이 dev 로 합류하면
+		// dev 가 그 체인의 커밋을 담게 되어 아래 holds 가 참이 되고, dev 의 끝(gil merge 가
+		// 만든 머지 커밋)이 "gil 커밋이 아니다"로 걸렸다 — **정본 흐름(chain-close → merge
+		// --into dev → 다음 체인)을 밟은 사람이 이주를 거부당했다.** 층은 원래 gil 스텝으로
+		// 끝나지 않는다(대문은 배포로, dev 는 합류로 끝난다). 층에 속한 스텝은 제 체인
+		// 브랜치가 따로 쥐고 있으므로 여기서 빼도 유실 검사는 성기지 않는다.
+		if b == home || b == devBranchName {
+			continue
+		}
 		tip := strings.TrimSpace(git("rev-parse", b))
 		c := byS[tip]
 		if c == nil || c.chain != "" {
 			continue // 수집 범위 밖이거나 gil 커밋이다 — 정상
 		}
-		// 이 브랜치가 옮길 체인의 커밋을 담고 있을 때만 문제다(대문·dev 는 원래 gil 커밋이 아니다).
+		// 이 브랜치가 옮길 체인의 커밋을 담고 있을 때만 문제다.
 		holds := false
 		for _, sha := range strings.Fields(gitlog("--format=%H", b)) {
 			if pc := byS[sha]; pc != nil && pc.chain != "" && contains(chains, pc.chain) {

@@ -8857,6 +8857,132 @@ class TestMCPVersionAsk(GilFixture):
         self.assertNotIn("올릴까요", t, "최신인데 물었다:\n" + t)
 
 
+class TestMergeCommitIsAGilCommit(GilFixture):
+    """**gil merge 가 만든 커밋을 gil 자신이 못 읽는다** (이슈 #101, 실사용 리포트).
+
+    deployment.md 의 정본 흐름은 chain-close → merge --into dev → 다음 intake/chain 이다.
+    그대로 밟았더니 fsck 가 적층이라 하고 migrate 가 "gil 커밋이 아니다"로 거부했다.
+    정본 흐름을 밟은 사람이 벌을 받으면, 그 문서는 문서가 아니라 함정이다."""
+
+    def _closed_chain(self, name):
+        self.gil("chain", name, "--purpose", "목적 " + name)
+        self.gil("open", name + "/c001", "--author", "clew", "--purpose", "작은 문제")
+        self.gil("step", name + "/c001", "--kind", "success", "--title", "성공")
+        self.gil("close", name + "/c001", "--verdict", "supported")
+        self.gil("chain-close", name, "--verdict", "success")
+
+    def test_merge_commit_declares_itself_without_pretending_to_be_a_step(self):
+        """머지 커밋은 **자기가 gil 의 것임을 밝히되, 체인의 커밋인 척하지 않는다.**
+
+        고치는 방향을 여기서 못박는다: `Gil-Chain` 을 달아 주는 것은 답이 아니다. 그 트레일러는
+        '이 커밋은 그 체인의 것'이라는 뜻이고, 색인이 그걸로 체인의 루트·팁을 잡는다 — 층에
+        놓인 머지 커밋이 체인의 커밋으로 세어지면 계보 계산이 흔들린다. 머지는 `Gil-Merge`
+        로 자기를 밝히고, 읽는 쪽이 층을 체인으로 착각하지 않으면 된다."""
+        self.gil("init", "--name", "clew")
+        self._closed_chain("a")
+        r = self.gil("merge", "a", "--into", "dev", "--reason", "배포 단위")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("dev", "Gil-Merge"), "a")
+        self.assertEqual(self.trailer("dev", "Gil-Merge-Into"), "dev")
+        self.assertEqual(self.trailer("dev", "Gil-Chain"), "",
+                         "머지 커밋이 체인의 커밋인 척한다 — 색인이 이걸 체인 커밋으로 센다")
+
+    def test_the_canonical_flow_leaves_fsck_clean(self):
+        """체인 A 를 닫고 dev 로 합류시킨 뒤 dev 에서 체인 B 를 열면 위반 0 이어야 한다."""
+        self.gil("init", "--name", "clew")
+        self._closed_chain("a")
+        self.gil("merge", "a", "--into", "dev", "--reason", "배포 단위")
+        self._git("checkout", "-q", "dev")
+        self._closed_chain("b")
+        r = self.gil("fsck")
+        out = r.stdout + r.stderr
+        self.assertNotIn("적층", out, "정본 흐름을 밟았는데 적층이라 한다:\n" + out)
+
+    def test_migrate_does_not_refuse_because_of_its_own_merge(self):
+        """migrate 가 자기 도구가 만든 머지 커밋을 보고 이주를 거부하면 안 된다."""
+        self.gil("init", "--name", "clew")
+        self._closed_chain("a")
+        self.gil("merge", "a", "--into", "dev", "--reason", "배포 단위")
+        r = self.gil("migrate", "--to-dev-layout", "--dry-run")
+        out = r.stdout + r.stderr
+        self.assertNotIn("gil 커밋이 아니다", out,
+                         "자기가 만든 머지 커밋을 남의 것으로 본다:\n" + out)
+
+
+class TestFrontMatterLandsOnTheLayer(GilFixture):
+    """**앞머리(intake·인터뷰)가 서 있던 자리에 심긴다** (이슈 #102 경로 1).
+
+    체인 A 를 닫은 직후 HEAD 는 A 의 사이클 브랜치에 있다. 그 자리에서 `gil intake` 를 부르면
+    개시 인터뷰가 A 의 가지 위에 쌓이고 그 브랜치가 전진한다 — 다음 체인의 앞머리가 앞
+    체인의 몸에 들어앉는 것이다.
+
+    v3.50.0 에서 `gil open` 의 같은 병("새 사이클은 제 체인의 끝에서 난다 — HEAD 가 아니라")을
+    고쳤고, v3.49.0 은 **이주기**에 "앞머리는 dev 층의 것"을 가르쳤다. 살아 있는 명령에만
+    안 가르쳤다."""
+
+    def _closed_chain(self, name):
+        self.gil("chain", name, "--purpose", "목적 " + name)
+        self.gil("open", name + "/c001", "--author", "clew", "--purpose", "작은 문제")
+        self.gil("step", name + "/c001", "--kind", "success", "--title", "성공")
+        self.gil("close", name + "/c001", "--verdict", "supported")
+        self.gil("chain-close", name, "--verdict", "success")
+
+    QS = '[{"q":"다음 기준은?","type":"text"}]'
+
+    def test_intake_lands_on_dev_not_on_the_branch_you_stood_on(self):
+        self.gil("init", "--name", "clew")
+        self._closed_chain("a")
+        before = self._git("rev-parse", "a-c001").stdout.strip()
+        r = self.gil("intake", "nx", "--ask", "-", input=self.QS)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        after = self._git("rev-parse", "a-c001").stdout.strip()
+        self.assertEqual(before, after,
+                         "앞 체인의 사이클 브랜치가 개시 인터뷰를 얹고 전진했다")
+        on_dev = self._git("merge-base", "--is-ancestor",
+                           self._intake_sha(), "dev").returncode == 0
+        self.assertTrue(on_dev, "개시 인터뷰가 dev 층에 없다 — 다음 체인이 여기서 나야 한다")
+
+    def test_the_answer_lands_on_the_same_layer_as_the_question(self):
+        """질문과 답이 갈라져 앉으면 앞머리가 두 곳으로 찢어진다."""
+        self.gil("init", "--name", "clew")
+        self._closed_chain("a")
+        self.gil("intake", "nx", "--ask", "-", input=self.QS)
+        ans = os.path.join(self.repo, "ans.json")
+        with open(ans, "w", encoding="utf-8") as f:
+            f.write('{"answers":[{"q":"다음 기준은?","a":"B 가 닫히는 것"}]}')
+        r = self.gil("intake", "nx", "--resolve", ans)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for sha in self._intake_shas():
+            on_dev = self._git("merge-base", "--is-ancestor", sha, "dev").returncode == 0
+            subj = self._git("log", "-1", "--format=%s", sha).stdout.strip()
+            self.assertTrue(on_dev, "앞머리가 dev 밖에 앉았다: " + subj)
+
+    def test_a_repo_without_the_layer_is_left_alone(self):
+        """층이 없는 옛 저장소에서는 지금처럼 HEAD 에 남는다 — 여기서 층을 강요하지 않는다."""
+        self.gil("init", "--name", "clew")
+        self._git("branch", "-D", "dev")
+        r = self.gil("intake", "nx", "--ask", "-", input=self.QS)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def _intake_shas(self):
+        out = self._git("log", "--all",
+                        "--format=%H\x1f%(trailers:key=Gil-Intake,valueonly)").stdout
+        got = [ln.partition("\x1f")[0].strip() for ln in out.splitlines()
+               if ln.partition("\x1f")[2].strip() == "nx"]
+        self.assertTrue(got, "개시 인터뷰 커밋을 못 찾았다:\n" + out)
+        return got
+
+    def _intake_sha(self):
+        """개시 인터뷰 커밋 — 제목이 아니라 **선언(Gil-Intake)** 으로 찾는다."""
+        out = self._git("log", "--all",
+                        "--format=%H\x1f%(trailers:key=Gil-Intake,valueonly)").stdout
+        for ln in out.splitlines():
+            sha, _, intake = ln.partition("\x1f")
+            if intake.strip() == "nx":
+                return sha.strip()
+        self.fail("개시 인터뷰 커밋을 못 찾았다:\n" + out)
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 

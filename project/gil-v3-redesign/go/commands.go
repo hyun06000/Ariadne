@@ -2656,8 +2656,21 @@ func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored 
 		{"Gil-Interview", "pending"},
 	}
 	tr = append(tr, extra...) // 개시 인터뷰면 Gil-Intake 가 여기 붙는다(이슈 #90)
+	// 개시 인터뷰(gil intake)인가 — 체인별 인터뷰인가. 앞머리는 체인보다 **먼저** 있는 것이라
+	// 어느 체인의 몸도 아니다(이슈 #102). 층이 있으면 dev 에 앉힌다.
+	intake := false
+	for _, kv := range extra {
+		if kv[0] == "Gil-Intake" {
+			intake = true
+		}
+	}
+	if intake {
+		commitOn(frontMatterBranch(), "", subject, b.String(), tr, true)
+		println2("interview: " + chain + " — 질문 " + strconv.Itoa(len(qs)) + "개 심음. 뷰어에서 사람이 폼으로 답한다.")
+		interviewAskTail(chain, qs)
+		return
+	}
 	// 체인 브랜치 위에 심는다(레퍼런스가 그 체인에 커밋될 자리). HEAD 가 다른 데면 맞춘다.
-	// 개시 인터뷰(gil intake)는 아직 브랜치가 없다 — 없으면 대문(HEAD) 위에 심는다.
 	// gitTry 여야 한다: git() 은 실패에 죽고, "브랜치 없음"은 여기서 정상 흐름이다(이슈 #90).
 	if raw, err := gitTry("rev-parse", "--verify", "-q", "refs/heads/"+chain); err == nil {
 		if tip := strings.TrimSpace(raw); tip != "" {
@@ -2666,6 +2679,12 @@ func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored 
 	}
 	commit(subject, b.String(), tr, true)
 	println2("interview: " + chain + " — 질문 " + strconv.Itoa(len(qs)) + "개 심음. 뷰어에서 사람이 폼으로 답한다.")
+	interviewAskTail(chain, qs)
+}
+
+// interviewAskTail — 질문을 심은 뒤의 안내. 개시 인터뷰(dev 층)와 체인별 인터뷰가 **같은 말을
+// 하도록** 한 자리에 둔다 — 갈라 두면 한쪽만 낡는다.
+func interviewAskTail(chain string, qs []interviewQ) {
 	println2("  ▸ 뷰어를 열어라(gil viewer serve / VS Code 패널). 사람이 제출하면 reference-" + chain +
 		".md 로 저장되고 레퍼런스가 커밋된다 — 폴링이 곧 반영한다.")
 	println2("  ▸ 사람 답 전엔 이 기준이 비어 있다 — 답을 기다려라(pending 처럼).")
