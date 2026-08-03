@@ -9519,6 +9519,27 @@ class TestTheToolTeachesBranchingAndConfluence(GilFixture):
         forks = [v for v in kids.values() if len(set(v)) > 1]
         self.assertTrue(forks, "형제로 열었는데 그래프가 일직선이다")
 
+    def test_the_refusal_that_blocks_a_sibling_shows_the_way_to_one(self):
+        """**여기가 갈래를 포기하게 되는 자리다.**
+
+        형제를 하나 더 열려던 에이전트는 "아직 밟는 중인 사이클이 있다"를 *"분기는 안 되는
+        구나"*로 읽고 일자로 이어붙인다. 안 되는 것은 **동시에 여는 것**뿐이고, 그건 제약이
+        아니라 원리다 — git 도 두 브랜치를 동시에 밟으려면 워크트리가 필요하다.
+        거부는 길을 닫는 자리가 아니라, 열려 있는 길을 보여줄 자리다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._full_cycle("c", "c001")
+        self.gil("open", "c/c002", "--author", "clew", "--purpose", "갈래 A",
+                 "--body", "정의", "--parent", "c001", "--inherit", "c001 의 결론")
+        r = self.gil("open", "c/c003", "--author", "clew", "--purpose", "갈래 B",
+                     "--body", "정의", "--parent", "c001", "--inherit", "c001 의 결론")
+        self.assertNotEqual(r.returncode, 0, "동시에 두 사이클이 열렸다")
+        out = r.stdout + r.stderr
+        self.assertIn("형제 사이클을 열려던 것이라면", out,
+                      "갈래를 포기하게 되는 자리에서 열린 길을 안 보여줬다:\n" + out)
+        self.assertIn("--parent c001", out, "부모 이름을 채워 주지 않아 그대로 칠 수 없다")
+        self.assertIn("워크트리", out, "왜 하나씩인지를 말하지 않으면 제약으로만 읽힌다")
+
     def test_chain_close_teaches_intake_first_not_purpose_first(self):
         self.gil("init", "--name", "clew")
         self.gil("chain", "c", "--purpose", "P")

@@ -802,6 +802,19 @@ func cmdOpen(args []string) {
 				"    (2) 종결     — analyze 까지 밟은 뒤 success(산 잎)로 닫고 gil close "+chain+"/"+first,
 				"    (3) 포기     — analyze → fail 로 **벽을 남긴 뒤** gil close "+chain+"/"+first+" --abandon",
 				"                  (봉인에도 죽은 잎이 필요하다 — 벽의 지도 없이 사라지는 사이클은 없다)")
+			// **여기가 갈래를 포기하게 되는 자리다.** 형제를 하나 더 열려던 에이전트는 이
+			// 거부를 "분기는 안 되는구나"로 읽고 일자로 이어붙인다(상현님 실사용). 안 되는
+			// 것은 **동시에 여는 것**뿐이고, 그건 제약이 아니라 원리다 — git 에서 두 브랜치를
+			// 동시에 밟으려면 워크트리가 필요한 것과 같다. 갈래 자체는 얼마든지 낼 수 있다.
+			if p := cycleParentOf(chain, first); p != "" {
+				lines = append(lines,
+					"  ▸ **형제 사이클을 열려던 것이라면 — 그 길은 열려 있다.** 지금 것을 닫은 뒤",
+					"    같은 부모로 다시 열면 형제로 갈라진다:",
+					"      gil close "+chain+"/"+first+" --verdict <판정>",
+					"      gil open "+chain+"/<형제> --parent "+p+" --inherit <무엇을 물려받나> --purpose <다른 갈래>",
+					"    한 번에 하나만 열리는 것은 제약이 아니라 원리다 — git 도 두 브랜치를 동시에",
+					"    밟으려면 워크트리가 필요하다. 갈래는 동시가 아니라 **차례로** 낸다.")
+			}
 		}
 		die(strings.Join(lines, "\n"))
 	}
@@ -2173,9 +2186,10 @@ func cmdClose(args []string) {
 	// 이어붙였다(상현님 실사용). 문법에 있는 것을 안내가 안 보여주면 없는 것과 같다.
 	println2("NEXT 다음 사이클은 이 끝에서 난다 — **하나일 필요는 없다**:")
 	println2("      gil open " + chain + "/<다음> --parent " + cycle + " --inherit <무엇을 물려받나> --purpose <작은 문제>")
-	println2("    ▸ 이 결론에서 갈래가 둘 이상이면 **사람에게 '하나만 고르라'고 묻지 마라.** 차례로 다 밟아라:")
-	println2("      한 가지를 열어 끝까지 밟고 닫은 뒤, **같은 --parent " + cycle + " 로 다시 열면** 형제로 갈라진다")
-	println2("      (사이클은 한 번에 하나만 열린다 — 갈래는 동시가 아니라 차례로 난다).")
+	println2("    ▸ 이 결론에서 갈래가 둘 이상이면 **사람에게 '하나만 고르라'고 묻지 마라 — 다 밟아라.**")
+	println2("      한 가지를 열어 끝까지 밟고 닫은 뒤 **같은 --parent " + cycle + " 로 다시 열면** 형제로 갈라진다.")
+	println2("      한 번에 하나만 열리는 것은 제약이 아니라 원리다 — git 도 두 브랜치를 동시에 밟으려면")
+	println2("      워크트리가 필요하다. **갈래는 동시가 아니라 차례로 낸다** — 갈래의 수는 제한이 없다.")
 	println2("      그렇게 갈라 둔 뒤 살아남은 것들을 합치는 것이 이 도구가 그리려는 모양이다:")
 	println2("        gil merge " + chain + "/<가지A> " + chain + "/<가지B> --into " + chain + " --reason <왜 한 줄기가 되나>")
 }
@@ -3910,4 +3924,25 @@ func afterChainCloseNext(chain string) []string {
 		"      gil chain <새이름> --from-intake <슬러그> --purpose-from <질문번호> --criterion-from <번호>",
 		"    ▸ 이 체인("+chain+")을 이어받을지, 아무것도 안 이어받는 시조로 갈지는 **사람이 정한다**.",
 		"      네가 고르지 말고 --ask-root 로 물어라 — 그 답이 곧 분기 자리다.")
+}
+
+// cycleParentOf — 그 사이클이 **선언한** 부모 사이클(Gil-Cycle-Parent). 없으면 "".
+// 형제를 권할 때 쓴다: 부모를 알아야 "같은 부모로 다시 열어라"가 실제로 칠 수 있는 한 줄이 된다.
+func cycleParentOf(chain, cycle string) string {
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep +
+		trailer("Gil-Cycle-Parent") + sep
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--branches"), sep) {
+		ch, r1, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok {
+			continue
+		}
+		cy, pp, _ := cut(r1, fsep)
+		if strings.TrimSpace(ch) != chain || strings.TrimSpace(cy) != cycle {
+			continue
+		}
+		if p := strings.TrimSpace(pp); p != "" && p != "null" {
+			return p
+		}
+	}
+	return ""
 }
