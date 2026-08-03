@@ -135,6 +135,11 @@ func intakeSections(slug string) []intakeSec {
 			if t == "" || t == "_(답 없음)_" || t == "---" || strings.HasPrefix(t, "\u2500\u2500 ") {
 				continue
 			}
+			// \uc778\uc6a9(`> `)\uc740 **\uc9c8\ubb38\uc758 \uc774\uc5b4\uc9c0\ub294 \uc904**\uc774\uc9c0 \uc0ac\ub78c\uc758 \ub2f5\uc774 \uc544\ub2c8\ub2e4(\uc774\uc288 #109). \uae34 \uc9c8\ubb38\uc758
+			// \ud6c4\ubcf4 \ubaa9\ub85d\uc774 \ub2f5\uc73c\ub85c \uc11e\uc5ec \ub4e4\uc5b4\uac00 \uccb4\uc778 \ubaa9\uc801\uc5d0 \ud1b5\uc9f8\ub85c \ubc15\ud788\ub358 \uc790\ub9ac\ub2e4.
+			if strings.HasPrefix(t, ">") {
+				continue
+			}
 			parts = append(parts, t)
 		}
 		out = append(out, intakeSec{q: curQ, answer: strings.Join(parts, " \u00b7 ")})
@@ -359,4 +364,19 @@ func intakeResolve(slug, refFile string) {
 	println2("  ▸ 준비되면 그 답으로 체인을 연다(전부 인용된다):")
 	println2("      gil chain <이름> --from-intake " + slug + " --purpose-from <n> --criterion-from <m>")
 	println2("  ▸ 답 전문: gil intake " + slug + " --status")
+}
+
+// referentialAnswer — 답이 "2번", "②", "위의 두 번째" 처럼 **다른 곳을 가리키기만 하는가**
+// (이슈 #109). 짧고 지시어뿐인 답은 인용해도 목적이 서지 않는다 — 판정이 아니라 고지에 쓴다.
+func referentialAnswer(s string) bool {
+	t := strings.TrimSpace(s)
+	if len([]rune(t)) > 24 {
+		return false // 길면 스스로 말한다 — 참조가 섞여 있어도 목적은 선다
+	}
+	for _, m := range []string{"번", "번째", "①", "②", "③", "④", "⑤", "위의", "아래", "그거", "그것", "저것"} {
+		if strings.Contains(t, m) {
+			return true
+		}
+	}
+	return false
 }

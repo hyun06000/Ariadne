@@ -10250,3 +10250,111 @@ class TestPrunedChainsAreNotJudgedAgain(GilFixture):
         self.assertIn("유실 직전", out,
                       "GC 임박 경고까지 숨겼다 — 이건 절대 숨기면 안 되는 것이다:\n" + out)
         self.assertIn("gamma/", out, "무엇이 사라지기 직전인지 이름을 안 부른다")
+
+
+class TestMultilineTrailerKeepsTheChainVisible(GilFixture):
+    """여러 줄짜리 값 하나가 트레일러 블록 **전체**를 무효로 만들었다 (이슈 #109).
+
+    git 의 트레일러 블록은 마지막 문단 전체가 `Key: value`(또는 공백으로 시작하는 이어짐)일
+    때만 성립한다. `--inherit` 에 두 줄을 넘긴 순간 그 줄은 키도 이어짐도 아니게 되고, 그
+    커밋의 **Gil-Chain 까지 포함해 모든 트레일러가 사라진다.** 그래서 방금 정석대로 만든
+    체인이 open 의 기준 게이트에서 "기준 문서가 없다"로 거부되고, handoff 에서도 통째로
+    사라졌다 — 다음 세션은 그 체인의 존재 자체를 모른다.
+
+    사람 눈에는 git log 에 그대로 보이니 조용하다. 실패하지 않고 **성공했다고 말하면서
+    틀리는** 종류다."""
+
+    QS = [{"q": "무엇을 하려고 하십니까", "type": "text"},
+          {"q": "무엇이 관측되면 풀린 것입니까", "type": "text"}]
+    ANS = ("# 기준 문서\n\n## 1. 무엇을 하려고 하십니까\n\n런타임까지 돌린다.\n\n"
+           "## 2. 무엇이 관측되면 풀린 것입니까\n\n지표를 측정하고 시각화하면 풀린 것이다.\n")
+    MULTI = "앞 체인 셋에서:\n- 문법은 됐다\n- 런타임은 안 됐다"
+
+    def _run(self, *a, input=None):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.run([*GIL_CMD, *a], cwd=self.repo, capture_output=True,
+                              text=True, env=env, input=input)
+
+    def _chain(self):
+        self._run("intake", "rt", "--ask", "-", input=json.dumps(self.QS))
+        p = os.path.join(self.repo, "ans.md")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(self.ANS)
+        self._run("intake", "rt", "--resolve", "ans.md")
+        os.remove(p)
+        return self._run("chain", "ail-runtime", "--from-intake", "rt",
+                         "--purpose-from", "1", "--criterion-from", "2",
+                         "--inherit", self.MULTI)
+
+    def test_trailers_survive_a_multiline_value(self):
+        r = self._chain()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("ail-runtime", "Gil-Chain"), "ail-runtime")
+        self.assertEqual(self.trailer("ail-runtime", "Gil-Interview"), "done")
+        # 값 자체도 잃지 않는다 — 접고 되펴면 git 의 unfold 와 같은 한 줄이 된다.
+        got = self._git("log", "-1", "ail-runtime",
+                        "--format=%(trailers:key=Gil-Inherit,valueonly,unfold)").stdout.strip()
+        self.assertEqual(got, "앞 체인 셋에서: - 문법은 됐다 - 런타임은 안 됐다")
+
+    def test_the_cycle_opens(self):
+        """정석(인터뷰 선행)으로 만든 체인은 그 자리에서 사이클이 열려야 한다."""
+        self._chain()
+        r = self._run("open", "ail-runtime/interp", "--author", "naru",
+                      "--purpose", "인터프리터 뼈대", "--goal", "돈다",
+                      "--fits", "런타임 검증이다", "--body", "무엇을 푸는가: 뼈대를 세운다.")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+
+    def test_handoff_still_sees_the_chain(self):
+        """여기서 사라진 체인은 다음 세션이 존재 자체를 모른다(#45 가 막으려던 상황)."""
+        self._chain()
+        out = self._run("handoff").stdout
+        self.assertIn("ail-runtime", out)
+
+    def test_body_is_not_polluted_by_the_folded_lines(self):
+        """접힌 이어짐도 트레일러다 — 본문으로 새면 뷰어가 그걸 보고서로 그린다."""
+        self._chain()
+        body = self._git("log", "-1", "ail-runtime", "--format=%B").stdout
+        self.assertIn("Gil-Inherit:", body)
+        self.assertNotIn("Gil-Inherit:", self._run("log", "ail-runtime").stdout)
+
+
+class TestLongQuestionDoesNotBecomeTheAnswer(GilFixture):
+    """후보를 나열한 긴 질문의 2행 이후가 **사람의 답으로** 파싱됐다 (이슈 #109 결함 3).
+
+    사람의 답은 "2번 해보자." 한 줄이었는데 체인 목적에는 고르지 **않은** 후보 셋과
+    "이 넷 밖의 것도 좋습니다"까지 통째로 박혔다. 이 문장은 이후 모든 스텝에서 되읽히는
+    판단 근거라, 기각된 후보가 섞이면 매 스텝마다 오독 위험이 선다."""
+
+    def _run(self, *a, input=None):
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        return subprocess.run([*GIL_CMD, *a], cwd=self.repo, capture_output=True,
+                              text=True, env=env, input=input)
+
+    ANS = ("# 기준 문서\n\n## 1. 다음 시드 후보 중 무엇을 할까요?\n\n"
+           "> ① 다중 모델 검증\n> ② 런타임 실행 검증\n> ③ 문법 표면적\n"
+           "> 이 셋 밖의 것도 좋습니다.\n\n2번 해보자.\n\n"
+           "## 2. 무엇이 관측되면 풀린 것입니까\n\n런타임까지 돌려서 지표측정, 시각화\n")
+
+    def _chain(self):
+        self._run("intake", "sd", "--ask", "-",
+                  input=json.dumps([{"q": "다음 시드 후보 중 무엇을 할까요?", "type": "text"},
+                                    {"q": "무엇이 관측되면 풀린 것입니까", "type": "text"}]))
+        p = os.path.join(self.repo, "ans.md")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(self.ANS)
+        self._run("intake", "sd", "--resolve", "ans.md")
+        os.remove(p)
+        return self._run("chain", "sd-chain", "--from-intake", "sd",
+                         "--purpose-from", "1", "--criterion-from", "2")
+
+    def test_only_the_answer_is_lifted(self):
+        r = self._chain()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("sd-chain", "Gil-Chain-Purpose"), "2번 해보자.")
+        self.assertNotIn("다중 모델 검증", self.trailer("sd-chain", "Gil-Chain-Purpose"))
+
+    def test_referential_answer_is_called_out(self):
+        """'2번 해보자'는 참조형이다 — 막지는 않되 그대로 두면 안 된다고 말한다."""
+        r = self._chain()
+        self.assertIn("참조형", r.stderr)
+        self.assertIn("radio", r.stderr)

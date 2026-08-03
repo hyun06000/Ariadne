@@ -198,16 +198,27 @@ func expandFormat(f string, c *rawCommit) (string, bool) {
 			}
 			rest := spec[len(pre):]
 			key, opts, _ := strings.Cut(rest, ",")
-			// 우리가 쓰는 형태는 valueonly [+ separator=%x00] 둘뿐이다. 그 밖이면 git 에 넘긴다.
+			// 우리가 쓰는 형태는 valueonly[,unfold] [+ separator=%x00] 뿐이다. 그 밖이면 git 에 넘긴다.
 			sepStr := "\n"
+			unfold := false
 			switch opts {
 			case "valueonly":
+			case "valueonly,unfold":
+				unfold = true
 			case "valueonly,separator=%x00":
 				sepStr = "\x00"
+			case "valueonly,unfold,separator=%x00":
+				unfold, sepStr = true, "\x00"
 			default:
 				return "", false
 			}
 			vs := c.trailersOf()[key]
+			if unfold {
+				vs = append([]string(nil), vs...)
+				for i, v := range vs {
+					vs[i] = unfoldTrailerValue(v)
+				}
+			}
 			b.WriteString(strings.Join(vs, sepStr))
 		default:
 			return "", false

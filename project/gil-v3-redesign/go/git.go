@@ -468,32 +468,72 @@ var trailerPrefixes = []string{"Gil-", "Co-Authored-By:", "Co-authored-by:", "Si
 
 // stripTrailers — 본문 끝의 트레일러 블록(알려진 키로 시작하는 라인)을 걷어낸다.
 // 참조: _strip_trailers. 본문에도 콜론이 흔하므로 알려진 접두사로만 엄격히 구분한다.
+// 접힌 값의 이어지는 줄(공백으로 시작)도 트레일러의 일부다 — 그 줄만 보면 본문처럼 생겼으니,
+// **위에 있는 키 줄이 정하게** 둔다(아래에서 위로 올라가며 키 줄에서만 경계를 확정한다).
 func stripTrailers(body string) string {
 	lines := strings.Split(body, "\n")
 	end := len(lines)
-	for end > 0 {
-		ln := strings.TrimSpace(lines[end-1])
-		if ln == "" {
-			end--
+	for i := len(lines) - 1; i >= 0; i-- {
+		raw := lines[i]
+		t := strings.TrimSpace(raw)
+		if t == "" {
+			continue // 꼬리 빈 줄 — 경계를 정하지 않는다(마지막 TrimSpace 가 걷는다)
+		}
+		if strings.HasPrefix(raw, " ") || strings.HasPrefix(raw, "\t") {
+			continue // 접힌 이어짐일 수 있다 — 확정은 키 줄이 한다
+		}
+		if hasAnyPrefix(t, trailerPrefixes) {
+			end = i
 			continue
 		}
-		if hasAnyPrefix(ln, trailerPrefixes) {
-			end--
-		} else {
-			break
-		}
+		break
 	}
 	return strings.TrimSpace(strings.Join(lines[:end], "\n"))
 }
 
 // ── 작은 헬퍼들 ─────────────────────────────────────────────────────────
 
+// foldTrailerValue — 여러 줄짜리 값을 git 이 인정하는 **한 트레일러**로 접는다(이슈 #109).
+//
+// 왜. git 의 트레일러 블록은 마지막 문단 전체가 `Key: value`(또는 공백으로 시작하는 이어짐)일
+// 때만 성립한다. 값에 날 줄바꿈이 하나라도 들어가면 그 줄은 키도 이어짐도 아니어서 **블록
+// 전체가 무효**가 된다 — `--inherit` 에 두 줄을 넘긴 것 하나로 그 커밋의 Gil-Chain 까지 전부
+// 사라졌고, 그래서 방금 만든 체인이 open 의 기준 게이트·handoff·fsck 에서 통째로 없는 것이
+// 됐다(실사용 #109: "정석대로 할수록 막힌다"의 정체). 사람 눈에는 git log 에 그대로 보이니
+// 조용하다 — 우리가 가장 비싸게 치르는 종류의 침묵이다.
+//
+// 접기는 git 자신의 규칙 그대로: 이어지는 줄 앞에 공백 하나. 읽을 때는 unfold 로 되편다.
+func foldTrailerValue(v string) string {
+	v = strings.TrimRight(v, "\n \t")
+	if !strings.Contains(v, "\n") {
+		return v
+	}
+	lines := strings.Split(v, "\n")
+	for i := 1; i < len(lines); i++ {
+		lines[i] = " " + strings.TrimLeft(lines[i], " \t")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// unfoldTrailerValue — 접힌 값을 한 줄로 되편다. git 의 unfold 와 **같은 결과**여야 한다
+// (줄바꿈+이어짐의 들여쓰기 → 공백 하나) — 아니면 fastlog 가 git 과 다른 답을 낸다.
+func unfoldTrailerValue(v string) string {
+	if !strings.Contains(v, "\n") {
+		return v
+	}
+	lines := strings.Split(v, "\n")
+	for i := 1; i < len(lines); i++ {
+		lines[i] = strings.TrimLeft(lines[i], " \t")
+	}
+	return strings.Join(lines, " ")
+}
+
 func trailer(key string) string {
-	return "%(trailers:key=" + key + ",valueonly)"
+	return "%(trailers:key=" + key + ",valueonly,unfold)"
 }
 
 func trailerMulti(key string) string {
-	return "%(trailers:key=" + key + ",valueonly,separator=%x00)"
+	return "%(trailers:key=" + key + ",valueonly,unfold,separator=%x00)"
 }
 
 func splitMulti(s string) []string {

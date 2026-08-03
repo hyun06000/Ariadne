@@ -453,10 +453,14 @@ func cmdFsck(args []string) {
 		}
 	}
 	blind := devLayerBlindNotice()
+	noRef := noReferenceChainsNotice()
 	if len(v) == 0 {
 		println2("fsck: 위반 0 — 커밋 그래프 건강")
 		if blind != "" {
 			println2(blind)
+		}
+		if noRef != "" {
+			println2(noRef)
 		}
 		if prunedLine != "" {
 			println2(prunedLine)
@@ -472,6 +476,9 @@ func cmdFsck(args []string) {
 	}
 	if blind != "" {
 		println2(blind)
+	}
+	if noRef != "" {
+		println2(noRef)
 	}
 	if prunedLine != "" {
 		println2(prunedLine)
@@ -500,4 +507,25 @@ func outRaw(s string) {
 		return
 	}
 	os.Stdout.WriteString(s)
+}
+
+// noReferenceChainsNotice — 열려 있는데 **기준 문서가 없어 사이클을 못 여는** 체인들(이슈 #109).
+//
+// 위반이 아니라 고지다: v3.37.0 이전에 만들어진 체인은 원리적으로 이 상태이고, 그걸 위반으로
+// 세면 옛 저장소가 통째로 병든 것이 된다(#99 에서 한 번 되돌린 자리와 같은 논리). 하지만
+// 침묵도 답이 아니다 — 그 체인 앞에 선 세션은 open 이 거부할 때에야 이유를 안다.
+func noReferenceChainsNotice() string {
+	var stuck []string
+	for _, c := range openChains() {
+		if interviewState(c) == "none" {
+			stuck = append(stuck, c)
+		}
+	}
+	if len(stuck) == 0 {
+		return ""
+	}
+	return "  ⚠ 기준 문서가 없어 사이클을 못 여는 열린 체인 " + itoa(len(stuck)) + "개: " +
+		strings.Join(stuck, " ") + "\n" +
+		"     위반은 아니다(v3.37.0 이전 체인은 이 상태로 태어났다) — 다만 이대로는 아무것도 못 연다.\n" +
+		"     조치: gil interview <chain> --ask <질문JSON>  → 사람이 답하면 열린다."
 }

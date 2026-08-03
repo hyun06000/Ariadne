@@ -121,7 +121,7 @@ func commitOn(branch, createFrom, subject, body string, trailers [][2]string, al
 	msg := subject + "\n\n" + strings.TrimRight(body, "\n \t") + "\n\n"
 	var trs []string
 	for _, t := range trailers {
-		trs = append(trs, t[0]+": "+t[1])
+		trs = append(trs, t[0]+": "+foldTrailerValue(t[1]))
 	}
 	msg += strings.Join(trs, "\n")
 	args := []string{"commit", "-q", "-F", "-"}
@@ -653,8 +653,11 @@ func cmdOpen(args []string) {
 	if !chainReferenceApproved(chain, "--branches") {
 		die("거부: \"" + chain + "\" 에 사람이 승인한 기준 문서(레퍼런스 트루스)가 없다 — 작업 사이클을\n" +
 			"  열기 전에 인터뷰가 먼저다(이슈 #33, 상현님).\n" +
-			"  (v3.37.0 부터 기준 없는 체인은 **애초에 만들어지지 않는다** — 이 체인은 그 전에\n" +
-			"   만들어진 것이다. 지금 채우려면:)\n" +
+			"  판정 근거는 파일이 아니라 **커밋 트레일러**다 — 이 체인의 chain-root 에\n" +
+			"  `Gil-Interview: done` 이 안 보인다(확인: git log -1 " + chain + " --format='%(trailers)').\n" +
+			"  (v3.37.0 부터 기준 없는 체인은 애초에 만들어지지 않으니, 방금 만든 체인인데 여기\n" +
+			"   걸렸다면 그건 도구의 결함이다 — 그 커밋의 트레일러 블록을 그대로 붙여 이슈로 올려라.)\n" +
+			"  지금 채우려면:\n" +
 			"    1) 인터뷰 질문을 짜서 심어라: gil interview " + chain + " --ask <질문JSON|->\n" +
 			"    2) 사람이 뷰어 폼으로 답하고 제출하면 기준이 확정된다.\n" +
 			"    3) 그제서야 gil open " + ref + " 로 작업 사이클을 연다.")
@@ -3304,6 +3307,15 @@ func cmdChain(args []string) {
 		}
 		*purpose = lifted
 		println2("  ◎ 목적을 사람의 답에서 인용했다(" + si + " 질문 " + itoa(n) + "): " + lifted)
+		// 답이 **참조형**("2번", "②", "위의 두 번째")이면 그 자체로는 목적이 서지 않는다.
+		// 이 문장은 이후 모든 스텝·사이클에서 되읽히는 판단 근거라, "2번 해보자"로 박히면
+		// 매번 무엇의 2번인지 되짚어야 한다(이슈 #109). 막지는 않는다 — 인용은 인용이다.
+		if referentialAnswer(lifted) {
+			stderr("  ⚠ 이 답은 **참조형**이다 — 무엇의 몇 번인지 이 문장만으로는 서지 않는다.")
+			stderr("    체인 목적은 이후 모든 스텝에서 되읽히는 판단 근거다. 사람에게 한 줄 더 물어")
+			stderr("    그 선택지를 펼친 답을 받아라: gil intake " + si + " --ask '[{\"q\":\"고르신 것을 한 문장으로 적어 주세요\",\"type\":\"text\"}]'")
+			stderr("    (선택지가 있는 질문은 애초에 type:\"radio\"/\"checkbox\" 로 물어라 — 답이 항목 그 자체가 된다.)")
+		}
 		// 성패 기준 — 체인을 **닫을 때 무엇에 비추어 판정하나**. 목적만 있고 기준이 없으면
 		// '됐다'가 다시 자기확신이 된다(#33 이 기준 문서를 요구한 이유가 체인 층에도 선다).
 		cn := atoiSafe(strings.TrimSpace(*criterionFrom))
