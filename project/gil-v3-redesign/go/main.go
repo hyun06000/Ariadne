@@ -151,6 +151,9 @@ func main() {
 		cmdLog(rest)
 	case "fsck":
 		cmdFsck(rest)
+	case "guard":
+		cmdGuard(rest) // git commit 과 gil step 이 섞이는 것을 막는다(예방) — 탐지는 fsck 가 늘 한다
+
 	case "global":
 		cmdGlobal(rest)
 	case "memory":
@@ -462,6 +465,8 @@ func cmdFsck(args []string) {
 	// 그 사이 dev 가 **이 트리의 파일을 고쳤다면** 낡은 값이 그 자리에 그대로 있어서 조용히
 	// 틀린다(이슈 #115). 그래서 세지 않고 **고지**한다(🪦·↩ 와 같은 자리).
 	behind := behindChainsNotice()
+	// 섞인 기록(gil 이 만들지 않은 커밋이 체인 가지에 낀 것) — 훅이 없거나 뚫린 뒤에도 짚는다.
+	rawMix := rawCommitNotice()
 	if len(v) == 0 {
 		println2("fsck: 위반 0 — 커밋 그래프 건강")
 		if blind != "" {
@@ -475,6 +480,9 @@ func cmdFsck(args []string) {
 		}
 		if behind != "" {
 			println2(behind)
+		}
+		if rawMix != "" {
+			println2(rawMix)
 		}
 		if prunedLine != "" {
 			println2(prunedLine)
@@ -496,6 +504,9 @@ func cmdFsck(args []string) {
 	}
 	if behind != "" {
 		println2(behind)
+	}
+	if rawMix != "" {
+		println2(rawMix)
 	}
 	if comp != "" {
 		println2(comp)

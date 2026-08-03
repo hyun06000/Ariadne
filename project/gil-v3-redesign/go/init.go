@@ -89,17 +89,22 @@ func cmdInit(args []string) {
 	// 받았다. 기존 문서는 덮지 않고, 대문은 마커 사이만 관리한다.
 	docsWrote, _ := installDocs(false)
 	gateState := installGate(gateFile(), *name)
+	// **기록의 통로를 하나로 못박는다**(상현님: git commit 과 gil step 이 섞이는 것이 괴리의
+	// 주범이다). 심는 자리에서 거는 값이 가장 싸다 — 섞인 뒤에는 되돌릴 수 없다(append-only).
+	// 훅 파일은 대문 파일들과 **같은 커밋**에 실어 클론에 따라가게 한다. 팁에 따로 얹으면
+	// 그 위에 심긴 표식(dev-root 등)을 가린다 — #113 이 값을 치른 교훈이다.
+	guardLines := installGuard()
 	// init 이 깐 것은 **gil 자신의 설치물**이지 사람의 작업이 아니다 — 세팅 직후 작업트리가
 	// 더럽혀진 채 남으면 첫 화면부터 "작업중"으로 보이고, 커밋을 잊으면 다음 세션은 여전히
 	// 길이 없는 저장소를 만난다. 우리가 쓴 경로만 골라 담는다(사람이 스테이징해 둔 것 무접촉).
 	onboardingCommitted := false
-	if docsWrote > 0 || gateState != "unchanged" {
-		paths := []string{gateFile()}
+	if docsWrote > 0 || gateState != "unchanged" || guardInstalled() {
+		paths := []string{gateFile(), guardHookRel + "/pre-commit"}
 		for p := range docsFiles() {
 			paths = append(paths, p)
 		}
 		sort.Strings(paths)
-		args := append([]string{"add", "--"}, paths...)
+		args := append([]string{"add", "-f", "--"}, paths...)
 		if _, err := gitTry(args...); err == nil {
 			if _, err := gitTry("commit", "-q", "-m",
 				"gil init: 온보딩 설치 (docs/gil· 대문 진입점)"); err == nil {
@@ -154,6 +159,10 @@ func cmdInit(args []string) {
 	println2("  ⓘ 존재(정체성·기억)는 이 저장소에 산다. 이 저장소가 사용자 머신에 영속되는")
 	println2("     폴더면 세션을 넘어 이어지고, 일회용·임시 샌드박스면 세션 끝에 사라진다.")
 	println2("     이어갈 작업이면 영속되는 로컬 폴더에서 하라(원격은 선택 — 로컬만 남아도 이어진다).")
+
+	for _, ln := range guardLines {
+		println2(ln)
+	}
 
 	// 온보딩에서 버전업을 묻는다(상현님). 심는 자리가 낡으면 그 저장소는 처음부터 낡은
 	// 워크플로우를 배운다 — 여기서 한 번 물어 두는 값이 가장 싸다.

@@ -35,6 +35,10 @@ func git(args ...string) string {
 // 뜨고 꺼지는 실사용 공포 방지). 유닉스에선 no-op 이라 무해하다.
 func gitCommand(args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
+	// **gil 이 부른 git 임을 자식에게 알린다**(gil guard). pre-commit 훅은 이 표시가 있으면
+	// 통과시킨다 — 막으려는 것은 사람·다른 도구가 gil 을 우회해 끼우는 커밋이지, gil 자신이
+	// 스텝을 새기는 일이 아니다. (훅 없는 저장소에서는 아무 일도 하지 않는 무해한 변수다.)
+	cmd.Env = append(os.Environ(), "GIL_COMMIT=1")
 	hideConsole(cmd)
 	traceGit(cmd, args)
 	return cmd

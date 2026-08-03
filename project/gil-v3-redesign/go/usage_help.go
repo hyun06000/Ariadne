@@ -356,6 +356,23 @@ var helpTable = map[string]helpEntry{
 			"  의도적 외부 행위라 '언제 왜 배포했나'를 배포 시점에 남긴다(자동 tag 감지 대신 명시).",
 		"docs/gil/deployment.md",
 	},
+	"guard": {
+		"gil guard [install|uninstall|status]\n" +
+			"  **git commit 과 gil step 이 섞이는 것을 막는다**(상현님: 괴리의 주범).\n" +
+			"  체인/사이클 가지에 평범한 커밋이 끼면 그 변경은 **어느 스텝의 것도 아니게** 되고,\n" +
+			"  그 뒤 gil 이 세는 모든 것(계보·적층·층·뒤처짐)이 실제와 갈린다. git log 는 멀쩡해\n" +
+			"  보이므로 조용히 갈린다 — 성실히 일한 세션일수록 더 많이 섞는다.\n" +
+			"  두 겹이다(한 겹으로는 원리적으로 부족하다):\n" +
+			"    예방 — pre-commit 훅(.gil/hooks). gil init 이 기본으로 건다. 층(main·dev)은 예외다:\n" +
+			"           대문 문서·배포 머지는 평범 커밋의 자리다. 충돌 해결 커밋도 통과시킨다.\n" +
+			"    탐지 — gil fsck 가 '섞인 기록'을 늘 센다. 훅이 없는 클론에서도, 뚫린 뒤에도 짚는다.\n" +
+			"  훅은 **벽이 아니다**: git commit --no-verify 는 언제나 뚫린다(git 의 설계 — 클라이언트\n" +
+			"  훅은 강제될 수 없다). 그러니 예방은 미끄러짐을 막고, 판정은 탐지가 한다.\n" +
+			"  예외 한 번: GIL_ALLOW_RAW=1 git commit …   (그 사실도 fsck 가 짚는다)\n" +
+			"  ※ 새 클론에서는 한 번 더 걸어야 한다 — 훅 파일은 따라가지만 core.hooksPath 설정은\n" +
+			"     로컬이다(git 은 클론 시 설정을 실행하지 않는다).",
+		"docs/gil/commands.md",
+	},
 	"merge": {
 		"gil merge <합칠 것>... --into <받는 곳> --reason <왜 합치나> [--allow-open]\n" +
 			"        [--skip-check --skip-reason <왜 확인 없이 건너나>]\n" +

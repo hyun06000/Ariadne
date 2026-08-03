@@ -54,8 +54,15 @@ class GilFixture(unittest.TestCase):
 
     # ── 헬퍼 ────────────────────────────────────────────────
     def _git(self, *args):
+        # gil guard(이슈 #116)가 체인 가지의 평범 커밋을 막는다. 시험 fixture 는 **일부러**
+        # 오염된 그래프를 짓는 자리가 많다(중복 번호·비-gil 팁·유실 재현 등) — 그건 사람이
+        # 우회한 상황을 재현하는 것이므로 명시적 예외로 통과시킨다. guard 자체를 검증하는
+        # 시험은 self._guard_active = True 로 이 예외를 끈다(그때는 훅이 판정해야 한다).
+        env = dict(os.environ)
+        if not getattr(self, "_guard_active", False):
+            env["GIL_ALLOW_RAW"] = "1"
         return subprocess.run(["git", *args], cwd=self.repo,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, env=env)
 
     def gil(self, *args, input=None):
         """gil 명령 실행. 반환: CompletedProcess(returncode, stdout, stderr).
@@ -1580,8 +1587,7 @@ class TestCycleForkIsDrawnAsAFork(GilFixture):
                "Gil-Chain: c\nGil-Cycle: cy4\nGil-Step: s1\nGil-Kind: define\n"
                "Gil-Parent: null\nGil-Cycle-Author: x\nGil-Cycle-Purpose: 거짓\n"
                "Gil-Cycle-Parent: cy1\nGil-Fits: f\n")
-        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", msg],
-                       cwd=self.repo, capture_output=True, text=True)
+        self._git("commit", "-q", "--allow-empty", "-m", msg)
         r = self.gil("fsck")
         out = r.stdout + r.stderr
         self.assertIn("실제로는", out)
@@ -7859,7 +7865,8 @@ class TestPollutedGraphIsRendered(GilFixture):
         msg = ("gil c/c1/s2 analyze: 오염된 스텝\n\n본문\n\n"
                "Gil-Chain: c\nGil-Cycle: c1\nGil-Step: s2\nGil-Kind: analyze\nGil-Parent: s2\n")
         subprocess.run(["git", "commit", "-q", "--allow-empty", "-F", "-"],
-                       cwd=self.repo, input=msg, text=True, capture_output=True)
+                       cwd=self.repo, input=msg, text=True, capture_output=True,
+                       env=dict(os.environ, GIL_ALLOW_RAW="1"))
 
     def test_fsck_reports_duplicate_numbers_and_self_parent(self):
         self._polluted()
@@ -10884,7 +10891,8 @@ class TestLayerRootIsWhereTheLayerStarts(GilFixture):
         # 옛 --adopt-dev 가 남긴 모양을 그대로 만든다: 팁에 dev-root 트레일러
         msg = "옛 adopt 표식\n\nGil-Kind: dev-root\nGil-Dev-Adopted: true\n"
         subprocess.run(["git", "commit", "-q", "--allow-empty", "-F", "-"],
-                       cwd=self.repo, input=msg, text=True, capture_output=True)
+                       cwd=self.repo, input=msg, text=True, capture_output=True,
+                       env=dict(os.environ, GIL_ALLOW_RAW="1"))
         before = self._git("rev-parse", "dev").stdout.strip()
         r = self.gil("migrate", "--adopt-dev")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -11465,3 +11473,72 @@ class TestLayersDoNotFlowDownhill(GilFixture):
         self._behind_chain(overlap=False)
         out = self.gil("fsck").stdout + self.gil("fsck").stderr
         self.assertNotIn("뒤처졌", out, "겹치지도 않는데 경고했다:\n" + out)
+
+
+class TestOneChannelForTheRecord(GilFixture):
+    """**git commit 과 gil step 이 섞이면 기록이 갈린다** (상현님: 괴리의 주범).
+
+    체인/사이클 가지에 평범한 커밋이 끼면 그 변경은 어느 스텝의 것도 아니게 되고, 그 뒤 gil 이
+    세는 모든 것(계보·적층·층·뒤처짐)이 실제와 갈린다. 사람 눈에는 git log 가 멀쩡하니 조용히
+    갈린다 — 성실히 일한 세션일수록 더 많이 섞는다.
+
+    두 겹으로 막는다. 한 겹으로는 원리적으로 부족하기 때문이다: 훅은 `--no-verify` 로 언제나
+    뚫리고(git 의 설계다), 탐지만 두면 이미 섞인 뒤에 안다."""
+
+    def _gil_branch_repo(self):
+        self._guard_active = True   # 여기서는 훅이 판정해야 한다(fixture 예외를 끈다)
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "ch", "--purpose", "목적")
+        self.gil("open", "ch/c001", "--author", "clew", "--purpose", "p",
+                 "--fits", "f", "--body", "정의")
+
+    def _raw_commit(self, name="work.txt", extra=()):
+        with open(os.path.join(self.repo, name), "w") as f:
+            f.write("손으로 쓴 변경\n")
+        self._git("add", name)
+        return self._git("commit", *extra, "-m", "손으로 낀 커밋")
+
+    def test_init_installs_the_guard(self):
+        """심는 자리에서 거는 값이 가장 싸다 — 섞인 뒤에는 되돌릴 수 없다(append-only)."""
+        self._guard_active = True
+        self.gil("init", "--name", "clew")
+        self.assertTrue(os.path.exists(os.path.join(self.repo, ".gil", "hooks", "pre-commit")),
+                        "gil init 이 훅을 놓지 않았다")
+        self.assertIn("켜져 있다", self.gil("guard", "status").stdout)
+
+    def test_a_raw_commit_on_a_gil_branch_is_refused(self):
+        self._gil_branch_repo()
+        r = self._raw_commit()
+        self.assertNotEqual(r.returncode, 0, "체인 가지의 평범 커밋이 통과했다")
+        self.assertIn("gil 이 만든다", r.stdout + r.stderr)
+
+    def test_gil_itself_still_commits(self):
+        """막으려는 것은 우회지 gil 자신이 아니다 — 넓게 막으면 도구가 자기 발을 묶는다."""
+        self._gil_branch_repo()
+        r = self.gil("step", "ch/c001", "--kind", "hypothesis", "--title", "가설",
+                     "--falsify", "f", "--falsify-to", "s1", "--advances", "a", "--body", "본문")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_the_layer_is_where_plain_commits_belong(self):
+        """대문 문서·배포 머지는 평범 커밋의 자리다 — 거기까지 막으면 gil 자신의 배포가 막힌다."""
+        self._gil_branch_repo()
+        self._git("checkout", "-q", "dev")
+        r = self._raw_commit("doc.md")
+        self.assertEqual(r.returncode, 0, "층의 평범 커밋까지 막혔다:\n" + r.stdout + r.stderr)
+
+    def test_what_slipped_through_is_still_named(self):
+        """**훅은 벽이 아니다** — --no-verify 는 언제나 뚫린다. 그러니 판정은 탐지가 한다."""
+        self._gil_branch_repo()
+        r = self._raw_commit(extra=("--no-verify",))
+        self.assertEqual(r.returncode, 0, "이 시험의 전제가 깨졌다(우회가 막혔다)")
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertIn("섞인 기록", out, "뚫고 들어온 커밋을 아무도 안 짚었다:\n" + out)
+
+    def test_the_guard_can_be_turned_off(self):
+        """강제는 벽이 아니라 선택이어야 한다 — 끄는 길이 없으면 사람은 도구를 버린다."""
+        self._gil_branch_repo()
+        self.gil("guard", "uninstall")
+        r = self._raw_commit()
+        self.assertEqual(r.returncode, 0, "껐는데도 막혔다:\n" + r.stdout + r.stderr)
+        self.assertIn("섞인 기록", self.gil("fsck").stdout + self.gil("fsck").stderr,
+                      "껐다고 탐지까지 꺼졌다 — 탐지는 끄지 않는다")
