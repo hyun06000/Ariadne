@@ -554,6 +554,17 @@ func handoffReport() string {
 			if g := cycleGoal(cname, cid, "--branches"); g != "" {
 				L = append(L, "        🎯 목표(열 때 선언): "+g) // 이슈 #62 — 무엇이 되면 끝인가
 			}
+			// 경합 중인 형제 가설(이슈 #106·#107). 팁은 하나만 적히므로, 나란히 겨루는
+			// 갈래들이 여기 없으면 이어받은 세션은 **자기가 밟고 선 가지 하나만** 본다.
+			if comp := competingLeaves(cname, cid); len(comp) > 1 {
+				var names []string
+				for _, l := range comp {
+					names = append(names, l.step+"["+l.kind+"]")
+				}
+				L = append(L, "        ⚖ 경합 중인 형제 가설 "+itoa(len(comp))+"개(미결): "+strings.Join(names, " "))
+				L = append(L, "            갈래마다 verify→analyze→종결(success/fail)이 필요하다 — 하나라도 남으면 close 가 거부한다.")
+				L = append(L, "            그 갈래로 가려면: gil goto "+cname+"/"+cid+"/<스텝>")
+			}
 			// 측정의 좌표(이슈 #79·#81): 이 수치가 어느 셋 위에서 무엇을 잰 것인가.
 			ds, sj := cycleCoordOf(cname, cid)
 			L = append(L, coordLines(ds, sj, "        ")...)

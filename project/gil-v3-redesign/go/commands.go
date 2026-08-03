@@ -82,6 +82,14 @@ func guideNext(kind string) {
 		stderr("  ⟹ 다음은 반드시 analyze — 검증 결과가 무엇을 뜻하는지 해석하라(그다음이 종결).")
 	case "analyze":
 		stderr("  ⟹ 다음은 종결 — success(산 잎)/fail(죽은 잎)/pending(사람 대기). 또는 backtrack(hypothesis --to <조상 define>), 문제 정의가 틀렸으면 새 사이클 open.")
+		// 갈래를 1급으로 노출한다(이슈 #106·#107). 옛 안내는 매 스텝 "다음은 반드시 하나"로
+		// 끝나 **다음 행동은 항상 한 개**라는 리듬을 각인했다 — 실사용 7사이클·스텝 90여 개
+		// 동안 병렬 가지가 0회였던 이유다. 도구가 "일자로 흐른다"고 경고하면서 정작 일자를
+		// 벗어나는 문장을 화면에 한 번도 안 띄웠다.
+		stderr("  ⟹ 이 분석이 선택지를 여럿 내놓았다면 **사람에게 하나를 고르게 하지 말고 다 밟아라** — 형제 가설을 동시에:")
+		stderr("       gil step <chain>/<cycle> --kind hypothesis --to <이 analyze> --competing …   (선택지마다 반복)")
+		stderr("     경합은 위반이 아니다(선언하면 fsck 가 짚지 않는다). 대신 닫을 때 갈래마다 종결이 필요하다.")
+		stderr("     병렬이 잡는 것은 속도가 아니라 **측정의 신뢰성**이다 — 대조군 없이 1표본으로 세운 기준선이 뒤집힌 실사례가 있다(#107).")
 	case "fail":
 		// fail 은 이 가설의 죽음이지 사이클의 죽음이 아니다(이슈 #45). success 처럼 다음-행동을
 		// 명시해, fail 을 '사이클 끝'으로 오인하고 미해결 define 을 방치한 채 새 사이클로 도망치는
@@ -964,6 +972,18 @@ func cmdStep(args []string) {
 	falsifyTo := fs.str("falsify-to", "")  // 반증 시 되돌아갈 조상 define
 	// 미종결 잎을 두고 새 가지로 떠나는 것을 막되, 벽이 되지 않게 탈출구(이슈 #78).
 	leaveOpen := fs.boolFlag("leave-open")
+	// --competing (이슈 #106·#107, 상현님: "세 축 다 병렬로 — 그러려고 gil 이 있는 거니까").
+	//
+	// 옛 문법에는 **경합 중인 형제 가설**이라는 상태가 없었다. 형제 가지는 앞 가지를 종결한
+	// 뒤에만 낼 수 있었고, 동시에 띄우려면 --leave-open 뿐이었는데 그건 fsck 가 위반으로 짚는
+	// 자리다. 그래서 실사용 7사이클·스텝 90여 개 동안 병렬 가지가 **0회**였다 — 도구가
+	// "일자로 흐른다"고 경고하면서 정작 일자를 벗어나는 길에만 낙인을 찍어 둔 것이다.
+	//
+	// 경합은 미종결과 다르다. 매달린 잎은 **잊혀서** 남은 것이고, 경합 가지는 **겨루려고**
+	// 열어 둔 것이다. 그 차이를 선언으로 받는다: 선언된 경합은 열린 사이클에서 위반이 아니고,
+	// handoff 가 "경합 N개 미결"로 이름을 부른다. 대신 사이클을 닫을 때는 전부 종결돼야 한다
+	// (close 의 미종결 잎 검사가 그대로 최종 방어선이다 — 경합은 유예지 면제가 아니다).
+	competing := fs.boolFlag("competing")
 	// 극성(AIL #13): "이 가설이 supported 면 사이클 목표(s1 purpose)가 달성인가 실패인가".
 	// 가설 supported ≠ 목표 달성 — 부정적 발견("이 방향은 막혔다")도 supported 일 수 있고,
 	// 그건 success 가 아니라 fail/backtrack 이다. falsify 가 "무엇이 이 가설을 깨나"를 가설
@@ -1135,8 +1155,18 @@ func cmdStep(args []string) {
 		die("거부: analyze --outcome 은 success|backtrack|fail 중 하나(생략 가능)")
 	}
 	// fail 종결 스텝은 죽은 잎 — 되돌아갈 곳을 --to 로 기록(벽의 지도).
+	//
+	// **--to pending — 아직 모른다고 적을 자리**(이슈 #105, 실사용). 벽에 부딪힌 그 순간의
+	// 진실이 "다음 갈 곳은 사람의 판정에 달렸다"인 경우가 실제로 있다(선택지 (a)(b)(c) 를
+	// 본문에 적어 두고 사람을 기다리는 fail). 그런데 --to 는 단일 값을 **즉시** 요구했고,
+	// 세션은 보수적 기본값(s1)을 적을 수밖에 없었다 — 그리고 나중에 실제 재분기가 s8 에서
+	// 나면서 지도와 행동이 어긋나 보였다("뭐가 맞는 거냐"고 사람이 물었다).
+	// 어휘가 부족하면 기록이 거짓말한다(#80 과 같은 축, 방향만 다르다).
 	if *kind == "fail" && *to == "" {
-		die("거부: fail 은 --to <조상 define> 필요 (되돌아갈 곳, 벽의 지도)")
+		die("거부: fail 은 --to <조상 define|analyze> 필요 (되돌아갈 곳, 벽의 지도)\n" +
+			"  아직 어디로 갈지 **모르면** 그렇게 적어라: --to pending\n" +
+			"    (사람의 판정이나 다음 분석이 정할 자리다 — 지도는 그때 확정된다.\n" +
+			"     본문·--next-design 에 후보를 적어 두면 그게 판정의 재료가 된다.)")
 	}
 	// 제안 1 (AIL #1) — verify 는 판정을 문법으로 요구한다. 지금까지 verify 는 반증을 본문
 	// 산문에만 적고 곧장 success 로 흘렀다(gil 이 지지/반증을 몰랐다). --verdict 를 필수화하면
@@ -1180,6 +1210,11 @@ func cmdStep(args []string) {
 			if isDeadLeaf(steps[i]) && strings.TrimSpace(steps[i].backtrack) != "" {
 				wall = &steps[i] // steps 는 old→new — 가장 최근 벽이 남는다
 			}
+		}
+		// 지도가 pending 이면 벗어날 지도가 없다 — 확정은 지금 일어난다(이슈 #105).
+		if wall != nil && wall.backtrack == "pending" {
+			stderr("  ⌖ 벽의 지도(" + wall.step + ")는 **미정(pending)** 이었다 — 이 재분기가 그 자리를 확정한다: " + *to)
+			wall = nil
 		}
 		if wall != nil && wall.backtrack != *to {
 			if strings.TrimSpace(*despite) == "" {
@@ -1558,7 +1593,21 @@ func cmdStep(args []string) {
 		// 형제 가지를 새로 내는 것도 **떠나는 것**이다(이슈 #78). 직전 자리가 미종결이면
 		// 그 잎은 해석도 종결도 없이 매달린다 — goto 와 같은 검사를 여기서도 건다.
 		if lv, blocked := leavingUnterminated(); blocked && !*leaveOpen && lv.step != *to {
-			die(unterminatedRefusal(lv, "gil step "+ref+" --kind hypothesis --to "+*to+" … --leave-open"))
+			// 경합이면 막지 않는다(이슈 #106·#107). 떠나는 잎이 **같은 자리에서 겨루던 형제**이고
+			// 새로 내는 것도 그 경합의 한 갈래면, 이건 잊고 떠나는 것이 아니라 나란히 세우는 것이다.
+			if !*competing || !inCompetition(lv, *to) {
+				extra := ""
+				if *competing {
+					extra = "\n  · 경합으로 나란히 세우려면 **첫 가지도** --competing 으로 선언돼 있어야 한다" +
+						"(지금 " + lv.step + " 은 아니다)."
+				} else {
+					extra = "\n  · 동시에 겨루려는 것이면 그건 미종결이 아니다 — 두 가지 모두 --competing 으로 선언하라:" +
+						"\n      gil step " + ref + " --kind hypothesis --to " + *to + " … --competing   (형제마다 반복)"
+				}
+				die(unterminatedRefusal(lv, "gil step "+ref+" --kind hypothesis --to "+*to+" … --leave-open") + extra)
+			}
+			stderr("  ⚖ 경합 — " + lv.step + " 을 열어 둔 채 " + *to + " 에서 형제 가지를 하나 더 낸다.")
+			stderr("    경합은 유예지 면제가 아니다: 사이클을 닫으려면 모든 갈래가 success/fail 로 끝나야 한다.")
 		}
 		// analyze 를 두고 떠나는 백트랙은 막지 않는다(재분기의 뿌리일 수 있다) — 대신 그 잎이
 		// 종결 없이 남는다는 사실을 그 자리에서 말한다(이슈 #86). 옛 안내는 backtrack 을 fail 과
@@ -1609,6 +1658,11 @@ func cmdStep(args []string) {
 				"  · 문제 정의는 옳고 **거기서 내려진 결정**이 틀렸으면 → 그 결정이 선 analyze (이슈 #76).")
 		}
 		parent = orNull(tipID) // 죽은 잎은 현재 가지 tip 에 그대로 박는다(벽의 지도)
+	case *kind == "fail" && strings.TrimSpace(*to) == "pending":
+		// 지도를 **미정으로** 남긴다(이슈 #105). 다음 재분기(또는 사람의 판정)가 그 자리를
+		// 확정한다. 빈 칸이 아니라 "아직 모른다"는 선언이라, 읽는 쪽은 이 벽을 근거로
+		// 아무 자리나 고르지 않는다.
+		parent = orNull(tipID)
 	case *kind == "fail":
 		// 종결 죽은 잎 — 현재 가지 tip(또는 --at 이 가리킨 잎)에 박고, 되돌아갈 자리를
 		// --to 로 기록. --to 는 여기서 *부모를 바꾸지 않는다* — "되돌아갈 곳"의 기록일 뿐이다
@@ -1731,6 +1785,11 @@ func cmdStep(args []string) {
 		// 벽의 지도를 벗어난 재분기 — 그 판단을 그래프에 남긴다(어긴 것이 아니라 고친 것이다).
 		tr = append(tr, [2]string{"Gil-Despite-Map", strings.TrimSpace(*despite)})
 	}
+	if *competing {
+		// 경합의 뿌리 = 이 형제들이 함께 갈라진 자리(이슈 #106·#107). 선언이 있어야 fsck 가
+		// "잊고 떠난 잎"과 "겨루는 중인 갈래"를 가른다.
+		tr = append(tr, [2]string{"Gil-Competing", *to})
+	}
 	if strings.TrimSpace(*supersede) != "" {
 		tr = append(tr, [2]string{"Gil-Supersedes", *supersede}) // 스텝 정정 간선(AIL #12)
 	}
@@ -1829,6 +1888,15 @@ func cmdStep(args []string) {
 	}
 	reportGuide(*kind, bodyThin(stBody))
 	guideNext(*kind) // 다음 강제 스텝을 무조건 각인 (AIL #41)
+	// 결론이 선택지를 세었으면 **그 수를 그대로 되돌려준다**(이슈 #107 1b). 일반 안내는
+	// 흘려 읽히지만 "선택지가 셋으로 읽힌다"는 자기 글을 인용당하는 것이라 잘 안 흘러간다.
+	if *kind == "analyze" {
+		if n := countedOptions(strings.TrimSpace(*finding) + "\n" + stBody); n >= 2 {
+			stderr("  ⚖ 이 결론에서 선택지가 " + itoa(n) + "개로 읽힌다 — " + itoa(n) +
+				"개를 형제 가설로 **동시에** 낼 수 있다(--competing).")
+			stderr("    하나만 고르면 나머지 " + itoa(n-1) + "개는 검증되지 않은 채 남는다. 고르는 것은 측정 뒤의 일이다.")
+		}
+	}
 }
 
 // pendingTip — 이 사이클의 팁이 pending 이면 그 pending 노드를, 아니면 nil.
@@ -1989,6 +2057,19 @@ func cmdClose(args []string) {
 	steps := currentCycle(chain, cycle)
 	if len(steps) == 0 {
 		die("거부: " + ref + " 없음")
+	}
+	// **산 잎은 사이클 그래프 전체에 있다** — 지금 밟고 있는 가지에만 있는 게 아니다(이슈 #106 g).
+	//
+	// 형제 가설을 병렬로 내면 이긴 가지와 진 가지가 서로 다른 브랜치에 산다. 진 가지에 서서
+	// 닫으려 하면 옛 코드는 "산 잎 없음"으로 거부했다 — 어디서 닫느냐에 따라 같은 사이클의
+	// 판정이 달라진 것이다. 사이클의 상태는 무엇을 체크아웃했는지에 달린 것이 아니다(#44 가
+	// step 에서 세운 원칙을 close 에도 세운다).
+	if !anyLiveLeaf(steps) {
+		if sha := liveLeafAnywhere(chain, cycle); sha != "" {
+			stderr("  ▸ 이 가지엔 산 잎이 없다 — 산 잎은 형제 가지(" + first9(sha) + ")에 있다. 그 자리로 옮겨 닫는다.")
+			alignHeadToTip(sha, ref)
+			steps = currentCycle(chain, cycle)
+		}
 	}
 	var live, dead []string
 	for _, s := range steps {
@@ -2383,10 +2464,15 @@ func cmdDeploy(args []string) {
 	// 대문으로 건너기 전 확인(checks.go). SPEC 7 의 '엄밀한 테스트는 배포 앞에서' 자리다.
 	skipCheck := fs.boolFlag("skip-check")
 	skipReason := fs.str("skip-reason", "")
+	// --force --reason: 산 잎 없는 배포의 정당한 예외(문서 전용 배포 등). 이슈 #108.
+	// 이유는 배포 커밋 본문에 남는다 — 이유 없는 강행은 나중에 '산 잎이 있었다'와 구별되지 않는다.
+	force := fs.boolFlag("force")
+	forceReason := fs.str("reason", "")
 	fs.parse(args)
 	if *tag == "" {
 		die("사용: gil deploy --tag <v0.2.0> [--at <chain>/<cycle>/<step>] [--state staged|live]\n" +
 			"           [--promote] [--no-promote] [--target <host:port·환경>] [--url <릴리스URL>]\n" +
+			"           [--force --reason <산 잎 없이 내보내는 이유>]\n" +
 			"  배포 = dev 를 대문(main)에 올리는 일이다. --at 은 '어느 스텝에서 잘랐나'를 함께 남긴다.")
 	}
 	if *promote {
@@ -2418,6 +2504,25 @@ func cmdDeploy(args []string) {
 		}
 		if target == nil {
 			die("거부: --at " + *at + " 스텝이 없다 — 배포 마커는 실재하는 스텝에만 얹는다")
+		}
+	}
+	// ── 산 잎 검사 (이슈 #108) ────────────────────────────────────────────────
+	// close 가 집행하던 것을 배포도 집행한다. 두 자리에서 규칙이 갈리면 느슨한 쪽이 실질
+	// 규칙이 되고, 병렬 형제 가지에서는 죽은 가지가 더 많은 게 정상이라 잘못 짚기 쉽다.
+	// 판정은 이름이 아니라 사실로 — 머지의 둘째 부모까지 훑어 실제 산 잎을 찾는다.
+	deployedLeaf, anyStep := deployLiveLeaf(*at)
+	if deployedLeaf == "" && anyStep {
+		if !*force {
+			die("거부: 배포 계보에 산 잎(success 스텝)이 없다 — 내보낼 수 없다.\n" +
+				"  죽은 잎만 있는 계보는 '무엇이 됐나'를 말하지 못한다. 어느 산 잎을 내보내려 했나?\n" +
+				"    (1) 산 잎이 다른 가지에 있다 — 그 가지를 먼저 합류시켜라: gil merge <chain> --into " + devBranchName + "\n" +
+				"    (2) 아직 산 잎이 없다 — 사이클을 success 로 종결하고 닫아라(gil close)\n" +
+				"    (3) 잎이 필요 없는 배포다(문서·설정 전용) — gil deploy --tag " + *tag + " --force --reason <왜>\n" +
+				"  (3)의 이유는 배포 커밋에 남는다 — 나중에 '산 잎이 있었다'와 구별되게.")
+		}
+		if strings.TrimSpace(*forceReason) == "" {
+			die("거부: --force 에는 --reason <왜 산 잎 없이 내보내나> 가 필요하다.\n" +
+				"  이유 없는 강행은 기록에서 정상 배포와 구별되지 않는다.")
 		}
 	}
 	// --at 이 없으면 "어디서"는 층이다 — 여러 체인이 dev 에 모여 함께 나가는 게 기본형이다.
@@ -2453,6 +2558,13 @@ func cmdDeploy(args []string) {
 	}
 	if strings.TrimSpace(*at) != "" {
 		tr = append(tr, [2]string{"Gil-Deploy-At", *at}) // 어느 스텝에서 잘랐나(있으면)
+	}
+	// 무엇을 내보냈나(이슈 #108). 배포 커밋만 봐서는 어느 잎의 결과물인지 알 수 없었다 —
+	// 읽는 쪽이 조상을 뒤져 추측하게 두지 않고, 배포한 쪽이 아는 사실을 그대로 적는다.
+	if deployedLeaf != "" {
+		tr = append(tr, [2]string{"Gil-Deployed-Leaf", deployedLeaf})
+	} else if r := strings.TrimSpace(*forceReason); r != "" {
+		dBody += "\n\n산 잎 없이 강행(--force). 이유: " + r
 	}
 	if t := strings.TrimSpace(*deployTarget); t != "" {
 		tr = append(tr, [2]string{"Gil-Deploy-Target", t}) // 어디로 나갔나(#56)
@@ -3260,7 +3372,14 @@ func cmdChain(args []string) {
 	// "마지막으로 닫은 체인"에 가 있다. 여러 체인을 닫고 새 체인을 열면 계보가 엉뚱한 체인으로
 	// 그려졌다 — 같은 명령의 출력이 A 를 앞 체인이라 안내하면서 그래프는 B 에 붙는, 도구가
 	// 스스로 모순되는 상태였다.
-	from := fs.str("from", "")
+	// --from 은 **여럿을 받는다**(이슈 #107 3b). 다음 체인이 두 닫힌 체인의 지식을 함께
+	// 물려받아야 하는 경우가 실사용에서 나왔는데(문법 실험 + 순수계산), 계승 부모를 하나만
+	// 적을 수 있어 새 체인은 직전 체인 위에 얹히거나 무연고로 떴다. **여러 체인의 지식이
+	// 하나로 모이는 그림**이야말로 gil 이 보여줘야 할 장면이다 — 선언만이 아니라 커밋
+	// 그래프의 합류선으로 남긴다(첫 체인 끝에서 갈라지고, 나머지는 머지로 끌어온다).
+	fromList := fs.strList("from")
+	// --orphan <왜> — 이어받지 않고 새로 서는 것도 **정당한 선택이지만 기록돼야 한다**.
+	orphanWhy := fs.str("orphan", "")
 	// --from-intake <슬러그> / --purpose-from <질문번호> (이슈 #90): 체인의 목적을 **사람의
 	// 답에서 그대로 들어 올린다.** 에이전트가 다시 쓰지 않는다 — 요약도 정제도 창작이고,
 	// 창작하는 순간 기준 문서는 '사람이 세운 자'가 아니게 된다.
@@ -3410,7 +3529,12 @@ func cmdChain(args []string) {
 	}
 	// --from 검증(이슈 #68): 이어받는다고 선언한 체인은 실재하고 **닫혀 있어야** 한다.
 	// 그래야 "닫힌 체인 끝에서 연다"가 사실이 된다.
-	if f := strings.TrimSpace(*from); f != "" {
+	var froms []string
+	for _, f0 := range *fromList {
+		f := strings.TrimSpace(f0)
+		if f == "" {
+			continue
+		}
 		if chainPurpose(f, "--branches") == "" {
 			die("거부: --from \"" + f + "\" 체인이 없다.")
 		}
@@ -3419,12 +3543,16 @@ func cmdChain(args []string) {
 				"    gil chain-close " + f + " --retro <회고파일|->\n" +
 				"  (동시에 굴리는 트랙이면 --parallel-with " + f + " 다.)")
 		}
+		froms = append(froms, f)
+	}
+	if len(froms) > 0 && strings.TrimSpace(*orphanWhy) != "" {
+		die("거부: --from 과 --orphan 은 함께 못 선다 — 이어받거나 새로 서거나 하나다.")
 	}
 	// ── 이 체인은 어느 자리에서 태어나나 ──────────────────────────────────────────
 	// dev 층이 있으면(main-dev-chain 레이아웃), --from 으로 계승을 선언하지 않은 체인은
 	// **dev 팁에서** 갈라진다 = 계보상 시조(orphan). 옛 문법에는 이 자리가 없어서 무관한
 	// 탐색선도 앞 체인 위에 얹혔다 — 그게 drift 가 stacked 로 계속 짖던 것의 정체다.
-	devRooted := hasDevLayer() && strings.TrimSpace(*from) == "" && len(*parallelWith) == 0
+	devRooted := hasDevLayer() && len(froms) == 0 && len(*parallelWith) == 0
 	// 열린 체인이 있으면 — 이어받는 것이 아니라 나란히 여는 것이므로 — 선언을 요구한다.
 	// gil 자신의 규칙("닫힌 체인 끝에서만")과 실동작의 어긋남을 여기서 없앤다.
 	//
@@ -3497,8 +3625,12 @@ func cmdChain(args []string) {
 	for _, p := range *parallelWith {
 		tr = append(tr, [2]string{"Gil-Parallel-With", p}) // 병렬 트랙 선언(이슈 #54)
 	}
-	if f := strings.TrimSpace(*from); f != "" {
-		tr = append(tr, [2]string{"Gil-Chain-From", f}) // 이어받는 체인 선언(이슈 #68)
+	for _, f := range froms {
+		tr = append(tr, [2]string{"Gil-Chain-From", f}) // 이어받는 체인 선언(이슈 #68·#107)
+	}
+	if w := strings.TrimSpace(*orphanWhy); w != "" {
+		// 독립도 판단이다 — 판단은 근거와 함께 남는다(그래야 나중에 '왜 안 이어받았나'를 묻지 않는다).
+		tr = append(tr, [2]string{"Gil-Chain-Orphan-Reason", w})
 	}
 	if devRooted {
 		// 계보상 시조 — 앞선 체인이 없다는 **선언**이다(대문은 물려받는다, layout.go).
@@ -3515,10 +3647,11 @@ func cmdChain(args []string) {
 		// dev 팁 — 대문 갱신까지 물려받는 자리. HEAD 를 쓰면 "마지막으로 있던 곳"에 얹힌다.
 		base = devTipSHA()
 	}
-	if f := strings.TrimSpace(*from); f != "" {
+	if len(froms) > 0 {
 		// 선언한 그 체인의 **끝**에서 갈라진다(이슈 #68). 이름이 봉인을 가리키므로(이슈 #66)
 		// 그 ref 가 곧 끝이다. 선언과 그래프가 같은 말을 하게 된다.
-		base = f
+		// 둘 이상이면 첫 체인에서 갈라지고 나머지는 아래에서 **합류선**으로 끌어온다.
+		base = froms[0]
 	} else if len(*parallelWith) > 0 {
 		if b := chainRootParent((*parallelWith)[0]); b != "" {
 			base = b
@@ -3526,6 +3659,33 @@ func cmdChain(args []string) {
 	}
 	commitOn(name, base, subject, body, tr, true)
 	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
+	// 두 번째 이후의 계승은 **머지로** 끌어온다(이슈 #107 3b). 선언만 남기고 위상은 한 줄로
+	// 두면, 커밋 그래프는 여전히 "첫 체인에서만 왔다"고 말한다 — 여러 갈래의 지식이 하나로
+	// 모이는 장면은 선언이 아니라 합류선으로 그려져야 한다(#45·#53 과 같은 축: 선언과 실재).
+	for i, f := range froms {
+		if i == 0 {
+			continue // 첫 계승은 갈라진 자리 그 자체다 — 머지가 아니다
+		}
+		msg := "gil merge: " + f + " → " + name + "\n\n" +
+			"체인 [" + name + "] 은 닫힌 체인 여럿의 지식을 이어받는다 — 이 합류선이 그중 하나다.\n\n" +
+			"Gil-Merge: " + f + "\nGil-Merge-Into: " + name + "\nGil-Merge-Reason: 체인 계승(--from " + f + ")"
+		if _, err := gitTry("merge", "--no-ff", "-q", "-m", msg, f); err != nil {
+			stderr("⚠ 충돌 — [" + f + "] 계승 합류에서 멈췄다. 해결한 뒤: git add <파일> && git commit")
+			gilExit(2)
+		}
+		println2("  ⇉ 계승 합류: " + f + " → " + name)
+	}
+	if len(froms) > 1 {
+		println2("  ⇉ 이 체인은 닫힌 체인 " + itoa(len(froms)) + "개에서 이어받는다: " + strings.Join(froms, " · "))
+	}
+	if len(froms) == 0 && strings.TrimSpace(*orphanWhy) == "" && len(*parallelWith) == 0 {
+		// 계승 결정을 **빈칸으로 두지 않는다**(이슈 #107 3b). 막지는 않되, 아무 말도 없이
+		// 시조로 심기면 "이어받을 것이 없었나 / 안 물어봤나"가 영영 구분되지 않는다.
+		stderr("  ⌂ 이어받는다는 선언이 없다 — 이 체인은 앞선 체인 없는 **시조**로 선다.")
+		stderr("    닫힌 체인의 지식을 물려받는 것이면 그렇게 말해라(여럿이어도 된다):")
+		stderr("      gil chain " + name + " … --from <닫힌체인> --from <또 다른 닫힌체인>")
+		stderr("    정말 새로 서는 것이면 이유와 함께: --orphan <왜 이어받지 않나>")
+	}
 	if devRooted {
 		println2("  ⌂ dev 층에서 갈라졌다 — 계보상 시조(앞선 체인 없음). 대문은 그대로 물려받는다.")
 	} else if !hasDevLayer() {
@@ -3935,7 +4095,11 @@ func afterChainCloseNext(chain string) []string {
 		"      gil intake <슬러그> --ask-root              **어디서 이어받을지**를 묻는다(후보는 그래프가 낸다)",
 		"      gil chain <새이름> --from-intake <슬러그> --purpose-from <질문번호> --criterion-from <번호>",
 		"    ▸ 이 체인("+chain+")을 이어받을지, 아무것도 안 이어받는 시조로 갈지는 **사람이 정한다**.",
-		"      네가 고르지 말고 --ask-root 로 물어라 — 그 답이 곧 분기 자리다.")
+		"      네가 고르지 말고 --ask-root 로 물어라 — 그 답이 곧 분기 자리다.",
+		"    ▸ 계승은 **하나일 필요가 없다**(이슈 #107): 두 국면의 지식이 함께 필요하면 둘 다 적어라.",
+		"        gil chain <새이름> … --from "+chain+" --from <또 다른 닫힌 체인>",
+		"      선언마다 커밋 그래프에 합류선이 남는다 — 여러 갈래의 지식이 하나로 모이는 그림이다.",
+		"    ▸ 정말 아무것도 안 이어받는 것이면 그 판단도 기록한다: --orphan <왜 이어받지 않나>")
 }
 
 // cycleParentOf — 그 사이클이 **선언한** 부모 사이클(Gil-Cycle-Parent). 없으면 "".

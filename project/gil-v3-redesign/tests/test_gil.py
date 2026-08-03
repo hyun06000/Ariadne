@@ -10358,3 +10358,433 @@ class TestLongQuestionDoesNotBecomeTheAnswer(GilFixture):
         r = self._chain()
         self.assertIn("참조형", r.stderr)
         self.assertIn("radio", r.stderr)
+
+
+class TestCompetingSiblings(GilFixture):
+    """경합 중인 형제 가설을 1급 상태로 (이슈 #106 · #107, 상현님).
+
+    실사용 7사이클·스텝 90여 개 동안 병렬 가지가 **0회**였다. 문법은 형제 가지를 처음부터
+    지원했는데도. 이유는 도구 쪽에 있었다:
+
+    1. 형제를 **동시에** 띄우는 것 자체가 규범 위반이었다 — 앞 가지를 종결하지 않고 떠나면
+       거부, 탈출구는 --leave-open 뿐이고 그건 fsck 가 짚는 낙인이다.
+    2. 매 스텝의 꼬리가 "⟹ 다음은 반드시 <하나>" 였다 — 다음 행동은 항상 한 개라는 리듬.
+    3. 이겼을 때 끝맺는 그림(패자 처리·자산 통합·비교 기록)이 없었다.
+
+    도구가 "큰 사고는 일자로 흐르는 중"이라 경고하면서, 정작 일자를 벗어나는 모든 동작에
+    마찰을 붙여 놓은 셈이다. 경합은 매달림과 다르다: 매달린 잎은 **잊혀서** 남은 것이고,
+    경합 갈래는 **겨루려고** 열어 둔 것이다."""
+
+    def _cycle(self):
+        self.gil("init", "--name", "naru")
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준 문서\n\n런타임까지 돌려서 지표를 잰다.\n")
+        self.gil("chain", "ch", "--purpose", "런타임", "--reference", "ref.md",
+                 "--criterion", "지표측정")
+        self.gil("open", "ch/cy", "--author", "naru", "--purpose", "p", "--goal", "돈다",
+                 "--fits", "맞다")
+        self.gil("step", "ch/cy", "--kind", "hypothesis", "--title", "h1", "--body", "가설",
+                 "--falsify", "안됨", "--falsify-to", "s1", "--advances", "첫 조각")
+        self.gil("step", "ch/cy", "--kind", "verify", "--title", "v1", "--body", "검증",
+                 "--verdict", "supported")
+        return self.gil("step", "ch/cy", "--kind", "analyze", "--title", "a1",
+                        "--body", "선택지 A/B/C", "--finding", "세 축을 다 재야 한다: A/B/C")
+
+    def _sib(self, name, competing=True):
+        a = ["step", "ch/cy", "--kind", "hypothesis", "--to", "s4", "--title", f"h{name}",
+             "--body", f"{name}축 가설", "--falsify", "안됨", "--falsify-to", "s1",
+             "--advances", f"{name}축"]
+        if competing:
+            a.append("--competing")
+        return self.gil(*a)
+
+    def test_analyze_offers_the_parallel_path(self):
+        """분석이 선택지를 내놓는 자리에서 병렬이 화면에 **있어야** 한다 — 없으면 안 쓴다."""
+        r = self._cycle()
+        self.assertIn("--competing", r.stderr)
+        self.assertIn("다 밟아라", r.stderr)
+
+    def test_enumerated_options_are_counted_back(self):
+        """자기가 쓴 결론에서 선택지 수를 세어 되돌려준다 — 일반 안내보다 덜 흘러간다."""
+        r = self._cycle()
+        self.assertIn("선택지가 3개로 읽힌다", r.stderr)
+
+    def test_siblings_can_be_open_at_once(self):
+        """경합 선언이 있으면 형제를 동시에 띄울 수 있다 — 이게 선결 문제였다."""
+        self._cycle()
+        self.assertEqual(self._sib("A").returncode, 0)
+        r = self._sib("B")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("경합", r.stderr)
+
+    def test_undeclared_sibling_is_still_refused_but_taught(self):
+        """선언 없이 떠나는 것은 여전히 막는다 — 다만 거부가 경합의 길을 가르친다."""
+        self._cycle()
+        self._sib("A", competing=False)
+        r = self._sib("B", competing=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--competing", r.stderr)
+
+    def test_fsck_does_not_stigmatize_a_declared_competition(self):
+        """선언된 경합은 위반이 아니다 — 대신 이름으로 불린다(안 보이는 것과 다르다)."""
+        self._cycle(); self._sib("A"); self._sib("B"); self._sib("C")
+        r = self.gil("fsck")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("경합 중", r.stdout)
+
+    def test_handoff_names_the_competing_branches(self):
+        """이어받는 세션은 자기가 밟고 선 가지 하나만 본다 — 나머지가 여기 없으면 잊힌다."""
+        self._cycle(); self._sib("A"); self._sib("B"); self._sib("C")
+        out = self.gil("handoff").stdout
+        self.assertIn("경합 중인 형제 가설 3개", out)
+
+    def test_close_still_requires_every_branch_to_end(self):
+        """경합은 유예지 면제가 아니다 — 닫을 때는 갈래마다 종결이 있어야 한다."""
+        self._cycle(); self._sib("A"); self._sib("B")
+        r = self.gil("close", "ch/cy", "--goal-met")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_adopt_folds_the_losers_and_moves_to_the_winner(self):
+        """승자 채택 — 패자마다 벽(승자를 가리키는 선과 함께), HEAD 는 승자 가지로."""
+        self._cycle()
+        self._sib("A"); self._sib("B"); self._sib("C")
+        r = self.gil("adopt", "ch/cy/s5", "--reason", "A 가 3표본에서 245 대 109 로 앞섰다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("접을 형제 2개", r.stdout)
+        # 진 갈래마다 승자를 가리키는 선이 남는다
+        lost = self._git("log", "--all", "--format=%(trailers:key=Gil-Lost-To,valueonly,unfold)").stdout
+        self.assertEqual(lost.count("ch/cy/s5"), 2)
+        # 채택 뒤에는 경합이 남지 않는다 — fsck 도 조용하다
+        f = self.gil("fsck")
+        self.assertEqual(f.returncode, 0, f.stdout)
+        self.assertNotIn("경합 중", f.stdout)
+
+    def test_adopt_demands_a_reason(self):
+        """채택은 판단이다 — 근거가 없으면 측정이었는지 취향이었는지 아무도 모른다."""
+        self._cycle(); self._sib("A"); self._sib("B")
+        r = self.gil("adopt", "ch/cy/s5")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--reason", r.stderr)
+
+
+class TestCloseFindsTheLiveLeafAnywhere(GilFixture):
+    """산 잎이 형제 가지에 있으면 close 가 못 봤다 (이슈 #106 g).
+
+    병렬 형제를 쓰면 이긴 가지와 진 가지가 서로 다른 브랜치에 산다. 진 가지에 서서 닫으려
+    하면 "산 잎 없음"으로 거부됐다 — **어디서 닫느냐에 따라 같은 사이클의 판정이 달라진
+    것이다.** 사이클의 상태는 무엇을 체크아웃했는지에 달린 것이 아니다."""
+
+    def _two_branches(self):
+        self.gil("init", "--name", "naru")
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준 문서\n\n런타임까지 돌려서 지표를 잰다.\n")
+        self.gil("chain", "ch", "--purpose", "런타임", "--reference", "ref.md", "--criterion", "지표")
+        self.gil("open", "ch/cy", "--author", "naru", "--purpose", "p", "--fits", "맞다")
+        self.gil("step", "ch/cy", "--kind", "hypothesis", "--title", "h1", "--body", "가설",
+                 "--falsify", "안됨", "--falsify-to", "s1", "--advances", "몫")
+        self.gil("step", "ch/cy", "--kind", "verify", "--title", "v1", "--body", "검증",
+                 "--verdict", "supported")
+        self.gil("step", "ch/cy", "--kind", "analyze", "--title", "a1", "--body", "해석")
+        # 산 잎 — A 가지
+        self.gil("step", "ch/cy", "--kind", "success", "--title", "sA", "--body", "종합",
+                 "--toward", "달성", "--next-design", "다음")
+        # 형제 가지 B — 여기서 끝난다(죽은 잎)
+        self.gil("step", "ch/cy", "--kind", "hypothesis", "--to", "s1", "--title", "hB",
+                 "--body", "B 가설", "--falsify", "안됨", "--falsify-to", "s1", "--advances", "B")
+        self.gil("step", "ch/cy", "--kind", "verify", "--title", "vB", "--body", "검증",
+                 "--verdict", "refuted")
+        self.gil("step", "ch/cy", "--kind", "analyze", "--title", "aB", "--body", "해석")
+        self.gil("step", "ch/cy", "--kind", "fail", "--title", "fB", "--body", "벽", "--to", "s1",
+                 "--toward", "못 갔다", "--next-design", "접는다")
+
+    def test_close_from_the_losing_branch_still_finds_the_success(self):
+        self._two_branches()
+        cur = self._git("branch", "--show-current").stdout.strip()
+        self.assertTrue(cur.endswith("b1") or "s1b" in cur, f"형제 가지 위에 있어야 한다: {cur}")
+        r = self.gil("close", "ch/cy")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertIn("형제 가지", r.stderr)
+
+
+class TestDeployRequiresALiveLeaf(GilFixture):
+    """**죽은 잎만 있는 계보는 세상으로 나갈 수 없다** (이슈 #108 ①).
+
+    `gil close` 는 "산 잎(success) 없으면 못 닫는다"를 집행하는데, 생애주기의 마지막 관문인
+    배포에는 그 검사가 없었다. 집행이 두 자리에서 갈리면 느슨한 쪽이 실질 규칙이 된다 —
+    실제로 리포터는 죽은 가지에서 close 를 시도하다 도구에 막혀 옳은 가지로 옮겼고, 같은
+    실수를 deploy 는 잡지 못했다. 형제 가지를 병렬로 팔수록 죽은 가지가 더 많은 게 정상이라
+    (#106·#107) 잘못 짚기도 쉽다."""
+
+    def _chain(self, name, alive):
+        self.gil("chain", name, "--purpose", "목적 " + name, "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        self.gil("open", name + "/c1", "--author", "clew", "--purpose", "P", "--body", "정의")
+        if alive:
+            self.gil("step", name + "/c1", "--kind", "success", "--title", "S", "--body", "종합")
+            self.gil("close", name + "/c1", "--verdict", "supported")
+        else:
+            self.gil("step", name + "/c1", "--kind", "hypothesis", "--title", "H", "--body", "가설")
+            self.gil("step", name + "/c1", "--kind", "verify", "--title", "V", "--body", "검증",
+                     "--verdict", "refuted")
+            self.gil("step", name + "/c1", "--kind", "analyze", "--title", "A", "--body", "분석")
+            self.gil("step", name + "/c1", "--kind", "fail", "--to", "s1", "--title", "F",
+                     "--body", "죽음")
+            self.gil("close", name + "/c1", "--verdict", "refuted", "--abandon")
+        self.gil("chain-close", name, "--verdict", "supported" if alive else "refuted",
+                 "--retro", "-", input="회고")
+        self.gil("merge", name, "--into", "dev", "--reason", "배포 단위")
+
+    def _ready(self, alive=True):
+        self.gil("init", "--name", "clew")
+        self._chain("login", alive)
+
+    def test_a_lineage_of_dead_leaves_is_refused(self):
+        self._ready(alive=False)
+        r = self.gil("deploy", "--tag", "v0.1.0")
+        out = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0, "죽은 잎만 있는 계보가 그대로 나갔다:\n" + out)
+        self.assertIn("산 잎", out)
+        self.assertIn("--force", out, "막기만 하고 길을 안 줬다:\n" + out)
+
+    def test_refusal_leaves_no_marker(self):
+        """거부했는데 기록이 남으면, 나중에 읽는 쪽은 배포된 줄 안다."""
+        self._ready(alive=False)
+        self.gil("deploy", "--tag", "v0.1.0")
+        self.assertNotIn("v0.1.0", self._git("log", "dev", "--format=%s").stdout)
+
+    def test_force_without_a_reason_is_refused(self):
+        """이유 없는 강행은 기록에서 정상 배포와 구별되지 않는다."""
+        self._ready(alive=False)
+        r = self.gil("deploy", "--tag", "v0.1.0", "--force")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--reason", r.stdout + r.stderr)
+
+    def test_forced_deploy_writes_the_reason_into_the_commit(self):
+        self._ready(alive=False)
+        r = self.gil("deploy", "--tag", "v0.1.0", "--force", "--reason", "문서 전용 배포")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body = self._git("log", "-1", "dev", "--format=%B").stdout
+        self.assertIn("문서 전용 배포", body)
+        self.assertEqual(self.trailer("dev", "Gil-Deployed-Leaf"), "",
+                         "산 잎이 없는데 잎을 내보냈다고 적었다")
+
+    def test_a_live_lineage_still_deploys(self):
+        """막는 것이 목적이 아니다 — 정상 배포는 그대로 나가야 한다."""
+        self._ready(alive=True)
+        r = self.gil("deploy", "--tag", "v0.1.0")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_the_commit_names_what_shipped(self):
+        """배포 커밋만 봐서는 어느 잎의 결과물인지 알 수 없었다(#108 1c)."""
+        self._ready(alive=True)
+        self.gil("deploy", "--tag", "v0.1.0")
+        self.assertEqual(self.trailer("dev", "Gil-Deployed-Leaf"), "login/c1/s5")
+
+    def test_an_empty_repo_is_not_scolded_about_leaves(self):
+        """스텝이 아예 없는 자리는 '죽은 잎만 남았다'와 다른 상태다 — 그 말이 층 진단을 가리면 안 된다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("deploy", "--tag", "v0.1.0")
+        self.assertNotIn("산 잎", r.stdout + r.stderr)
+
+
+class TestDeployMarkerSurvivesTheMerges(GilFixture):
+    """**정석대로 할수록 배포 마커가 사라졌다** (이슈 #108 ②, #104 와 같은 뿌리).
+
+    사이클 → 체인 merge → chain-close → dev merge → deploy 로 갈수록 머지가 겹겹이 쌓이고,
+    산 잎은 언제나 머지의 **둘째 부모** 쪽에 선다. 귀속이 선언(--at)에만 기대던 옛 코드는
+    --at 없는 기본형에서 마커를 통째로 버렸다 — 화면에 남는 마지막 노드가 붉은 fail 잎이라,
+    사람이 "죽은 잎이 배포된 것 같다"고 읽었다. 기록은 정상인데 그림이 반대로 말했다."""
+
+    def _built(self, alive=True, extra=()):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "login", "--purpose", "로그인", "--reference", "-",
+                 "--criterion", "된다", input="기준")
+        self.gil("open", "login/c1", "--author", "clew", "--purpose", "P", "--body", "정의")
+        if alive:
+            self.gil("step", "login/c1", "--kind", "success", "--title", "S", "--body", "종합")
+            self.gil("close", "login/c1", "--verdict", "supported")
+        else:
+            self.gil("step", "login/c1", "--kind", "hypothesis", "--title", "H", "--body", "가설")
+            self.gil("step", "login/c1", "--kind", "verify", "--title", "V", "--body", "검증",
+                     "--verdict", "refuted")
+            self.gil("step", "login/c1", "--kind", "analyze", "--title", "A", "--body", "분석")
+            self.gil("step", "login/c1", "--kind", "fail", "--to", "s1", "--title", "F",
+                     "--body", "죽음")
+            self.gil("close", "login/c1", "--verdict", "refuted", "--abandon")
+        self.gil("chain-close", "login", "--verdict", "supported" if alive else "refuted",
+                 "--retro", "-", input="회고")
+        self.gil("merge", "login", "--into", "dev", "--reason", "배포 단위")
+        r = self.gil("deploy", "--tag", "v1.0.0", *extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out_html = os.path.join(self.repo, "g.html")
+        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        return open(out_html, encoding="utf-8").read()
+
+    def _dag(self, html):
+        return json.loads(re.search(r'"dagdata"[^>]*>(.*?)</script>', html, re.S).group(1))
+
+    def _layer(self, html):
+        return json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
+
+    def test_the_marker_lands_on_the_live_leaf(self):
+        nodes = self._dag(self._built())
+        nodes = nodes["nodes"] if isinstance(nodes, dict) else nodes
+        marked = [n for n in nodes if n.get("deploy")]
+        self.assertTrue(marked, "배포 마커가 어떤 노드에도 붙지 않았다 — 배포가 없었던 것처럼 보인다")
+        self.assertEqual(marked[0].get("deploy"), "v1.0.0")
+        self.assertEqual(marked[0].get("kind"), "success",
+                         "산 잎이 아닌 곳에 배포 마커가 붙었다")
+
+    def test_the_layer_rows_carry_the_deploy_and_its_leaf(self):
+        """층 그림은 승격 머지의 제목이 아니라 **마커 커밋**에게 묻는다."""
+        rows = self._layer(self._built())["rows"]
+        d = [r for r in rows if r.get("deploy")]
+        self.assertTrue(d, "층 행에 배포가 하나도 없다")
+        self.assertEqual(d[0]["deploy"], "v1.0.0")
+        self.assertEqual(d[0]["deployAt"], "login/c1/s5")
+
+    def test_an_unattributed_deploy_is_drawn_not_swallowed(self):
+        """귀속을 못 찾아도 침묵하지 않는다 — 없는 것과 못 찾은 것은 다르다."""
+        html = self._built(alive=False, extra=("--force", "--reason", "문서 전용"))
+        rows = self._layer(html)["rows"]
+        d = [r for r in rows if r.get("deploy")]
+        self.assertTrue(d, "귀속을 못 찾자 배포를 통째로 지웠다")
+        self.assertEqual(d[0]["deployAt"], "", "없는 귀속을 지어냈다")
+        self.assertIn("귀속 스텝 미상", html, "화면이 '모른다'고 말할 자리가 없다")
+
+    def test_a_declared_leaf_is_believed_without_searching(self):
+        """Gil-Deployed-Leaf 가 있으면 탐색하지 않는다 — 배포한 쪽이 아는 사실이 더 정확하다."""
+        html = self._built(extra=("--at", "login/c1/s5"))
+        d = [r for r in self._layer(html)["rows"] if r.get("deploy")]
+        self.assertEqual(d[0]["deployAt"], "login/c1/s5")
+
+
+class TestChainInheritsFromMany(GilFixture):
+    """계승이 하나뿐이라 여러 갈래의 지식이 모이는 그림이 없었다 (이슈 #107 3b).
+
+    실사용에서 다음 체인은 두 닫힌 체인(문법 실험 · 순수계산) **양쪽**에서 물려받아야
+    자연스러웠는데, 계승 부모를 하나만 적을 수 있어 새 체인은 직전 체인 위에 얹히거나
+    무연고로 떴다. 선언만 늘리면 커밋 그래프는 여전히 한 갈래에서만 왔다고 말하므로,
+    **합류선**까지 남긴다."""
+
+    def _closed_chain(self, name):
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준\n\n돌린다\n")
+        self.gil("chain", name, "--purpose", f"{name} 목적", "--reference", "ref.md",
+                 "--criterion", "지표")
+        self.gil("open", f"{name}/c1", "--author", "naru", "--purpose", "p", "--fits", "맞다")
+        self.gil("step", f"{name}/c1", "--kind", "hypothesis", "--title", "h", "--body", "가설",
+                 "--falsify", "안됨", "--falsify-to", "s1", "--advances", "몫")
+        self.gil("step", f"{name}/c1", "--kind", "verify", "--title", "v", "--body", "검증",
+                 "--verdict", "supported")
+        self.gil("step", f"{name}/c1", "--kind", "analyze", "--title", "a", "--body", "해석")
+        self.gil("step", f"{name}/c1", "--kind", "success", "--title", "s", "--body", "종합",
+                 "--toward", "달성", "--next-design", "다음")
+        self.gil("close", f"{name}/c1")
+        self.gil("chain-close", name, "--retro", "-", input="회고")
+
+    def _two(self):
+        self.gil("init", "--name", "naru")
+        self._closed_chain("grammar")
+        self._closed_chain("pure")
+
+    def test_two_parents_are_declared_and_drawn(self):
+        self._two()
+        r = self.gil("chain", "multi", "--purpose", "다중 검증", "--reference", "ref.md",
+                     "--criterion", "지표", "--from", "grammar", "--from", "pure")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 선언
+        decl = self._git("log", "multi", "--format=%(trailers:key=Gil-Chain-From,valueonly,unfold)").stdout
+        self.assertIn("grammar", decl)
+        self.assertIn("pure", decl)
+        # 그리고 **실재** — 커밋 그래프에 합류선이 있다
+        parents = self._git("log", "-1", "multi", "--format=%p").stdout.split()
+        self.assertEqual(len(parents), 2, "둘째 계승이 합류선으로 안 남았다")
+
+    def test_lineage_shows_both_parents(self):
+        """계보 화면이 선언을 읽는다 — 안 읽으면 '(대문)' 으로 떠 계승이 사라진다."""
+        self._two()
+        self.gil("chain", "multi", "--purpose", "다중 검증", "--reference", "ref.md",
+                 "--criterion", "지표", "--from", "grammar", "--from", "pure")
+        out = self.gil("handoff").stdout
+        self.assertIn("multi (open) ← grammar+pure", out)
+
+    def test_no_declaration_says_so(self):
+        """계승 결정을 빈칸으로 두지 않는다 — 시조로 서면 그렇게 말한다."""
+        self._two()
+        r = self.gil("chain", "solo", "--purpose", "혼자", "--reference", "ref.md",
+                     "--criterion", "지표")
+        self.assertIn("시조", r.stderr)
+        self.assertIn("--orphan", r.stderr)
+
+    def test_orphan_reason_is_recorded(self):
+        self._two()
+        r = self.gil("chain", "solo", "--purpose", "혼자", "--reference", "ref.md",
+                     "--criterion", "지표", "--orphan", "앞선 국면과 전제가 다르다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("solo", "Gil-Chain-Orphan-Reason"),
+                         "앞선 국면과 전제가 다르다")
+
+    def test_from_and_orphan_cannot_stand_together(self):
+        self._two()
+        r = self.gil("chain", "solo", "--purpose", "혼자", "--reference", "ref.md",
+                     "--criterion", "지표", "--from", "grammar", "--orphan", "왜냐하면")
+        self.assertNotEqual(r.returncode, 0)
+
+
+class TestWallMapCanBeUndecided(GilFixture):
+    """벽의 지도를 **즉시·단일**로 확정하도록 강제한 탓에 지도와 행동이 어긋났다 (이슈 #105).
+
+    실사례: s9(fail)는 s1 로 돌아간다고 적었는데 다음 가설 s10 은 s8(analyze)에서 갈라졌다.
+    재분기 자체는 규범에 맞았고 --despite 도 작동했다 — 문제는 fail 시점의 진실이
+    "다음 갈 곳은 사람 판정 (a)/(b)/(c) 에 달렸다" 였는데 그걸 적을 어휘가 없었다는 것이다.
+    세션은 보수적 기본값을 적을 수밖에 없었고, 그 값이 나중에 모순으로 보였다.
+    어휘가 부족하면 기록이 거짓말한다."""
+
+    def _wall(self):
+        self.gil("init", "--name", "naru")
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준\n\n돌린다\n")
+        self.gil("chain", "ch", "--purpose", "목적", "--reference", "ref.md", "--criterion", "지표")
+        self.gil("open", "ch/cy", "--author", "naru", "--purpose", "p", "--fits", "맞다")
+        self.gil("step", "ch/cy", "--kind", "hypothesis", "--title", "h1", "--body", "가설",
+                 "--falsify", "안됨", "--falsify-to", "s1", "--advances", "몫")
+        self.gil("step", "ch/cy", "--kind", "verify", "--title", "v1", "--body", "검증",
+                 "--verdict", "refuted")
+        self.gil("step", "ch/cy", "--kind", "analyze", "--title", "a1", "--body", "해석",
+                 "--finding", "고수준 도구는 별도 설계가 필요하다")
+
+    def test_fail_can_say_it_does_not_know_yet(self):
+        self._wall()
+        r = self.gil("step", "ch/cy", "--kind", "fail", "--to", "pending", "--title", "f1",
+                     "--body", "벽: 다음은 (a)/(b)/(c) — 사람 판정에 달렸다",
+                     "--toward", "여기까지", "--next-design", "판정 뒤 확정")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer("HEAD", "Gil-Backtrack"), "pending")
+
+    def test_missing_to_teaches_the_pending_vocabulary(self):
+        self._wall()
+        r = self.gil("step", "ch/cy", "--kind", "fail", "--title", "f1", "--body", "벽",
+                     "--toward", "t", "--next-design", "n")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--to pending", r.stderr)
+
+    def test_a_pending_map_is_not_a_map_to_defy(self):
+        """미정인 지도는 벗어날 지도가 없다 — --despite 를 요구하면 그건 빈 칸 채우기다."""
+        self._wall()
+        self.gil("step", "ch/cy", "--kind", "fail", "--to", "pending", "--title", "f1",
+                 "--body", "벽", "--toward", "t", "--next-design", "n")
+        self._no_despite_autofill = True
+        r = self.gil("step", "ch/cy", "--kind", "hypothesis", "--to", "s4", "--title", "h2",
+                     "--body", "새 가설", "--falsify", "안됨", "--falsify-to", "s1",
+                     "--inherit", "벽의 교훈", "--advances", "몫")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("미정", r.stderr)
+
+    def test_context_says_the_map_is_still_undecided(self):
+        """도구는 이미 안다 — 말만 안 했을 뿐이다. 화면이 침묵하면 사람이 모순으로 읽는다."""
+        self._wall()
+        self.gil("step", "ch/cy", "--kind", "fail", "--to", "pending", "--title", "f1",
+                 "--body", "벽", "--toward", "t", "--next-design", "n")
+        out = self.gil("context", "ch/cy").stdout
+        self.assertIn("지도 미정", out)

@@ -165,6 +165,23 @@ func deadAttempts(chain, cycle string, indent string) []string {
 		} else {
 			L = append(L, indent+"    벽("+end.step+"): "+stepHeadline(end))
 		}
+		// 지도의 **지금 상태**를 함께 적는다(이슈 #105). 옛 화면은 fail 이 적어 둔 자리 하나만
+		// 보여줬고, 그래서 (a) 아직 정해지지 않은 지도와 (b) 나중에 다른 자리에서 갈라져
+		// 갱신된 지도가 둘 다 '유효한 계획'처럼 읽혔다 — 사람이 "뭐가 맞는 거냐"고 물었다.
+		// 도구는 이미 알고 있다(pending 이거나 despite 가 그 자리를 적었다). 말만 안 했을 뿐이다.
+		if end.backtrack == "pending" {
+			L = append(L, indent+"    ⌖ 지도 미정 — 다음 재분기(또는 사람의 판정)가 되돌아갈 자리를 정한다.")
+		}
+		for _, later := range steps {
+			if later.despiteMap == "" || stepNum(later.step) <= stepNum(end.step) {
+				continue
+			}
+			if end.backtrack != "" && end.backtrack != "pending" && later.parent != end.backtrack {
+				L = append(L, indent+"    ⟲ 이 지도는 "+later.step+" 이 갱신했다(despite → "+later.parent+"): "+
+					clipLine(later.despiteMap, 90))
+				break
+			}
+		}
 	}
 	if len(L) > 0 {
 		L = append(L, indent+"↺ 위는 이미 민 벽이다 — 같은 벽을 다시 밀지 마라.")

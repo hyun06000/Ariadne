@@ -1168,7 +1168,18 @@ func layerGraphJSON() string {
 	if err != nil {
 		return `{"lanes":[],"rows":[]}`
 	}
-	type row struct{ sha, parents, refs, subj, layer string }
+	// 배포 마커의 귀속(이슈 #108). 층 그림은 마커를 **못 찾았을 때에도** 그려야 한다 —
+	// 옛 동작은 귀속 실패를 침묵으로 처리해, 배포가 아예 없었던 것처럼 보였다.
+	// 여기서 함께 실어 보내면 화면이 "어느 잎에서 나갔나"와 "그걸 모른다"를 가려 말한다.
+	// 마커가 하나도 없는 저장소가 대부분이라, 표는 **처음 필요할 때** 긁는다.
+	var dattr map[string]string
+	dattrOf := func(sha string) string {
+		if dattr == nil {
+			dattr = deployAttributions(viewerGit, "--branches", "--tags")
+		}
+		return dattr[sha]
+	}
+	type row struct{ sha, parents, refs, subj, layer, deploy, deployAt string }
 	var rows []row
 	seen := map[string]bool{}
 	// 체인 → **실제로 갈라진 dev 커밋**(chain-root 의 첫 부모). 선언(Gil-Chain-Orphan: dev)만
@@ -1226,8 +1237,12 @@ func layerGraphJSON() string {
 		for _, p := range strings.Fields(f[1]) {
 			ps = append(ps, fmt.Sprintf("%q", first9(p)))
 		}
+		dAt := ""
+		if deploy != "" {
+			dAt = dattrOf(strings.TrimSpace(f[0]))
+		}
 		rows = append(rows, row{first9(f[0]), "[" + strings.Join(ps, ",") + "]",
-			strings.TrimSpace(f[2]), f[3], layer})
+			strings.TrimSpace(f[2]), f[3], layer, deploy, dAt})
 	}
 	// 레인 순서: 대문이 맨 위, 그다음 층, 그 아래 체인들(오래된 것부터 — git log 는 최신부터
 	// 오므로 뒤집는다). 사람이 그린 그림과 같은 순서다: main / dev / chain…
@@ -1292,8 +1307,8 @@ func layerGraphJSON() string {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":%s,"refs":%q,"subj":%q,"layer":%q}`,
-			r.sha, r.parents, r.refs, r.subj, r.layer))
+		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":%s,"refs":%q,"subj":%q,"layer":%q,"deploy":%q,"deployAt":%q}`,
+			r.sha, r.parents, r.refs, r.subj, r.layer, r.deploy, r.deployAt))
 	}
 	sb.WriteString(`]}`)
 	return sb.String()
@@ -3004,12 +3019,15 @@ function buildStepMap(){
     });
     maxRow=top;
   })();
-  const LMERGE=[], LDEPLOY=[];
+  const LMERGE=[], LDEPLOY=[], LDEPLOYAT={};
   (LAYER.rows||[]).forEach(c=>{
     const m=/^gil merge: (\S+) → (\S+)/.exec(c.subj||'');
     if(m&&m[2]==='dev') LMERGE.push({chain:m[1], sha:c.sha}); // sha: dev 순서대로 놓으려고
+    // 배포는 **마커 커밋**이 말한다(이슈 #108). 옛 코드는 승격 머지의 제목만 읽어서,
+    // --no-promote 로 남긴 배포는 층 그림에 아예 없었고 귀속 여부도 알 수 없었다.
+    if(c.deploy){ if(!(c.deploy in LDEPLOYAT)) LDEPLOY.push(c.deploy); LDEPLOYAT[c.deploy]=c.deployAt||''; }
     const d=/^gil deploy (\S+):.*승격/.exec(c.subj||'');
-    if(d) LDEPLOY.push(d[1]);
+    if(d && !LDEPLOY.includes(d[1])) LDEPLOY.push(d[1]);
   });
   // 층은 **자기 띠**를 위에 갖는다(아래 LANEH). 노드 행을 내리면 라벨(사이클·체인 이름)이
   // 그 자리로 올라와 두 줄과 겹친다 — 겹침은 실종과 같다(이슈 #37 에서 값을 치른 교훈).
@@ -3232,9 +3250,15 @@ function buildStepMap(){
     const xDevLast=Math.max(...devEvents);
     LDEPLOY.forEach(tag=>{
       const x1=xDevLast, x2=Math.min(xR-8, x1+runFor(yDev-yMain));
-      curve(x1,yDev,x2,yMain,'deploy','배포 '+tag+': dev → main (gil deploy)');
+      // 귀속 스텝을 못 찾았어도 그린다 — 침묵하면 배포가 없었던 것처럼 보인다(이슈 #108).
+      // 못 찾은 것과 없는 것은 다르고, 그 차이는 화면이 말해야 한다.
+      const lost=(tag in LDEPLOYAT) && !LDEPLOYAT[tag];
+      const at=LDEPLOYAT[tag];
+      curve(x1,yDev,x2,yMain,'deploy','배포 '+tag+': dev → main (gil deploy)'+
+        (at?'\n내보낸 잎: '+at:(lost?'\n귀속 스텝 미상 — 이 배포 계보에서 산 잎을 찾지 못했다':'')));
       dot(x2,yMain,'main','배포 '+tag); devEvents.push(x1);
-      const t=svgEl('text',{class:'lanetag',x:x2,y:yMain-8}); t.textContent='🚀 '+tag;
+      const t=svgEl('text',{class:'lanetag',x:x2,y:yMain-8});
+      t.textContent='🚀 '+tag+(lost?' (귀속 스텝 미상)':'');
       svg.appendChild(t);
       // 대문도 실선으로 잇는다 — 갈라진 자리에서 배포가 도착한 자리까지가 대문이 산 구간이다.
       svg.appendChild(svgEl('line',{class:'lanelive lane-main',x1:xMainStart,y1:yMain,x2:x2,y2:yMain}));

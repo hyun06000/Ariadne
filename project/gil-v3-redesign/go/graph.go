@@ -470,11 +470,15 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		//     적어놓고서). append-only 라 나중에 알아채도 그 자리에 못 박는다 — 그러니 **지금**
 		//     보여야 한다. 기준: 자식 없는 비종결 잎인데 이 사이클의 살아있는 팁도 아니다
 		//     = HEAD 가 떠나 매달린 것. (현재 작업 중인 팁 하나는 당연히 미종결이라 제외한다.)
+		// **경합은 매달림이 아니다**(이슈 #106·#107). 선언된 경합 갈래는 겨루려고 열어 둔
+		// 것이지 잊고 떠난 것이 아니다 — 열린 사이클에서는 위반으로 세지 않는다(닫을 때는
+		// close 의 미종결 잎 검사가 그대로 전부를 요구한다: 유예지 면제가 아니다).
 		if n.cycle != "" && !closed[n.chain+"\x01"+n.cycle] &&
 			!hasChild[stepKey(n.chain, n.cycle, n.step)] &&
 			!gone[stepKey(n.chain, n.cycle, n.step)] &&
 			!isLiveLeaf(n) && !isDeadLeaf(n) && n.kind != "pending" &&
-			!workingTips[stepKey(n.chain, n.cycle, n.step)] {
+			!workingTips[stepKey(n.chain, n.cycle, n.step)] &&
+			competitionRoot(n, nodes) == "" {
 			violations = append(violations, "스텝순환: "+cc+" — 매달린 미종결 잎 (kind="+n.kind+
 				"). 이 가지는 종결 없이 버려졌다 — HEAD 는 딴 데로 갔다.\n"+
 				"    그 자리에 종결을 박아라: gil step "+n.chain+"/"+n.cycle+
@@ -1065,9 +1069,10 @@ type commitInfo struct {
 	mode         string
 	cycleParents []string
 	merges       []string
+	chainFrom    []string // 이어받는다고 **선언한** 체인들(Gil-Chain-From, 이슈 #68·#107)
 }
 
-var idxKeys = []string{"Gil-Chain", "Gil-Kind", "Gil-Mode", "Gil-Cycle-Parent", "Gil-Merge"}
+var idxKeys = []string{"Gil-Chain", "Gil-Kind", "Gil-Mode", "Gil-Cycle-Parent", "Gil-Merge", "Gil-Chain-From"}
 
 // commitIndex — 단일 git log --branches로 모든 커밋의 subject·주요 트레일러 인덱스.
 // 참조: gilweb.commit_index.
@@ -1088,7 +1093,7 @@ func commitIndex() map[string]commitInfo {
 			continue
 		}
 		f := strings.Split(rec, fsep)
-		if len(f) < 7 {
+		if len(f) < 8 {
 			continue
 		}
 		idx[first9(f[0])] = commitInfo{
@@ -1098,6 +1103,7 @@ func commitIndex() map[string]commitInfo {
 			mode:         strings.TrimSpace(f[4]),
 			cycleParents: splitMulti(f[5]),
 			merges:       splitMulti(f[6]),
+			chainFrom:    splitMulti(f[7]),
 		}
 	}
 	return idx
@@ -1164,7 +1170,13 @@ func chainsFromGraph() (map[string]chainAgg, []string) {
 				continue
 			}
 			if (info.kind == "init" || info.kind == "chain-root") && info.chain == chainName && root == nil {
-				parents := info.cycleParents
+				// 체인의 부모는 **선언이 먼저다**(이슈 #107 3b). 옛 코드는 사이클 부모·머지만
+				// 봐서, 두 닫힌 체인에서 이어받는다고 선언한 체인도 계보에 "(대문)" 으로 떴다 —
+				// 여러 갈래의 지식이 하나로 모이는 장면이 그림에서 통째로 빠졌다.
+				parents := info.chainFrom
+				if len(parents) == 0 {
+					parents = info.cycleParents
+				}
 				if len(parents) == 0 {
 					parents = info.merges
 				}
@@ -1408,4 +1420,181 @@ func contains(xs []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// anyLiveLeaf — 이 스텝 묶음에 산 잎이 있나.
+func anyLiveLeaf(steps []node) bool {
+	for _, s := range steps {
+		if isLiveLeaf(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// liveLeafAnywhere — 이 사이클의 산 잎을 **그래프 전체**에서 찾는다(이슈 #106 g). 여럿이면
+// 가장 늦은 스텝. 병렬 형제 가지의 승자는 지금 서 있는 가지가 아닌 곳에 산다 — 그걸 못 보면
+// close 가 어느 가지에 서 있느냐에 따라 다른 답을 한다.
+func liveLeafAnywhere(chain, cycle string) string {
+	best, bestN := "", -1
+	for _, n := range cycleAnywhere(chain, cycle) {
+		if !isLiveLeaf(n) {
+			continue
+		}
+		if k := stepNum(n.step); k > bestN {
+			best, bestN = n.sha, k
+		}
+	}
+	return best
+}
+
+// inCompetition — 이 잎이 <to> 에서 갈라진 **경합의 한 갈래**인가(이슈 #106·#107).
+//
+// 잎에서 부모 사슬을 거슬러 올라가며 경합 선언(Gil-Competing: to)을 찾는다. 선언은 갈래의
+// 뿌리(hypothesis)에 붙으므로, 그 뒤에 이어진 verify·analyze 도 같은 경합에 속한다.
+func inCompetition(leaf node, to string) bool {
+	if strings.TrimSpace(to) == "" {
+		return false
+	}
+	byStep := map[string]node{}
+	for _, n := range cycleAnywhere(leaf.chain, leaf.cycle) {
+		byStep[n.step] = n
+	}
+	cur, seen := leaf, map[string]bool{}
+	for i := 0; i < 200; i++ {
+		if cur.step == "" || seen[cur.step] {
+			return false
+		}
+		seen[cur.step] = true
+		if cur.competing == to {
+			return true
+		}
+		if cur.step == to {
+			return false // 경합 선언 없이 뿌리에 닿았다
+		}
+		nxt, ok := byStep[cur.parent]
+		if !ok {
+			return false
+		}
+		cur = nxt
+	}
+	return false
+}
+
+// competingLeaves — 이 사이클에서 **지금 겨루는 중인** 갈래들(종결되지 않은 경합 잎).
+// handoff 가 이름을 부르고, fsck 가 위반에서 뺀다.
+func competingLeaves(chain, cycle string) []node {
+	all := cycleAnywhere(chain, cycle)
+	hasChild := map[string]bool{}
+	for _, n := range all {
+		if n.parent != "" {
+			hasChild[n.parent] = true
+		}
+	}
+	var out []node
+	for _, n := range all {
+		if hasChild[n.step] || isLiveLeaf(n) || isDeadLeaf(n) || n.kind == "pending" {
+			continue
+		}
+		if root := competitionRoot(n, all); root != "" {
+			out = append(out, n)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return stepNum(out[i].step) < stepNum(out[j].step) })
+	return out
+}
+
+// competitionRoot — 이 잎이 속한 경합의 뿌리 스텝(없으면 "").
+func competitionRoot(leaf node, all []node) string {
+	byStep := map[string]node{}
+	for _, n := range all {
+		byStep[n.step] = n
+	}
+	cur, seen := leaf, map[string]bool{}
+	for i := 0; i < 200; i++ {
+		if cur.step == "" || seen[cur.step] {
+			return ""
+		}
+		seen[cur.step] = true
+		if cur.competing != "" {
+			return cur.competing
+		}
+		nxt, ok := byStep[cur.parent]
+		if !ok {
+			return ""
+		}
+		cur = nxt
+	}
+	return ""
+}
+
+// competingNotice — 지금 겨루는 중인 형제 가설들을 이름으로 부른다(이슈 #106·#107).
+//
+// 경합을 위반에서 뺐으니 **보이게 하는 자리**가 있어야 한다. 안 그러면 열어 둔 갈래가
+// 조용히 잊히고, 그건 우리가 없애려던 바로 그 매달린 잎이 된다. 위반이 아닌 것과 안 보이는
+// 것은 다르다.
+func competingNotice() string {
+	closed := closedCycles("--branches")
+	seen := map[string]bool{}
+	var lines []string
+	for _, n := range collectNodes("--branches") {
+		if n.cycle == "" || closed[n.chain+"\x01"+n.cycle] || seen[n.chain+"/"+n.cycle] {
+			continue
+		}
+		seen[n.chain+"/"+n.cycle] = true
+		leaves := competingLeaves(n.chain, n.cycle)
+		if len(leaves) < 2 {
+			continue // 하나 남았으면 경합이 아니라 그냥 진행 중인 가지다
+		}
+		var names []string
+		for _, l := range leaves {
+			names = append(names, l.step+"["+l.kind+"]")
+		}
+		lines = append(lines, "  ⚖ 경합 중 — "+n.chain+"/"+n.cycle+" 에 겨루는 갈래 "+
+			itoa(len(leaves))+"개: "+strings.Join(names, " ")+"\n"+
+			"     위반이 아니다(선언된 경합이다) — 다만 사이클을 닫으려면 갈래마다 success/fail 이 있어야 한다.")
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
+}
+
+// countedOptions — 이 글이 선택지를 몇 개로 세고 있나(이슈 #107 1b). 열거의 흔한 표면만
+// 본다(①②③ · (a)(b)(c) · A/B/C · "선택지 3"). 판정이 아니라 **넛지**라 과하게 잡아도
+// 손해가 작고, 못 잡으면 옛날처럼 조용할 뿐이다.
+func countedOptions(text string) int {
+	best := 0
+	circled := []string{"①", "②", "③", "④", "⑤"}
+	n := 0
+	for _, c := range circled {
+		if strings.Contains(text, c) {
+			n++
+		}
+	}
+	if n > best {
+		best = n
+	}
+	for _, group := range [][]string{
+		{"(a)", "(b)", "(c)", "(d)"},
+		{"A)", "B)", "C)", "D)"},
+		{"A축", "B축", "C축", "D축"},
+	} {
+		n = 0
+		for _, c := range group {
+			if strings.Contains(text, c) {
+				n++
+			}
+		}
+		if n > best {
+			best = n
+		}
+	}
+	if strings.Contains(text, "A/B/C") {
+		if best < 3 {
+			best = 3
+		}
+	}
+	if best < 2 {
+		return 0
+	}
+	return best
 }

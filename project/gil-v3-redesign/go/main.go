@@ -115,6 +115,8 @@ func main() {
 		cmdStep(rest)
 	case "close":
 		cmdClose(rest)
+	case "adopt":
+		cmdAdopt(rest)
 	case "chain-close":
 		cmdChainClose(rest)
 	case "deploy":
@@ -195,6 +197,7 @@ func printUsage() {
   gil interview <chain> --ask <질문JSON>  이미 연 체인의 기준 문서를 사람과 함께 만든다 (#33)
   gil open <chain>/<cycle> --author <a> --purpose <p>   새 사이클
   gil step <chain>/<cycle> --kind <k> --title <t>       스텝 (define/hypothesis/verify/analyze/pending/…)
+  gil adopt <chain>/<cycle>/<승자> --reason <왜>        경합의 승자 채택 (진 갈래는 벽으로, HEAD 는 승자로)
   gil close <chain>/<cycle> --verdict <v> [--abandon]   사이클 닫기 (--abandon: fail만인 죽은 사이클도)
   gil chain-close <chain> --verdict <v>                 체인 닫기 (모든 사이클 닫힌 뒤 — 국면 완결)
   gil merge <합칠 것>... --into <받는 곳> --reason <왜>  합류 (실제 git merge). 끝난 체인 → dev
@@ -454,6 +457,7 @@ func cmdFsck(args []string) {
 	}
 	blind := devLayerBlindNotice()
 	noRef := noReferenceChainsNotice()
+	comp := competingNotice()
 	if len(v) == 0 {
 		println2("fsck: 위반 0 — 커밋 그래프 건강")
 		if blind != "" {
@@ -461,6 +465,9 @@ func cmdFsck(args []string) {
 		}
 		if noRef != "" {
 			println2(noRef)
+		}
+		if comp != "" {
+			println2(comp)
 		}
 		if prunedLine != "" {
 			println2(prunedLine)
@@ -479,6 +486,9 @@ func cmdFsck(args []string) {
 	}
 	if noRef != "" {
 		println2(noRef)
+	}
+	if comp != "" {
+		println2(comp)
 	}
 	if prunedLine != "" {
 		println2(prunedLine)

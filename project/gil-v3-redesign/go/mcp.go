@@ -287,6 +287,7 @@ type inStep struct {
 	Toward     string   `json:"toward,omitempty" jsonschema:"success·fail 필수 — 그래서 체인 목적에 얼마나 가까워졌나(회고)"`
 	NextDesign string   `json:"next_design,omitempty" jsonschema:"success·fail 필수 — 목적을 이루기 위한 다음 설계(다음 세대가 물려받는다)"`
 	LeaveOpen  bool     `json:"leave_open,omitempty" jsonschema:"미종결 잎을 두고 떠난다는 명시적 선언(매달린 잎이 남고 fsck 가 짚는다)"`
+	Competing  bool     `json:"competing,omitempty" jsonschema:"hypothesis — 이 갈래는 형제들과 **동시에** 겨룬다(선언된 경합: 열린 사이클에서 위반이 아니다). 분석이 선택지를 여럿 내놓으면 하나를 고르지 말고 갈래마다 이걸 달아 나란히 세워라"`
 	Dataset    []string `json:"dataset,omitempty" jsonschema:"이 측정이 어디서 섰나 — 평가셋과 sha256"`
 	Subject    []string `json:"subject,omitempty" jsonschema:"이 측정이 무엇을 쟀나 — 모델·체크포인트·옵션"`
 }
@@ -398,6 +399,9 @@ func registerGilTools(s *mcp.Server) {
 			}
 			if in.LeaveOpen {
 				a = append(a, "--leave-open")
+			}
+			if in.Competing {
+				a = append(a, "--competing")
 			}
 			a = addList(a, "dataset", in.Dataset)
 			a = addList(a, "subject", in.Subject)

@@ -96,6 +96,18 @@ func viewerCollectNodes() []viewerNode {
 	// 대상 스텝(Gil-Deploy-At = chain/cycle/step)에 태그·URL 을 매핑해 두고, 노드 수집 뒤 얹는다.
 	type deployMark struct{ tag, url, state, target string }
 	deploys := map[string]deployMark{}
+	// 귀속은 **선언 우선, 없으면 모든 부모 탐색**이다(이슈 #108). 옛 코드는 Gil-Deploy-At 이
+	// 없으면 마커를 통째로 버렸다 — --at 없이 dev 를 내보내는 기본형에서 배포가 그래프에서
+	// 사라졌고, 화면에 남는 마지막 노드가 붉은 fail 잎이라 사람이 거꾸로 읽었다.
+	// 탐색은 **필요할 때만** 한다(배포 마커가 하나도 없는 저장소가 대부분이고, 이 함수는
+	// 뷰어 폴링마다 돈다). 첫 미귀속 마커를 만나는 순간 한 번 긁고, 그 뒤엔 그 표를 쓴다.
+	var attrib map[string]string
+	attribOf := func(sha string) string {
+		if attrib == nil {
+			attrib = deployAttributions(viewerGit, allRefs...)
+		}
+		return attrib[sha]
+	}
 	// 커밋 하나 = 노드 하나. git log --branches 는 보통 공유 커밋을 접어 주지만 그건
 	// git 이 보증하는 불변식이 아니다(여러 워킹트리·특정 ref 배치에서 같은 SHA 재출력).
 	// 조상 define 에서 형제 가지를 분기하면 그 define 커밋이 여러 브랜치 공통조상이 되는데,
@@ -115,7 +127,11 @@ func viewerCollectNodes() []viewerNode {
 		tr := parseTrailers(parts[3])
 		if tr["Gil-Step"] == "" {
 			// 배포 마커: Gil-Step 없이 Gil-Deploy 만 실은 얇은 커밋. 대상 스텝에 얹으려 모은다.
-			if at := tr["Gil-Deploy-At"]; at != "" && !seenSHA[parts[0]] {
+			at := tr["Gil-Deploy-At"]
+			if at == "" && tr["Gil-Deploy"] != "" {
+				at = attribOf(parts[0]) // Gil-Deployed-Leaf 또는 조상 탐색이 찾은 산 잎
+			}
+			if at != "" && !seenSHA[parts[0]] {
 				deploys[at] = deployMark{tag: tr["Gil-Deploy"], url: tr["Gil-Deploy-Url"],
 					state: tr["Gil-Deploy-State"], target: tr["Gil-Deploy-Target"]}
 			}

@@ -168,6 +168,17 @@ var helpTable = map[string]helpEntry{
 			"  pending 을 사람이 기각 → 죽은 잎(backtrack, Gil-Approval: rejected). 되돌아갈 곳을 --to 로.",
 		"docs/gil/human-in-the-loop.md",
 	},
+	"adopt": {
+		"gil adopt <chain>/<cycle>/<승자스텝> --reason <왜 이 가지가 이겼나> [--over <진 형제>…]\n" +
+			"  경합(--competing)으로 나란히 세운 형제 가설 중 하나를 채택한다(이슈 #106·#107):\n" +
+			"    · 진 가지마다 벽(fail)을 남긴다 — 승자를 가리키는 선과 함께(Gil-Lost-To).\n" +
+			"      진 가지는 실패가 아니라 **비교의 한쪽**이다 — 대조가 없으면 승자의 수치도 근거가 못 된다.\n" +
+			"    · HEAD 를 승자 가지로 옮긴다 — 자산도 거기 있다(손으로 git checkout 해 오지 마라,\n" +
+			"      그렇게 옮긴 승계는 그래프에 안 남는다).\n" +
+			"  --over 생략 = 같은 경합의 미종결 형제 전부. --reason 은 필수다: 채택은 판단이고,\n" +
+			"  근거가 없으면 나중에 아무도 그것이 측정이었는지 취향이었는지 모른다.",
+		"docs/gil/parallel.md",
+	},
 	"close": {
 		"gil close <chain>/<cycle> [--verdict supported|partial|rejected] [--abandon]\n" +
 			"          [--goal-met | --goal-partial <못 한 것> | --goal-impossible <왜 불가한가>]\n" +
@@ -332,6 +343,11 @@ var helpTable = map[string]helpEntry{
 			"                  올라갔는지가 그래프에서 읽힌다. gil 은 그 주소에 **닿는지 확인하지 않는다** —\n" +
 			"                  기록 도구지 외부를 찌르는 도구가 아니다. 확인은 사람·CI 가 하고 그 결과를\n" +
 			"                  --promote 로 선언한다(헬스체크 출력은 --body-file 로 본문에 남겨라).\n" +
+			"  --force         **산 잎(success) 없이** 내보낸다. --reason 필수 — 이유는 배포 커밋 본문에\n" +
+			"                  남는다(이슈 #108). 기본은 거부다: close 가 집행하는 규칙을 배포도 집행한다.\n" +
+			"                  두 자리에서 규칙이 갈리면 느슨한 쪽이 실질 규칙이 되고, 병렬 형제 가지에서는\n" +
+			"                  죽은 가지가 더 많은 게 정상이라 잘못 짚기 쉽다. 내보낸 잎은 커밋에\n" +
+			"                  Gil-Deployed-Leaf 로 적힌다 — 무엇의 결과물인지 배포 커밋만 봐도 안다.\n" +
 			"  --skip-check    층 검사를 건너뛴다. --skip-reason 필수 — 건너뛴 사실이 커밋에 남는다\n" +
 			"                  (Gil-Check-Skipped). 안 적으면 이 배포는 확인된 것과 구별되지 않는다.\n" +
 			"  --promote       staged 로 찍어둔 것이 실제로 올라갔다. 앞 마커를 고치지 않고 새 마커로\n" +
