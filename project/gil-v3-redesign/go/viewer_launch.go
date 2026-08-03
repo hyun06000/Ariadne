@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -25,7 +26,31 @@ func viewerPortNum() string {
 	if p := os.Getenv("GIL_VIEWER_PORT"); p != "" {
 		return p
 	}
+	// **저장소가 자기 자리를 정할 수 있다**(이슈 #110 d). 여러 저장소를 오가면 뷰어가 매번
+	// 다른 번호에 뜨고, 사람은 북마크를 만들 수 없다 — 어제의 주소가 오늘은 남의 화면이다.
+	// `.gil/viewer-port` 에 한 줄 적어 두면 이 저장소는 늘 그 자리에서 시작한다(그 자리를
+	// 남이 쥐고 있으면 비켜서 띄우는 규칙은 그대로 — 남의 뷰어는 건드리지 않는다).
+	if p := pinnedViewerPort(); p != "" {
+		return p
+	}
 	return viewerPortDefault
+}
+
+// pinnedViewerPort — `.gil/viewer-port` 가 선언한 선호 포트("" = 없음/이상한 값).
+func pinnedViewerPort() string {
+	dir, err := gitTry("rev-parse", "--show-toplevel")
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(strings.TrimSpace(dir), ".gil", "viewer-port"))
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimSpace(string(b))
+	if n := atoiSafe(p); n < 1 || n > 65535 {
+		return "" // 못 읽을 값이면 없는 것으로 — 여기서 죽으면 모든 명령이 같이 죽는다
+	}
+	return p
 }
 
 // ensureViewer — **세션의 첫 gil 명령이 무엇이든** 관전 서버가 있게 한다 (상현님 실사용).
@@ -222,14 +247,30 @@ func portOpen(port string) bool {
 // 포트 폴백 때문에 뷰어가 세션마다 겹겹이 쌓이는데, 어느 것이 내 저장소인지 알 방법이 없었다.
 func viewerScan() []struct{ Port, Repo string } {
 	var out []struct{ Port, Repo string }
-	base := 8790
-	if p := os.Getenv("GIL_VIEWER_PORT"); p != "" {
-		if n := atoiSafe(p); n > 0 {
-			base = n
+	// **이 저장소의 자리부터, 그리고 기본 자리도** 훑는다(이슈 #110). 옛 코드는 8790(또는
+	// 환경변수) 열 칸만 봤다 — `.gil/viewer-port` 로 자리를 고정한 저장소의 뷰어는 이 눈에
+	// 안 잡혔고, 그래서 제 뷰어가 멀쩡히 떠 있는데 "이 저장소를 보는 뷰어가 없다"고 답했다.
+	// 고정한 자리와 기본 자리를 둘 다 본다: 고정하기 **전에** 뜬 뷰어도 찾아야 한다.
+	var bases []int
+	seenBase := map[int]bool{}
+	for _, b := range []string{viewerPortNum(), viewerPortDefault} {
+		if n := atoiSafe(b); n > 0 && !seenBase[n] {
+			seenBase[n] = true
+			bases = append(bases, n)
 		}
 	}
-	for i := 0; i < 10; i++ {
-		port := itoa(base + i)
+	var ports []string
+	seenPort := map[string]bool{}
+	for _, base := range bases {
+		for i := 0; i < 10; i++ {
+			p := itoa(base + i)
+			if !seenPort[p] {
+				seenPort[p] = true
+				ports = append(ports, p)
+			}
+		}
+	}
+	for _, port := range ports {
 		if !portOpen(port) {
 			continue
 		}
@@ -336,6 +377,65 @@ func reviveViewerIfDead(chain string) {
 	} else {
 		println2("  ✗ 다시 띄우지 못했다 — 사람에게 직접 청하라: gil viewer serve")
 	}
+}
+
+// viewerLivenessLines — handoff 의 "▶ 뷰어:" 줄. **이 저장소의 뷰어를 먼저 찾는다**(이슈 #110).
+//
+// 옛 코드는 기본 포트 하나만 보고 판정했다. 그런데 남이 그 자리를 쥐고 있어 우리가 비켜서
+// 떴으면(흔한 일이다) 같은 handoff 출력이 두 말을 했다:
+//
+//	▶ 뷰어: 포트 8790 는 **다른 저장소**가 쓰고 있다 → /other   ← 이 저장소엔 뷰어가 없는 것처럼
+//	── 관전 뷰어 (지금 열어라) ── http://127.0.0.1:8792        ← 열네 줄 아래, 맞는 주소
+//
+// 앞 줄을 믿은 세션은 뷰어를 하나 더 띄우고, 그 뷰어가 또 다른 포트를 잡아 떠돎을 키운다.
+// 같은 출력 안의 두 문장이 어긋나면 사람은 어느 쪽을 믿을지부터 고민한다 — 판정은 한 자리에서.
+//
+// 그리고 **정체를 함께 적는다.** 주소만으로는 사람이 옛 탭을 보고 있는지 알 수 없다. 화면
+// 상단·/whoami 와 같은 값을 여기 적어 두면, 셋을 눈으로 맞춰 볼 수 있다.
+func viewerLivenessLines() []string {
+	stamp := "    (이 저장소: " + repoStamp(gitTopAbs(), repoIdentityCLI()) + " — 화면 상단·/whoami 와 같은 값인지 맞춰 봐라.)"
+	if mine := viewerPortForThisRepo(); mine != "" {
+		return []string{"▶ 뷰어: 살아있음 — http://127.0.0.1:" + mine, stamp}
+	}
+	port := viewerPortNum()
+	if !portOpen(port) {
+		return []string{"▶ 뷰어: 죽어있음 — 되살리기: gil viewer serve --repo . --port " + port + " &"}
+	}
+	// 이 저장소를 보는 뷰어는 없고, 기본 자리는 남이 쥐었다. 그 주소를 "이 저장소의 뷰어"라
+	// 부르면 사람이 남의 그래프를 자기 것으로 읽는다(#67).
+	// 판정의 근거는 **그 포트에게 직접 물은 답**이다. 스캔이 못 찾았다는 사실을 "남의 것"의
+	// 근거로 쓰면, 스캔의 눈이 좁아진 만큼 거짓말이 는다(실제로 그렇게 자기 뷰어를 남의 것이라
+	// 불렀다).
+	mine, other := viewerServesThisRepo(port)
+	if mine {
+		return []string{"▶ 뷰어: 살아있음 — http://127.0.0.1:" + port, stamp}
+	}
+	who := other
+	if who == "" {
+		who = "(뷰어가 아닌 무언가)"
+	}
+	alt := freeViewerPort()
+	if alt == "" {
+		alt = port + "1"
+	}
+	return []string{
+		"▶ 뷰어: 이 저장소를 보는 뷰어가 없다 — 포트 " + port + " 는 **다른 저장소**가 쓰고 있다 → " + who,
+		"    비켜서 띄워라: gil viewer serve --repo . --port " + alt,
+		"    늘 같은 자리에 띄우려면: echo " + alt + " > .gil/viewer-port (이 저장소의 선호 포트)",
+	}
+}
+
+// gitTopAbs — 이 저장소의 최상위 절대경로(못 구하면 cwd). 화면·안내가 같은 자리를 말하게.
+func gitTopAbs() string {
+	if top, err := gitTry("rev-parse", "--show-toplevel"); err == nil {
+		if t := strings.TrimSpace(top); t != "" {
+			return t
+		}
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
 }
 
 // viewerServesThisRepo — 그 포트의 뷰어가 **이 저장소**를 보고 있나(온보딩 실측).

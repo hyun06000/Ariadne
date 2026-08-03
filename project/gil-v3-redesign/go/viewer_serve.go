@@ -264,14 +264,13 @@ func serve(args []string) {
 	// 다른 프로젝트의 뷰어가 같은 기본 포트를 쥐고 있었고, handoff 는 그 주소를 "지금
 	// 열어라(선택이 아니다)"로 지시했다 — 사람은 남의 그래프를 자기 것으로 읽는다.
 	handle("/whoami", func(w http.ResponseWriter, r *http.Request) {
-		abs, err := filepath.Abs(viewerRepoDir)
-		if err != nil {
-			abs = viewerRepoDir
-		}
+		abs := viewerRepoAbs()
 		w.Header().Set("Content-Type", "application/json")
 		// pid 도 밝힌다 — 세션이 **자기가 띄운 뷰어를 끄려면**(gil viewer stop) 누구를
 		// 끌지 알아야 한다. 포트만으로는 남의 프로세스를 끄는 사고를 막을 수 없다.
-		fmt.Fprintf(w, "{\"repo\":%q,\"pid\":%d}\n", abs, os.Getpid())
+		// id(뿌리 커밋 7자)는 이슈 #110: 경로는 사람이 대조하고, 자동화는 이 값을 대조한다.
+		// **화면에 뜨는 값과 같은 값이어야 한다** — 다르면 대조가 성립하지 않는다.
+		fmt.Fprintf(w, "{\"repo\":%q,\"id\":%q,\"pid\":%d}\n", abs, repoIdentity(viewerGit), os.Getpid())
 	})
 	handle("/poll", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -664,8 +663,13 @@ func renderHTML(g graphView, static bool) string {
 		"chains": itoa(len(g.chains)), "steps": itoa(g.nodeCount), "tips": itoa(g.tipCount),
 	}) + `>체인 ` + itoa(len(g.chains)) + `개 · 스텝 ` + itoa(g.nodeCount) + `개 · 현재위치 ` +
 		itoa(g.tipCount) + `개</span> · ` + liveIndicator(static) + workBadge(g, static) + `</span>
-<span id="langpick" class="langpick"></span></header>
+<span id="langpick" class="langpick"></span>
+<div class="repostamp" title="` + i18nT("head.repo.title") + `" data-i18n-title="head.repo.title"><span` +
+		i18nAttr("head.repo") + `>` + i18nT("head.repo") + `</span> <code class="repopath">` +
+		esc(viewerRepoAbs()) + `</code> <code class="repoid">#` + esc(repoIdentity(viewerGit)) + `</code></div></header>
 <script id="i18ndata" type="application/json">` + i18nPayload() + `</script>
+<script id="repodata" type="application/json">` + fmt.Sprintf(`{"repo":%q,"id":%q}`,
+		viewerRepoAbs(), repoIdentity(viewerGit)) + `</script>
 <main>`)
 	// 인터뷰 폼(이슈 #33): 사람 답을 기다리는 인터뷰 요구가 있으면 최상단에 폼을 띄운다.
 	// 정적 build(서버 없음)엔 제출할 곳이 없어 감춘다. JS(buildInterviews)가 질문 JSON 을 읽어
@@ -1665,7 +1669,14 @@ const css = `
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);
-padding:12px 20px;display:flex;align-items:baseline;gap:16px;z-index:9}
+padding:12px 20px;display:flex;align-items:baseline;gap:16px;z-index:9;flex-wrap:wrap}
+/* 이 화면이 보는 저장소(이슈 #110). 포트가 저장소 사이를 떠도는데 화면에 정체가 없으면,
+   사람은 남의 그래프를 자기 것으로 읽는다 — 한 줄이면 그 사고 전체가 예방된다. */
+.repostamp{flex-basis:100%;color:var(--dim);font-size:11px;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repostamp code{font-size:11px}
+.repostamp .repopath{color:var(--fg)}
+.repostamp .repoid{color:var(--dim)}
 h1{font-size:16px;margin:0}.meta{color:var(--dim);font-size:12px}
 #live{color:#3ddc84}#live.stale{color:var(--dim)}
 .work{color:#e6b800}
@@ -2122,7 +2133,15 @@ function applyLang(){
   document.querySelectorAll('[data-i18n-title]').forEach(el=>{
     el.title=T(el.getAttribute('data-i18n-title'));
   });
-  const t=T('app.title'); if(t) document.title=t;
+  // 탭 제목에도 저장소를 적는다(이슈 #110). 탭이 여럿이면 제목이 유일한 단서인데, 모든
+  // 저장소가 같은 제목을 달고 있어서 사람이 남의 화면을 자기 것으로 열었다. 경로는 **번역
+  // 대상이 아니다** — 사람이 만든 사실이라 옮기면 그 자리를 못 찾는다.
+  const t=T('app.title');
+  if(t){
+    let R={}; try{ R=JSON.parse(document.getElementById('repodata')?.textContent||'{}'); }catch(e){}
+    const nm=(R.repo||'').split('/').filter(Boolean).pop()||'';
+    document.title = nm ? t+' · '+nm : t;
+  }
 }
 function setLang(l){
   LANG=l;

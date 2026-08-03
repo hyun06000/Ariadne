@@ -9171,7 +9171,14 @@ class TestAdoptDevLayer(GilFixture):
         before = self._git("rev-parse", "main").stdout.strip()
         r = self.gil("migrate", "--adopt-dev")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.trailer("dev", "Gil-Kind"), "dev-root")
+        # 뿌리는 **ref 로** 선다(이슈 #113). 옛 코드는 이 자리에 Gil-Kind: dev-root 트레일러를
+        # 달았는데, 층의 범위를 정하는 쪽이 표식에서 자르므로 인정 범위가 1커밋이 됐다.
+        root = self._git("rev-parse", "refs/gil/layer/dev").stdout.strip()
+        self.assertTrue(root, "층 뿌리 ref 가 없다")
+        # 뿌리 = 대문에서 갈라진 뒤의 **가장 오래된** dev 전용 커밋. (이 fixture 는 dev 가
+        # 대문과 같은 자리에서 시작하므로 인정 커밋 자신이 그 자리다 — 그래도 규칙은 하나다.)
+        oldest = self._git("rev-list", "--first-parent", "main..dev").stdout.split()[-1]
+        self.assertEqual(root, oldest, "뿌리가 층의 시작이 아니다")
         self.assertEqual(self._git("rev-parse", "main").stdout.strip(), before,
                          "인정이 다른 브랜치를 건드렸다 — 다시 그리지 않기로 한 약속이 깨졌다")
 
@@ -10788,3 +10795,341 @@ class TestWallMapCanBeUndecided(GilFixture):
                  "--body", "벽", "--toward", "t", "--next-design", "n")
         out = self.gil("context", "ch/cy").stdout
         self.assertIn("지도 미정", out)
+
+
+class TestLayerRootIsWhereTheLayerStarts(GilFixture):
+    """`--adopt-dev` 가 층 표식을 **뿌리가 아니라 팁에** 심었다 (이슈 #113).
+
+    표식은 "여기부터 층"인데 dev 팁에 심으면 "여기까지 아무것도"가 된다 — 층의 범위를
+    정하는 쪽(devLayerFacts)이 표식에서 자르기 때문이다. 실사용 저장소에서 dev 커밋 148개
+    중 147개가 층 밖이 됐고, **dev 에서 갈라져야 하는 유일한 체인**(첫 체인)만 정확히 이
+    결함에 노출돼 뿌리 없이 떴다.
+
+    더 나쁜 것은 되돌리는 값이었다: `--adopt-dev` 는 'SHA 불변'을 약속하는데, 표식을 옳은
+    자리로 옮기려면 이력을 다시 써야 했다. **안전하다던 명령이 안전하지 않은 수리를 요구하는
+    상태로 끝났다.** 그래서 표식을 커밋이 아니라 ref 로 둔다 — 옮기면 그만이다."""
+
+    def _old_layout_dev(self, extra=3):
+        self._git("checkout", "-q", "-b", "main")
+        with open(os.path.join(self.repo, "README.md"), "w") as f:
+            f.write("hi\n")
+        self._git("add", "-A"); self._git("commit", "-qm", "Initial commit")
+        self._git("checkout", "-q", "-b", "dev")
+        for i in range(extra):
+            with open(os.path.join(self.repo, "w.md"), "a") as f:
+                f.write(f"w{i}\n")
+            self._git("add", "-A"); self._git("commit", "-qm", f"작업 {i}")
+
+    def test_adopt_recognizes_the_whole_layer(self):
+        self._old_layout_dev()
+        r = self.gil("migrate", "--adopt-dev")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("층으로 인정된 커밋", r.stdout)   # 범위를 숫자로 말한다(제안 d)
+        root = self._git("rev-parse", "refs/gil/layer/dev").stdout.strip()
+        self.assertTrue(root, "층 뿌리 ref 가 없다")
+        # 뿌리는 대문에서 갈라진 **첫** dev 커밋이어야 한다 — 팁이 아니라.
+        tip = self._git("rev-parse", "dev").stdout.strip()
+        self.assertNotEqual(root, tip)
+        inside = self._git("rev-list", "--count", f"{root}..dev").stdout.strip()
+        self.assertGreaterEqual(int(inside), 3, "층이 1커밋으로 쪼그라들었다")
+
+    def test_a_misplanted_marker_can_be_repaired_without_rewriting(self):
+        """이미 팁에 심긴 저장소(v3.52.0 산물)를 재실행으로 고칠 수 있어야 한다."""
+        self._old_layout_dev()
+        # 옛 --adopt-dev 가 남긴 모양을 그대로 만든다: 팁에 dev-root 트레일러
+        msg = "옛 adopt 표식\n\nGil-Kind: dev-root\nGil-Dev-Adopted: true\n"
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-F", "-"],
+                       cwd=self.repo, input=msg, text=True, capture_output=True)
+        before = self._git("rev-parse", "dev").stdout.strip()
+        r = self.gil("migrate", "--adopt-dev")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("뿌리가 층의 시작이 아니다", r.stdout)
+        # SHA 는 하나도 안 바뀐다 — 그게 이 명령의 약속이다
+        self.assertEqual(self._git("rev-parse", "dev").stdout.strip(), before)
+        root = self._git("rev-parse", "refs/gil/layer/dev").stdout.strip()
+        self.assertNotEqual(root, before)
+        self.assertGreaterEqual(int(self._git("rev-list", "--count", f"{root}..dev").stdout.strip()), 3)
+
+
+class TestChainMustSayWhereItInherits(GilFixture):
+    """`gil chain` 이 계승 자리를 강제하지 않았다 (이슈 #111).
+
+    문서는 "닫힌 체인 끝에서만 연다"고 약속하는데 실제로는 아무 자리에서나 열려 통과했다.
+    배포까지 마친 대문(main) 끝에서 열어도 경고 한 줄 없었고, 그 체인은 그래프에서 선 하나
+    없이 떴다 — **사람이 계승을 명시적으로 골랐는데도.** 체인은 계보의 최상위 단위라 여기서
+    끊기면 그 아래 사이클·스텝 전부가 지식의 강에서 떨어져 나간다."""
+
+    def _closed_first(self):
+        # **층 없는 옛 저장소**의 모양이다(gil init 을 안 탄다) — 이 결함이 실제로 난 자리가
+        # 그곳이다. 층이 있으면 시조는 dev 에서 나므로 이 물음 자체가 뜨지 않는다.
+        self._git("checkout", "-q", "-b", "main")
+        with open(os.path.join(self.repo, "README.md"), "w") as f:
+            f.write("hi\n")
+        self._git("add", "-A"); self._git("commit", "-qm", "Initial commit")
+        with open(os.path.join(self.repo, "ref.md"), "w", encoding="utf-8") as f:
+            f.write("# 기준\n\n돈다\n")
+        self.gil("chain", "first", "--purpose", "첫 국면", "--reference", "ref.md",
+                 "--criterion", "지표")
+        self.gil("open", "first/c1", "--author", "naru", "--purpose", "p", "--fits", "맞다")
+        self.gil("step", "first/c1", "--kind", "hypothesis", "--title", "h", "--body", "가설",
+                 "--falsify", "안됨", "--falsify-to", "s1", "--advances", "몫")
+        self.gil("step", "first/c1", "--kind", "verify", "--title", "v", "--body", "검증",
+                 "--verdict", "supported")
+        self.gil("step", "first/c1", "--kind", "analyze", "--title", "a", "--body", "해석")
+        self.gil("step", "first/c1", "--kind", "success", "--title", "s", "--body", "종합",
+                 "--toward", "달성", "--next-design", "다음")
+        self.gil("close", "first/c1")
+        self.gil("chain-close", "first", "--retro", "-", input="회고")
+        self._git("checkout", "-q", "main")  # 대문 끝 — 여기서 여는 것이 이 이슈의 재현이다
+
+    def test_opening_at_the_gate_without_declaring_is_refused(self):
+        self._closed_first()
+        r = self.gil("chain", "second", "--purpose", "다음", "--reference", "ref.md",
+                     "--criterion", "지표")
+        self.assertNotEqual(r.returncode, 0, "대문 끝에서 선언 없이 열렸다")
+        self.assertIn("--from first", r.stderr)      # 칠 수 있는 한 줄을 준다
+        self.assertIn("--orphan", r.stderr)
+
+    def test_from_digs_at_the_closed_end_itself(self):
+        """사람이 git checkout 으로 옳은 커밋을 찾아다니게 하지 않는다."""
+        self._closed_first()
+        r = self.gil("chain", "second", "--purpose", "다음", "--reference", "ref.md",
+                     "--criterion", "지표", "--from", "first")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = self.gil("handoff").stdout
+        self.assertIn("second (open) ← first", out)
+
+    def test_orphan_is_an_accepted_answer(self):
+        self._closed_first()
+        r = self.gil("chain", "second", "--purpose", "다음", "--reference", "ref.md",
+                     "--criterion", "지표", "--orphan", "앞 국면과 전제가 다르다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class TestViewerSaysWhichRepository(GilFixture):
+    """**이 화면은 어느 저장소인가** (이슈 #110).
+
+    여러 저장소에서 gil 을 쓰면 뷰어 포트가 저장소 사이를 떠돈다. 같은 번호가 어느 순간 다른
+    저장소를 서비스하는데, 화면 어디에도 정체가 없었다 — 제목은 어느 저장소든 "gil — 사고의
+    지도"다. 그래서 사람이 남의 그래프를 보며 "인터뷰가 안 보인다, 많이 망가졌나 보네"라고
+    읽었다. 도구는 정상이었고 화면만 남의 것이었다.
+
+    에이전트도 같이 속았다. 체인 이름(ail-runtime)으로 포트를 확인했는데 그 저장소에도 우연히
+    같은 이름의 체인이 있었다 — **이름은 저장소마다 겹칠 수 있으니 정체의 근거가 못 된다.**"""
+
+    def _free_port(self):
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        return str(port)
+
+    def _html(self):
+        self.gil("init", "--name", "clew")
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return open(out_html, encoding="utf-8").read()
+
+    def _serve(self, repo, port):
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
+                             cwd=repo, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, env=env)
+        for _ in range(60):
+            try:
+                urllib.request.urlopen("http://127.0.0.1:" + port + "/whoami", timeout=1).read()
+                return p
+            except Exception:
+                time.sleep(0.1)
+        p.terminate()
+        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
+
+    def test_the_page_names_the_repository_it_watches(self):
+        """한 줄이면 이번 사고 전체가 예방된다 — 가장 값싼 고침(제안 a)."""
+        html = self._html()
+        real = os.path.realpath(self.repo)
+        self.assertIn("repostamp", html, "화면에 저장소 정체가 없다")
+        self.assertTrue(real in html or self.repo in html,
+                        "화면이 저장소 경로를 말하지 않는다 — 어느 저장소인지 알 길이 없다")
+
+    def test_the_page_and_whoami_say_the_same_id(self):
+        """대조하라고 만든 값이 두 자리에서 다르면 대조라는 행위가 성립하지 않는다(제안 b)."""
+        self.gil("init", "--name", "clew")
+        port = self._free_port()
+        p = self._serve(self.repo, port)
+        try:
+            who = json.loads(urllib.request.urlopen(
+                "http://127.0.0.1:" + port + "/whoami", timeout=3).read().decode())
+            page = urllib.request.urlopen("http://127.0.0.1:" + port + "/",
+                                          timeout=5).read().decode()
+            self.assertTrue(who.get("id"), "/whoami 가 식별자를 안 준다 — 자동화가 대조할 근거가 없다")
+            self.assertIn("#" + who["id"], page, "화면과 /whoami 의 식별자가 다르다")
+            self.assertIn(who["repo"], page)
+        finally:
+            p.terminate()
+            p.wait(timeout=10)
+
+    def test_two_repositories_born_in_the_same_second_still_differ(self):
+        """**뿌리 커밋만으로는 못 가른다.** 같은 초에 init 한 둘은 뿌리 sha 까지 같아진다
+        (실측). 정체를 말하라고 만든 값이 정체를 못 가르면 그건 값이 아니다."""
+        self.gil("init", "--name", "clew")
+        other = tempfile.mkdtemp(prefix="gil-twin-")
+        try:
+            subprocess.run(["git", "init", "-q", other], check=True)
+            for a in (["config", "user.email", "test@example.com"], ["config", "user.name", "test"],
+                      ["config", "commit.gpgsign", "false"]):
+                subprocess.run(["git", *a], cwd=other, check=True)
+            subprocess.run([*GIL_CMD, "init", "--name", "clew"], cwd=other,
+                           capture_output=True, text=True,
+                           env=dict(os.environ, GIL_NO_VIEWER="1"))
+            ports = [self._free_port()]
+            ports.append(str(int(ports[0]) + 1))
+            ps = [self._serve(self.repo, ports[0]), self._serve(other, ports[1])]
+            try:
+                ids = [json.loads(urllib.request.urlopen(
+                    "http://127.0.0.1:" + pt + "/whoami", timeout=3).read().decode())["id"]
+                    for pt in ports]
+                self.assertNotEqual(ids[0], ids[1],
+                                    "서로 다른 저장소가 같은 식별자를 답했다 — 이 값으론 못 가른다")
+            finally:
+                for p in ps:
+                    p.terminate()
+                    p.wait(timeout=10)
+        finally:
+            shutil.rmtree(other, ignore_errors=True)
+
+    def test_the_tab_title_carries_the_repository(self):
+        """탭이 여럿이면 제목이 유일한 단서인데 모두 같은 제목을 달고 있었다."""
+        html = self._html()
+        self.assertIn('id="repodata"', html, "탭 제목이 읽을 저장소 정보가 페이지에 없다")
+        self.assertIn("document.title", html)
+
+    def test_the_path_is_never_translated(self):
+        """경로와 식별자는 사람이 만든 사실이다 — 옮기면 그 자리를 못 찾는다."""
+        html = self._html()
+        m = re.search(r'id="i18ndata"[^>]*>(.*?)</script>', html, re.S)
+        self.assertIsNotNone(m)
+        blob = m.group(1)
+        self.assertNotIn(os.path.basename(self.repo), blob,
+                         "저장소 경로가 번역 사전에 들어갔다")
+
+
+class TestHandoffPointsAtThisRepositorysViewer(GilFixture):
+    """**한 출력이 두 말을 했다** (이슈 #110 e).
+
+    남이 기본 포트를 쥐고 있어 우리가 비켜서 떴을 때, 같은 handoff 가 위에서는 "포트 X 는 다른
+    저장소가 쓰고 있다"(= 이 저장소엔 뷰어가 없다)고 하고, 열네 줄 아래에서는 우리 주소를
+    "지금 열어라"라고 했다. 앞 줄을 믿은 세션은 뷰어를 하나 더 띄우고, 그 뷰어가 또 다른 포트를
+    잡아 떠돎을 키운다. 판정이 두 자리에서 갈리면 사람은 어느 쪽을 믿을지부터 고민한다."""
+
+    def _free_port(self):
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        return str(port)
+
+    def _other_repo(self):
+        work = tempfile.mkdtemp(prefix="gil-other-")
+        subprocess.run(["git", "init", "-q", work], check=True)
+        for a in (["config", "user.email", "t@e.com"], ["config", "user.name", "t"],
+                  ["config", "commit.gpgsign", "false"]):
+            subprocess.run(["git", *a], cwd=work, check=True)
+        subprocess.run([*GIL_CMD, "init", "--name", "other"], cwd=work,
+                       capture_output=True, text=True,
+                       env=dict(os.environ, GIL_NO_VIEWER="1"))
+        return work
+
+    def _serve(self, repo, port):
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
+                             cwd=repo, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, env=env)
+        for _ in range(60):
+            try:
+                urllib.request.urlopen("http://127.0.0.1:" + port + "/whoami", timeout=1).read()
+                return p
+            except Exception:
+                time.sleep(0.1)
+        p.terminate()
+        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
+
+    def test_liveness_line_finds_our_viewer_even_when_it_stepped_aside(self):
+        self.gil("init", "--name", "clew")
+        base = self._free_port()
+        mineport = str(int(base) + 2)
+        other = self._other_repo()
+        held = self._serve(other, base)
+        minep = self._serve(self.repo, mineport)
+        env = dict(os.environ, GIL_VIEWER_PORT=base, GIL_NO_VIEWER="1")
+        try:
+            out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
+                                 capture_output=True, text=True, env=env).stdout
+            live = [ln for ln in out.splitlines() if ln.startswith("▶ 뷰어:")]
+            self.assertTrue(live, "뷰어 생존 줄이 없다:\n" + out)
+            self.assertIn("살아있음", live[0],
+                          "제 뷰어가 떠 있는데 없다고 했다 — 세션은 뷰어를 하나 더 띄운다:\n" + live[0])
+            self.assertIn(mineport, live[0])
+            self.assertNotIn("다른 저장소", live[0])
+        finally:
+            for p in (held, minep):
+                p.terminate()
+                p.wait(timeout=10)
+            shutil.rmtree(other, ignore_errors=True)
+
+    def test_the_directive_carries_the_fingerprint_to_check(self):
+        """주소만 주면 사람은 옛 탭을 보고 있는지 알 수 없다 — 대조할 값을 함께 준다."""
+        self.gil("init", "--name", "clew")
+        port = self._free_port()
+        p = self._serve(self.repo, port)
+        env = dict(os.environ, GIL_VIEWER_PORT=port, GIL_NO_VIEWER="1")
+        try:
+            out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
+                                 capture_output=True, text=True, env=env).stdout
+            who = json.loads(urllib.request.urlopen(
+                "http://127.0.0.1:" + port + "/whoami", timeout=3).read().decode())
+            self.assertIn("#" + who["id"], out,
+                          "안내가 화면과 대조할 값을 안 줬다 — 이름으로 확인하다 오진했다")
+            self.assertIn("이 저장소:", out)
+        finally:
+            p.terminate()
+            p.wait(timeout=10)
+
+    def test_a_repository_can_pin_its_own_port(self):
+        """어제 받은 주소가 오늘은 남의 화면이면 사람은 북마크를 만들 수 없다(제안 d)."""
+        self.gil("init", "--name", "clew")
+        pin = self._free_port()
+        os.makedirs(os.path.join(self.repo, ".gil"), exist_ok=True)
+        with open(os.path.join(self.repo, ".gil", "viewer-port"), "w") as f:
+            f.write(pin + "\n")
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        env.pop("GIL_VIEWER_PORT", None)
+        out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
+                             capture_output=True, text=True, env=env).stdout
+        live = [ln for ln in out.splitlines() if ln.startswith("▶ 뷰어:")]
+        self.assertTrue(live, out)
+        self.assertIn(pin, live[0], "선언한 자리를 안 쓴다:\n" + live[0])
+
+    def test_a_pinned_viewer_is_not_called_someone_elses(self):
+        """스캔이 못 찾았다는 사실을 '남의 것'의 근거로 쓰면, 눈이 좁아진 만큼 거짓말이 는다."""
+        self.gil("init", "--name", "clew")
+        pin = self._free_port()
+        os.makedirs(os.path.join(self.repo, ".gil"), exist_ok=True)
+        with open(os.path.join(self.repo, ".gil", "viewer-port"), "w") as f:
+            f.write(pin + "\n")
+        p = self._serve(self.repo, pin)
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        env.pop("GIL_VIEWER_PORT", None)
+        try:
+            out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
+                                 capture_output=True, text=True, env=env).stdout
+            live = [ln for ln in out.splitlines() if ln.startswith("▶ 뷰어:")]
+            self.assertIn("살아있음", live[0], "제 뷰어를 남의 것이라 불렀다:\n" + live[0])
+        finally:
+            p.terminate()
+            p.wait(timeout=10)

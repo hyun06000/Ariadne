@@ -622,8 +622,29 @@ func orderByDeclaredCycles(body []*lcommit) []*lcommit {
 // 사람이 이 명령을 직접 부를 때만, 그리고 그 dev 가 이 저장소의 대문 계보에서 갈라진 것일
 // 때만 한다. 무엇을 인정하는지 먼저 보여주고 심는다.
 func cmdAdoptDevLayer(dryRun bool) {
+	// 이미 층이면 **범위가 맞는지**까지 본다(이슈 #113). 옛 --adopt-dev 는 표식을 dev 팁에
+	// 심었고, 층의 범위를 정하는 쪽(devLayerFacts)은 그 표식에서 **잘랐다** — 그래서 dev
+	// 커밋 148개 중 147개가 층 밖이 되고, dev 에서 갈라져야 하는 유일한 체인(첫 체인)만
+	// 정확히 뿌리 없이 떴다. 표식은 "여기부터 층"인데 팁에 심으면 "여기까지 아무것도".
+	// 재실행이 그 자리를 고칠 수 있어야 한다 — 안 그러면 안전하다던 명령이 안전하지 않은
+	// 수리(이력 다시 쓰기)만 남기고 끝난다.
 	if hasDevLayer() {
-		println2("이미 dev 층이다 — 인정할 것이 없다(표식 " + first9(devRootSHA()) + ").")
+		start, cur := devLayerStartSHA(), devRootSHA()
+		if start == "" || start == cur {
+			println2("이미 dev 층이다 — 인정할 것이 없다(뿌리 " + first9(cur) + ").")
+			layerCoverage(cur)
+			return
+		}
+		println2("이미 dev 층인데 **뿌리가 층의 시작이 아니다** — 범위를 고친다(이슈 #113).")
+		println2("  지금 뿌리: " + first9(cur) + "  " + clip(subjectOf(cur), 60))
+		println2("  층의 시작: " + first9(start) + "  " + clip(subjectOf(start), 60))
+		if dryRun {
+			stderr("  (--dry-run — 아무것도 쓰지 않았다.)")
+			return
+		}
+		git("update-ref", layerRootRef, start)
+		println2("  ✓ 뿌리 표식을 ref(" + layerRootRef + ")로 옮겼다 — 커밋 SHA 는 하나도 안 바뀐다.")
+		layerCoverage(start)
 		return
 	}
 	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
@@ -657,11 +678,18 @@ func cmdAdoptDevLayer(dryRun bool) {
 		"이 브랜치는 이미 층의 모양으로 서 있었고, 표식만 없었다. 다시 그리지 않고\n"+
 			"표식만 심는다 — 커밋 SHA 는 하나도 바뀌지 않는다.\n\n"+
 			"이 커밋 이전의 dev 커밋들도 층의 것이다(층 판정은 dev 에서 닿는 커밋 전체를 본다).",
-		[][2]string{{"Gil-Kind", "dev-root"}, {"Gil-Dev-Adopted", "true"}, {"Gil-Dev-From", first9(tip)}}, true)
+		[][2]string{{"Gil-Dev-Adopted", "true"}, {"Gil-Dev-From", first9(tip)}}, true)
+	// 뿌리는 **ref 로** 심는다 — 이 커밋(팁)이 아니라 층이 실제로 시작한 자리를 가리킨다.
+	// 옛 코드는 이 커밋에 Gil-Kind: dev-root 를 달았는데, 층의 범위를 정하는 쪽이 표식에서
+	// 자르므로 인정 범위가 사실상 1커밋이 됐다(#113).
+	if start := devLayerStartSHA(); start != "" {
+		git("update-ref", layerRootRef, start)
+	}
 	if back != "" && back != devBranchName {
 		gitTry("checkout", "-q", back)
 	}
 	println2("  ✓ 표식 심음 — 이제 fsck·deploy·open 이 같은 층을 본다.")
+	layerCoverage(devRootSHA())
 	// 인정했으면 **그 결과를 바로 보여준다.** 표식만 심고 "됐다"고 하면, 정작 층이 요구하는
 	// 것(모든 시조가 dev 에서 난다)을 만족하는지는 아무도 안 본 채로 남는다.
 	if viol := fsckDevLayer(); len(viol) > 0 {
@@ -673,4 +701,33 @@ func cmdAdoptDevLayer(dryRun bool) {
 		return
 	}
 	println2("  층 검사 통과 — 모든 시조가 dev 에서 났다.")
+}
+
+// layerCoverage — **인정 범위를 보고한다**(이슈 #113 제안 d). 표식 sha 만 알려주고 끝나면,
+// 1/148 같은 상태를 아무도 그 자리에서 못 알아챈다. 도구가 자기가 무엇을 인정했는지
+// 숫자로 말해야 사람이 검증할 기회를 갖는다.
+func layerCoverage(root string) {
+	if root == "" {
+		return
+	}
+	inside := len(strings.Fields(strings.TrimSpace(git("rev-list", "--first-parent", root+".."+devBranchName))))
+	inside++ // 뿌리 자신
+	total := len(strings.Fields(strings.TrimSpace(git("rev-list", "--first-parent", devBranchName))))
+	println2("  ⌂ 층으로 인정된 커밋 " + itoa(inside) + "개 / dev 첫-부모 사슬 " + itoa(total) + "개" +
+		"  (뿌리 " + first9(root) + ")")
+	if outside := total - inside; outside > 0 {
+		println2("     층 밖 " + itoa(outside) + "개는 대문이 산 구간이다 — 층의 걸음으로 세지 않는다.")
+	}
+}
+
+// subjectOf — 커밋 한 줄 제목(없으면 "").
+func subjectOf(sha string) string {
+	if sha == "" {
+		return ""
+	}
+	out, err := gitTry("log", "-1", "--format=%s", sha)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }

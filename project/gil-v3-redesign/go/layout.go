@@ -50,10 +50,27 @@ func hasDevLayer() bool {
 	return devRootSHA() != ""
 }
 
-// devRootSHA — dev 층의 뿌리 커밋(Gil-Kind: dev-root). 없으면 "".
+// layerRootRef — 층의 뿌리를 가리키는 ref(이슈 #113). **트레일러가 아니라 ref 인 이유**:
+// 표식이 커밋에 박히면 잘못 심었을 때 고치는 값이 이력 다시 쓰기다 — `--adopt-dev` 의
+// "SHA 불변" 약속과 정면으로 어긋난다. 안전하다고 안심하고 실행한 명령이, 안전하지 않은
+// 수리를 요구하는 상태로 끝나면 안 된다. ref 는 옮기면 그만이다.
+const layerRootRef = "refs/gil/layer/dev"
+
+// devRootSHA — dev 층의 뿌리 커밋. 없으면 "".
+//
+// 진실원은 **ref 가 먼저**고, 없으면 옛 표식(Gil-Kind: dev-root)을 본다. 옛 저장소는
+// 표식만 갖고 있고, 그건 계속 유효하다 — 다만 표식이 **어디에** 박혔느냐가 층의 범위를
+// 정하므로(devLayerFacts 가 거기서 자른다), 팁에 잘못 심긴 표식은 층을 1커밋으로 만든다.
+// 그게 #113 이었다. ref 는 그 자리를 이력 없이 정정하는 길이다.
 func devRootSHA() string {
 	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
 		return ""
+	}
+	if out, err := gitTry("rev-parse", "--verify", "-q", layerRootRef); err == nil {
+		if sha := strings.TrimSpace(out); sha != "" &&
+			gitOK("merge-base", "--is-ancestor", sha, devBranchName) {
+			return sha
+		}
 	}
 	fmtStr := "%H" + fsep + trailer("Gil-Kind") + sep
 	for _, rec := range strings.Split(gitlog("--format="+fmtStr, devBranchName), sep) {
@@ -63,6 +80,25 @@ func devRootSHA() string {
 		}
 	}
 	return ""
+}
+
+// devLayerStartSHA — 이 dev 브랜치에서 **층이 실제로 시작한** 커밋. 대문에서 갈라진 뒤의
+// 가장 오래된 dev 전용 커밋이다(그 앞은 대문이 산 구간이라 층의 걸음이 아니다).
+// dev 가 대문과 같은 자리면 dev 팁 자신이다.
+func devLayerStartSHA() string {
+	home := homeBranch()
+	if home == "" || home == devBranchName {
+		return strings.TrimSpace(git("rev-parse", devBranchName))
+	}
+	out, err := gitTry("rev-list", "--first-parent", home+".."+devBranchName)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Fields(strings.TrimSpace(out))
+	if len(lines) == 0 {
+		return strings.TrimSpace(git("rev-parse", devBranchName)) // 앞선 것이 없다 = 갈라진 그 자리
+	}
+	return lines[len(lines)-1] // 가장 오래된 dev 전용 커밋
 }
 
 // devLayerBlindNotice — 층이 없어 **층 판정을 아예 못 했다**는 고지(이슈 #99). 위반이 아니다:
@@ -228,6 +264,10 @@ type devLayerFactsT struct {
 func devLayerFacts(run func(...string) ([]byte, error)) devLayerFactsT {
 	f := devLayerFactsT{step: map[string]int{}, subj: map[string]string{}, forks: map[string]string{},
 		declared: map[string]bool{}}
+	// 자를 자리는 **뿌리 sha** 다(이슈 #113). 옛 코드는 `Gil-Kind: dev-root` 트레일러를 만나면
+	// 잘랐는데, --adopt-dev 가 그 표식을 dev **팁**에 심는 바람에 층이 1커밋이 됐다. 뿌리는
+	// 이제 ref 로도 선다(devRootSHA) — 표식이 어디 박혔든 자르는 자리는 하나다.
+	rootSHA := first9(devRootSHA())
 	var seq []string // 최신부터
 	for _, ref := range []string{devBranchName, "origin/" + devBranchName} {
 		o, err := run("log", "--first-parent", "--format=%H"+fsep+"%s"+fsep+trailer("Gil-Kind")+sep, ref)
@@ -249,7 +289,7 @@ func devLayerFacts(run func(...string) ([]byte, error)) devLayerFactsT {
 			f.subj[s] = strings.TrimSpace(subj)
 			// 층이 개설된 커밋에서 자른다 — 그 앞은 대문(main)이 산 구간이라, 층의 걸음으로
 			// 세면 수가 틀리고 갈라진 자리도 그만큼 밀린다.
-			if strings.TrimSpace(kind) == "dev-root" {
+			if s == rootSHA || strings.TrimSpace(kind) == "dev-root" {
 				break
 			}
 		}

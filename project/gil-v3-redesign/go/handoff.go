@@ -619,21 +619,10 @@ func handoffReport() string {
 	}
 	L = append(L, "")
 	// 뷰어 생존 보고(이슈 #30) — 죽어 있으면 다음 세션이 바로 되살리게 명령을 준다.
-	if portOpen(viewerPortNum()) {
-		if mine, other := viewerServesThisRepo(viewerPortNum()); mine {
-			L = append(L, "▶ 뷰어: 살아있음 — http://127.0.0.1:"+viewerPortNum())
-		} else {
-			// 그 주소를 "이 저장소의 뷰어"라 부르면 사람이 남의 그래프를 자기 것으로 읽는다(#67).
-			who := other
-			if who == "" {
-				who = "(뷰어가 아닌 무언가)"
-			}
-			L = append(L, "▶ 뷰어: 포트 "+viewerPortNum()+" 는 **다른 저장소**가 쓰고 있다 → "+who)
-			L = append(L, "    이 저장소를 보려면 다른 포트로: gil viewer serve --port <다른포트>")
-		}
-	} else {
-		L = append(L, "▶ 뷰어: 죽어있음 — 되살리기: gil viewer serve --repo . --port "+viewerPortNum()+" &")
-	}
+	// 판정은 viewerLivenessLines 한 자리에서 한다(이슈 #110): 옛 코드는 여기서 기본 포트만
+	// 보고 "남이 쓰고 있다"고 적었고, 열네 줄 아래 지시문은 비켜 뜬 우리 주소를 적었다 —
+	// 한 출력이 두 말을 했다.
+	L = append(L, viewerLivenessLines()...)
 	L = append(L, "")
 	L = append(L, gateChecklist()...)
 	if globalExists() {
@@ -721,7 +710,14 @@ func sessionTidyNudge() []string {
 // viewerDirectiveTail — 뷰어 지시문의 공통 본문. 세 갈래(내 뷰어 있음·남이 쥠·아직 없음)가
 // 같은 말을 해야 한다 — 갈래마다 따로 쓰면 언젠가 한 갈래만 고쳐지고 규범이 갈라진다.
 func viewerDirectiveTail() string {
-	return "  **이 주소를 네 인앱 브라우저 패널로 지금 열어라.** 선택이 아니다 — 계보가 수십 개가\n" +
+	// **연 화면이 이 저장소인지 확인하라**(이슈 #110). 포트는 저장소 사이를 떠돈다 — 어제 받은
+	// 주소가 오늘은 남의 그래프다. 실제로 사람이 남의 화면을 보며 "인터뷰가 안 보인다, 많이
+	// 망가졌나 보네"라고 읽었고, 에이전트는 체인 이름으로 확인하려다 같이 속았다(그 저장소에도
+	// 우연히 같은 이름의 체인이 있었다). 이름은 겹칠 수 있으니 근거가 못 된다 — 지문을 대조하라.
+	return "  이 저장소: " + repoStamp(gitTopAbs(), repoIdentityCLI()) + "\n" +
+		"  ↑ 연 화면 상단(또는 /whoami)이 **이 값과 같은지 먼저 확인하라.** 다르면 남의 저장소다\n" +
+		"    — 체인 이름으로 확인하지 마라, 이름은 저장소마다 겹친다(실제로 겹쳐서 오진했다).\n" +
+		"  **이 주소를 네 인앱 브라우저 패널로 지금 열어라.** 선택이 아니다 — 계보가 수십 개가\n" +
 		"  되면 텍스트 나열로는 분기·죽은 잎·현재위치(HEAD)가 눈에 안 들어온다. 그래프를 안 보고\n" +
 		"  시작하면 이미 있는 가지를 못 보고 새로 파게 된다.\n" +
 		"  인앱 패널이 없는 호스트라면 사람에게 이 주소를 안내하라(밖의 브라우저 창은 사람이\n" +

@@ -52,6 +52,18 @@ var i18nDict = map[string]map[string]string{
 		"ko": "▼ 현재위치로", "en": "▼ Go to HEAD",
 		"zh-CN": "▼ 前往当前位置", "zh-TW": "▼ 前往目前位置",
 	},
+	// 이 화면이 보는 저장소(이슈 #110). 라벨만 옮긴다 — **경로와 식별자는 번역하지 않는다**
+	// (사람이 만든 사실이고, 옮기면 그 자리를 못 찾는다).
+	"head.repo": {
+		"ko": "이 화면이 보는 저장소", "en": "This screen is watching",
+		"zh-CN": "本页面所观察的仓库", "zh-TW": "本頁面所觀察的儲存庫",
+	},
+	"head.repo.title": {
+		"ko": "뷰어 포트는 저장소 사이를 떠돈다 — 이 값이 네 저장소와 같은지 확인하라(#뒤는 이 저장소의 지문, /whoami 가 답하는 값과 같다)",
+		"en": "Viewer ports drift between repositories — check this matches yours (after # is this repository's fingerprint, the same value /whoami reports)",
+		"zh-CN": "查看器端口会在仓库之间漂移——请确认此处与你的仓库一致（# 后为本仓库指纹，与 /whoami 相同）",
+		"zh-TW": "檢視器連接埠會在儲存庫之間漂移——請確認此處與你的儲存庫一致（# 後為本儲存庫指紋，與 /whoami 相同）",
+	},
 	"head.gohere.title": {
 		"ko": "현재위치(HEAD)로 — 작업중이면 그 자리로",
 		"en": "Jump to HEAD — or to the work in progress, if there is any",

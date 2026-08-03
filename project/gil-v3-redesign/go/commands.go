@@ -3548,6 +3548,47 @@ func cmdChain(args []string) {
 	if len(froms) > 0 && strings.TrimSpace(*orphanWhy) != "" {
 		die("거부: --from 과 --orphan 은 함께 못 선다 — 이어받거나 새로 서거나 하나다.")
 	}
+	// ── 계승 자리 게이트 (이슈 #111) ─────────────────────────────────────────────
+	//
+	// 문서는 "닫힌 체인 끝에서만 연다"고 약속하는데, 실제로는 **아무 자리에서나** 열렸다.
+	// 배포까지 마친 대문(main) 끝에서 열어도 통과했고, 그 체인은 그래프에서 선 하나 없이
+	// 떴다 — 사람이 인터뷰에서 계승을 명시적으로 골랐는데도. 체인은 계보의 최상위 단위라,
+	// 여기서 끊기면 그 아래 사이클·스텝 전부가 지식의 강에서 떨어져 나간다.
+	//
+	// 막되 벽이 되지 않게 한다: 어디서 열어야 하는지를 **칠 수 있는 한 줄**로 준다.
+	// (--from 은 이제 gil 이 직접 그 끝을 찾아 거기서 브랜치를 판다 — 사람이 git checkout
+	//  으로 옳은 커밋을 찾아다닐 필요가 없다.)
+	// **막는 자리는 대문 끝 하나다.** 닫힌 체인의 끝에 서 있는 것은 정당한 자리이고(그게
+	// 규칙이 말하는 '닫힌 체인 끝'이다), 거기까지 막으면 정상 흐름이 벽에 부딪힌다.
+	// 대문은 배포된 것만 오는 층이라, 거기서 난 체인은 앞선 체인 어느 것과도 안 이어진다.
+	// 커밋이 하나도 없는 저장소에서는 HEAD 가 없다 — 물어보다 죽지 않는다(gitTry).
+	curBranch := ""
+	if out, err := gitTry("rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+		curBranch = strings.TrimSpace(out)
+	}
+	atGate := curBranch != "" && curBranch == homeBranch()
+	if atGate && len(froms) == 0 && len(*parallelWith) == 0 && strings.TrimSpace(*orphanWhy) == "" && !hasDevLayer() {
+		var closedOnes []string
+		for c := range chainRoots("--branches") {
+			if chainClosed(c, "--branches") {
+				closedOnes = append(closedOnes, c)
+			}
+		}
+		sort.Strings(closedOnes)
+		if len(closedOnes) > 0 {
+			die("거부: 닫힌 체인이 있는데 이 체인이 어디서 이어받는지 말하지 않았다 — 지금 자리(" +
+				curBranch + ", 대문)에서 그냥 열면\n" +
+				"  그래프에 선 하나 없이 뜬다(커밋 조상관계는 '이어받음'을 뜻하지 않는다).\n" +
+				"  닫힌 체인: " + strings.Join(closedOnes, " ") + "\n" +
+				"  셋 중 하나를 골라라:\n" +
+				"    (1) 이어받는다 — gil chain " + name + " … --from " + closedOnes[len(closedOnes)-1] + "\n" +
+				"        (gil 이 그 닫힌 끝을 찾아 **거기서** 판다. 여럿에서 받으면 --from 을 반복하라.)\n" +
+				"    (2) 나란히 간다 — --parallel-with <열린 체인>\n" +
+				"    (3) 앞선 체인 없이 새로 선다 — --orphan <왜 이어받지 않나>\n" +
+				"  (층이 있는 저장소라면 시조는 dev 에서 나므로 이 물음이 뜨지 않는다:\n" +
+				"   gil migrate --adopt-dev 로 층을 인정하면 자리가 저절로 정해진다.)")
+		}
+	}
 	// ── 이 체인은 어느 자리에서 태어나나 ──────────────────────────────────────────
 	// dev 층이 있으면(main-dev-chain 레이아웃), --from 으로 계승을 선언하지 않은 체인은
 	// **dev 팁에서** 갈라진다 = 계보상 시조(orphan). 옛 문법에는 이 자리가 없어서 무관한
