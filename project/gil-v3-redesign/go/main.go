@@ -458,6 +458,10 @@ func cmdFsck(args []string) {
 	blind := devLayerBlindNotice()
 	noRef := noReferenceChainsNotice()
 	comp := competingNotice()
+	// 뒤처짐은 **위반이 아니다** — 체인은 갈라져 자라니 뒤처지는 것이 정상이다. 그러나
+	// 그 사이 dev 가 **이 트리의 파일을 고쳤다면** 낡은 값이 그 자리에 그대로 있어서 조용히
+	// 틀린다(이슈 #115). 그래서 세지 않고 **고지**한다(🪦·↩ 와 같은 자리).
+	behind := behindChainsNotice()
 	if len(v) == 0 {
 		println2("fsck: 위반 0 — 커밋 그래프 건강")
 		if blind != "" {
@@ -468,6 +472,9 @@ func cmdFsck(args []string) {
 		}
 		if comp != "" {
 			println2(comp)
+		}
+		if behind != "" {
+			println2(behind)
 		}
 		if prunedLine != "" {
 			println2(prunedLine)
@@ -486,6 +493,9 @@ func cmdFsck(args []string) {
 	}
 	if noRef != "" {
 		println2(noRef)
+	}
+	if behind != "" {
+		println2(behind)
 	}
 	if comp != "" {
 		println2(comp)

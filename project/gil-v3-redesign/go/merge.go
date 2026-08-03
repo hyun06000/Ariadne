@@ -55,6 +55,43 @@ func cmdMerge(args []string) {
 	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+target) {
 		die("거부: --into \"" + target + "\" 브랜치가 없다.")
 	}
+	// **층은 아래로 흐르지 않는다**(이슈 #115, 실사용). 체인이 dev 보다 한참 뒤처지면
+	// 그 트리엔 정본이 없다 — 그 자리에서 에이전트가 발명한 수가 `gil merge dev --into <체인>`
+	// 이었다. 충돌 0, 문법 통과, fsck 위반 0. 층 모델을 정면으로 거스르는데 아무것도 막지
+	// 않았고 사람이 잡았다.
+	//
+	// 왜 문법이 침묵했나: --help 가 **허용을 열거**하고 금지를 말하지 않았다. 열거형 문서
+	// 옆에 `<합칠 것> --into <받는 곳>` 이라는 일반형 문법이 있으면, 없는 항목은 금지가
+	// 아니라 **미기재**로 읽힌다. 그러니 열거가 아니라 방향을 검사한다.
+	if !isLayerBranch(target) {
+		var layers []string
+		for _, s := range pos {
+			if isLayerBranch(s) {
+				layers = append(layers, s)
+			}
+		}
+		if len(layers) > 0 {
+			msg := "거부: " + strings.Join(layers, " ") + " 를 " + target + " 로 합칠 수 없다 — **층은 아래로 흐르지 않는다.**\n" +
+				"  체인은 " + devBranchName + " 에서 갈라져 자라고, 끝나면 " + devBranchName + " 로 **올라간다**.\n" +
+				"  층을 체인으로 끌어오면 그 체인은 자기가 시작한 자리를 잃고, 이후의 합류는\n" +
+				"  '무엇이 이 체인의 성과인가'를 말할 수 없게 된다.\n"
+			// 이 수를 두려는 이유는 대개 하나다 — 뒤처져서 정본이 트리에 없다. 그 진단과
+			// 정당한 경로를 그 자리에서 준다(거부만 하고 길이 없으면 벽이다, #67).
+			if f := behindDev("refs/heads/" + target); f != nil && f.commits > 0 {
+				msg += "  진단: 이 체인은 " + devBranchName + " 보다 " + itoa(f.commits) + " 커밋 뒤처졌다"
+				if f.touched > 0 {
+					msg += "(그중 " + itoa(f.touched) + " 개가 이 트리의 파일을 건드린다)"
+				}
+				msg += ".\n"
+			}
+			msg += "  정당한 길은 **국면을 넘기는 것**이다:\n" +
+				"    gil chain-close " + target + " --retro <회고>\n" +
+				"    gil merge " + target + " --into " + devBranchName + " --reason <왜>\n" +
+				"    gil intake <슬러그> --ask <질문JSON>   →   gil chain <새 이름> --from-intake <슬러그> --ask-root\n" +
+				"  (새 체인은 " + devBranchName + " 의 지금 자리에서 갈라진다 — 정본을 처음부터 쥐고 시작한다.)"
+			die(msg)
+		}
+	}
 	if strings.TrimSpace(git("status", "--porcelain", "-uno")) != "" {
 		die("거부: 추적 파일에 미커밋 변경이 있다 — 머지 전 정리하라")
 	}

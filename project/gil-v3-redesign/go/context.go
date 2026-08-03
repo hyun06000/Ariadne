@@ -290,6 +290,13 @@ func lineageBrief(chain, cycle string) []string {
 	if ln := devForkLine(chain); ln != "" {
 		L = append(L, ln)
 	}
+	// 그리고 **얼마나** 뒤처졌나(이슈 #115). 위 한 줄은 정도를 말하지 않아, 2 커밋 뒤처진
+	// 체인과 232 커밋 뒤처진 체인이 같은 문장으로 나왔다 — 읽는 쪽이 위험을 못 잰다.
+	// 파일이 겹칠 때만 말한다: 안 겹치면 뒤처짐은 정상이고, 겹치면 그건 미기재가 아니라
+	// **덮어쓸 예정인 것**이다.
+	if ln := behindLine(chain, "  "); ln != "" {
+		L = append(L, ln)
+	}
 	anc := cycleAncestry(chain, cycle)
 	if len(anc) == 0 {
 		L = append(L, "  조상 사이클 없음 — 이 사이클이 이 계보의 시작이다.")

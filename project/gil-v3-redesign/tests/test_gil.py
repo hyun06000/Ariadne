@@ -11401,3 +11401,67 @@ class TestFoldingWithoutFabricating(GilFixture):
                            "--title", "건너뛴 검증", "--body", "측정")
         self.assertNotEqual(r.returncode, 0, "define 뒤 verify 까지 열렸다")
         self.assertIn("순서를 건너뛴다", r.stdout + r.stderr)
+
+
+class TestLayersDoNotFlowDownhill(GilFixture):
+    """**층은 아래로 흐르지 않는다** (이슈 #115, 실사용 리포트).
+
+    체인이 dev 보다 232 커밋 뒤처져 정본이 트리에 없었다. 그 자리에서 에이전트가 발명한 수가
+    `gil merge dev --into <체인>` 이었다 — 충돌 0, 문법 통과, fsck 위반 0. 층 모델을 정면으로
+    거스르는데 아무것도 막지 않았고 **사람이 잡았다.**
+
+    문법이 침묵한 이유: `merge --help` 가 허용을 **열거**하고 금지를 말하지 않았다. 열거형
+    문서 옆에 일반형 문법이 있으면, 없는 항목은 금지가 아니라 **미기재**로 읽힌다.
+
+    그리고 뒤처짐은 정도와 함께 말해야 한다 — 2 커밋과 232 커밋이 같은 문장으로 나오면 읽는
+    쪽이 위험을 못 잰다. 파일이 겹치지 않으면 조용해도 된다: 위험한 것은 그 사이 dev 가
+    **이 트리의 파일을 고쳤을 때**다(낡은 값이 그 자리에 있어서 조용히 틀린다)."""
+
+    def _behind_chain(self, overlap=True):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "ch", "--purpose", "서빙")
+        self._git("checkout", "-q", "ch")
+        with open(os.path.join(self.repo, "leaderboard.md"), "w") as f:
+            f.write("7조항\n1위 0.8490\n")
+        self._git("add", "leaderboard.md")
+        self._git("commit", "-qm", "리더보드 초판(체인 트리)")
+        self._git("checkout", "-q", "dev")
+        name = "leaderboard.md" if overlap else "unrelated.md"
+        with open(os.path.join(self.repo, name), "w") as f:
+            f.write("8조항\n1위 0.8512\n")
+        self._git("add", name)
+        self._git("commit", "-qm", "dev 가 앞서 나간다")
+        self._git("checkout", "-q", "ch")
+
+    def test_merging_a_layer_into_a_chain_is_refused(self):
+        self._behind_chain()
+        r = self.gil("merge", "dev", "--into", "ch", "--reason", "정본을 가져온다", "--allow-open")
+        self.assertNotEqual(r.returncode, 0, "층을 체인으로 끌어오는 것이 통과했다")
+        out = r.stdout + r.stderr
+        self.assertIn("층은 아래로 흐르지 않는다", out)
+        self.assertIn("chain-close", out, "거부만 하고 정당한 길을 안 줬다(#67)")
+
+    def test_the_refusal_diagnoses_why_that_move_was_invented(self):
+        """그 수를 두려는 이유는 대개 하나다 — 뒤처져서 정본이 트리에 없다."""
+        self._behind_chain()
+        r = self.gil("merge", "dev", "--into", "ch", "--reason", "정본", "--allow-open")
+        self.assertIn("뒤처졌다", r.stdout + r.stderr, "진단이 없다 — 사람은 왜 막혔는지 모른다")
+
+    def test_a_chain_going_up_to_dev_is_still_allowed(self):
+        """올라가는 것은 정상이다 — 넓게 막으면 정당한 흐름이 벽에 부딪힌다."""
+        self._behind_chain(overlap=False)
+        r = self.gil("merge", "ch", "--into", "dev", "--reason", "끝난 체인을 층으로", "--allow-open")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_being_behind_is_named_with_its_degree_and_the_files(self):
+        """정도를 말하지 않으면 위험을 못 잰다. 그리고 **무엇이 겹치는지**가 핵심이다."""
+        self._behind_chain()
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertIn("뒤처졌", out, "fsck 가 뒤처짐을 한 마디도 안 했다:\n" + out)
+        self.assertIn("leaderboard.md", out, "겹치는 파일을 안 짚었다")
+
+    def test_a_chain_behind_but_not_overlapping_stays_quiet(self):
+        """파일이 안 겹치면 뒤처짐은 정상이다 — 늘 짖으면 아무도 안 듣는다."""
+        self._behind_chain(overlap=False)
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertNotIn("뒤처졌", out, "겹치지도 않는데 경고했다:\n" + out)

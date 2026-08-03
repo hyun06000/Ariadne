@@ -509,3 +509,137 @@ func devLayerNudge() {
 	stderr("    나무 전체를 main-dev-chain 으로 옮기려면(먼저 무엇이 일어날지 본다):")
 	stderr("      gil migrate --to-dev-layout --dry-run")
 }
+
+// ── 뒤처짐 (이슈 #115) ────────────────────────────────────────────────────────
+//
+// **정도를 말하지 않으면 읽는 쪽이 위험을 못 잰다.** 옛 층 브리핑은 "그 뒤의 dev 는 아직
+// 모른다"는 한 문장으로 끝났다 — 2 커밋 뒤처진 체인과 232 커밋 뒤처진 체인이 같은 문장으로
+// 나왔다. 실사용에서 232 커밋 뒤처진 체인에 새 사이클이 열렸고, 그 사이클의 반증조건에 쓸
+// 숫자가 트리에 아예 없었다. 에이전트는 층을 거스르는 수(dev 를 체인으로 끌어오기)를
+// 발명했고 문법도 fsck 도 막지 않았다. 사람이 잡았다.
+//
+// 그리고 **파일을 건드렸는지**가 핵심이다. 뒤처짐 자체는 정상이다(체인은 갈라져 자란다).
+// 위험한 것은 그 사이 dev 가 **이 트리의 파일을 고쳤을 때**다 — 그때 낡은 값이 그 자리에
+// 그대로 있어서 조용히 틀린다. 파일이 안 겹치면 조용해도 된다.
+type behindFacts struct {
+	commits int      // 이 체인 이후 dev 에 쌓인 커밋 수
+	touched int      // 그중 이 체인의 트리 파일을 건드린 커밋 수
+	files   []string // 겹치는 파일(앞 몇 개)
+}
+
+// behindDev — 체인(또는 임의의 ref)이 dev 보다 얼마나 뒤처졌나. 층이 없으면 nil.
+func behindDev(ref string) *behindFacts {
+	if !hasDevLayer() {
+		return nil
+	}
+	dev := devBranchName
+	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+dev) {
+		return nil
+	}
+	if !gitOK("rev-parse", "--verify", "-q", ref) {
+		return nil
+	}
+	// dev 에는 있고 이 체인에는 없는 커밋들.
+	out, err := gitTry("rev-list", ref+".."+dev)
+	if err != nil {
+		return nil
+	}
+	shas := strings.Fields(strings.TrimSpace(out))
+	f := &behindFacts{commits: len(shas)}
+	if f.commits == 0 {
+		return f
+	}
+	// 그 커밋들이 건드린 파일 중, **이 체인의 트리에도 있는** 것. 없으면 겹치지 않는다.
+	mine := map[string]bool{}
+	if t, err := gitTry("ls-tree", "-r", "--name-only", ref); err == nil {
+		for _, p := range strings.Split(strings.TrimSpace(t), "\n") {
+			if p = strings.TrimSpace(p); p != "" {
+				mine[p] = true
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, sha := range shas {
+		ch, err := gitTry("show", "--name-only", "--format=", sha)
+		if err != nil {
+			continue
+		}
+		hit := false
+		for _, p := range strings.Split(strings.TrimSpace(ch), "\n") {
+			p = strings.TrimSpace(p)
+			if p == "" || !mine[p] {
+				continue
+			}
+			hit = true
+			if !seen[p] {
+				seen[p] = true
+				if len(f.files) < 5 {
+					f.files = append(f.files, p)
+				}
+			}
+		}
+		if hit {
+			f.touched++
+		}
+	}
+	return f
+}
+
+// behindLine — 뒤처짐을 **정도와 함께** 한 줄로. 겹치는 파일이 없으면 조용하다(빈 문자열).
+// 겹쳤으면 그건 미기재가 아니라 **덮어쓸 예정인 것**이다 — 명령형으로 다음 수를 준다.
+func behindLine(chain, indent string) string {
+	f := behindDev("refs/heads/" + chain)
+	if f == nil || f.touched == 0 {
+		return ""
+	}
+	files := strings.Join(f.files, ", ")
+	if len(f.files) == 5 {
+		files += " …"
+	}
+	return indent + "⚠ 이 체인은 " + devBranchName + " 보다 " + itoa(f.commits) + " 커밋 뒤처졌고, " +
+		"그중 " + itoa(f.touched) + " 개가 **이 트리의 파일을 건드린다**: " + files + "\n" +
+		indent + "  그 파일의 이 트리 판본은 낡았다 — 여기서 낸 결과를 " + devBranchName +
+		" 로 합치면 새 판을 옛 판으로 덮는다.\n" +
+		indent + "  정당한 길은 국면을 넘기는 것이다(" + devBranchName + " 를 체인으로 끌어오는 것이 아니라):\n" +
+		indent + "    gil chain-close " + chain + " --retro <회고> → gil merge " + chain + " --into " +
+		devBranchName + " --reason <왜> → gil intake <슬러그> --ask … → gil chain <새 이름> --from-intake …"
+}
+
+// isLayerBranch — 이 이름이 **층**인가(대문·dev). 체인·사이클 브랜치와 가르는 자리다.
+// 층은 선언으로 정해진다(layout 의 다른 판정과 같은 원칙): 대문은 homeBranch(), 층은 dev.
+func isLayerBranch(name string) bool {
+	n := strings.TrimSpace(name)
+	if n == "" {
+		return false
+	}
+	// refs/heads/dev · origin/dev 같은 형태로 와도 같은 것으로 본다.
+	if i := strings.LastIndex(n, "/"); i >= 0 {
+		if s := n[i+1:]; s != "" {
+			n = s
+		}
+	}
+	return n == devBranchName || n == homeBranch() || n == "main" || n == "master"
+}
+
+// behindChainsNotice — fsck 가 내는 뒤처짐 고지(이슈 #115). 열린 체인 중 **파일이 겹치도록**
+// 뒤처진 것만 부른다. 위반이 아니라 고지인 이유: 뒤처짐 자체는 정상이고(체인은 갈라져
+// 자란다), 위험한 것은 정본이 트리에 없는 채로 결과를 내는 것이다.
+func behindChainsNotice() string {
+	if !hasDevLayer() {
+		return ""
+	}
+	var L []string
+	for _, c := range openChains() {
+		f := behindDev("refs/heads/" + c)
+		if f == nil || f.touched == 0 {
+			continue
+		}
+		L = append(L, "  ⌛ 체인 "+c+" 은 "+devBranchName+" 보다 "+itoa(f.commits)+" 커밋 뒤처졌고, 그중 "+
+			itoa(f.touched)+" 개가 이 트리의 파일을 건드린다("+strings.Join(f.files, ", ")+").")
+	}
+	if len(L) == 0 {
+		return ""
+	}
+	return strings.Join(L, "\n") + "\n     낡은 값이 그 자리에 있어서 **조용히 틀린다** — 정본을 끌어오지 말고 국면을 넘겨라\n" +
+		"     (chain-close → merge <chain> --into " + devBranchName + " → intake → chain --from-intake)."
+}
