@@ -9295,7 +9295,9 @@ class TestCycleOutputsFindTheirWayToTheChain(GilFixture):
         self.gil("open", "c/c001", "--author", "clew", "--purpose", "작은 문제")
         self.gil("step", "c/c001", "--kind", "success", "--title", "성공")
         r = self.gil("close", "c/c001", "--verdict", "supported")
-        self.assertNotIn("--into c", r.stdout + r.stderr,
+        # 형제 분기 안내(다음 사이클)는 늘 나온다 — 여기서 지키는 것은 **산출물 합류** 쪽이다:
+        # 옮길 파일이 없는데 "산출물이 체인에 없다"고 말하면 그 경고는 곧 무시된다.
+        self.assertNotIn("체인 트리에 없다", r.stdout + r.stderr,
                          "합류할 산출물이 없는데 합류하라고 했다")
 
     def test_open_says_it_before_the_agent_hits_the_gap(self):
@@ -9461,6 +9463,95 @@ class TestTheCycleEndIsAFactNotAName(GilFixture):
                          "부모 사이클의 종결에서 갈라지지 않았다")
         self.assertNotEqual(self._git("merge-base", "--is-ancestor", dead, s1).returncode, 0,
                             "버려진 가설 위에서 새 사이클이 났다 — 정정이 무의미해진다")
+
+
+class TestTheToolTeachesBranchingAndConfluence(GilFixture):
+    """**문법에 있는데 안내가 없으면 없는 것과 같다** (상현님 실사용 관측).
+
+    셋이 같은 병이었다:
+      · 한 결론에서 갈래가 둘이면 에이전트가 사람에게 "하나만 골라 달라"고 묻거나 일자로 이었다.
+      · 여러 닫힌 체인의 지식을 하나로 모으는 길(gil merge a b --into c)을 아무도 안 썼다.
+      · 체인을 먼저 만들고 인터뷰를 나중에 했다 — 그러면 목적은 늘 에이전트의 창작이다.
+
+    그리고 **체인이 끝나는 자리의 안내가 옛 순서를 계속 가르치고 있었다**: NEXT 가 곧장
+    `gil chain <name> --purpose <목적>` 을 가리켰다. 이슈 #90 이 intake 를 만든 바로 그
+    모양을, 정작 다음 국면이 시작되는 자리가 재생산하고 있었다."""
+
+    def _full_cycle(self, chain, cycle, *extra):
+        self.gil("open", f"{chain}/{cycle}", "--author", "clew", "--purpose", cycle, "--body", "정의", *extra)
+        self.gil("step", f"{chain}/{cycle}", "--kind", "success", "--title", "성공")
+        return self.gil("close", f"{chain}/{cycle}", "--verdict", "supported")
+
+    def test_close_recommends_branching_into_siblings(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        r = self._full_cycle("c", "c001")
+        out = r.stdout + r.stderr
+        self.assertIn("하나일 필요는 없다", out, "다음이 하나뿐인 것처럼 안내했다:\n" + out)
+        self.assertIn("--parent c001", out)
+        self.assertIn("차례로", out, "동시에 열 수 있는 것처럼 안내하면 그대로 실패한다")
+        self.assertIn("--into c", out, "형제를 나중에 합치는 길을 안 보여줬다")
+
+    def test_siblings_really_fork_in_the_graph(self):
+        """권하기만 하고 안 되면 더 나쁘다 — 같은 부모에서 둘이 실제로 갈라져야 한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._full_cycle("c", "c001")
+        # 사이클은 한 번에 하나만 열린다 — 갈래는 **동시가 아니라 차례로** 난다.
+        # (안내도 그렇게 말해야 한다: 처음엔 동시에 열 수 있는 것처럼 적었다가 그대로 실패했다.)
+        for cy in ("c002", "c003"):
+            r = self.gil("open", f"c/{cy}", "--author", "clew", "--purpose", cy,
+                         "--body", "정의", "--parent", "c001", "--inherit", "c001 의 결론")
+            self.assertEqual(r.returncode, 0, f"{cy} 를 형제로 못 열었다:\n" + r.stdout + r.stderr)
+            self.gil("step", f"c/{cy}", "--kind", "success", "--title", "성공")
+            self.gil("close", f"c/{cy}", "--verdict", "supported")
+        import json, re
+        out_html = os.path.join(self.repo, "g.html")
+        self.gil("viewer", "build", "--out", out_html)
+        with open(out_html, encoding="utf-8") as f:
+            dag = json.loads(re.search(r'id="dagdata"[^>]*>(.*?)</script>', f.read(), re.S).group(1))
+        by = {n["sha"]: n for n in dag}
+        kids = {}
+        for n in dag:
+            for p in n["parents"]:
+                if p in by:
+                    kids.setdefault(p, []).append(n["cycle"])
+        forks = [v for v in kids.values() if len(set(v)) > 1]
+        self.assertTrue(forks, "형제로 열었는데 그래프가 일직선이다")
+
+    def test_chain_close_teaches_intake_first_not_purpose_first(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._full_cycle("c", "c001")
+        r = self.gil("chain-close", "c", "--verdict", "success")
+        out = r.stdout + r.stderr
+        self.assertIn("gil intake", out, "다음 국면을 인터뷰부터 시작하라고 안 했다:\n" + out)
+        self.assertIn("--ask-root", out, "어디서 이어받을지 묻는 길을 안 보여줬다")
+        self.assertNotIn("gil chain <name> --purpose", out,
+                         "목적을 에이전트가 짓는 옛 순서를 아직 가르친다")
+
+    def test_a_chain_made_without_intake_says_who_wrote_the_purpose(self):
+        """막지는 않되, 무슨 일이 일어났는지는 말한다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("chain", "c", "--purpose", "내가 지은 목적")
+        out = r.stdout + r.stderr
+        self.assertIn("네가 쓴 문장", out, "목적을 누가 지었는지 말하지 않았다:\n" + out)
+        self.assertIn("--from-intake", out)
+
+    def test_a_chain_made_from_intake_is_not_scolded(self):
+        """정본 경로로 왔으면 조용해야 한다 — 늘 짖으면 아무도 안 듣는다."""
+        self.gil("init", "--name", "clew")
+        self.gil("intake", "nx", "--ask", "-", input='[{"q":"무엇을 풀려는가","type":"text"}]')
+        # --resolve 는 JSON 이 아니라 "## 질문 / 답" 문서를 받는다(뷰어 폼이 그렇게 써낸다).
+        ans = os.path.join(self.repo, "ans.md")
+        with open(ans, "w", encoding="utf-8") as f:
+            f.write("## 무엇을 풀려는가\n사람이 세운 목적이다\n")
+        r = self.gil("intake", "nx", "--resolve", ans)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.gil("chain", "c", "--from-intake", "nx", "--purpose-from", "1", "--criterion-from", "1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("네가 쓴 문장", r.stdout + r.stderr,
+                         "사람의 답에서 인용했는데 창작이라 했다")
 
 
 class TestViewerLanguages(GilFixture):

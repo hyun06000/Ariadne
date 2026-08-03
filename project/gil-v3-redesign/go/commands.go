@@ -2167,6 +2167,17 @@ func cmdClose(args []string) {
 	for _, ln := range mergeIntoChainHint(chain, cycle) {
 		println2(ln)
 	}
+	// **다음이 하나여야 할 이유가 없다.** 닫힌 사이클은 자식을 여럿 낳을 수 있고(같은 --parent
+	// 로 여러 번 연다), 그게 gil 이 그리려는 사고의 모양이다. 그런데 안내가 늘 한 갈래만
+	// 가리켜서, 에이전트는 갈래가 여럿일 때 사람에게 "하나만 골라 달라"고 묻거나 일자로
+	// 이어붙였다(상현님 실사용). 문법에 있는 것을 안내가 안 보여주면 없는 것과 같다.
+	println2("NEXT 다음 사이클은 이 끝에서 난다 — **하나일 필요는 없다**:")
+	println2("      gil open " + chain + "/<다음> --parent " + cycle + " --inherit <무엇을 물려받나> --purpose <작은 문제>")
+	println2("    ▸ 이 결론에서 갈래가 둘 이상이면 **사람에게 '하나만 고르라'고 묻지 마라.** 차례로 다 밟아라:")
+	println2("      한 가지를 열어 끝까지 밟고 닫은 뒤, **같은 --parent " + cycle + " 로 다시 열면** 형제로 갈라진다")
+	println2("      (사이클은 한 번에 하나만 열린다 — 갈래는 동시가 아니라 차례로 난다).")
+	println2("      그렇게 갈라 둔 뒤 살아남은 것들을 합치는 것이 이 도구가 그리려는 모양이다:")
+	println2("        gil merge " + chain + "/<가지A> " + chain + "/<가지B> --into " + chain + " --reason <왜 한 줄기가 되나>")
 }
 
 // mergeIntoChainHint — 닫은 사이클의 **산출물 파일**이 체인 트리에 없으면, 합류 경로를 준다
@@ -3156,7 +3167,15 @@ func cmdChainClose(args []string) {
 	if retroBody != "" {
 		println2("  회고 심음(기준 대비 달성도) — 이 체인의 성적표가 그래프에 남았다.")
 	}
-	println2("NEXT 닫힌 체인의 끝에서 새 체인을 연다: gil chain <name> --purpose <다음 국면의 목적>")
+	// **다음 국면은 목적을 창작하는 것으로 시작하지 않는다.** 옛 안내는 곧장
+	// `gil chain <name> --purpose <목적>` 을 가리켰다 — 그러면 에이전트가 목적을 지어내고
+	// 사람은 승인만 한다(이슈 #90 이 intake 를 만든 바로 그 이유인데, 정작 체인이 끝나는
+	// 자리의 안내가 옛 순서를 계속 가르치고 있었다). 그리고 **어디서 이어받을지**도 그 답을
+	// 보고 정해야 하는데, 그 물음 자체가 안내에 없었다(상현님 실사용: 체인이 끝나면 목적
+	// 없이 인터뷰를 다시 시작해 계승이냐 시조냐를 정해야 하는데 그렇게 안 하더라).
+	for _, ln := range afterChainCloseNext(chain) {
+		println2(ln)
+	}
 	if seedBody != "" {
 		println2("     시드를 남겼다 — 다음 체인의 인터뷰 질문을 이 시드에서 짜라(시드는 기준이 아니다.")
 		println2("     기준은 언제나 사람의 답이다: gil interview <새체인> --ask ...).")
@@ -3485,6 +3504,19 @@ func cmdChain(args []string) {
 		println2("  ⌂ dev 층에서 갈라졌다 — 계보상 시조(앞선 체인 없음). 대문은 그대로 물려받는다.")
 	} else if !hasDevLayer() {
 		devLayerNudge()
+	}
+	// **누가 이 목적을 지었나.** --from-intake 로 열면 목적은 사람의 답에서 **인용**된다.
+	// 그 길을 안 탔으면 이 문장은 네가 지은 것이고, 사람은 승인만 하게 된다 — 이슈 #90 이
+	// intake 를 만든 바로 그 모양이다. 막지는 않는다(기준을 이미 손에 쥔 정당한 경우가 있다).
+	// 다만 **무슨 일이 일어났는지는 말한다** — 실사용에서 체인을 먼저 만들고 인터뷰를 나중에
+	// 하는 순서가 계속 나왔고, 그 순서에서는 목적이 늘 에이전트의 창작이었다.
+	if strings.TrimSpace(*fromIntake) == "" {
+		stderr("  ⚠ 이 목적은 **네가 쓴 문장**이다 — 사람의 답에서 인용된 것이 아니다.")
+		stderr("    정본은 체인보다 **먼저** 묻는 것이다(이슈 #90): 목적도, 어디서 갈라질지도 사람의 답에서 나온다.")
+		stderr("      gil intake <슬러그> --ask <질문JSON>   →   gil intake <슬러그> --ask-root")
+		stderr("      gil chain <이름> --from-intake <슬러그> --purpose-from <번호> --criterion-from <번호>")
+		stderr("    체인을 먼저 만들고 나중에 gil interview 로 묻는 순서는 이 자리를 되돌리지 못한다 —")
+		stderr("    목적은 이미 박혔고, 인터뷰는 그 목적을 승인받는 절차가 된다.")
 	}
 	if strings.TrimSpace(refBody) != "" {
 		println2("  ✓ 기준 문서(레퍼런스 트루스) 심음 — 이후 사이클의 define·가설·성패판정이 이걸 잣대로 선다.")
@@ -3837,4 +3869,45 @@ func unmergedSiblingsHint(chain string) []string {
 		L = append(L, "      gil merge "+chain+"/"+id+" --into "+chain+" --reason <왜 체인의 것인가>")
 	}
 	return append(L, "    (트리 복사로 때우면 내용은 옮겨지지만 합류 간선이 안 남아 그래프에서 승계가 사라진다.)")
+}
+
+// afterChainCloseNext — 체인을 닫은 뒤의 정본 순서. 셋을 이 순서로 가리킨다:
+// 합류(이 국면을 층으로) → **개시 인터뷰**(다음 목적은 사람의 답에서) → 뿌리 묻기(계승/시조).
+//
+// 그리고 **닫힌 체인이 여럿이면 합류를 권한다.** 여러 국면의 지식을 하나로 모으는 것은 문법에
+// 있는데(gil merge a b --into c) 안내에 없어서 아무도 안 썼다 — 그래서 나무가 일자로만 자랐다.
+func afterChainCloseNext(chain string) []string {
+	var L []string
+	if hasDevLayer() && !gitOK("merge-base", "--is-ancestor", chain, devBranchName) {
+		L = append(L,
+			"NEXT ① 이 국면을 층으로 합류시켜라 — 다음 체인이 여기서 갈라진다:",
+			"      gil merge "+chain+" --into "+devBranchName+" --reason <왜 이 국면이 층의 것인가>")
+	}
+	// 닫혔는데 아직 dev 로 안 간 형제 체인들 — 여럿이면 **하나로 모으는 길**을 보여준다.
+	var alone []string
+	roots := chainRoots("--branches")
+	for c := range roots {
+		if c == chain || !chainClosed(c, "--branches") {
+			continue
+		}
+		if hasDevLayer() && gitOK("merge-base", "--is-ancestor", c, devBranchName) {
+			continue // 이미 층에 모였다
+		}
+		alone = append(alone, c)
+	}
+	if len(alone) > 0 {
+		sort.Strings(alone)
+		all := append([]string{chain}, alone...)
+		L = append(L,
+			"  ⌘ 닫힌 체인이 더 있다: "+strings.Join(alone, " ")+
+				" — **여러 국면의 지식을 하나로 모을 수 있다**(일자로만 자랄 이유가 없다):",
+			"      gil merge "+strings.Join(all, " ")+" --into <모으는 체인|"+devBranchName+"> --reason <왜 한 줄기가 되나>")
+	}
+	return append(L,
+		"NEXT ② 다음 국면은 **개시 인터뷰부터**다 — 목적을 네가 짓지 마라(이슈 #90):",
+		"      gil intake <슬러그> --ask <질문JSON>        사람에게 먼저 묻는다",
+		"      gil intake <슬러그> --ask-root              **어디서 이어받을지**를 묻는다(후보는 그래프가 낸다)",
+		"      gil chain <새이름> --from-intake <슬러그> --purpose-from <질문번호> --criterion-from <번호>",
+		"    ▸ 이 체인("+chain+")을 이어받을지, 아무것도 안 이어받는 시조로 갈지는 **사람이 정한다**.",
+		"      네가 고르지 말고 --ask-root 로 물어라 — 그 답이 곧 분기 자리다.")
 }
