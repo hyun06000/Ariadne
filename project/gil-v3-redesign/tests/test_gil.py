@@ -11334,3 +11334,70 @@ class TestViewerShowsTheCompetition(GilFixture):
         self.assertNotEqual(r.returncode, 0,
                             "선언 없는 미종결 잎을 두고 떠나는 것까지 열렸다:\n" + r.stdout + r.stderr)
         self.assertIn("종결 없이 떠날 수 없다", r.stdout + r.stderr)
+
+
+class TestFoldingWithoutFabricating(GilFixture):
+    """**도구가 날조 아니면 미종결을 강요하면 안 된다** (이슈 #115 후속, 실사용 리포트).
+
+    잘못된 자리에서 열린 사이클을 정직하게 접으려 했더니 접을 문법이 없었다:
+    `close --abandon` 은 fail 잎을 요구하고, fail 잎을 박으려면 define→hypothesis→verify→
+    analyze 를 다 걸어야 하고, verify 는 `--verdict` 를 요구한다 — 즉 **하지 않은 측정의
+    판정**을 쓰라는 압력이다. `--kind pending` 으로 우회하려 해도 순서 검사가 두 번 거부했다.
+
+    남은 선택은 셋뿐이었다: 날조하거나, 영구 미종결로 두거나, 하려던 것과 다른 작업을 한
+    벌 더 하거나. 어휘가 부족하면 기록이 거짓말한다(#80 과 같은 논거)."""
+
+    def _empty_cycle(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "ch", "--purpose", "정리")
+        self.gil("open", "ch/c001", "--author", "clew", "--purpose", "잘못된 자리에서 열렸다",
+                 "--fits", "정리 대상", "--body", "여기서 열지 말았어야 했다")
+
+    def test_abandon_without_a_reason_is_refused_but_shown_the_way(self):
+        """이유 없는 포기는 나중에 판단이었는지 방치였는지 모른다 — 거부하되 길을 준다."""
+        self._empty_cycle()
+        r = self.gil("close", "ch/c001", "--abandon")
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout + r.stderr
+        self.assertIn("--reason", out, "접을 길을 안 줬다:\n" + out)
+        self.assertIn("없는 관측의 판정", out, "왜 가짜 fail 을 박으면 안 되는지 말하지 않았다")
+
+    def test_a_cycle_with_no_dead_leaf_can_be_abandoned_with_a_reason(self):
+        """포기 선언 자체가 종결이다 — fail 잎을 또 요구하는 것은 중복이고, 그 중복이 날조 압력이다."""
+        self._empty_cycle()
+        r = self.gil("close", "ch/c001", "--abandon", "--reason",
+                     "체인이 dev 보다 232 커밋 뒤처져 이 자리에서 열지 말았어야 했다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        log = self._git("log", "--all", "--format=%B").stdout
+        self.assertIn("232 커밋 뒤처져", log, "왜 접었는지가 그래프에 안 남았다")
+        self.assertIn("Gil-Abandoned-Leaf: s1", log, "이 포기가 무엇을 접었는지 안 적혔다")
+
+    def test_fsck_does_not_re_demand_a_terminal_for_an_abandoned_cycle(self):
+        """접은 것을 다시 위반이라 하면, 그 압력이 그대로 돌아온다(가짜 잎을 박게 만든다)."""
+        self._empty_cycle()
+        self.gil("close", "ch/c001", "--abandon", "--reason", "여기서 접는다")
+        r = self.gil("fsck")
+        self.assertIn("위반 0", r.stdout + r.stderr,
+                      "포기 선언으로 접힌 사이클을 다시 짚었다:\n" + r.stdout + r.stderr)
+
+    def test_pending_is_legitimate_right_after_define(self):
+        """**pending 은 사고의 다음 걸음이 아니라 사고를 멈추고 사람에게 넘기는 것**이다.
+
+        human-in-the-loop.md 가 "문제 정의가 불명확하면 가설을 세우기 전에 먼저 사람에게
+        물어라"라고 권하는데, 정작 그 동작이 순서 검사에 막혀 있었다 — 문서가 권하는 것을
+        문법이 거부하면 사람은 문서를 안 믿거나 문법을 우회한다."""
+        self._empty_cycle()
+        r = self.gil("step", "ch/c001", "--kind", "pending", "--title", "사람에게 묻는다",
+                     "--toward", "정의가 불명확하다", "--next-design", "사람 답 뒤에 가설",
+                     "--body", "무엇을 풀지부터 정해 주십시오")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("pending", self._git("log", "--all", "--format=%B").stdout)
+
+    def test_the_order_check_still_governs_everything_else(self):
+        """면제는 pending 하나다 — 넓히면 순서 검사가 형해화한다."""
+        self._empty_cycle()
+        # 시험 하네스의 순서 자동보정을 우회한다 — 여기서 보려는 것이 그 순서 강제다.
+        r = self._raw_step("ch/c001", "--kind", "verify", "--verdict", "supported",
+                           "--title", "건너뛴 검증", "--body", "측정")
+        self.assertNotEqual(r.returncode, 0, "define 뒤 verify 까지 열렸다")
+        self.assertIn("순서를 건너뛴다", r.stdout + r.stderr)

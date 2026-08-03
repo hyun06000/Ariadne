@@ -332,6 +332,27 @@ func closedCycles(revRange string) map[string]bool {
 	return set
 }
 
+// abandonedCycles — **포기 선언으로 접힌** 사이클들(이슈 #115 후속). `close --abandon` 은
+// "사람이 이 define 을 막다른 길로 판단해 접는다"는 선언이고, 그 선언 자체가 종결이다.
+// 그러니 그 사이클에 미종결 잎이 남아 있어도 위반이 아니다 — 위반이라 하면, 접으려는
+// 사람에게 **없는 관측의 판정**(가짜 verify)을 만들라는 압력이 된다. 접힌 잎의 이름은
+// 그 close 커밋에 `Gil-Abandoned-Leaf` 로 남는다(없는 것과 안 적은 것은 다르다).
+func abandonedCycles(revRange string) map[string]bool {
+	fmtStr := trailer("Gil-Chain") + fsep + trailer("Gil-Cycle") + fsep + trailer("Gil-Abandoned") + sep
+	set := map[string]bool{}
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, revRange), sep) {
+		parts := strings.SplitN(rec, fsep, 3)
+		if len(parts) < 3 {
+			continue
+		}
+		ch, cy, ab := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
+		if ab == "true" && ch != "" && cy != "" {
+			set[ch+"\x01"+cy] = true
+		}
+	}
+	return set
+}
+
 // chainHasChildren — 이 체인을 부모로 선언한 다른 체인이 있는가. 참조: chain_has_children.
 func chainHasChildren(chain, revRange string) bool {
 	out := gitlog("--format="+trailer("Gil-Chain-Parent"), revRange)
@@ -350,6 +371,8 @@ func stepKey(c, cy, s string) string { return c + "\x01" + cy + "\x01" + s }
 // nodes=검사 대상, universe=참조 실재 확인용 전체(부모가 범위 밖이어도 실재하면 통과).
 func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map[string]bool) []string {
 	var violations []string
+	// 포기 선언으로 접힌 사이클(이슈 #115 후속) — 그 잎들은 종결을 요구하지 않는다.
+	abandoned := abandonedCycles("--branches")
 	if universe == nil {
 		universe = nodes
 	}
@@ -457,6 +480,7 @@ func fsck(nodes []node, chainsKnown map[string]bool, universe []node, closed map
 		//     define 로 매달려 끝나면 안 된다(상현님 실사용: analyze 뒤 종결 노드 없음).
 		//     열린 사이클의 잎은 진행 중일 수 있어 검사에서 뺀다.
 		if n.cycle != "" && closed[n.chain+"\x01"+n.cycle] &&
+			!abandoned[n.chain+"\x01"+n.cycle] &&
 			!hasChild[stepKey(n.chain, n.cycle, n.step)] &&
 			!gone[stepKey(n.chain, n.cycle, n.step)] &&
 			!isLiveLeaf(n) && !isDeadLeaf(n) && n.kind != "pending" {

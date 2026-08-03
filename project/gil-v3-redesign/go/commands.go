@@ -1304,7 +1304,14 @@ func cmdStep(args []string) {
 	// 정정(--supersede)도 순서 면제 — 정정은 '다음 스텝'이 아니라 '같은 자리 다시 쓰기'다.
 	isBranching := (*kind == "hypothesis" && *to != "") || *outcome == "backtrack" ||
 		len(*merge) > 0 || strings.TrimSpace(*supersede) != ""
-	if tip != nil && !isBranching {
+	// **pending 은 어느 자리에서든 정당하다**(이슈 #115 후속). pending 은 사고의 다음 걸음이
+	// 아니라 **사고를 멈추고 사람에게 넘기는 것**이다. 그런데 순서 검사가 define 뒤·hypothesis
+	// 뒤의 pending 을 "순서를 건너뛴다"로 거부했다 — `human-in-the-loop.md` 가 "문제 정의가
+	// 불명확하면 가설을 세우기 전에 먼저 사람에게 물어라"라고 권하는 바로 그 동작이 문법으로
+	// 막혀 있었다. 그 결과 실사용에서 남은 선택은 셋뿐이었다: 없는 관측의 판정을 쓰거나
+	// (날조), 사이클을 영구히 열어 두거나, 하려던 것과 다른 작업을 한 벌 더 하거나.
+	// 어휘가 부족하면 기록이 거짓말한다(#80 과 같은 논거).
+	if tip != nil && !isBranching && *kind != "pending" {
 		// tip.kind 별로 선형 다음에 허용되는 kind 집합.
 		allowedNext := map[string]map[string]bool{
 			"define":     {"hypothesis": true},
@@ -2048,6 +2055,9 @@ func cmdClose(args []string) {
 	// 어휘가 부족하면 기록이 거짓말한다.
 	goalPartial := fs.str("goal-partial", "")       // 무엇을 못 했는지(필수 인자) — 그 조각이 그래프에 남는다
 	goalImpossible := fs.str("goal-impossible", "") // 원리적 달성 불가를 **확인**했다 — 실패가 아니라 발견
+	// --reason <왜 접나> (이슈 #115 후속): 죽은 잎 없이 --abandon 할 때 필수. 포기 선언 자체가
+	// 종결이지만, **왜** 접는지가 없으면 나중에 그것이 판단이었는지 방치였는지 모른다.
+	reason := fs.str("reason", "")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil close <chain>/<cycle> [--verdict V] [--goal-met|--goal-partial <못 한 것>|--goal-impossible <이유>] [--abandon]")
@@ -2103,20 +2113,70 @@ func cmdClose(args []string) {
 			return
 		}
 		if *abandon {
-			if len(dead) == 0 {
-				die("거부: 종결 잎(fail)이 하나도 없다 — 봉인할 죽은 가지가 없다. 먼저 analyze→fail 로 벽을 남겨라.")
+			// **포기 선언 자체가 종결이다**(이슈 #115 후속). 옛 코드는 fail 잎을 또 요구했고,
+			// 그 중복이 생애주기 한 바퀴(hypothesis→verify→analyze→fail)를 걷게 만들었다 —
+			// verify 는 `--verdict` 를 요구하니 **하지 않은 측정의 판정**을 쓰라는 압력이 된다.
+			// 실사용에서 정확히 그 벽에 부딪혔다: 잘못된 자리에서 열린 사이클(도구가 뒤처짐을
+			// 안 짚어 준 탓에 생긴 것)을 정직하게 접을 문법이 없었다. 결함이 만든 쓰레기를
+			// 결함이 못 치우게 막은 셈이다.
+			//
+			// 그래서 죽은 잎이 없어도 접는다 — 다만 **왜 접는지는 남는다**(--reason).
+			// 그 이유가 벽의 지도다. 이유 없는 포기는 나중에 아무도 그것이 판단이었는지
+			// 방치였는지 모른다(gil adopt --reason 과 같은 논거).
+			folded := []string{} // 이 포기가 접는 미종결 잎들 — 없는 것과 안 적은 것은 다르다
+			hasKid := map[string]bool{}
+			for _, s := range steps {
+				if s.parent != "" {
+					hasKid[s.parent] = true
+				}
+			}
+			for _, s := range steps {
+				if !hasKid[s.step] && !isDeadLeaf(s) && !isLiveLeaf(s) && s.kind != "pending" {
+					folded = append(folded, s.step)
+				}
 			}
 			sort.Strings(dead)
+			sort.Strings(folded)
+			if len(dead) == 0 && strings.TrimSpace(*reason) == "" {
+				die("거부: 죽은 잎이 하나도 없는 사이클을 접으려면 **왜 접는지**를 적어라 — --reason <왜 접나>\n" +
+					"  gil close " + ref + " --abandon --reason \"<이 사이클을 여기서 접는 이유>\"\n" +
+					"  (없는 관측의 판정을 만들어 fail 잎을 박지 마라 — 그건 기록을 밝게 위조하는 것이다.\n" +
+					"   포기 선언 자체가 종결이고, 그 이유가 벽의 지도로 남는다.)")
+			}
 			subject := "gil " + chain + "/" + cycle + " close: " + orDefault(*verdict, "abandoned") + " (abandoned)"
-			body := "죽은 사이클 봉인(abandoned). 죽은 잎 [" + strings.Join(dead, " ") + "]. " +
-				"이 define 은 막다른 길로 판단돼 사람이 포기했다 — 벽의 지도로 영원히 남는다(이슈 #46)."
+			body := "죽은 사이클 봉인(abandoned)."
+			if len(dead) > 0 {
+				body += " 죽은 잎 [" + strings.Join(dead, " ") + "]."
+			} else {
+				body += " 죽은 잎 없음 — 포기 선언이 이 사이클의 종결이다."
+			}
+			if len(folded) > 0 {
+				body += " 이 포기가 접는 미종결 잎 [" + strings.Join(folded, " ") + "]."
+			}
+			body += "\n\n이 define 은 막다른 길로 판단돼 사람이 포기했다 — 벽의 지도로 영원히 남는다(이슈 #46)."
+			if r := strings.TrimSpace(*reason); r != "" {
+				body += "\n\n왜 접나: " + r
+			}
 			tr := [][2]string{
 				{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
 				{"Gil-Kind", "close"}, {"Gil-Verdict", orDefault(*verdict, "abandoned")},
 				{"Gil-Abandoned", "true"},
 			}
+			if r := strings.TrimSpace(*reason); r != "" {
+				tr = append(tr, [2]string{"Gil-Abandon-Reason", foldTrailerValue(r)})
+			}
+			for _, f := range folded {
+				tr = append(tr, [2]string{"Gil-Abandoned-Leaf", f})
+			}
 			commit(subject, body, tr, true)
-			println2("close: " + ref + " — abandoned (죽은 사이클로 봉인, 죽은 잎 [" + strings.Join(dead, " ") + "])")
+			where := "죽은 잎 [" + strings.Join(dead, " ") + "]"
+			if len(dead) == 0 {
+				where = "죽은 잎 없음 — 포기 선언이 종결이다"
+			}
+			println2("close: " + ref + " — abandoned (죽은 사이클로 봉인, " + where + ")")
+			if len(folded) > 0 {
+				println2("  이 포기가 접은 미종결 잎: " + strings.Join(folded, " ") + " (fsck 가 다시 짚지 않는다)")
+			}
 			return
 		}
 		die("거부: 산 잎(success 스텝) 없음 — 닫을 수 없다.\n" +
