@@ -65,6 +65,33 @@ func devRootSHA() string {
 	return ""
 }
 
+// devLayerBlindNotice — 층이 없어 **층 판정을 아예 못 했다**는 고지(이슈 #99). 위반이 아니다:
+// 옛 레이아웃은 정당하고, 여기서 막으면 이미 있는 나무가 얼어붙는다. 다만 "위반 0" 을 받은
+// 사람이 그것을 '어긋난 것이 없다'로 읽지 않게, 무엇을 못 봤는지는 말한다.
+func devLayerBlindNotice() string {
+	if hasDevLayer() || !anyChain() {
+		return ""
+	}
+	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
+		return "" // 그건 위반으로 이미 말했다
+	}
+	return "  ⌂ 층 판정은 하지 못했다 — 이 저장소엔 dev 층이 없다(옛 레이아웃).\n" +
+		"     '모든 시조는 dev 에서 난다'를 아무도 검사하지 않은 상태다. 위반이 아니라 **못 본 것**이다.\n" +
+		"     보이게 하려면: gil migrate --to-dev-layout   (트리·메시지는 그대로, 부모만 새 자리로)"
+}
+
+// anyChain — 이 저장소에 체인이 하나라도 있나. 층을 물을 자리인지 가르는 데 쓴다:
+// 갓 만든 저장소(체인 0)에 "층이 없다"고 짖으면 그건 결함 보고가 아니라 잡음이다.
+func anyChain() bool {
+	out := gitlog("--format="+trailer("Gil-Kind"), "--branches")
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) == "chain-root" {
+			return true
+		}
+	}
+	return false
+}
+
 // frontMatterBranch — **앞머리(개시 인터뷰·intake)가 앉을 자리**(이슈 #102 경로 1).
 //
 // 앞머리는 체인보다 **먼저** 있는 것이라 어느 체인의 몸도 아니다. 그런데 옛 코드는 HEAD 가
@@ -298,8 +325,32 @@ func devForkLine(chain string) string {
 // 얹힌 체인도 통과한다(그 체인 역시 dev 의 자손이므로). 그래서 **부모 커밋이 dev 브랜치에서
 // 실제로 닿는 커밋인가**를 본다 — 체인 위에 얹혔다면 그 부모는 dev 에서 안 닿는다.
 func fsckDevLayer() []string {
+	// **층이 안 보이면 그 사실부터 말한다**(이슈 #99). 옛 코드는 여기서 조용히 nil 을 돌려줬다.
+	// 그런데 이 함수가 침묵하면 층 판정이 통째로 꺼지고(적층 판정도 devRooted 를 못 채운다),
+	// 저장소는 어긋난 채로 "위반 0 — 건강"을 받는다. 실사용에서 세 상태가 모두 그랬다:
+	// dev 부재 · 손으로 세운 dev · 층 밖에서 난 체인. **관전 도구의 침묵은 '이상 없음'과
+	// 구별되지 않는다** — 못 보는 것과 볼 것이 없는 것을 가른다.
+	// **못 보는 것과 볼 것이 없는 것을 가른다**(이슈 #99). 다만 둘의 무게는 다르다.
+	//
+	// dev 가 아예 없는 저장소는 gil 이 층을 만들기 전에 태어난 정당한 옛 나무다 — 그걸 위반
+	// 으로 세면 fsck 가 종료코드 1 을 내고, devLayerNudge 가 "문법으로 막으면 이미 있는 나무가
+	// 통째로 얼어붙는다"며 일부러 안내에 그쳤던 판단을 뒤집는다. 그래서 **고지**로만 말한다.
+	//
+	// 반대로 dev 라는 **이름은 있는데 층이 아닌** 저장소는 적극적으로 오도한다: 층이 선 것처럼
+	// 보이는데 판정은 통째로 꺼져 있고, 그 상태로 "위반 0 — 건강"을 받는다(실사용에서 어긋난
+	// 세 상태가 모두 그랬다). 침묵이 '이상 없음'과 구별되지 않는 자리라 위반으로 센다.
 	if !hasDevLayer() {
-		return nil
+		if !anyChain() {
+			return nil // 아직 체인이 없다 — 층을 물을 자리가 아니다(갓 만든 저장소)
+		}
+		if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
+			return []string{"층: \"" + devBranchName + "\" 브랜치는 있는데 **gil 의 층이 아니다** — " +
+				"그 이력에 층의 뿌리(Gil-Kind: dev-root)가 없다.\n" +
+				"    이름만으로는 층이 아니다. 그래서 층 판정이 **통째로 꺼져 있다** — 이 저장소의\n" +
+				"    '위반 0' 은 '어긋난 것이 없다'가 아니라 '볼 수 없었다'는 뜻이다.\n" +
+				"    (손으로 세운 dev 이거나 옛 레이아웃이다. 다시 그려라: gil migrate --to-dev-layout)"}
+		}
+		return nil // 옛 레이아웃 — 위반이 아니다. 아래 devLayerBlindNotice 가 고지한다.
 	}
 	// dev 브랜치에서 닿는 커밋 전부. 체인 브랜치의 커밋은 여기 없다.
 	onDev := map[string]bool{}

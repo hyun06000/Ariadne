@@ -452,8 +452,12 @@ func cmdFsck(args []string) {
 				"보려면: gil fsck --all"
 		}
 	}
+	blind := devLayerBlindNotice()
 	if len(v) == 0 {
 		println2("fsck: 위반 0 — 커밋 그래프 건강")
+		if blind != "" {
+			println2(blind)
+		}
 		if prunedLine != "" {
 			println2(prunedLine)
 		}
@@ -465,6 +469,9 @@ func cmdFsck(args []string) {
 	}
 	for _, x := range v {
 		println2("위반: " + x)
+	}
+	if blind != "" {
+		println2(blind)
 	}
 	if prunedLine != "" {
 		println2(prunedLine)

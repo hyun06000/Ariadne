@@ -8983,6 +8983,57 @@ class TestFrontMatterLandsOnTheLayer(GilFixture):
         self.fail("개시 인터뷰 커밋을 못 찾았다:\n" + out)
 
 
+class TestFsckSeesTheLayerOrSaysItCannot(GilFixture):
+    """**층 판정이 조용히 통째로 꺼진다** (이슈 #99, 실사용 리포트).
+
+    fsckDevLayer 는 `hasDevLayer()` 가 거짓이면 아무 말 없이 nil 을 돌려준다. 그리고
+    hasDevLayer 는 dev 브랜치 이력에서 `Gil-Kind: dev-root` 마커를 찾는다. 그래서 dev 를
+    손으로 세운 저장소는 **층이 있는 것처럼 보이는데 판정은 전부 꺼진 채** 위반 0 을 받는다.
+
+    리포터가 겪은 것이 정확히 이것이다: 세 가지 어긋난 상태에서 모두 위반 0 이었다.
+    관전 도구의 침묵이 '이상 없음'과 구별되지 않으면, 그 침묵이 가장 비싼 오답이다."""
+
+    def _chain(self, name):
+        self.gil("chain", name, "--purpose", "목적 " + name)
+        self.gil("open", name + "/c001", "--author", "clew", "--purpose", "작은 문제")
+        self.gil("step", name + "/c001", "--kind", "success", "--title", "성공")
+
+    def test_a_dev_branch_without_the_marker_is_not_silently_accepted(self):
+        """dev 라는 이름만으로는 층이 아니다 — 그런데 아니라고 말해 주지도 않았다."""
+        self.gil("init", "--name", "clew")
+        self._chain("a")
+        # 손으로 세운 dev 를 흉내낸다: 마커 없는 커밋을 끝에 얹어도 마커는 이력에 남으므로,
+        # 마커가 아예 없는 자리(대문)로 dev 를 옮겨 리포터의 조건을 만든다.
+        self._git("branch", "-f", "dev", "main")
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertIn("dev", out)
+        self.assertNotIn("위반 0 — 커밋 그래프 건강", out,
+                         "층이 꺼진 채로 '건강'이라 답했다:\n" + out)
+
+    def test_no_dev_branch_at_all_is_a_notice_not_a_violation(self):
+        """dev 가 아예 없는 옛 나무는 **위반이 아니다** — 다만 못 봤다는 사실은 말한다.
+
+        여기서 위반으로 세면 fsck 가 종료코드 1 을 내고, v3.46 이전에 태어난 모든 저장소가
+        갑자기 병든 것이 된다. devLayerNudge 가 *"문법으로 막으면 이미 있는 나무가 통째로
+        얼어붙는다"*며 안내에 그친 판단을 뒤집는 셈이다. 못 본 것과 어긋난 것은 다르다."""
+        self.gil("init", "--name", "clew")
+        self._chain("a")
+        self._git("branch", "-D", "dev")
+        r = self.gil("fsck")
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 0, "옛 레이아웃을 위반으로 세어 종료코드가 1 이 됐다:\n" + out)
+        self.assertIn("층 판정은 하지 못했다", out,
+                      "못 본 것을 말하지 않아 '위반 0' 이 '어긋난 것 없음'으로 읽힌다:\n" + out)
+
+    def test_a_healthy_layer_stays_quiet(self):
+        """정본 저장소는 조용해야 한다 — 늘 짖으면 아무도 안 듣는다."""
+        self.gil("init", "--name", "clew")
+        self._chain("a")
+        r = self.gil("fsck")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("위반 0", r.stdout + r.stderr)
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 
