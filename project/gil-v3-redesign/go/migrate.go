@@ -521,12 +521,24 @@ func cmdMigrate(args []string) {
 	// 같은 명령에 두는 이유: 사람이 "이 저장소의 이력을 옮긴다"고 생각할 때 떠올리는 낱말은
 	// 하나다. 하는 일이 다르다고 이름을 나누면, 필요한 순간에 그 이름을 아무도 못 찾는다.
 	toDevLayout := fs.boolFlag("to-dev-layout")
+	// --adopt-dev: 이미 옳게 선 dev 를 **표식만 심어** 층으로 인정한다(이슈 #99·#98).
+	// 다시 그리기는 모든 SHA 를 바꾼다 — 계보가 이미 옳으면 그 값을 치를 이유가 없다.
+	adoptDev := fs.boolFlag("adopt-dev")
 	// --allow-dirty-tips: 끝이 gil 커밋이 아닌 체인 브랜치가 있어도 강행한다(이슈 #95③).
 	// 기본은 거부다 — 그 상태의 이주는 조용히 사이클을 통째로 지웠다. 강행하면 끝의 대조가
 	// 무엇이 빠졌는지 이름을 부르고, 종료코드로도 말한다.
 	allowDirty := fs.boolFlag("allow-dirty-tips")
 	pos := fs.parse(args)
 	_ = pos
+	if *adoptDev {
+		if *toDevLayout {
+			die("거부: --adopt-dev 와 --to-dev-layout 은 함께 쓰지 않는다.\n" +
+				"  --adopt-dev 는 이미 옳게 선 dev 에 표식만 심는다(SHA 불변).\n" +
+				"  --to-dev-layout 은 나무를 다시 그린다(모든 SHA 가 바뀐다).")
+		}
+		cmdAdoptDevLayer(*dryRun)
+		return
+	}
 	if *toDevLayout {
 		if strings.TrimSpace(*from) != "" {
 			die("거부: --to-dev-layout 은 --from 과 함께 쓰지 않는다.\n" +

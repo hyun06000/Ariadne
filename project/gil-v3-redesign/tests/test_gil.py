@@ -9148,6 +9148,69 @@ class TestRawGraphLanesAreReal(GilFixture):
                          "존재의 커밋이 날것 그래프에 그려졌다 — main 이 대문 끝에서 안 멈춘 것처럼 읽힌다")
 
 
+class TestAdoptDevLayer(GilFixture):
+    """**이미 옳게 선 dev 를 다시 그리지 않고 층으로 인정한다** (이슈 #99·#98).
+
+    층은 `Gil-Kind: dev-root` 표식으로 찾는데 그 표식은 init·migrate 만 심는다. 그래서 손으로
+    정본 모양을 세운 저장소는 **구조는 맞는데 층으로 안 보인다**: fsck 의 층 판정이 꺼지고,
+    `merge --into dev` 는 되는데 `deploy` 의 승격만 거부된다 — 같은 저장소를 두 명령이 다르게
+    본다. 다시 그리기는 모든 SHA 를 바꾸므로, 계보가 이미 옳으면 그 값을 치를 이유가 없다."""
+
+    def _unmarked_dev(self):
+        """표식만 없는 dev — 손으로 세운 정본 모양을 흉내낸다."""
+        self.gil("init", "--name", "clew")
+        head = self._git("rev-parse", "dev").stdout.strip()
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")
+        # 대문 계보에서 갈라진, 표식 없는 dev
+        self._git("branch", "dev", "main")
+        return head
+
+    def test_adopting_plants_the_marker_without_rewriting(self):
+        self._unmarked_dev()
+        before = self._git("rev-parse", "main").stdout.strip()
+        r = self.gil("migrate", "--adopt-dev")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.trailer("dev", "Gil-Kind"), "dev-root")
+        self.assertEqual(self._git("rev-parse", "main").stdout.strip(), before,
+                         "인정이 다른 브랜치를 건드렸다 — 다시 그리지 않기로 한 약속이 깨졌다")
+
+    def test_adopting_is_idempotent(self):
+        """이미 층이면 아무 일도 하지 않는다 — 두 번 불러도 표식이 둘이 되지 않는다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("migrate", "--adopt-dev")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("이미 dev 층이다", r.stdout + r.stderr)
+
+    def test_it_does_not_swallow_someone_elses_branch(self):
+        """대문 계보 밖의 dev 는 남의 작업 브랜치다 — 층으로 삼키지 않는다."""
+        self.gil("init", "--name", "clew")
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")
+        self._git("checkout", "-q", "--orphan", "dev")
+        self._git("commit", "-q", "--allow-empty", "-m", "남의 브랜치")
+        self._git("checkout", "-q", "main")
+        r = self.gil("migrate", "--adopt-dev")
+        self.assertNotEqual(r.returncode, 0, "남의 브랜치를 층으로 삼켰다")
+        self.assertIn("대문 계보에서 갈라진 브랜치가 아니다", r.stdout + r.stderr)
+
+    def test_no_dev_branch_points_at_the_other_road(self):
+        self.gil("init", "--name", "clew")
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")
+        r = self.gil("migrate", "--adopt-dev")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--to-dev-layout", r.stdout + r.stderr)
+
+    def test_deploy_says_which_of_the_two_it_is(self):
+        """눈앞에 dev 가 있는데 '없다'고 하면 사람은 거기서 막힌다."""
+        self._unmarked_dev()
+        r = self.gil("deploy", "--tag", "v0.1.0")
+        out = r.stdout + r.stderr
+        self.assertIn("gil 의 층이 아니다", out, "dev 가 있는데 '층이 없다'고만 했다:\n" + out)
+        self.assertIn("--adopt-dev", out, "다음에 칠 한 줄을 안 줬다:\n" + out)
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 

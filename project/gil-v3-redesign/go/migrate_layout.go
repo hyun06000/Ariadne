@@ -606,3 +606,71 @@ func orderByDeclaredCycles(body []*lcommit) []*lcommit {
 	}
 	return append(out, tail...)
 }
+
+// cmdAdoptDevLayer — 이미 옳게 선 dev 브랜치를 **층으로 인정한다**(재그림 없이).
+//
+// 왜 (이슈 #99·#98, 실사용에서 두 번). 층은 `Gil-Kind: dev-root` 표식으로 찾는데, 그 표식은
+// `gil init` 과 `migrate --to-dev-layout` 만 심는다. 그래서 사람이 손으로 정본 모양을 세운
+// 저장소는 **구조는 맞는데 층으로 안 보인다**: fsck 의 층 판정이 통째로 꺼지고, `gil merge
+// --into dev` 는 되는데 `gil deploy` 의 승격만 "옛 레이아웃"이라며 거부한다. 같은 저장소를
+// 두 명령이 다르게 본다.
+//
+// 다시 그리는 것(--to-dev-layout)은 **모든 SHA 를 바꾼다.** 계보가 이미 옳은데 그 값을 치를
+// 이유가 없다. 표식 하나가 없을 뿐이면, 표식만 심는 것이 정직한 최소 경로다.
+//
+// **남의 브랜치를 삼키지 않는다**(ensureDevLayer 가 조용히 물러나는 것과 같은 원칙). 인정은
+// 사람이 이 명령을 직접 부를 때만, 그리고 그 dev 가 이 저장소의 대문 계보에서 갈라진 것일
+// 때만 한다. 무엇을 인정하는지 먼저 보여주고 심는다.
+func cmdAdoptDevLayer(dryRun bool) {
+	if hasDevLayer() {
+		println2("이미 dev 층이다 — 인정할 것이 없다(표식 " + first9(devRootSHA()) + ").")
+		return
+	}
+	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
+		die("거부: \"" + devBranchName + "\" 브랜치가 없다 — 인정할 대상이 없다.\n" +
+			"  층을 새로 그리려면: gil migrate --to-dev-layout")
+	}
+	home := homeBranch()
+	if home == devBranchName {
+		die("거부: 대문과 층이 같은 브랜치다 — 층이 성립하지 않는다.")
+	}
+	root := gateRootSHA()
+	if root == "" || !gitOK("merge-base", "--is-ancestor", root, devBranchName) {
+		die("거부: \"" + devBranchName + "\" 가 이 저장소의 대문 계보에서 갈라진 브랜치가 아니다.\n" +
+			"  남의 작업 브랜치를 층으로 삼키지 않는다 — 이름을 비켜 주고 새로 그려라:\n" +
+			"    git branch -m " + devBranchName + " " + devBranchName + "-old && gil migrate --to-dev-layout")
+	}
+	if strings.TrimSpace(git("status", "--porcelain", "-uno")) != "" {
+		die("거부: 추적 파일에 미커밋 변경이 있다 — 인정은 브랜치를 옮겨 다닌다. 먼저 정리하라.")
+	}
+	tip := strings.TrimSpace(git("rev-parse", devBranchName))
+	ahead := strings.TrimSpace(git("rev-list", "--count", home+".."+devBranchName))
+	println2("dev 층으로 인정한다 — 다시 그리지 않는다(SHA 는 하나도 안 바뀐다).")
+	println2("  브랜치: " + devBranchName + " (" + first9(tip) + ") — 대문 " + home + " 보다 " + ahead + "커밋 앞")
+	if dryRun {
+		stderr("  (--dry-run — 아무것도 쓰지 않았다.)")
+		return
+	}
+	back := strings.TrimSpace(git("rev-parse", "--abbrev-ref", "HEAD"))
+	commitOn(devBranchName, "",
+		"gil migrate: dev 층으로 인정(adopt)",
+		"이 브랜치는 이미 층의 모양으로 서 있었고, 표식만 없었다. 다시 그리지 않고\n"+
+			"표식만 심는다 — 커밋 SHA 는 하나도 바뀌지 않는다.\n\n"+
+			"이 커밋 이전의 dev 커밋들도 층의 것이다(층 판정은 dev 에서 닿는 커밋 전체를 본다).",
+		[][2]string{{"Gil-Kind", "dev-root"}, {"Gil-Dev-Adopted", "true"}, {"Gil-Dev-From", first9(tip)}}, true)
+	if back != "" && back != devBranchName {
+		gitTry("checkout", "-q", back)
+	}
+	println2("  ✓ 표식 심음 — 이제 fsck·deploy·open 이 같은 층을 본다.")
+	// 인정했으면 **그 결과를 바로 보여준다.** 표식만 심고 "됐다"고 하면, 정작 층이 요구하는
+	// 것(모든 시조가 dev 에서 난다)을 만족하는지는 아무도 안 본 채로 남는다.
+	if viol := fsckDevLayer(); len(viol) > 0 {
+		println2("  ⚠ 다만 층 검사가 짚는 것이 있다(인정은 됐고, 아래는 지금 그래프의 사실이다):")
+		for _, v := range viol {
+			println2("    " + v)
+		}
+		println2("  다시 그려서 풀려면: gil migrate --to-dev-layout")
+		return
+	}
+	println2("  층 검사 통과 — 모든 시조가 dev 에서 났다.")
+}

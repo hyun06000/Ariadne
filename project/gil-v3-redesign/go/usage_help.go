@@ -409,6 +409,16 @@ var helpTable = map[string]helpEntry{
 		"gil migrate --from <v2-ref> [--room <r>] [--exclude <조각>]... [--prefix <접두>] [--dry-run]\n" +
 			"  v2(폴더·cycle.yaml) 이력 → v3 커밋 그래프. 단계 문서 원문을 실제로 싣는다(이슈 #87).\n" +
 			"\n" +
+			"gil migrate --adopt-dev [--dry-run]\n" +
+			"  이미 옳게 선 dev 를 **표식만 심어 층으로 인정한다** — 다시 그리지 않는다(SHA 불변).\n" +
+			"  층은 Gil-Kind: dev-root 표식으로 찾는데 그 표식은 init·--to-dev-layout 만 심는다.\n" +
+			"  그래서 손으로 정본 모양을 세운 저장소는 구조는 맞는데 층으로 안 보인다: fsck 의 층\n" +
+			"  판정이 꺼지고, merge --into dev 는 되는데 deploy 의 승격만 거부된다(같은 저장소를\n" +
+			"  두 명령이 다르게 본다). 계보가 이미 옳으면 다시 그릴 값을 치를 이유가 없다.\n" +
+			"  · **남의 브랜치는 삼키지 않는다** — 그 dev 가 이 저장소의 대문 계보에서 갈라진\n" +
+			"    것일 때만 인정한다. 아니면 이름을 비켜 주고 --to-dev-layout 으로 새로 그려라.\n" +
+			"  · 인정한 뒤 층 검사를 바로 돌려 결과를 보여준다 — 표식만 심고 '됐다'고 하지 않는다.\n" +
+			"\n" +
 			"gil migrate --to-dev-layout [--prefix <접두, 기본 dev->] [--dry-run] [--allow-dirty-tips]\n" +
 			"  이미 v3 인 이 저장소를 **main-dev-chain 으로 다시 그린다**. 각 체인이 dev 에서\n" +
 			"  갈라지게 새 브랜치로 옮겨 그린다 — 트리(파일 내용)와 메시지는 그대로, **부모만**\n" +

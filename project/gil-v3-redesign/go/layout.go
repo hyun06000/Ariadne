@@ -162,6 +162,15 @@ func ensureDevLayer() bool {
 // 그 사실을 남긴 채 승격만 못 했다고 말하는 게 정직하다.
 func promoteDevToMain(tag string) (bool, string) {
 	if !hasDevLayer() {
+		// **눈앞에 dev 가 있는데 "없다"고 하면 사람은 거기서 막힌다**(이슈 #99 코멘트: merge 는
+		// 되는데 deploy 만 거부해서, 같은 저장소를 두 명령이 다르게 보는 것으로 읽혔다).
+		// 두 경우를 가르고, 각각 다음에 칠 한 줄을 준다.
+		if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
+			return false, "\"" + devBranchName + "\" 브랜치는 있는데 gil 의 층이 아니다 — 그 이력에 층의 뿌리(Gil-Kind: dev-root)가 없다.\n" +
+				"    그래서 merge 는 되는데(브랜치로 합류할 뿐) 승격만 막힌다. 이미 옳게 서 있다면 표식만 심으면 된다:\n" +
+				"      gil migrate --adopt-dev          (다시 그리지 않는다 — SHA 는 하나도 안 바뀐다)\n" +
+				"    구조부터 다시 세워야 하면: gil migrate --to-dev-layout"
+		}
 		return false, "dev 층이 없어 승격할 것이 없다(옛 레이아웃) — gil migrate --to-dev-layout"
 	}
 	home := homeBranch()
@@ -355,7 +364,9 @@ func fsckDevLayerFor(pred func(chain string) bool) []string {
 				"그 이력에 층의 뿌리(Gil-Kind: dev-root)가 없다.\n" +
 				"    이름만으로는 층이 아니다. 그래서 층 판정이 **통째로 꺼져 있다** — 이 저장소의\n" +
 				"    '위반 0' 은 '어긋난 것이 없다'가 아니라 '볼 수 없었다'는 뜻이다.\n" +
-				"    (손으로 세운 dev 이거나 옛 레이아웃이다. 다시 그려라: gil migrate --to-dev-layout)"}
+				"    이미 옳게 서 있다면 표식만 심으면 된다(다시 그리지 않는다 — SHA 불변):\n" +
+				"      gil migrate --adopt-dev\n" +
+				"    구조부터 다시 세워야 하면: gil migrate --to-dev-layout"}
 		}
 		return nil // 옛 레이아웃 — 위반이 아니다. 아래 devLayerBlindNotice 가 고지한다.
 	}
