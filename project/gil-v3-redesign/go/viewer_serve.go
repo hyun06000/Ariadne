@@ -1043,6 +1043,176 @@ func cycleExits(g graphView) map[string][]string {
 	return out
 }
 
+// staleMaps — **갱신된 벽의 지도**를 찾는다(이슈 #112 · #105 b).
+//
+// 죽은 잎은 `--to` 로 되돌아갈 자리를 적는다(벽의 지도). 그런데 뒤의 재분기가 `--despite`
+// 로 딴 자리에서 갈라지면 그 지도는 더 이상 유효한 계획이 아니다 — 그런데도 화면은 옛 선을
+// 그대로 그렸다(사람이 "뭐가 맞는 거냐"고 물은 자리). CLI 는 v3.53.0 부터 이걸 말한다
+// (`gil context` 의 ⟲ 줄) — 화면이 같은 사실을 그림으로 말해야 한다.
+//
+// 판정은 context.go 의 그것과 **같은 규칙**이다: 지도를 적은 잎보다 뒤에 난 스텝이
+// despite 를 달고, 그 부모가 지도가 가리킨 자리가 아니면 그 지도는 갱신됐다.
+// 두 자리가 갈리면 사람은 어느 쪽이 사실인지 알 수 없다.
+// 반환: 지도를 적은 스텝 id → [갱신한 스텝, 실제로 간 자리, 이유].
+func staleMaps(steps []viewerNode) map[string][3]string {
+	out := map[string][3]string{}
+	for _, end := range steps {
+		if end.backtrack == "" || end.backtrack == "pending" {
+			continue
+		}
+		for _, later := range steps {
+			if later.despiteMap == "" || stepNum(later.step) <= stepNum(end.step) {
+				continue
+			}
+			if later.parent != end.backtrack {
+				out[end.step] = [3]string{later.step, later.parent, later.despiteMap}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// competitionsJSON — 같은 자리에서 **동시에 겨루는** 형제 갈래들을 나란히 세울 재료
+// (이슈 #112 · #106 c). 지금까지 fsck·handoff 는 "경합 중 3개"라고 세기만 했다 — 무엇과
+// 무엇이 겨루는지는 사람이 그래프를 눈으로 따라가야 알았다.
+//
+// 갈래마다: 뿌리 스텝(--competing 을 선언한 그 가설) · 반증조건 · 고정한 설계 · **지금 상태**.
+// 상태는 그 갈래의 잎이 말한다 — 이겼나(success), 졌나(Gil-Lost-To), 접혔나(fail),
+// 아직 겨루는 중인가.
+func competitionsJSON(steps []viewerNode) string {
+	kids := map[string][]viewerNode{}
+	byStep := map[string]viewerNode{}
+	for _, n := range steps {
+		byStep[n.step] = n
+		if n.parent != "" {
+			kids[n.parent] = append(kids[n.parent], n)
+		}
+	}
+	// 갈래의 잎들(그 뿌리에서 뻗은 자손 중 자식 없는 것).
+	leavesOf := func(root string) []viewerNode {
+		var out []viewerNode
+		seen := map[string]bool{}
+		stack := []string{root}
+		for len(stack) > 0 {
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if seen[cur] {
+				continue
+			}
+			seen[cur] = true
+			cs := kids[cur]
+			if len(cs) == 0 {
+				if n, ok := byStep[cur]; ok {
+					out = append(out, n)
+				}
+				continue
+			}
+			for _, c := range cs {
+				stack = append(stack, c.step)
+			}
+		}
+		return out
+	}
+	// 뿌리(= --competing 이 가리키는 자리)별로 갈래를 모은다. 순서는 스텝 번호 — 같은
+	// 그래프면 같은 그림이어야 한다.
+	var roots []string
+	byRoot := map[string][]viewerNode{}
+	for _, n := range steps {
+		if n.competing == "" || n.kind != "hypothesis" {
+			continue // 갈래의 뿌리는 가설이다(adopt 가 남기는 fail 도 Gil-Competing 을 단다)
+		}
+		if _, ok := byRoot[n.competing]; !ok {
+			roots = append(roots, n.competing)
+		}
+		byRoot[n.competing] = append(byRoot[n.competing], n)
+	}
+	sort.Slice(roots, func(i, j int) bool { return stepNum(roots[i]) < stepNum(roots[j]) })
+	var sb strings.Builder
+	sb.WriteString("[")
+	first := true
+	for _, root := range roots {
+		br := byRoot[root]
+		if len(br) < 2 {
+			continue // 혼자 서 있으면 경합이 아니다 — 그냥 재분기다
+		}
+		sort.Slice(br, func(i, j int) bool { return stepNum(br[i].step) < stepNum(br[j].step) })
+		if !first {
+			sb.WriteString(",")
+		}
+		first = false
+		// 갈래마다의 상태. **채택된 갈래는 자기 커밋에 아무 표식이 없다** — 채택은 진 쪽에
+		// (Gil-Lost-To 로) 적히기 때문이다. 그러니 승자는 진 갈래가 가리키는 자리로 안다.
+		type st struct{ state, lostTo, leaf string }
+		states := map[string]st{}
+		for _, b := range br {
+			s := st{state: "open"}
+			for _, lf := range leavesOf(b.step) {
+				s.leaf = lf.step
+				switch {
+				case lf.lostTo != "":
+					s.state, s.lostTo = "lost", lf.lostTo
+				case lf.kind == "success":
+					s.state = "won"
+				case lf.kind == "fail" && s.state == "open":
+					s.state = "fail"
+				}
+				if s.state == "won" || s.state == "lost" {
+					break
+				}
+			}
+			states[b.step] = s
+		}
+		// 진 갈래가 가리키는 승자가 어느 갈래에 속하는지 — 그 갈래가 이겼다.
+		inBranch := func(rootStep, target string) bool {
+			for _, lf := range append(leavesOf(rootStep), byStep[rootStep]) {
+				for cur, hops := lf, 0; cur.step != "" && hops < 200; hops++ {
+					if cur.step == target {
+						return true
+					}
+					if cur.step == rootStep {
+						break
+					}
+					nxt, ok := byStep[cur.parent]
+					if !ok {
+						break
+					}
+					cur = nxt
+				}
+			}
+			return false
+		}
+		for _, b := range br {
+			if states[b.step].state != "lost" {
+				continue
+			}
+			win := states[b.step].lostTo
+			if i := strings.LastIndex(win, "/"); i >= 0 {
+				win = win[i+1:]
+			}
+			for _, o := range br {
+				if o.step != b.step && states[o.step].state == "open" && inBranch(o.step, win) {
+					s := states[o.step]
+					s.state = "won"
+					states[o.step] = s
+				}
+			}
+		}
+		sb.WriteString(fmt.Sprintf(`{"root":%q,"branches":[`, root))
+		for i, b := range br {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			s := states[b.step]
+			sb.WriteString(fmt.Sprintf(`{"step":%q,"subj":%q,"falsify":%q,"plan":%q,"state":%q,"lostTo":%q,"leaf":%q}`,
+				b.step, b.subject, b.falsify, b.plan, s.state, s.lostTo, s.leaf))
+		}
+		sb.WriteString("]}")
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
 func cycleJSON(g graphView, static bool) string {
 	pos, _, _ := chainLayout(g)
 	// 경계 진입 부모(AIL #7): 각 사이클의 첫 스텝이 커밋 위상상 어느 다른 사이클/체인의 스텝에서
@@ -1080,8 +1250,10 @@ func cycleJSON(g graphView, static bool) string {
 			cycPars := cycleEntryAll[ch.name+"\x01"+cy.name]
 			// 측정의 좌표(이슈 #79·#81) — 뷰어 사이클 카드가 "어디서/무엇을" 을 함께 보인다.
 			ds, sj := cycleCoordOf(ch.name, cy.name)
-			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"parents":%s,"dataset":%s,"subject":%s,"nodes":[`,
-				cy.name, len(cy.steps), cy.status(), here, cycPar, jsonStrings(cycPars), jsonStrings(ds), jsonStrings(sj)))
+			sb.WriteString(fmt.Sprintf(`{"name":%q,"steps":%d,"status":%q,"here":%t,"parent":%q,"parents":%s,"dataset":%s,"subject":%s,"competitions":%s,"nodes":[`,
+				cy.name, len(cy.steps), cy.status(), here, cycPar, jsonStrings(cycPars), jsonStrings(ds), jsonStrings(sj),
+				competitionsJSON(cy.steps)))
+			stale := staleMaps(cy.steps) // 갱신된 벽의 지도(이슈 #112) — 옛 선을 강등하려고
 			// 정정(AIL #12 → 정정은 분기다). 뷰어도 두 사실을 보여야 한다: 이 스텝이 무엇을
 			// 정정했나(⟲), 그리고 이 스텝은 대체됐나(구버전 가지 — 대상뿐 아니라 자손 전부).
 			// 텍스트 그래프에만 있고 뷰어엔 없어서, 정작 사람이 보는 화면에서 두 판본이
@@ -1128,6 +1300,24 @@ func cycleJSON(g graphView, static bool) string {
 				}
 				if n.planOutcome != "" {
 					sb.WriteString(fmt.Sprintf(`,"planOutcome":%q,"planDiff":%q`, n.planOutcome, n.planDiff))
+				}
+				// 경합과 지도(이슈 #112). 문법은 이미 커밋에 있다 — 화면이 안 읽었을 뿐이다.
+				if n.competing != "" {
+					sb.WriteString(fmt.Sprintf(`,"competing":%q`, n.competing))
+				}
+				if n.falsify != "" {
+					sb.WriteString(fmt.Sprintf(`,"falsify":%q`, n.falsify))
+				}
+				if n.lostTo != "" {
+					sb.WriteString(fmt.Sprintf(`,"lostTo":%q`, n.lostTo))
+				}
+				if n.despiteMap != "" {
+					sb.WriteString(fmt.Sprintf(`,"despite":%q`, n.despiteMap))
+				}
+				if st, ok := stale[n.step]; ok {
+					// 이 잎이 적은 지도는 뒤에 갱신됐다 — 옛 선은 회색 점선으로 강등한다.
+					sb.WriteString(fmt.Sprintf(`,"mapStaleBy":%q,"mapStaleTo":%q,"mapStaleWhy":%q`,
+						st[0], st[1], st[2]))
 				}
 				if n.deployTag != "" { // 배포 마커(이슈 #34) — 뷰어가 🚀 + 태그 라벨로 렌더.
 					sb.WriteString(fmt.Sprintf(`,"deploy":%q,"deployUrl":%q,"deployState":%q,"deployTarget":%q`,
@@ -1733,6 +1923,28 @@ svg.cygraph{display:block}
  box-shadow:0 8px 24px rgba(0,0,0,.28);max-width:100%;overflow:hidden}
 .stepedge{stroke:var(--edge);stroke-width:2}
 .btedge{stroke:#ff6b6b;stroke-width:1.6;stroke-dasharray:4 3;fill:none;opacity:.8}
+/* 갱신된 벽의 지도(이슈 #112) — 지우지 않고 **강등**한다. 지운 선은 기록의 위조고,
+   같은 빨강으로 둔 선은 두 계획이 동시에 유효하다는 거짓말이다. */
+.btedge.stale{stroke:var(--dim);stroke-width:1.2;stroke-dasharray:2 4;opacity:.45}
+.btstale{font-size:9px;fill:var(--dim);pointer-events:none}
+.lostedge{stroke:var(--dim);stroke-width:1.4;stroke-dasharray:5 3;fill:none;opacity:.6}
+.compbadge{font-size:10px;font-weight:700;fill:#a78bfa;text-anchor:middle;pointer-events:none}
+.compbadge.lost{fill:var(--dim)}
+.compbadge.pending{fill:#f59e0b}
+.compbadge.despite{fill:#f59e0b}
+/* 형제 비교 카드 — 겨루는 갈래를 나란히. */
+.compcard{margin:10px 14px 14px;padding:10px 12px;border:1px solid var(--dim);border-radius:10px;background:var(--card)}
+.compcard-head{font-weight:700;font-size:13px;margin-bottom:2px}
+.compcard-note{font-size:11px;color:var(--dim);margin-bottom:8px}
+/* keep-all: 한국어를 어절 안에서 끊지 않는다("온수기 가/설" 로 갈라지던 것). */
+.comptable{width:100%;border-collapse:collapse;font-size:12px;word-break:keep-all;overflow-wrap:anywhere}
+.comptable th{text-align:left;white-space:nowrap;font-size:11px;color:var(--dim);font-weight:600;border-bottom:1px solid var(--dim);padding:3px 6px}
+.comptable td{padding:4px 6px;vertical-align:top;border-bottom:1px solid rgba(127,127,127,.18)}
+.comprow.lost{opacity:.62}
+.compstate{white-space:nowrap;font-weight:700}
+.compstate.won{color:#34d399}
+.compstate.lost,.compstate.fail{color:var(--dim)}
+.compstate.open{color:#a78bfa}
 .snode circle{fill:var(--card);stroke:var(--dim);stroke-width:2}
 .snode text{fill:var(--fg);text-anchor:middle;font-family:inherit;pointer-events:none}
 .snode .sid{font-size:12px;font-weight:700}
@@ -2402,7 +2614,11 @@ function openStepCard(chain,cyc){
   // 어느 루트에서도 안 닿은 노드(순환에 갇힌 것)도 자리를 준다 — 안 그리면 조용히 사라진다.
   steps.forEach(n=>{ if(col[n.sha]===undefined){ nextRow++; col[n.sha]=0; row[n.sha]=nextRow; } });
 
-  const colGap=96, rowGap=82, r=20, padX=30, padYtop=48, padY=30;
+  // 아래 칸에 표식이 붙는 사이클(경합·미정 지도·지도 벗어남, 이슈 #112)은 줄 간격을 넓힌다 —
+  // 안 넓히면 이 표식이 **아랫줄 노드의 위쪽 표식과 정확히 같은 자리**에 겹쳐 글자가 뭉갠다
+  // (화면에서 잡았다: 82 간격에서 +50 과 −34 가 만난다).
+  const belowBadge=steps.some(n=>(n.competing&&n.kind==='hypothesis')||n.backtrack==='pending'||n.despite);
+  const colGap=96, rowGap=belowBadge?106:82, r=20, padX=30, padYtop=48, padY=belowBadge?54:30;
   let maxCol=0,maxRow=0;
   steps.forEach(n=>{ maxCol=Math.max(maxCol,col[n.sha]||0); maxRow=Math.max(maxRow,row[n.sha]||0); });
   // 진입 부모는 여럿일 수 있다 — 선언한 만큼 고스트를 세운다(하나만 세우면 "두 갈래를
@@ -2460,10 +2676,35 @@ function openStepCard(chain,cyc){
       svg.appendChild(svgEl('path',{class:'stepedge',fill:'none',
         d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2}));
     }
-    const bt=n.backtrack?numSha(n.backtrack,n.sha):'';
+    const bt=n.backtrack&&n.backtrack!=='pending'?numSha(n.backtrack,n.sha):'';
     if(bt){ // 되돌아간 목표로 빨강 파선 — 그래프 위로 지나가 글자 안 가림(피드백 2)
-      svg.appendChild(svgEl('path',{class:'btedge',fill:'none',
-        d:'M '+X(n.sha)+' '+(Y(n.sha)-r)+' Q '+((X(n.sha)+X(bt))/2)+' '+(Y(n.sha)-r-28)+' '+X(bt)+' '+(Y(bt)-r)}));
+      // **갱신된 지도는 회색으로 강등한다**(이슈 #112 · #105 b). 뒤의 재분기가 --despite
+      // 로 딴 자리에서 갈라졌으면 이 선은 더 이상 계획이 아니다 — 같은 굵기·같은 빨강으로
+      // 두면 두 지도가 동시에 유효해 보이고, 사람은 어느 쪽이 사실인지 묻게 된다.
+      const stale=!!n.mapStaleBy;
+      const e=svgEl('path',{class:'btedge'+(stale?' stale':''),fill:'none',
+        d:'M '+X(n.sha)+' '+(Y(n.sha)-r)+' Q '+((X(n.sha)+X(bt))/2)+' '+(Y(n.sha)-r-28)+' '+X(bt)+' '+(Y(bt)-r)});
+      e.appendChild(svgEl('title',{},stale
+        ?T('step.map.stale.tip',{by:n.mapStaleBy,to:n.mapStaleTo,why:n.mapStaleWhy})
+        :T('step.map.live.tip',{to:n.backtrack})));
+      svg.appendChild(e);
+      if(stale){ // 선만 흐리면 "왜 흐린가"가 안 보인다 — 갱신한 자리를 글로 적는다.
+        const lb=svgEl('text',{class:'btstale',x:(X(n.sha)+X(bt))/2,y:Y(n.sha)-r-40,'text-anchor':'middle'},
+          T('step.map.stale.label',{by:n.mapStaleBy,to:n.mapStaleTo}));
+        svg.appendChild(lb);
+      }
+    }
+    // 경합에서 진 갈래 → 승자로 가는 선(gil adopt 가 남긴 Gil-Lost-To). 진 것은 잊혀서
+    // 남은 게 아니라 **비교의 한쪽**이다 — 그 사실이 그래프에 있어야 대조가 읽힌다.
+    if(n.lostTo){
+      const wid=n.lostTo.split('/').pop();
+      const w2=numSha(wid,n.sha);
+      if(w2){
+        const e=svgEl('path',{class:'lostedge',fill:'none',
+          d:'M '+X(n.sha)+' '+(Y(n.sha)+r)+' Q '+((X(n.sha)+X(w2))/2)+' '+(Y(n.sha)+r+28)+' '+X(w2)+' '+(Y(w2)+r)});
+        e.appendChild(svgEl('title',{},T('step.lost.tip',{winner:wid})));
+        svg.appendChild(e);
+      }
     }
   });
   // 종결(success/fail/pending)은 이제 진짜 스텝 노드다(gil 모델 변경) — 일반 스텝 노드와
@@ -2506,6 +2747,24 @@ function openStepCard(chain,cyc){
         broke?'⚠ 설계깨짐':'⚙ 설계');
       badge.appendChild(svgEl('title',{},broke?('설계가 깨졌다: '+(n.planDiff||'')):(n.plan||'설계 유지')));
       g.appendChild(badge);
+    }
+    // 경합·지도 표식(이슈 #112). 위쪽은 이미 붐빈다(HEAD·정정·설계) — 아래 칸에 단다.
+    if(n.competing&&n.kind==='hypothesis'){
+      const lost=!!n.lostTo;
+      const b=svgEl('text',{class:'compbadge'+(lost?' lost':''),dy:r+30},
+        lost?T('step.badge.lost'):T('step.badge.competing'));
+      b.appendChild(svgEl('title',{},T('step.badge.competing.tip',{root:n.competing})));
+      g.appendChild(b);
+    }
+    if(n.backtrack==='pending'){ // 아직 지도가 없다 — 없는 것과 안 그린 것은 다르다.
+      const b=svgEl('text',{class:'compbadge pending',dy:r+30},T('step.badge.map.pending'));
+      b.appendChild(svgEl('title',{},T('step.badge.map.pending.tip')));
+      g.appendChild(b);
+    }
+    if(n.despite){ // 벽의 지도를 벗어나 갈라진 자리 — 그 이유가 커밋에 있다.
+      const b=svgEl('text',{class:'compbadge despite',dy:r+30},T('step.badge.despite'));
+      b.appendChild(svgEl('title',{},T('step.badge.despite.tip',{why:n.despite})));
+      g.appendChild(b);
     }
     if(n.deploy){ // 배포 지점(이슈 #34) — 🚀 + 태그 라벨. 이 스텝에서 세상으로 나갔다.
       const staged=n.deployState==='staged';
@@ -2563,6 +2822,8 @@ function openStepCard(chain,cyc){
   const wrap=document.createElement('div');
   wrap.className='cygraph-wrap'; wrap.appendChild(svg);
   sc.appendChild(wrap);
+  // 형제 비교 카드(이슈 #112 · #106 c) — 그래프 바로 아래.
+  competeCards(sc,chain,cyc);
   // 번호 중복은 조용히 넘기지 않는다 — 뷰어가 견딜 뿐, 저장소는 실제로 오염돼 있다.
   const dups=Object.keys(byNum).filter(k=>byNum[k].length>1);
   if(dups.length){
@@ -2580,6 +2841,63 @@ function openStepCard(chain,cyc){
     sc.appendChild(box);
   }
   showPane('pane-step',true);
+}
+
+// competeCards — 같은 자리에서 **동시에 겨루는** 형제 갈래를 나란히 놓는다(이슈 #112 · #106 c).
+//
+// 지금까지 fsck·handoff 는 "경합 중 3개"라고 **세기만** 했다. 무엇과 무엇이 겨루는지,
+// 각자 무엇이 관측되면 틀린다고 했는지는 사람이 그래프를 눈으로 따라가야 알 수 있었다 —
+// 비교하려고 나란히 세운 것인데 정작 비교하는 화면이 없었다.
+//
+// 한 줄이 한 갈래다: 뿌리 스텝 · 가설 · 반증조건 · 고정한 설계 · 지금 상태.
+// 상태는 추측이 아니라 그 갈래의 잎이 말한 것이다(승자 / 진 것 / 접힘 / 겨루는 중).
+function competeCards(sc,chain,cyc){
+  const comps=cyc.competitions||[];
+  if(!comps.length)return;
+  const byId={}; (cyc.nodes||[]).forEach(n=>{ if(!byId[n.id]) byId[n.id]=n; });
+  const strip=s=>String(s||'').replace(/^gil \S+ \w+:\s*/,'');
+  comps.forEach(cp=>{
+    const box=document.createElement('div');
+    box.className='compcard';
+    const h=document.createElement('div');
+    h.className='compcard-head';
+    h.textContent=T('compare.head',{root:cp.root,n:cp.branches.length});
+    box.appendChild(h);
+    const note=document.createElement('div');
+    note.className='compcard-note';
+    note.textContent=T('compare.note');
+    box.appendChild(note);
+    const tb=document.createElement('table');
+    tb.className='comptable';
+    const hr=document.createElement('tr');
+    ['compare.col.branch','compare.col.hypothesis','compare.col.falsify','compare.col.plan','compare.col.state']
+      .forEach(k=>{ const th=document.createElement('th'); th.textContent=T(k); hr.appendChild(th); });
+    tb.appendChild(hr);
+    cp.branches.forEach(b=>{
+      const tr=document.createElement('tr');
+      tr.className='comprow '+b.state;
+      const idc=document.createElement('td');
+      const btn=document.createElement('button');
+      btn.className='lchip'; btn.textContent=b.step;
+      btn.addEventListener('click',ev=>{ ev.stopPropagation();
+        const n=byId[b.step]; if(n) openReport(chain,cyc.name,n); });
+      idc.appendChild(btn); tr.appendChild(idc);
+      [strip(b.subj),b.falsify||'—',b.plan||'—'].forEach(v=>{
+        const td=document.createElement('td'); td.textContent=v; tr.appendChild(td);
+      });
+      const st=document.createElement('td');
+      st.className='compstate '+b.state;
+      st.textContent= b.state==='won'?T('compare.state.won')
+                    : b.state==='lost'?T('compare.state.lost',{winner:(b.lostTo||'').split('/').pop()})
+                    : b.state==='fail'?T('compare.state.fail')
+                    : T('compare.state.open');
+      if(b.leaf) st.title=T('compare.state.leaf',{leaf:b.leaf});
+      tr.appendChild(st);
+      tb.appendChild(tr);
+    });
+    box.appendChild(tb);
+    sc.appendChild(box);
+  });
 }
 
 // lineage — 이 스텝의 지식 전파를 진짜 커밋 부모/자식으로: (들어옴) 부모 → [이 스텝] → 자식(낳음).

@@ -64,6 +64,10 @@ type viewerNode struct {
 	plan, planOutcome        string // 가설 전에 고정한 설계와 그 결과(held|broke) — 이슈 #76
 	planDiff                 string // 깨졌으면 무엇이 달랐나
 	parent, backtrack        string   // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
+	falsify                  string   // Gil-Falsify: 이 가설이 심은 반증조건 — 형제 비교 카드의 축(이슈 #112)
+	competing                string   // Gil-Competing: 이 갈래가 겨루는 자리(경합의 뿌리 스텝, #106·#107)
+	lostTo                   string   // Gil-Lost-To: 경합에서 진 갈래가 가리키는 승자(gil adopt)
+	despiteMap               string   // Gil-Despite-Map: 벽의 지도를 벗어나 갈라진 이유(#105)
 	refutes                  []string // Gil-Refutes: 이 스텝/사이클이 소급 반증하는 verify 스텝들(AIL #1 B)
 	refutedBy                []string // 역인덱스: 이 스텝을 반증한 스텝들(뷰어가 ⚠refuted-by 표시)
 	refines                  []string // Gil-Refines: 이 스텝/사이클이 해석을 정밀화하는 대상들(이슈 #42)
@@ -155,6 +159,11 @@ func viewerCollectNodes() []viewerNode {
 			plan: tr["Gil-Plan"], planOutcome: tr["Gil-Plan-Outcome"], planDiff: tr["Gil-Plan-Diff"],
 			advances: tr["Gil-Advances"], toward: tr["Gil-Toward"], nextDesign: tr["Gil-Next-Design"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
+			// 경합·지도(이슈 #112): 문법은 v3.53.0 에 섰고, 이제 화면이 그릴 것을 받는다.
+			falsify:    tr["Gil-Falsify"],
+			competing:  tr["Gil-Competing"],
+			lostTo:     tr["Gil-Lost-To"],
+			despiteMap: tr["Gil-Despite-Map"],
 			refutes:      trailerAll(parts[3], "Gil-Refutes"), // multi-value(map은 마지막만 남아 직접 파싱)
 			refines:      trailerAll(parts[3], "Gil-Refines"), // 정밀화 간선(이슈 #42)
 			cycleParents: trailerAll(parts[3], "Gil-Cycle-Parent"),

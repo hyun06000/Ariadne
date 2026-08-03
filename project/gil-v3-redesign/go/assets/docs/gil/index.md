@@ -20,6 +20,7 @@ gil(GIt for Language model) 지식의 진입점이다. LLM이 **필요한 페이
 | 스텝을 어떻게 흐르게 하고 막힘을 처리하나 | [사고의 생애](lifecycle.md) |
 | 어떤 명령이 있나 | [명령 전체 표면](commands.md) |
 | 내 정체성·기억을 세션 넘어 잇는다 | [존재와 기억](existence.md) |
+| 가설 여럿을 나란히 세워 겨루게 하고 하나를 채택한다 | [경합·채택·벽의 지도](parallel.md) |
 | 작업이 목적에서 벗어나지 않게 한다 | [목적성 가드](purpose-guard.md) |
 | 사람의 승인/기각을 받는다 | [사람과의 소통](human-in-the-loop.md) |
 | 한 국면을 닫고 다음 체인으로 넘어간다 | [배포 순환과 체인 전환](deployment.md) |

@@ -483,6 +483,81 @@ gil step power/c001 --kind hypothesis --to s1 \
 # 이후 verify → analyze → success 로 산 가지를 마감(위 관용과 동일).
 ```
 
+### 관용 예제 — 갈래 둘을 **나란히 세워 겨루기** (토너먼트, 복붙 가능)
+
+분석이 선택지를 여럿 내놓았을 때 하나를 골라 직렬로 미는 것은 **고른 근거가 없는** 판단이다
+— 나머지가 어땠는지 아무도 모르니까. 그럴 땐 형제 가설을 `--competing` 으로 나란히 세우고,
+차례로 재고, 이긴 것을 `gil adopt` 로 채택한다. 진 갈래는 실패가 아니라 **비교의 한쪽**이다.
+(위 c001 을 닫은 뒤 이어서 그대로 돈다. 더 깊이: `docs/gil/parallel.md`)
+
+```bash
+gil open power/c002 --purpose "남은 29% 의 출처를 가른다" \
+  --fits "기준(90% 설명)에 남은 몫을 채운다" \
+  --body-file - <<'MD'
+# 문제 정의
+남은 29% 를 어느 기기가 만들었는지 가른다. 후보가 여럿이고 어느 쪽인지 모른다.
+MD
+
+# 1) 갈래마다 한 번씩 — **모두** --competing 을 단다(첫 가지도 예외가 아니다).
+#    같은 --to(겨루는 자리)를 가리켜야 한 경합이 된다. --falsify 는 갈래마다 다르게.
+gil step power/c002 --kind hypothesis --to s1 --competing --title "온수기 가설" \
+  --falsify "온수기 계측이 남은 증가분의 10% 미만이면 거짓" --falsify-to s1 \
+  --inherit "시간대만으로는 못 가른다(c001 의 분석)" --plan "콘센트 계측 1종(온수기)" \
+  --advances "남은 29% 중 온수기 몫을 확정한다" \
+  --body-file - <<'MD'
+# 가설 A
+온수기가 남은 증가분의 주범이다.
+MD
+gil step power/c002 --kind hypothesis --to s1 --competing --title "건조기 가설" \
+  --falsify "건조기 계측이 남은 증가분의 10% 미만이면 거짓" --falsify-to s1 \
+  --inherit "시간대만으로는 못 가른다(c001 의 분석)" --plan "콘센트 계측 1종(건조기)" \
+  --advances "남은 29% 중 건조기 몫을 확정한다" \
+  --body-file - <<'MD'
+# 가설 B
+건조기가 남은 증가분의 주범이다.
+MD
+
+# 2) 갈래는 **차례로** 판다 — gil goto 가 가지 사이를 오가는 유일한 길이다
+#    (git 도 두 브랜치를 동시에 밟진 못한다. 열어 두는 것과 동시에 일하는 것은 다르다.)
+gil goto power/c002/s2
+gil step power/c002 --kind verify --title "온수기 계측" --verdict refuted --plan-held \
+  --falsify-met "온수기 몫은 4% — 10% 미만" \
+  --body-file - <<'MD'
+# 검증 A
+온수기 콘센트 계측 2주. 남은 증가분의 4%.
+MD
+gil goto power/c002/s3
+gil step power/c002 --kind verify --title "건조기 계측" --verdict supported --plan-held \
+  --falsify-unmet "건조기 몫은 22% — 10% 이상" \
+  --body-file - <<'MD'
+# 검증 B
+건조기 콘센트 계측 2주. 남은 증가분의 22%.
+MD
+
+# 3) 채택 — 진 갈래마다 벽(fail)을 남기고 HEAD 를 승자 가지로 옮긴다. --reason 필수:
+#    근거가 없으면 나중에 아무도 그것이 측정이었는지 취향이었는지 모른다.
+gil adopt power/c002/s5 --reason "건조기 22% 대 온수기 4% — 계측으로 갈렸다"
+
+# 4) 승자 가지에서 이어서 마감한다(위 관용과 동일).
+gil step power/c002 --kind analyze --title "해석" \
+  --finding "남은 증가분의 22% 는 건조기, 4% 는 온수기 — 합쳐 26%" \
+  --body-file - <<'MD'
+# 분석
+두 계측을 나란히 놓고 비교했다. 대조가 없었으면 22% 라는 수치도 근거가 되지 못한다.
+MD
+gil step power/c002 --kind success --title "건조기가 남은 몫의 주범" \
+  --toward "야간 냉방 71% + 건조기 22% = 93% — 기준(90%)을 넘겼다" \
+  --next-design "대기전력까지 재는 사이클" \
+  --body-file - <<'MD'
+# 종합 보고서
+경합 두 갈래를 나란히 재서 갈랐다.
+MD
+gil close power/c002 --verdict supported
+```
+
+뷰어의 스텝 그래프에서 이 사이클을 열면 갈래에 `⚖ 경합` 표식이 붙고, 그래프 아래에
+**형제 비교 카드**(갈래·가설·반증조건·설계·상태)가 선다 — 무엇과 무엇이 겨뤘는지 한눈에.
+
 **앞선 스텝이 틀렸으면 지우지 말고 정정하라.** `gil step … --supersede <스텝id> --inherit <전수>`
 — 같은 kind 로만 정정되고, **정정은 분기다**(대상의 부모 자리에서 새 브랜치로 갈라진다).
 옛 가지는 그대로 보존되고 뷰어가 흐리게 표시한다. `git commit --amend` 로 gil 커밋을 고치지

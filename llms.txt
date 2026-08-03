@@ -59,6 +59,7 @@ verify→analyze 경유)가 검증된 복붙 시퀀스로 있어야 처음 쓰�
 - [목적성 가드](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/purpose-guard.md): 시작마다 목적을 띄우고 정합을 판단한다.
 - [사람과의 소통 (pending·approve·reject)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/human-in-the-loop.md): human-in-the-loop을 데이터로.
 - [배포 순환과 체인 전환 (chain-close)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/deployment.md): 개발→스테이징→배포 체인 흐름, 한 국면을 닫고 다음으로.
+- [경합·채택·벽의 지도 (--competing · gil adopt)](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/parallel.md): 가설 여럿을 나란히 세워 겨루게 하고 하나를 채택한다. 진 갈래는 실패가 아니라 비교의 한쪽이다.
 - [스텝 본문은 보고서다](https://raw.githubusercontent.com/hyun06000/Ariadne/main/docs/gil/reports.md): 각 스텝의 본문이 곧 누적 보고서. 뷰어로 관전.
 
 ## 거부당하면 — 대개 이 중 하나를 요구한다 (v3.21 문법)

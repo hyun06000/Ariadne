@@ -187,7 +187,17 @@ func cmdGoto(args []string) {
 		want = parts[2]
 	}
 	if n, blocked := leavingUnterminated(); blocked && !*leaveOpen {
-		die(unterminatedRefusal(n, "gil goto "+pos[0]+" --leave-open"))
+		// **선언된 경합은 막지 않는다**(이슈 #112 · #106). 경합 갈래를 두고 떠나는 것은 잊고
+		// 떠나는 것이 아니라 **다음 갈래를 재러 가는 것**이다 — goto 는 갈래 사이를 오가는
+		// 유일한 길인데(#67), 그 길이 "종결 없이 떠날 수 없다"로 막히면 v3.53.0 이 세운 문법이
+		// 실제로는 쓸 수 없는 것이 된다. 탈출구(--leave-open)의 안내문도 여기선 거짓이다:
+		// 선언된 경합은 fsck 위반이 아니다. (step 쪽 같은 검사는 거기서 따로 판정한다 —
+		// 검사 자체를 무르면 그쪽의 ⚖ 안내까지 사라진다.)
+		if competitionRoot(n, cycleAnywhere(n.chain, n.cycle)) == "" {
+			die(unterminatedRefusal(n, "gil goto "+pos[0]+" --leave-open"))
+		}
+		println2("  ⚖ 경합 — " + n.step + " 은 겨루려고 열어 둔 갈래다(매달린 잎이 아니다). " +
+			"사이클을 닫으려면 갈래마다 success/fail 로 끝나야 한다.")
 	}
 	nodes := cycleAnywhere(chain, cycle)
 	if len(nodes) == 0 {

@@ -2272,6 +2272,51 @@ class TestReadmeAiRunnable(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class TestReadmeAiTournamentRunnable(unittest.TestCase):
+    """README.ai.md 의 **토너먼트 예제**도 정말 도는가 (이슈 #112 · #106 e).
+
+    예시가 전부 직렬이면 예시가 곧 기본값으로 읽힌다(#103 의 어포던스 효과) — 그래서 병렬을
+    가르치는 예제를 정문에 넣었다. 그런데 정문의 복붙 블록이 안 도는 것은 문서 오류가 아니라
+    **제품 결함**이다(이 클래스의 형제 시험이 그렇게 정했다). 그러니 실행한다.
+
+    실제로 이 시험을 쓰다가 결함 하나를 잡았다: `gil goto` 가 **선언된 경합의 갈래를 두고
+    떠나는 것까지** 막고 있었다(#78 의 미종결 잎 가드가 넓게 걸려 있었다). 갈래 사이를 오가는
+    유일한 길이 막히면 경합은 문법으로만 있고 실제로는 못 쓴다."""
+
+    def test_tournament_block_runs_after_the_first_one(self):
+        d = tempfile.mkdtemp()
+        try:
+            binp = os.path.join(d, "bin")
+            os.makedirs(binp)
+            os.symlink(os.path.abspath(GIL_BIN), os.path.join(binp, "gil"))
+            work = os.path.join(d, "work")
+            os.makedirs(work)
+            env = dict(os.environ, GIL_NO_VIEWER="1",
+                       PATH=binp + os.pathsep + os.environ.get("PATH", ""))
+            init = subprocess.run(["gil", "init"], cwd=work, env=env,
+                                  capture_output=True, text=True)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            for after in ("### 관용 예제 — 묻고", "### 관용 예제 — 갈래 둘을"):
+                blk = TestReadmeAiRunnable._block(self, after)
+                sh = os.path.join(d, "block.sh")
+                with open(sh, "w", encoding="utf-8") as f:
+                    f.write(blk)
+                r = subprocess.run(["sh", "-e", sh], cwd=work, env=env,
+                                   capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0,
+                                 "README.ai.md 의 복붙 블록이 도중에 죽었다(" + after + "):\n"
+                                 + r.stdout[-3000:] + r.stderr[-3000:])
+            g = subprocess.run(["gil", "log", "power", "--all", "--depth", "step"], cwd=work, env=env,
+                               capture_output=True, text=True).stdout
+            self.assertIn("[fail] \u2190s4", g, "채택이 진 갈래에 벽을 안 남겼다:\n" + g)
+            f = subprocess.run(["gil", "fsck"], cwd=work, env=env,
+                               capture_output=True, text=True)
+            self.assertIn("위반 0", f.stdout,
+                          "선언된 경합을 쓴 저장소가 위반으로 남았다:\n" + f.stdout)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class TestOnboardingInstall(GilFixture):
     """gil 이 온보딩을 저장소에 설치한다 (이슈 #73).
 
@@ -11133,3 +11178,159 @@ class TestHandoffPointsAtThisRepositorysViewer(GilFixture):
         finally:
             p.terminate()
             p.wait(timeout=10)
+
+
+class TestViewerShowsTheCompetition(GilFixture):
+    """**나란히 세운 것은 비교하려는 것이다 — 그런데 비교하는 화면이 없었다** (이슈 #112).
+
+    v3.53.0 이 경합(`--competing`)·채택(`gil adopt`)·미정 지도(`--to pending`)의 문법을
+    세웠다. 그런데 fsck·handoff 는 "경합 중 3개"라고 **세기만** 했고, 무엇과 무엇이 겨루는지는
+    사람이 그래프를 눈으로 따라가야 알았다. 그리고 `--despite` 로 갱신된 옛 지도는 화면에서
+    여전히 '유효한 계획'처럼 그려졌다 — 사람이 "뭐가 맞는 거냐"고 물은 자리다.
+
+    여기서 지키는 것: (1) 겨루는 갈래가 재료로 화면에 실린다 (2) 선언 없이 난 형제는 경합이
+    아니다 (3) 갱신된 지도는 강등의 근거(누가·어디로)를 달고 나간다 (4) 미정인 지도가 미정으로
+    남는다 (5) 선언된 경합에서는 갈래 사이를 오갈 수 있다."""
+
+    def _cycdata(self):
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        m = re.search(r'id="cycledata"[^>]*>(.*?)</script>', html, re.S)
+        self.assertIsNotNone(m, "사이클 데이터가 페이지에 실리지 않았다")
+        return json.loads(m.group(1))
+
+    def _competition(self):
+        """경합 둘을 세우고 하나를 채택한 사이클."""
+        self._no_despite_autofill = True
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "tune", "--purpose", "p95 낮추기")
+        self.gil("open", "tune/c001", "--author", "clew", "--purpose", "p95 낮추기",
+                 "--fits", "체인 목적 그 자체")
+        for title, fals in (("인덱스로 줄인다", "인덱스 후에도 스캔이 남으면 틀림"),
+                            ("배치로 줄인다", "배치를 늘려도 p95 그대로면 틀림")):
+            r = self.gil("step", "tune/c001", "--kind", "hypothesis", "--to", "s1",
+                         "--competing", "--inherit", "앞 가지의 교훈", "--title", title,
+                         "--falsify", fals, "--falsify-to", "s1",
+                         "--advances", "p95 목표의 한 축", "--body", "가설")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.gil("goto", "tune/c001/s2")
+        self.gil("step", "tune/c001", "--kind", "verify", "--verdict", "refuted",
+                 "--title", "인덱스 측정", "--body", "측정")
+        r = self.gil("goto", "tune/c001/s3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.gil("step", "tune/c001", "--kind", "verify", "--verdict", "supported",
+                 "--title", "배치 측정", "--body", "측정")
+        r = self.gil("adopt", "tune/c001/s5", "--reason", "배치가 p95 를 가장 많이 낮췄다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def _cycle(self, data, name="c001"):
+        for cy in data["tune"]["cycles"]:
+            if cy["name"] == name:
+                return cy
+        self.fail("사이클을 못 찾았다: " + name)
+
+    def test_competing_branches_are_stood_side_by_side(self):
+        """겨루는 갈래가 **재료로** 화면에 온다 — 반증조건까지. 비교는 결국 그것으로 한다."""
+        self._competition()
+        cy = self._cycle(self._cycdata())
+        comps = cy.get("competitions") or []
+        self.assertEqual(len(comps), 1, "경합 한 판이 한 묶음으로 서지 않았다: " + repr(comps))
+        self.assertEqual(comps[0]["root"], "s1")
+        br = {b["step"]: b for b in comps[0]["branches"]}
+        self.assertEqual(sorted(br), ["s2", "s3"])
+        self.assertIn("스캔이 남으면", br["s2"]["falsify"], "반증조건이 안 실렸다 — 무엇으로 견주나")
+        self.assertEqual(br["s3"]["state"], "won", "채택된 갈래가 이겼다고 안 나온다")
+        self.assertEqual(br["s2"]["state"], "lost", "진 갈래가 졌다고 안 나온다")
+        self.assertTrue(br["s2"]["lostTo"].endswith("/s5"), br["s2"]["lostTo"])
+
+    def test_a_rebranch_without_the_declaration_is_not_a_competition(self):
+        """**선언이 가른다.** 잊혀서 남은 형제와 겨루려고 연 형제는 다른 것이다 —
+        선언 없는 재분기를 경합으로 그리면 비교 카드가 거짓을 말한다."""
+        self._no_despite_autofill = True
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "tune", "--purpose", "p95 낮추기")
+        self.gil("open", "tune/c001", "--author", "clew", "--purpose", "p95", "--fits", "그 자체")
+        self.gil("step", "tune/c001", "--kind", "hypothesis", "--title", "첫 가설",
+                 "--falsify", "…", "--falsify-to", "s1", "--advances", "…", "--body", "가설")
+        self.gil("step", "tune/c001", "--kind", "verify", "--verdict", "refuted",
+                 "--title", "측정", "--body", "측정")
+        self.gil("step", "tune/c001", "--kind", "analyze", "--title", "분석", "--body", "분석")
+        self.gil("step", "tune/c001", "--kind", "hypothesis", "--to", "s4", "--inherit", "교훈",
+                 "--title", "둘째 가설", "--falsify", "…", "--falsify-to", "s4",
+                 "--advances", "…", "--body", "가설")
+        cy = self._cycle(self._cycdata())
+        self.assertEqual(cy.get("competitions"), [],
+                         "선언 없이 난 형제 가지를 경합이라 그렸다")
+
+    def test_the_updated_map_carries_who_updated_it(self):
+        """옛 지도를 지우지 않되, **강등의 근거**를 함께 낸다(누가·어디로·왜).
+        선만 흐리면 사람은 왜 흐린지 모르고, 안 흐리면 두 계획이 동시에 유효해 보인다."""
+        self._no_despite_autofill = True
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "tune", "--purpose", "메모리 줄이기")
+        self.gil("open", "tune/c001", "--author", "clew", "--purpose", "RSS", "--fits", "그 자체")
+        self.gil("step", "tune/c001", "--kind", "hypothesis", "--title", "풀링이 원인",
+                 "--falsify", "…", "--falsify-to", "s1", "--advances", "…", "--body", "가설")
+        self.gil("step", "tune/c001", "--kind", "verify", "--verdict", "refuted",
+                 "--title", "측정", "--body", "측정")
+        self.gil("step", "tune/c001", "--kind", "analyze", "--title", "분석", "--body", "분석")
+        self.gil("step", "tune/c001", "--kind", "fail", "--to", "s1", "--title", "벽",
+                 "--toward", "여기까지", "--next-design", "다른 축", "--body", "벽")
+        r = self.gil("step", "tune/c001", "--kind", "hypothesis", "--to", "s4",
+                     "--despite", "분석이 이미 자리를 좁혔다 — s1 까지 갈 필요가 없다",
+                     "--inherit", "풀은 아니다", "--title", "경로 A",
+                     "--falsify", "…", "--falsify-to", "s4", "--advances", "…", "--body", "재분기")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        nodes = {n["id"]: n for n in self._cycle(self._cycdata())["nodes"]}
+        wall = nodes["s5"]
+        self.assertEqual(wall.get("mapStaleBy"), "s6", "지도를 갱신한 스텝을 안 말한다")
+        self.assertEqual(wall.get("mapStaleTo"), "s4", "실제로 간 자리를 안 말한다")
+        self.assertIn("자리를 좁혔다", wall.get("mapStaleWhy", ""), "이유가 안 실렸다")
+        self.assertIn("자리를 좁혔다", nodes["s6"].get("despite", ""),
+                      "지도를 벗어난 이유가 그 스텝에 안 실렸다")
+
+    def test_a_pending_map_stays_pending(self):
+        """모른다고 적은 것은 빠뜨린 것이 아니다 — 화면이 그 차이를 받아야 한다."""
+        self._no_despite_autofill = True
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "tune", "--purpose", "로그 줄이기")
+        self.gil("open", "tune/c001", "--author", "clew", "--purpose", "로그", "--fits", "그 자체")
+        self.gil("step", "tune/c001", "--kind", "hypothesis", "--title", "디버그 로그",
+                 "--falsify", "…", "--falsify-to", "s1", "--advances", "…", "--body", "가설")
+        self.gil("step", "tune/c001", "--kind", "verify", "--verdict", "refuted",
+                 "--title", "측정", "--body", "측정")
+        self.gil("step", "tune/c001", "--kind", "analyze", "--title", "분석", "--body", "분석")
+        r = self.gil("step", "tune/c001", "--kind", "fail", "--to", "pending", "--title", "벽",
+                     "--toward", "여기까지", "--next-design", "다음에 정한다", "--body", "벽")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        nodes = {n["id"]: n for n in self._cycle(self._cycdata())["nodes"]}
+        self.assertEqual(nodes["s5"]["backtrack"], "pending",
+                         "미정인 지도가 미정으로 오지 않았다")
+        self.assertNotIn("mapStaleBy", nodes["s5"],
+                         "정해진 적 없는 지도를 '갱신됐다'고 했다")
+
+    def test_goto_lets_you_walk_between_declared_branches(self):
+        """**갈래 사이를 오가는 길이 막히면 경합은 문법으로만 있고 실제로는 못 쓴다.**
+
+        goto 는 미종결 잎을 두고 떠나는 것을 막는다(#78) — 잊고 떠나는 것을 막으려고. 그런데
+        선언된 경합에서 떠나는 것은 잊는 것이 아니라 **다음 갈래를 재러 가는 것**이다.
+        (탈출구 --leave-open 의 안내문도 여기선 거짓이 된다: 선언된 경합은 fsck 위반이 아니다.)"""
+        self._competition()
+        r = self.gil("fsck")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_goto_still_blocks_leaving_a_plain_unterminated_leaf(self):
+        """넓게 걸면 정상 흐름이 막히고, 아예 풀면 #78 이 되살아난다 — 좁게 건 것을 지킨다."""
+        self._no_despite_autofill = True
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "tune", "--purpose", "p95")
+        self.gil("open", "tune/c001", "--author", "clew", "--purpose", "p95", "--fits", "그 자체")
+        self.gil("step", "tune/c001", "--kind", "hypothesis", "--title", "선언 없는 가설",
+                 "--falsify", "…", "--falsify-to", "s1", "--advances", "…", "--body", "가설")
+        r = self.gil("goto", "tune/c001/s1")
+        self.assertNotEqual(r.returncode, 0,
+                            "선언 없는 미종결 잎을 두고 떠나는 것까지 열렸다:\n" + r.stdout + r.stderr)
+        self.assertIn("종결 없이 떠날 수 없다", r.stdout + r.stderr)

@@ -365,6 +365,110 @@ var i18nDict = map[string]map[string]string{
 		"zh-TW": "回答尚未提交（也沒有遺失）。請<b>重新整理後再次提交</b>——你輸入的內容保存在這台瀏覽器裡，重新整理後會恢復。",
 	},
 
+	// ── 경합과 벽의 지도(이슈 #112) ──
+	// 스텝 이름(s5)·사람이 쓴 이유는 자리표시자로만 지나간다 — 옮기지 않는다.
+	"step.map.stale.tip": {
+		"ko": "이 지도는 {by} 가 갱신했다 — 실제로는 {to} 에서 갈라졌다.\n이유: {why}",
+		"en": "This map was updated by {by} — the branch actually came off {to}.\nReason: {why}",
+		"zh-CN": "该地图已由 {by} 更新——实际是从 {to} 分出的。\n理由：{why}",
+		"zh-TW": "該地圖已由 {by} 更新——實際是從 {to} 分出的。\n理由：{why}",
+	},
+	"step.map.stale.label": {
+		"ko": "지도 갱신됨 → {to} ({by}, despite)",
+		"en": "map updated → {to} ({by}, despite)",
+		"zh-CN": "地图已更新 → {to}（{by}, despite）",
+		"zh-TW": "地圖已更新 → {to}（{by}, despite）",
+	},
+	"step.map.live.tip": {
+		"ko": "벽의 지도: 여기서 막혔으니 {to} 로 되돌아가라",
+		"en": "Map of the wall: blocked here — go back to {to}",
+		"zh-CN": "墙的地图：在此受阻——回到 {to}",
+		"zh-TW": "牆的地圖：在此受阻——回到 {to}",
+	},
+	"step.lost.tip": {
+		"ko": "경합에서 {winner} 에 졌다 — 실패가 아니라 비교의 한쪽이다(대조가 승자의 근거를 떠받친다)",
+		"en": "Lost the competition to {winner} — not a failure but one side of the comparison (the control is what makes the winner's numbers mean anything)",
+		"zh-CN": "在竞争中输给了 {winner}——这不是失败，而是对照的一方（正是对照让胜者的数字有意义）",
+		"zh-TW": "在競爭中輸給了 {winner}——這不是失敗，而是對照的一方（正是對照讓勝者的數字有意義）",
+	},
+	"step.badge.competing": {
+		"ko": "⚖ 경합", "en": "⚖ competing",
+		"zh-CN": "⚖ 竞争中", "zh-TW": "⚖ 競爭中",
+	},
+	"step.badge.lost": {
+		"ko": "⚖ 졌음", "en": "⚖ lost",
+		"zh-CN": "⚖ 已落败", "zh-TW": "⚖ 已落敗",
+	},
+	"step.badge.competing.tip": {
+		"ko": "{root} 에서 형제들과 **동시에** 겨루려고 연 갈래다 — 매달린 잎이 아니다(잊혀서 남은 것과 겨루려고 열어 둔 것은 다르다)",
+		"en": "A branch opened to run **alongside** its siblings from {root} — not a dangling leaf (a leaf left behind and a branch held open to compete are different things)",
+		"zh-CN": "这是为了与 {root} 处的兄弟分支**同时**较量而开的分支——不是悬空叶（被遗忘留下的与为比较而保留的不同）",
+		"zh-TW": "這是為了與 {root} 處的兄弟分支**同時**較量而開的分支——不是懸空葉（被遺忘留下的與為比較而保留的不同）",
+	},
+	"step.badge.map.pending": {
+		"ko": "⌖ 지도 미정", "en": "⌖ map pending",
+		"zh-CN": "⌖ 地图未定", "zh-TW": "⌖ 地圖未定",
+	},
+	"step.badge.map.pending.tip": {
+		"ko": "되돌아갈 자리를 아직 정하지 않았다 — 다음 재분기(또는 사람의 판정)가 정한다. 모른다고 적은 것이지 빠뜨린 것이 아니다.",
+		"en": "Where to go back has not been decided yet — the next re-branch (or a human call) will set it. This is recorded as unknown, not left out.",
+		"zh-CN": "尚未确定回退到哪里——由下一次再分支（或人的判断）决定。这是明写的“未定”，不是遗漏。",
+		"zh-TW": "尚未確定回退到哪裡——由下一次再分支（或人的判斷）決定。這是明寫的「未定」，不是遺漏。",
+	},
+	"step.badge.despite": {
+		"ko": "⟲ 지도 벗어남", "en": "⟲ off the map",
+		"zh-CN": "⟲ 偏离地图", "zh-TW": "⟲ 偏離地圖",
+	},
+	"step.badge.despite.tip": {
+		"ko": "벽의 지도와 다른 자리에서 갈라졌다(--despite): {why}",
+		"en": "Branched somewhere other than where the map of the wall pointed (--despite): {why}",
+		"zh-CN": "在与墙的地图不同的位置分支（--despite）：{why}",
+		"zh-TW": "在與牆的地圖不同的位置分支（--despite）：{why}",
+	},
+	"compare.head": {
+		"ko": "⚖ {root} 에서 겨루는 갈래 {n}개",
+		"en": "⚖ {n} branches competing from {root}",
+		"zh-CN": "⚖ 从 {root} 分出的 {n} 条竞争分支",
+		"zh-TW": "⚖ 從 {root} 分出的 {n} 條競爭分支",
+	},
+	"compare.note": {
+		"ko": "나란히 세운 것은 비교하려는 것이다 — 각자 무엇이 관측되면 틀리는가로 견준다.",
+		"en": "They were stood side by side to be compared — weigh them by what each says would prove it wrong.",
+		"zh-CN": "并排摆开就是为了比较——以各自“观测到什么即为错”来衡量。",
+		"zh-TW": "並排擺開就是為了比較——以各自「觀測到什麼即為錯」來衡量。",
+	},
+	"compare.col.branch": {
+		"ko": "갈래", "en": "branch", "zh-CN": "分支", "zh-TW": "分支",
+	},
+	"compare.col.hypothesis": {
+		"ko": "가설", "en": "hypothesis", "zh-CN": "假设", "zh-TW": "假設",
+	},
+	"compare.col.falsify": {
+		"ko": "반증조건", "en": "falsifier", "zh-CN": "反证条件", "zh-TW": "反證條件",
+	},
+	"compare.col.plan": {
+		"ko": "고정한 설계", "en": "fixed design", "zh-CN": "已固定的设计", "zh-TW": "已固定的設計",
+	},
+	"compare.col.state": {
+		"ko": "상태", "en": "state", "zh-CN": "状态", "zh-TW": "狀態",
+	},
+	"compare.state.won": {
+		"ko": "✓ 채택됨", "en": "✓ adopted", "zh-CN": "✓ 已采用", "zh-TW": "✓ 已採用",
+	},
+	"compare.state.lost": {
+		"ko": "✖ {winner} 에 졌음", "en": "✖ lost to {winner}",
+		"zh-CN": "✖ 输给 {winner}", "zh-TW": "✖ 輸給 {winner}",
+	},
+	"compare.state.fail": {
+		"ko": "✖ 접힘", "en": "✖ folded", "zh-CN": "✖ 已收起", "zh-TW": "✖ 已收起",
+	},
+	"compare.state.open": {
+		"ko": "… 겨루는 중", "en": "… still competing", "zh-CN": "… 仍在较量", "zh-TW": "… 仍在較量",
+	},
+	"compare.state.leaf": {
+		"ko": "이 갈래의 잎: {leaf}", "en": "leaf of this branch: {leaf}",
+		"zh-CN": "此分支的叶：{leaf}", "zh-TW": "此分支的葉：{leaf}",
+	},
 	"card.dupwarn": {
 		"ko": "⚠ 이 사이클엔 번호가 겹치는 스텝이 있다({dups}) — 옛 gil(≤3.28)이 찍은 구간이다. 뷰어는 커밋 sha 를 정체성으로 삼아 그대로 그린다. 전체 점검: gil fsck",
 		"en": "⚠ This cycle has steps with colliding numbers ({dups}) — a stretch stamped by an old gil (≤3.28). The viewer takes the commit sha as identity and draws it as it is. To check everything: gil fsck",
