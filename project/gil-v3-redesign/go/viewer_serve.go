@@ -1144,13 +1144,17 @@ func cycleJSON(g graphView, static bool) string {
 // 전부 main 의 일이 된다. 그러나 "로그인 체인의 s3" 은 배포됐다고 해서 대문의 일이 되지
 // 않는다. 어느 층에서 벌어진 일인가는 그 일이 태어날 때 선언된 사실이다.
 func layerGraphJSON() string {
-	out, err := viewerGit("log", "--all", "--topo-order", "-n", "400",
+	// **--all 이 아니라 브랜치·태그다**(이슈 #100③). --all 은 refs/gil/global 까지 끌어와,
+	// 존재·기억 커밋들이 대문 레일에 이어 그려진다 — main 이 대문 끝에서 멈추지 않은 것처럼
+	// 읽힌다. 이 그림은 **작업의 나무**를 보는 자리이고, 존재는 브랜치에 살지 않는다.
+	out, err := viewerGit("log", "--branches", "--tags", "--topo-order", "-n", "400",
 		"--format=%H\x1f%P\x1f%D\x1f%s\x1f"+
 			"%(trailers:key=Gil-Chain,valueonly)\x1f"+
 			"%(trailers:key=Gil-Kind,valueonly)\x1f"+
 			"%(trailers:key=Gil-Merge-Into,valueonly)\x1f"+
 			"%(trailers:key=Gil-Deploy,valueonly)\x1f"+
-			"%(trailers:key=Gil-Chain-Orphan,valueonly)\x1e")
+			"%(trailers:key=Gil-Chain-Orphan,valueonly)\x1f"+
+			"%(trailers:key=Gil-Intake,valueonly)\x1e")
 	if err != nil {
 		return `{"lanes":[],"rows":[]}`
 	}
@@ -1168,8 +1172,8 @@ func layerGraphJSON() string {
 		if strings.TrimSpace(rec) == "" {
 			continue
 		}
-		f := strings.SplitN(rec, "\x1f", 9)
-		if len(f) < 9 {
+		f := strings.SplitN(rec, "\x1f", 10)
+		if len(f) < 10 {
 			continue
 		}
 		chain := strings.TrimSpace(f[4])
@@ -1187,10 +1191,18 @@ func layerGraphJSON() string {
 		}
 		// 선언이 층을 정한다. 순서가 곧 우선순위다 — 합류는 **받는 쪽**의 일이고(그래서
 		// --into 가 먼저), 그다음이 그 커밋이 속한 체인이다.
+		// **앞머리는 층의 것이다**(이슈 #100①·#102). intake·개시 인터뷰 커밋은 `Gil-Chain`
+		// 에 **슬러그**를 달고 있어서, 옛 판정은 그 슬러그를 체인으로 보고 제 레인을 만들었다.
+		// 그 이름의 브랜치는 어디에도 없다 — 사람은 실존하지 않는 가지를 읽게 된다(실사용에서
+		// 그 레인을 dev 로 오해해 층 위반으로 두 번 읽었다). 앞머리는 체인보다 먼저 있는 것이라
+		// 어느 체인의 몸도 아니고, 그 자리는 dev 다.
+		intake := strings.TrimSpace(f[9]) != ""
 		layer := "main"
 		switch {
 		case into != "":
 			layer = into
+		case intake:
+			layer = devBranchName
 		case chain != "":
 			layer = chain
 		case kind == "dev-root" || deploy != "":
@@ -1280,12 +1292,14 @@ func layerGraphJSON() string {
 func gitGraphJSON() string {
 	// --topo-order: 날짜순으로 섞으면 한 가지의 커밋들이 다른 가지 사이사이에 끼어 그림이
 	// 읽히지 않는다. 위상 순서로 묶어야 "이 가지가 여기서 갈라졌다"가 눈에 들어온다.
-	out, err := viewerGit("log", "--all", "--topo-order", "-n", "400",
+	// 브랜치·태그만 — refs/gil/global(존재·기억)은 작업의 나무가 아니다(이슈 #100③).
+	out, err := viewerGit("log", "--branches", "--tags", "--topo-order", "-n", "400",
 		"--format=%H\x1f%P\x1f%D\x1f%s\x1f"+
 			"%(trailers:key=Gil-Chain,valueonly)\x1f"+
 			"%(trailers:key=Gil-Kind,valueonly)\x1f"+
 			"%(trailers:key=Gil-Merge-Into,valueonly)\x1f"+
-			"%(trailers:key=Gil-Deploy,valueonly)\x1e")
+			"%(trailers:key=Gil-Deploy,valueonly)\x1f"+
+			"%(trailers:key=Gil-Intake,valueonly)\x1e")
 	if err != nil {
 		return "[]"
 	}
@@ -1301,8 +1315,8 @@ func gitGraphJSON() string {
 		if strings.TrimSpace(r) == "" {
 			continue
 		}
-		f := strings.SplitN(r, "\x1f", 8)
-		if len(f) < 8 {
+		f := strings.SplitN(r, "\x1f", 9)
+		if len(f) < 9 {
 			continue
 		}
 		var ps []string
@@ -1315,10 +1329,13 @@ func gitGraphJSON() string {
 		// 층 판정은 layerGraphJSON 과 **같은 규칙**이다(합류는 받는 쪽의 일 → --into 가 먼저).
 		// 두 그림이 같은 커밋을 다른 층으로 치면 나란히 놓을 이유가 없어진다.
 		layer := ""
-		switch chain, kind, into, deploy :=
-			strings.TrimSpace(f[4]), strings.TrimSpace(f[5]), strings.TrimSpace(f[6]), strings.TrimSpace(f[7]); {
+		switch chain, kind, into, deploy, intake :=
+			strings.TrimSpace(f[4]), strings.TrimSpace(f[5]), strings.TrimSpace(f[6]),
+			strings.TrimSpace(f[7]), strings.TrimSpace(f[8]); {
 		case into != "":
 			layer = into
+		case intake != "": // 앞머리는 층의 것 — 슬러그로 가짜 레인을 만들지 않는다(이슈 #100①)
+			layer = devBranchName
 		case chain != "":
 			layer = chain
 		case kind == "dev-root" || deploy != "":

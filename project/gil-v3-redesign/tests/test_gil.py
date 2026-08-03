@@ -9092,6 +9092,62 @@ class TestMigrateFollowsSupersedeForks(GilFixture):
         self.assertEqual(r.returncode, 0, "이주가 거부됐다:\n" + out)
 
 
+class TestRawGraphLanesAreReal(GilFixture):
+    """**날것 그래프의 레인이 실재를 가리켜야 한다** (이슈 #100).
+
+    이 그림의 목적은 "gil 계보가 진짜 브랜치인지 여기서 점검한다"이다. 점검하는 사람이
+    레이아웃 위반을 오판하게 만드는 라벨링은 목적과 정면으로 부딪힌다."""
+
+    QS = '[{"q":"기준은?","type":"text"}]'
+
+    def _lanes(self):
+        import json, re
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        m = re.search(r'id="layergraphdata"[^>]*>(.*?)</script>', html, re.S)
+        return json.loads(m.group(1)), html
+
+    def test_an_intake_slug_does_not_become_a_lane(self):
+        """앞머리는 층의 것이다 — 슬러그로 **실존하지 않는 브랜치** 레인을 만들지 않는다.
+
+        intake 커밋은 Gil-Chain 에 슬러그를 달고 있어서 옛 판정이 그걸 체인으로 봤다.
+        그 이름의 ref 는 어디에도 없는데 레인 이름이 되고, 사람은 그 줄을 dev 로 오해했다."""
+        self.gil("init", "--name", "clew")
+        self.gil("intake", "nx", "--ask", "-", input=self.QS)
+        self.gil("chain", "c", "--purpose", "P")   # 체인이 하나는 있어야 층 그림이 실린다
+        data, _ = self._lanes()
+        self.assertNotIn("nx", data["lanes"],
+                         "개시 인터뷰 슬러그가 레인이 됐다: " + repr(data["lanes"]))
+        # 레인은 **브랜치가 아니라 체인**이다 — 브랜치가 rename·삭제된 옛 체인도 정당한
+        # 레인이다(그 체인은 그래프에 그대로 산다). 그러니 "ref 가 있어야 한다"가 아니라
+        # "선언된 체인이어야 한다"를 건다. 앞머리 슬러그는 체인이 아니므로 여기서 걸린다.
+        # 트레일러 출력에는 줄바꿈이 딸려 오므로 레코드 구분자로 자른다(줄 단위로 세면 어긋난다).
+        roots = self._git("log", "--all",
+                          "--format=%(trailers:key=Gil-Kind,valueonly)\x1f"
+                          "%(trailers:key=Gil-Chain,valueonly)\x1e").stdout
+        chains = set()
+        for rec in roots.split("\x1e"):
+            parts = rec.split("\x1f")
+            if len(parts) == 2 and parts[0].strip() == "chain-root":
+                chains.add(parts[1].strip())
+        for ln in data["lanes"]:
+            self.assertIn(ln, chains | {"main", "dev"},
+                          f"레인 '{ln}' 은 선언된 체인이 아니다 — 없는 가지를 그린다")
+
+    def test_the_existence_ref_is_not_drawn_on_the_work_tree(self):
+        """존재·기억(refs/gil/global)은 작업의 나무가 아니다 — 대문 레일에 이어 붙으면 안 된다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        gsha = self._git("rev-parse", "refs/gil/global").stdout.strip()
+        self.assertTrue(gsha, "글로벌 ref 가 없다 — 이 시험의 전제가 깨졌다")
+        _, html = self._lanes()
+        self.assertNotIn(gsha[:9], html,
+                         "존재의 커밋이 날것 그래프에 그려졌다 — main 이 대문 끝에서 안 멈춘 것처럼 읽힌다")
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 
