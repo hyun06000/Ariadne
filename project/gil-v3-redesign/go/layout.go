@@ -408,8 +408,56 @@ func fsckDevLayerFor(pred func(chain string) bool) []string {
 				"    확인: git log --oneline --graph "+devBranchName+" "+strings.TrimSpace(ch))
 		}
 	}
+	// **대문은 배포된 것만 담는다**(이슈 #99 제안 c). 대문의 첫-부모 사슬은 대문 자신의
+	// 줄기다 — 배포 머지(--no-ff)로 들어온 작업은 **둘째 부모**에 있으므로 이 사슬에는
+	// 안 걸린다. 그러니 여기 스텝·앞머리가 서 있다는 것은 대문에 **직접 심었다**는 뜻이다
+	// (#102 가 만들던 상태가 정확히 이것이고, fsck 는 아무 말도 하지 않았다).
+	out = append(out, gateContaminated(pred)...)
 	sort.Strings(out)
 	return out
+}
+
+// gateContaminated — 대문의 첫-부모 사슬에 선 작업 커밋들. 있으면 위반 한 줄.
+func gateContaminated(pred func(chain string) bool) []string {
+	home := homeBranch()
+	if home == "" || home == devBranchName {
+		return nil
+	}
+	fmtStr := "%H" + fsep + trailer("Gil-Chain") + fsep + trailer("Gil-Kind") + fsep +
+		trailer("Gil-Intake") + fsep + "%s" + sep
+	var bad []string
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, "--first-parent", home), sep) {
+		sha, r1, ok := cut(strings.TrimSpace(rec), fsep)
+		if !ok {
+			continue
+		}
+		ch, r2, _ := cut(r1, fsep)
+		kind, r3, _ := cut(r2, fsep)
+		intake, subj, _ := cut(r3, fsep)
+		ch, kind, intake = strings.TrimSpace(ch), strings.TrimSpace(kind), strings.TrimSpace(intake)
+		if ch == "" && intake == "" {
+			continue // 대문 자신의 커밋(gil init·문서 등)
+		}
+		// 배포·합류 커밋은 대문에 정당하게 선다 — 그게 대문이 받는 방식이다.
+		if kind == "deploy" || kind == "dev-root" {
+			continue
+		}
+		if pred != nil && ch != "" && !pred(ch) {
+			continue
+		}
+		bad = append(bad, "      "+first9(strings.TrimSpace(sha))+" \""+strings.TrimSpace(subj)+"\"")
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	sort.Strings(bad)
+	if len(bad) > 6 {
+		bad = append(bad[:6], "      … 그리고 "+itoa(len(bad)-6)+"개 더")
+	}
+	return []string{"층: **대문(" + home + ")이 작업 커밋을 담고 있다** — 대문에는 배포된 것만 온다.\n" +
+		"    첫-부모 사슬에 선 것들이라 배포 머지로 들어온 게 아니라 **직접 심긴** 것이다:\n" +
+		strings.Join(bad, "\n") + "\n" +
+		"    (앞머리는 dev 층의 것이다. 이 상태는 층을 우회해 대문에 심었을 때 난다.)"}
 }
 
 // devLayerNudge — dev 층이 없는 저장소(옛 레이아웃)에게 주는 안내. 거부가 아니라 안내인

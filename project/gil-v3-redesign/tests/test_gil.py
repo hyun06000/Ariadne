@@ -9211,6 +9211,56 @@ class TestAdoptDevLayer(GilFixture):
         self.assertIn("--adopt-dev", out, "다음에 칠 한 줄을 안 줬다:\n" + out)
 
 
+class TestGateHoldsOnlyWhatShipped(GilFixture):
+    """**대문은 배포된 것만 담는다** (이슈 #99 제안 c).
+
+    앞머리가 HEAD 에 심기던 시절(#102) main 이 intake·인터뷰 커밋까지 삼켰고, fsck 는 아무
+    말도 하지 않았다. 대문의 첫-부모 사슬은 대문 자신의 줄기다 — 배포 머지로 들어온 작업은
+    **둘째 부모**에 있으므로, 첫-부모 사슬에 스텝이 서 있다는 것은 대문에 직접 심었다는 뜻이다."""
+
+    def _chain(self, name):
+        self.gil("chain", name, "--purpose", "목적 " + name)
+        self.gil("open", name + "/c001", "--author", "clew", "--purpose", "작은 문제")
+        self.gil("step", name + "/c001", "--kind", "success", "--title", "성공")
+        self.gil("close", name + "/c001", "--verdict", "supported")
+        self.gil("chain-close", name, "--verdict", "success")
+
+    def test_a_deploy_merge_is_not_a_violation(self):
+        """정당한 경로로 들어온 것은 짖지 않는다 — 늘 짖으면 아무도 안 듣는다."""
+        self.gil("init", "--name", "clew")
+        self._chain("a")
+        self.gil("merge", "a", "--into", "dev", "--reason", "배포 단위")
+        r = self.gil("deploy", "--tag", "v0.1.0")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertNotIn("대문", out, "배포된 것을 대문 오염이라 했다:\n" + out)
+
+    def test_work_planted_straight_on_the_gate_is_named(self):
+        """대문에 직접 심긴 작업은 이름을 부른다 — 리포터의 main 이 이 상태였다.
+
+        #102 를 고친 지금은 gil 명령으로 이 상태를 만들 수 없다(앞머리가 dev 로 간다).
+        그래서 옛 gil 이 남긴 나무를 git 으로 재현한다 — 이미 그렇게 된 저장소들이 있고,
+        fsck 는 그들에게 아무 말도 하지 않았다."""
+        self.gil("init", "--name", "clew")
+        self._chain("a")
+        root = self._git("log", "--all", "--format=%H\x1f%(trailers:key=Gil-Kind,valueonly)\x1e").stdout
+        sha = ""
+        for rec in root.split("\x1e"):
+            f = rec.split("\x1f")
+            if len(f) == 2 and f[1].strip() == "chain-root":
+                sha = f[0].strip()
+                break
+        self.assertTrue(sha, "chain-root 를 못 찾았다")
+        self._git("checkout", "-q", "main")
+        # cherry-pick 은 빈 커밋에서 멎는다(트리가 같을 수 있다) — 트레일러만 옮기면 되므로
+        # 메시지를 그대로 실어 빈 커밋으로 얹는다. 재현하려는 것은 "대문에 작업 커밋이 섰다"다.
+        msg = self._git("log", "-1", "--format=%B", sha).stdout
+        r = self._git("commit", "-q", "--allow-empty", "-m", msg)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertIn("대문", out, "대문이 작업을 삼켰는데 아무 말도 안 했다:\n" + out)
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 
