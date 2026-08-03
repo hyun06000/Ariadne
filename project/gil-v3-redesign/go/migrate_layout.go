@@ -412,7 +412,8 @@ func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips bool) {
 	lost := layoutLossReport(prefix, ordered)
 	// 5) 그리고 **자기 목적을 만족했는지 스스로 검사한다** — 모든 체인이 dev 에서 갈라졌나.
 	//    지금까지는 fsck 를 따로 불러야 알았다. 만든 자가 자기 결과를 안 보는 것은 검사가 아니다.
-	viol := fsckDevLayer()
+	// **자기가 그린 나무만 본다.** 옛 나무는 일부러 남긴 것이라 여기서 판정 대상이 아니다.
+	viol := fsckDevLayerFor(func(ch string) bool { return strings.HasPrefix(ch, prefix) })
 	println2("migrate --to-dev-layout 완료 — 커밋 " + itoa(len(newSha)) + "개를 다시 그렸고 " +
 		"브랜치 " + itoa(made) + "개를 세웠다(접두 \"" + prefix + "\").")
 	for _, ln := range lost.lines {

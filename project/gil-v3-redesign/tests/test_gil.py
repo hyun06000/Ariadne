@@ -9034,6 +9034,64 @@ class TestFsckSeesTheLayerOrSaysItCannot(GilFixture):
         self.assertIn("위반 0", r.stdout + r.stderr)
 
 
+class TestMigrateFollowsSupersedeForks(GilFixture):
+    """**정정 분기에 사는 척추를 이주가 못 따라간다** (이슈 #98, 실사용 리포트).
+
+    사이클의 첫 define(s1)을 `--supersede` 로 정정하면 척추(s2~)는 분기 브랜치 `…-s1b1` 에
+    살고 사이클 본 브랜치는 s1 에서 멈춘다. 그 저장소에서 `migrate --to-dev-layout` 이
+    "스텝 5개 유실"로 늘 거부됐다.
+
+    이주가 스스로 세는 것(v3.49.0)은 옳았다 — 그 셈이 진짜 유실을 잡았는지, 아니면 자기가
+    옮겨 놓고 못 찾은 것인지가 여기서 갈린다."""
+
+    def _repo_with_superseded_define(self):
+        """옛 레이아웃(dev 층 없음)에서 s1 을 정정한 사이클 하나를 완주시킨다."""
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c1", "--author", "x", "--purpose", "P", "--body", "정의")
+        # s1(define)을 정정 — 척추가 s1b1 분기로 옮겨 간다
+        self.gil("step", "c/c1", "--kind", "define", "--title", "고친 정의",
+                 "--supersede", "s1", "--inherit", "문제를 좁혔다.", "--body", "다시 쓴 정의")
+        self.gil("step", "c/c1", "--kind", "hypothesis", "--title", "가설",
+                 "--falsify", "F", "--falsify-to", "s2")
+        self.gil("step", "c/c1", "--kind", "verify", "--verdict", "supported", "--title", "검증")
+        self.gil("step", "c/c1", "--kind", "analyze", "--finding", "맞았다", "--title", "해석")
+        self.gil("step", "c/c1", "--kind", "success", "--title", "성공")
+        self.gil("close", "c/c1", "--verdict", "supported")
+
+    def _old_layout(self):
+        """dev 층을 **체인보다 먼저** 걷는다 — 층이 있던 적 없는 옛 나무의 모양.
+
+        체인을 만든 뒤에 걷으면 그 체인이 `Gil-Chain-Orphan: dev` 를 선언한 채로 남아,
+        이주가 옛 나무를 보고 층 위반을 외친다(그건 이주가 안 건드린 나무다). 리포터의
+        저장소는 층이 생기기 전에 태어났으므로 그 선언 자체가 없다."""
+        self._git("checkout", "-q", "main")
+        self._git("branch", "-D", "dev")
+
+    def test_migrate_judges_its_own_tree_not_the_one_it_left_behind(self):
+        """**이주는 옛 나무를 일부러 남긴다** — 그런데 자기 검사가 그 나무를 보고 실패를 외쳤다.
+
+        층이 있는 저장소에서 dev 를 걷어내면(옛 체인의 `Gil-Chain-Orphan: dev` 선언은 남는다)
+        새 나무는 무손실인데도 옛 체인 때문에 "층 위반 1건"으로 이주가 거부됐다. 만든 자가
+        자기 결과를 보는 것과, 남의 결과까지 자기 것으로 세는 것은 다르다."""
+        self.gil("init", "--name", "clew")
+        self._repo_with_superseded_define()   # 층이 있는 채로 체인을 만들고
+        self._old_layout()                    # 그 뒤 dev 를 걷는다 — 선언만 남은 옛 나무
+        r = self.gil("migrate", "--to-dev-layout")
+        out = r.stdout + r.stderr
+        self.assertNotIn("빠짐:", out, out)
+        self.assertEqual(r.returncode, 0,
+                         "안 건드린 옛 나무를 보고 자기 이주를 실패라 했다:\n" + out)
+
+    def test_migrate_does_not_lose_the_spine_that_lives_on_a_fork(self):
+        self.gil("init", "--name", "clew")
+        self._old_layout()                 # 층이 있던 적 없는 나무
+        self._repo_with_superseded_define()
+        r = self.gil("migrate", "--to-dev-layout")
+        out = r.stdout + r.stderr
+        self.assertNotIn("빠짐:", out, "정정 분기의 스텝을 유실로 셌다:\n" + out)
+        self.assertEqual(r.returncode, 0, "이주가 거부됐다:\n" + out)
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 

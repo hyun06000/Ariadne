@@ -324,7 +324,14 @@ func devForkLine(chain string) string {
 // 약한 검사를 경계한다: "dev 의 어느 커밋이든 조상이면 통과"로 짜면, dev 에서 난 체인 위에
 // 얹힌 체인도 통과한다(그 체인 역시 dev 의 자손이므로). 그래서 **부모 커밋이 dev 브랜치에서
 // 실제로 닿는 커밋인가**를 본다 — 체인 위에 얹혔다면 그 부모는 dev 에서 안 닿는다.
-func fsckDevLayer() []string {
+func fsckDevLayer() []string { return fsckDevLayerFor(nil) }
+
+// fsckDevLayerFor — 층 검사를 **특정 체인들에만** 건다. 이주가 자기 결과를 검사할 때 쓴다:
+// 이주는 옛 나무를 일부러 남기는데(되돌아갈 곳이 있어야 하니), 검사가 브랜치 전체를 훑으면
+// **자기가 안 건드린 나무를 보고 자기 실패를 선언한다**(실측: 새 나무는 6→6 무손실인데
+// 옛 체인의 선언 때문에 "층 위반 1건"으로 거부). 만든 자가 자기 결과를 보는 것과, 남의
+// 결과까지 자기 것으로 세는 것은 다르다. pred 가 nil 이면 전부 본다(단독 fsck).
+func fsckDevLayerFor(pred func(chain string) bool) []string {
 	// **층이 안 보이면 그 사실부터 말한다**(이슈 #99). 옛 코드는 여기서 조용히 nil 을 돌려줬다.
 	// 그런데 이 함수가 침묵하면 층 판정이 통째로 꺼지고(적층 판정도 devRooted 를 못 채운다),
 	// 저장소는 어긋난 채로 "위반 0 — 건강"을 받는다. 실사용에서 세 상태가 모두 그랬다:
@@ -371,6 +378,9 @@ func fsckDevLayer() []string {
 		ch, r3, _ := cut(r2, fsep)
 		kind, orphan, _ := cut(r3, fsep)
 		if strings.TrimSpace(kind) != "chain-root" || strings.TrimSpace(orphan) != "dev" {
+			continue
+		}
+		if pred != nil && !pred(strings.TrimSpace(ch)) {
 			continue
 		}
 		_ = sha
