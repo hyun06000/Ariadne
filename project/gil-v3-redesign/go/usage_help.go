@@ -344,7 +344,12 @@ var helpTable = map[string]helpEntry{
 		"gil merge <합칠 것>... --into <받는 곳> --reason <왜 합치나> [--allow-open]\n" +
 			"        [--skip-check --skip-reason <왜 확인 없이 건너나>]\n" +
 			"  둘 이상의 조상을 요구하는 모든 합류 — 실제 git merge(파일까지). 충돌 시 멈춤(사람이 해결).\n" +
-			"  끝난 체인을 층으로: gil merge <chain> --into dev --reason <왜>\n" +
+			"  **두 자리에서 쓴다**(이슈 #103 — 예시가 하나뿐이라 아래쪽만 쓰이고 있었다):\n" +
+			"    닫은 사이클을 체인으로: gil merge <chain>/<cycle> --into <chain> --reason <왜>\n" +
+			"        → 그 사이클의 **산출물 파일**이 체인 트리에 올라와, 다음 사이클이 이어받는다.\n" +
+			"          안 하면 다음 사이클은 그 파일을 못 보고, 결국 트리 복사(git checkout <브랜치> --\n" +
+			"          <경로>)로 때우게 된다 — 내용은 옮겨지지만 **합류 간선이 안 남아 승계가 사라진다.**\n" +
+			"    끝난 체인을 층으로: gil merge <chain> --into dev --reason <왜>\n" +
 			"  완성만 머지 대상이다(SPEC 규칙 5) — 열린 체인은 --allow-open 없이는 거부하고,\n" +
 			"  우회하면 그 사실이 머지 커밋 본문에 남는다.\n" +
 			"  dev → main 은 머지가 아니라 **배포**다: gil deploy --tag <vX>. 대문으로 가는 통로는 하나다.\n" +

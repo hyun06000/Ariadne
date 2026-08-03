@@ -9261,6 +9261,83 @@ class TestGateHoldsOnlyWhatShipped(GilFixture):
         self.assertIn("대문", out, "대문이 작업을 삼켰는데 아무 말도 안 했다:\n" + out)
 
 
+class TestCycleOutputsFindTheirWayToTheChain(GilFixture):
+    """**결핍이 편법을 부른다** (이슈 #103, 에이전트 자기 분석).
+
+    앞 사이클의 산출물을 다음 사이클로 넘길 때 에이전트가 `git checkout <브랜치> -- <경로>`
+    트리 복사를 반복했다. 내용은 안 잃었지만 합류 간선이 안 남아 **"지식과 코드를 이어받는다"는
+    gil 의 핵심이 파일 층위에서 사라졌다.**
+
+    원인은 안내의 비대칭이었다: 체인→dev 에는 합류 안내가 있는데 **사이클→체인에는 없었다.**
+    그리고 결핍은 다음 사이클 한복판에서 발견되므로, 그 자리에서 가장 싼 해결책이 복사다."""
+
+    def _cycle_with_output(self, chain, cycle, fname):
+        self.gil("open", f"{chain}/{cycle}", "--author", "clew", "--purpose", "작은 문제")
+        with open(os.path.join(self.repo, fname), "w", encoding="utf-8") as f:
+            f.write("산출물\n")
+        self._git("add", fname)
+        self._git("commit", "-q", "-m", f"산출물 {fname}")
+        self.gil("step", f"{chain}/{cycle}", "--kind", "success", "--title", "성공")
+        return self.gil("close", f"{chain}/{cycle}", "--verdict", "supported")
+
+    def test_close_points_at_the_merge_when_files_would_be_left_behind(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        r = self._cycle_with_output("c", "c001", "tool.py")
+        out = r.stdout + r.stderr
+        self.assertIn("tool.py", out, "체인에 없는 산출물을 말하지 않았다:\n" + out)
+        self.assertIn("gil merge c/c001 --into c", out, "합류 경로를 안 줬다:\n" + out)
+
+    def test_close_stays_quiet_when_there_is_nothing_to_carry(self):
+        """문서만 남긴 사이클엔 합류할 것이 없다 — 늘 짖으면 아무도 안 듣는다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self.gil("open", "c/c001", "--author", "clew", "--purpose", "작은 문제")
+        self.gil("step", "c/c001", "--kind", "success", "--title", "성공")
+        r = self.gil("close", "c/c001", "--verdict", "supported")
+        self.assertNotIn("--into c", r.stdout + r.stderr,
+                         "합류할 산출물이 없는데 합류하라고 했다")
+
+    def test_open_says_it_before_the_agent_hits_the_gap(self):
+        """다음 사이클을 여는 순간 알려준다 — 한복판에서 발견하면 이미 복사를 집은 뒤다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle_with_output("c", "c001", "tool.py")
+        r = self.gil("open", "c/c002", "--author", "clew", "--purpose", "다음 문제")
+        out = r.stdout + r.stderr
+        self.assertIn("합류하지 않은", out, "결핍을 여는 자리에서 말하지 않았다:\n" + out)
+        self.assertIn("gil merge c/c001 --into c", out)
+
+    def test_after_merging_the_warning_goes_away(self):
+        """합류하면 조용해진다 — 고친 뒤에도 짖으면 그 경고는 곧 무시된다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle_with_output("c", "c001", "tool.py")
+        m = self.gil("merge", "c/c001", "--into", "c", "--reason", "산출물은 체인의 것")
+        self.assertEqual(m.returncode, 0, m.stdout + m.stderr)
+        r = self.gil("open", "c/c002", "--author", "clew", "--purpose", "다음 문제")
+        self.assertNotIn("합류하지 않은", r.stdout + r.stderr)
+
+    def test_merge_takes_the_same_address_as_every_other_command(self):
+        """**gil 의 주소는 <chain>/<cycle> 이다.**
+
+        open·step·close 는 전부 그 형태로 받는데 merge 만 git ref 를 요구했다 — 그래서
+        리포트도 사람도 `gil merge c/c001` 이라 적었고 git 이 "알 수 없는 리비전"으로 죽었다.
+        주소 문법이 명령마다 다르면 사람은 도구가 아니라 도구의 사정을 외워야 한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P")
+        self._cycle_with_output("c", "c001", "tool.py")
+        r = self.gil("merge", "c/c001", "--into", "c", "--reason", "산출물은 체인의 것")
+        self.assertEqual(r.returncode, 0, "gil 의 주소를 gil 이 못 읽었다:\n" + r.stdout + r.stderr)
+        anc = self._git("merge-base", "--is-ancestor", "c-c001", "c").returncode == 0
+        self.assertTrue(anc, "합쳤다면서 실제로는 안 붙었다")
+
+    def test_merge_help_shows_the_cycle_into_chain_example(self):
+        """에이전트는 예시를 문법보다 강하게 따른다 — 예시가 하나뿐이면 그쪽만 쓴다."""
+        r = self.gil("merge", "--help")
+        self.assertIn("--into <chain>", r.stdout + r.stderr)
+
+
 class TestViewerLanguages(GilFixture):
     """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
 

@@ -27,9 +27,19 @@ func cmdMerge(args []string) {
 	pos := fs.parse(args)
 	if len(pos) == 0 || strings.TrimSpace(*into) == "" {
 		die("사용: gil merge <합칠 것>... --into <받는 곳> --reason <왜 합치나>\n" +
-			"  끝난 체인을 층으로:   gil merge <chain> --into " + devBranchName + " --reason <왜>\n" +
-			"  체인 간 합류:         gil merge <chain-a> <chain-b> --into <chain-c> --reason <왜>\n" +
+			"  닫은 사이클을 체인으로: gil merge <chain>/<cycle> --into <chain> --reason <왜>\n" +
+			"  끝난 체인을 층으로:     gil merge <chain> --into " + devBranchName + " --reason <왜>\n" +
+			"  체인 간 합류:           gil merge <chain-a> <chain-b> --into <chain-c> --reason <왜>\n" +
 			"  (dev → main 은 머지가 아니라 **배포**다: gil deploy --tag <vX>)")
+	}
+	// **gil 의 주소는 <chain>/<cycle> 이다**(이슈 #103). open·step·close 는 전부 그 형태로
+	// 받는데 merge 만 git ref 를 요구했다 — 그래서 사람도 리포트도 `gil merge c/c001` 이라
+	// 적었고, git 이 "알 수 없는 리비전"으로 죽었다. 주소 문법이 명령마다 다르면 사람은
+	// 도구가 아니라 도구의 사정을 외워야 하고, 그 자리에서 우회로 미끄러진다.
+	for i, a := range pos {
+		if br := cycleBranchOf(a); br != "" {
+			pos[i] = br
+		}
 	}
 	if strings.TrimSpace(*reason) == "" {
 		die("거부: --reason 필요 — **왜 이 둘이 한 줄기가 되나**.\n" +
@@ -142,4 +152,21 @@ func cmdMerge(args []string) {
 	if target == devBranchName {
 		println2("  ▸ 층에 모였다. 세상으로 내보내려면: gil deploy --tag <v0.2.0>")
 	}
+}
+
+// cycleBranchOf — "<chain>/<cycle>" 을 그 사이클의 브랜치 이름으로. 그 형태가 아니거나
+// 브랜치가 없으면 "" (그러면 인자를 그대로 둔다 — git ref 로 받는 길은 그대로 산다).
+func cycleBranchOf(a string) string {
+	ch, cy, ok := strings.Cut(strings.TrimSpace(a), "/")
+	if !ok || ch == "" || cy == "" || strings.Contains(cy, "/") {
+		return ""
+	}
+	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+a) {
+		return "" // 그런 이름의 브랜치가 실제로 있다 — 사람이 가리킨 것을 존중한다
+	}
+	br := ch + "-" + cy
+	if gitOK("rev-parse", "--verify", "-q", "refs/heads/"+br) {
+		return br
+	}
+	return ""
 }

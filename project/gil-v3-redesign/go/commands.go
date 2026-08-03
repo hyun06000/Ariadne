@@ -744,6 +744,13 @@ func cmdOpen(args []string) {
 	// 다만 병렬 사이클은 정당할 수 있다. 그 길을 막지 않되 **조용히 지나가지도 않게** 한다 —
 	// --parallel <사이클> 로 "이 미해결 사이클을 알면서 나란히 연다"를 선언하면 통과하고,
 	// 그 선언이 그래프에 남는다(Gil-Parallel-With). 우회가 아니라 기록되는 판단이다.
+	// **결핍을 발견하기 전에 말한다**(이슈 #103). 새 사이클은 체인 끝에서 나는데, 앞 사이클이
+	// 체인으로 합류하지 않았으면 그 산출물이 이 트리에 없다. 에이전트는 그걸 작업 한복판에서
+	// (import 실패 같은 모양으로) 발견하고, 그 자리에서 가장 싼 해결책인 트리 복사를 집는다.
+	// 여는 순간에 알려주면 그 자리에서 merge 를 택한다.
+	for _, ln := range unmergedSiblingsHint(chain) {
+		stderr(ln)
+	}
 	if stranded := strandedCycles(chain); len(stranded) > 0 {
 		declared := map[string]bool{}
 		for _, p := range *parallel {
@@ -2157,6 +2164,71 @@ func cmdClose(args []string) {
 	}
 	commit(subject, body, tr, true)
 	println2("close: " + ref + " — " + *verdict)
+	for _, ln := range mergeIntoChainHint(chain, cycle) {
+		println2(ln)
+	}
+}
+
+// mergeIntoChainHint — 닫은 사이클의 **산출물 파일**이 체인 트리에 없으면, 합류 경로를 준다
+// (이슈 #103, 에이전트 자기 분석).
+//
+// 실사용에서 에이전트는 앞 사이클의 산출물을 다음 사이클로 넘길 때 `git checkout <브랜치> --
+// <경로>` **트리 복사**를 반복했다. 내용은 안 잃었지만 합류 간선이 안 남아 — *"지식과 코드를
+// 이어받는다"는 gil 의 핵심이 파일 층위에서 사라졌다.*
+//
+// 왜 그렇게 됐나: 체인→dev 에는 합류 안내가 있는데 **사이클→체인에는 없었다.** 그리고
+// 계보 브리핑(inherit·finding)은 자동으로 도착하니 "승계는 처리되고 있다"는 착시가 생긴다 —
+// 파일이 조용히 빠진 것을 가린다. 결핍은 다음 사이클 **한복판에서** 발견되고, 그 자리에서
+// 가장 싼 해결책이 트리 복사다.
+//
+// 그래서 **결핍이 생기는 순간에** 말한다. 그리고 조건 없이 늘 짖지 않는다 — 실제로 체인에
+// 없는 파일이 있을 때만. 없으면 이 사이클은 문서만 남긴 것이고, 합류할 것이 없다.
+func mergeIntoChainHint(chain, cycle string) []string {
+	cyRef := chain + "-" + cycle
+	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+cyRef) {
+		return nil
+	}
+	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+chain) {
+		return nil
+	}
+	// 이미 체인에 합류돼 있으면 할 말이 없다.
+	if gitOK("merge-base", "--is-ancestor", cyRef, chain) {
+		return nil
+	}
+	out, err := gitTry("diff", "--name-only", chain, cyRef)
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, f := range strings.Split(strings.TrimSpace(out), "\n") {
+		if f = strings.TrimSpace(f); f != "" {
+			files = append(files, f)
+		}
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	sort.Strings(files)
+	shown := files
+	more := ""
+	if len(shown) > 4 {
+		more = "  … 그리고 " + itoa(len(shown)-4) + "개 더"
+		shown = shown[:4]
+	}
+	L := []string{
+		"  ⌂ 이 사이클의 산출물 " + itoa(len(files)) + "개가 **체인 트리에 없다** — 다음 사이클은 이 파일들을 못 본다:",
+	}
+	for _, f := range shown {
+		L = append(L, "      " + f)
+	}
+	if more != "" {
+		L = append(L, "    " + more)
+	}
+	return append(L,
+		"NEXT 산출물을 체인 층으로 합류시켜라 — 그래야 다음 사이클이 **이어받는다**:",
+		"      gil merge " + chain + "/" + cycle + " --into " + chain + " --reason <왜 이 산출물이 체인의 것인가>",
+		"    (여기서 안 하면 다음 사이클 한복판에서 파일이 없는 걸 발견하고 트리 복사로 때우게 된다 —",
+		"     내용은 옮겨지지만 합류 간선이 안 남아 그래프에서 승계가 사라진다.)")
 }
 
 // strandedCycles — 이 체인에서 '미해결로 방치된' 사이클들(이슈 #45). 정의: 산 잎(success)이
@@ -3710,4 +3782,51 @@ func cycleCloseHint(chain, cycle string) string {
 	default:
 		return "  → [" + t + "] gil log " + chain + " 로 상태를 확인하라."
 	}
+}
+
+// unmergedSiblingsHint — 이 체인의 **닫혔는데 합류하지 않은** 사이클들. 그 산출물은 체인
+// 트리에 없으므로 새 사이클이 못 본다(이슈 #103).
+func unmergedSiblingsHint(chain string) []string {
+	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+chain) {
+		return nil
+	}
+	closed := closedCycles("--branches")
+	_, order := cyclesOf(chain)
+	var pend []string
+	total := 0
+	for _, id := range order {
+		if !closed[chain+"\x01"+id] {
+			continue // 아직 안 닫혔다 — 합류를 말할 자리가 아니다
+		}
+		cyRef := chain + "-" + id
+		if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+cyRef) {
+			continue
+		}
+		if gitOK("merge-base", "--is-ancestor", cyRef, chain) {
+			continue // 이미 체인의 것이다
+		}
+		out, err := gitTry("diff", "--name-only", chain, cyRef)
+		if err != nil || strings.TrimSpace(out) == "" {
+			continue // 파일 산출물이 없다 — 문서만 남긴 사이클이면 합류할 것이 없다
+		}
+		n := len(strings.Fields(strings.TrimSpace(out)))
+		total += n
+		pend = append(pend, id+"("+itoa(n)+"개)")
+	}
+	if len(pend) == 0 {
+		return nil
+	}
+	L := []string{
+		"  ⌂ 닫혔는데 **체인에 합류하지 않은** 사이클이 있다 — 그 산출물 " + itoa(total) +
+			"개는 이 트리에 없다: " + strings.Join(pend, " "),
+		"    이어받으려면 먼저 합류시켜라(그래야 계보가 파일 층위에서도 이어진다):",
+	}
+	for _, p := range pend {
+		id := p
+		if i := strings.Index(id, "("); i > 0 {
+			id = id[:i]
+		}
+		L = append(L, "      gil merge "+chain+"/"+id+" --into "+chain+" --reason <왜 체인의 것인가>")
+	}
+	return append(L, "    (트리 복사로 때우면 내용은 옮겨지지만 합류 간선이 안 남아 그래프에서 승계가 사라진다.)")
 }
