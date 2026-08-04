@@ -12103,6 +12103,79 @@ class TestWhatTheHelpPointsAtExists(GilFixture):
                                 bad.append(f"{os.path.basename(f)}:{i} → gil {cmd} --{fl}")
         self.assertEqual(bad, [], "없는 플래그를 치라고 한다:\n" + "\n".join(sorted(set(bad))))
 
+    def _commands(self):
+        """**최상위 명령만.** case 블록 안에 cmdXxx( 호출이 있는 것.
+
+        바로 다음 줄일 필요는 없다 — chain-merge 는 디프리케이트 경고 세 줄을 낸 뒤에야
+        cmdChainMerge 를 부른다(그걸 놓치면 시험이 실재하는 명령을 없다고 말한다).
+        그리고 `-h`·`--help` 는 명령이 아니라 스위치다."""
+        import re
+        main = open(os.path.join(self.GO, "main.go"), encoding="utf-8").read()
+        out = set()
+        blocks = re.split(r"\n\tcase ", main)
+        for b in blocks[1:]:
+            head, _, body = b.partition(":\n")
+            # 블록의 끝은 다음 case 만이 아니다 — default: 와 스위치의 닫는 괄호도 끝이다.
+            # (안 자르면 OS 스위치의 "darwin" 이 한참 아래의 cmd 호출을 제 것으로 삼킨다.)
+            for stop in ("\n\tdefault:", "\n\t}", "\n}"):
+                body = body.split(stop)[0]
+            if not re.search(r"\bcmd[A-Z]\w*\(", body):
+                continue
+            out |= {c for c in re.findall(r'"([^"]+)"', head) if not c.startswith("-")}
+        return out
+
+    def test_every_command_has_a_place_in_the_help(self):
+        """**명령은 있는데 도움말이 없으면 사람은 그 명령이 없다고 읽는다.**
+
+        실측: `gil help version` 이 "알 수 없는 명령 version" 이라 답했다 — 도움말은 설명이자
+        **표면의 목록**이라, 거기 없으면 없는 것이다. chain-unretire·prune-approve 도 그랬다."""
+        import re
+        h = open(os.path.join(self.GO, "usage_help.go"), encoding="utf-8").read()
+        topics = set(re.findall(r'^\t"([a-z0-9-]+)": \{', h, re.M))
+        missing = sorted(self._commands() - topics - {"help", "h"})
+        self.assertEqual(missing, [], "도움말에 자리가 없는 명령: " + ", ".join(missing))
+
+    def test_the_docs_do_not_tell_you_to_type_what_does_not_exist(self):
+        """사람이 **복붙하는 표면**(코드블록·인라인 코드)만 본다 — 산문에서 낱말을 세면
+        "gil is"·"gil ships" 같은 영어 문장이 명령으로 잡혀 시험이 못 쓰게 된다.
+
+        실측: 대문(CLAUDE.md)이 층 검증 규칙을 `gil check` 로 가리켰는데 그런 명령은 없다
+        (실물은 `.gil/checks` 와 merge·deploy 가 그걸 직접 돌리는 것이다). 우리 대문이
+        세션에게 없는 명령을 가르치고 있었다."""
+        import re, glob
+        cmds, decl = self._commands(), self._flag_table()
+        docs = sorted(set(glob.glob(os.path.join(self.ROOT, "docs", "**", "*.md"), recursive=True)
+                          + glob.glob(os.path.join(self.ROOT, "*.md"))
+                          + glob.glob(os.path.join(self.GO, "..", "*.md"))))
+        self.assertTrue(docs, "문서를 하나도 못 찾았다 — 이 시험이 공회전한다")
+        bad = []
+        for d in docs:
+            rel = os.path.relpath(d, self.ROOT)
+            fence = False
+            for i, ln in enumerate(open(d, encoding="utf-8", errors="ignore"), 1):
+                if ln.lstrip().startswith("```"):
+                    fence = not fence
+                    continue
+                for seg in ([ln] if fence else re.findall(r"`([^`]+)`", ln)):
+                    if not seg.lstrip().startswith("gil "):
+                        continue
+                    m = re.match(r"\s*gil ([a-z][a-z0-9-]*)", seg)
+                    # 커밋 **제목**은 명령이 아니라 기록이다("gil <체인>/<사이클>/<스텝> …").
+                    if not m or "/" in seg[:m.end() + 1] or seg[m.end():m.end() + 1] == ":":
+                        continue
+                    c = m.group(1)
+                    if c not in cmds:
+                        bad.append(f"{rel}:{i} → gil {c} (없는 명령)")
+                        continue
+                    rest = seg[m.end():]
+                    stops = [x for x in (rest.find("gil "), rest.find("git "),
+                                         rest.find("gh "), rest.find("curl ")) if x >= 0]
+                    rest = rest[:min(stops)] if stops else rest
+                    for fl in re.findall(r"--([a-z][a-z0-9-]*)", rest):
+                        if c in decl and fl not in decl[c] and fl not in ("help",):
+                            bad.append(f"{rel}:{i} → gil {c} --{fl}")
+        self.assertEqual(bad, [], "문서가 없는 것을 치라고 한다:\n" + "\n".join(sorted(set(bad))))
+
     def test_every_repo_path_it_points_at_exists(self):
         """에러가 레포 안의 파일을 가리키면 그 파일이 있어야 한다(문서 경로와 같은 규율)."""
         import re, glob

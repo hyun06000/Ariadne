@@ -284,6 +284,33 @@ var helpTable = map[string]helpEntry{
 			"  알아차릴 수 있는 것은 다르다.**",
 		"docs/gil/concepts.md",
 	},
+	// 이 셋은 오래 **도움말 없이** 서 있었다 — `gil help version` 이 "알 수 없는 명령"이라
+	// 답했다. 명령은 있는데 도움말이 없으면, 사람은 그 명령이 없다고 읽는다(도움말은 표면의
+	// 목록이기도 하다). 시험이 이제 명령마다 자리가 있는지 센다.
+	"version": {
+		"gil version [--check|--update]\n" +
+			"  이 자리의 버전을 말한다. --check 는 최신 릴리스와 대조하고, --update 는 플랫폼 자산을\n" +
+			"  받아 **SHA256 검증 뒤** 실행파일을 제자리 교체한다(검증 실패면 절대 안 바꾼다).\n" +
+			"  · 조회는 길이 둘이다: GitHub API 와 releases/latest 리다이렉트. API 가 한도(403)에\n" +
+			"    걸리면 리다이렉트가 답한다 — 조회 하나가 죽었다고 기구가 죽으면 안 된다.\n" +
+			"  · 세션이 깨어나는 자리(init·부팅·handoff)에서는 gil 이 **먼저 묻는다**: 올릴까요.\n" +
+			"    끄려면 GIL_NO_VERSION_CHECK=1.",
+		"docs/gil/index.md",
+	},
+	"chain-unretire": {
+		"gil chain-unretire <chain>\n" +
+			"  폐기(chain-retire)한 체인을 되살린다 — 접힌 ref 를 제자리로 되돌린다.\n" +
+			"  retire 는 객체를 안 지우므로 이 되돌림은 언제나 가능하다(그게 retire 와 prune 의 차이다).",
+		"docs/gil/commands.md",
+	},
+	"prune-approve": {
+		"gil prune-approve <대상> [--by <출처>]\n" +
+			"  삭제 요청에 대한 **사람의 승인**. 보통 뷰어의 삭제 승인 카드가 부른다 —\n" +
+			"  에이전트가 혼자 지울 수 없게 하는 문이 이것이다(gil prune 의 세 문 중 하나).\n" +
+			"  --by viewer 는 '사람이 눌렀다'는 뜻이고, 그 사실이 다음 접촉 때 에이전트에게 고지된다.\n" +
+			"  요청부터 하려면: gil prune <대상> --request --reason <왜>",
+		"docs/gil/human-in-the-loop.md",
+	},
 	"prune": {
 		"gil prune <chain>|<chain>/<cycle>/<step> --dry-run\n" +
 			"gil prune <대상> --request --reason <왜>              (사람 승인 요청 — 뷰어에 카드가 뜬다)\n" +
