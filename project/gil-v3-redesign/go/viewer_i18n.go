@@ -750,6 +750,320 @@ var i18nDict = map[string]map[string]string{
 		"ko": "대상: ", "en": "target: ", "zh-CN": "目标：", "zh-TW": "目標：",
 	},
 
+	// ── 사전을 비켜 가 있던 것들(#118 후속) ─────────────────────────────────
+	//
+	// 앞 릴리스가 SVG 라벨·툴팁을 옮겼지만, JS 안에는 아직 40여 줄이 남아 있었다: 카드
+	// 제목·계보 칩·빈 상태·층 그래프 툴팁·서버 끊김 안내·정정 표식. 넓힌 시험도 이것들은
+	// 못 잡았다 — **여러 줄에 걸친 삼항**이라 한 줄짜리 정규식을 비켜 갔기 때문이다.
+	// 화면에 찍히는 글은 전부 여기를 지난다.
+	"card.chain.title": {
+		"ko": "{chain} — 사이클 {n}개", "en": "{chain} — cycles: {n}",
+		"zh-CN": "{chain} — {n} 个循环", "zh-TW": "{chain} — {n} 個循環",
+	},
+	"card.cycle.title": {
+		"ko": "{chain} / {cycle} — 스텝 {n}개", "en": "{chain} / {cycle} — steps: {n}",
+		"zh-CN": "{chain} / {cycle} — {n} 个步骤", "zh-TW": "{chain} / {cycle} — {n} 個步驟",
+	},
+
+	// 정정(supersede) — 지우는 게 아니라 '살아있지 않다'를 보이는 것이다.
+	"step.dup.tip": {
+		"ko": "⚠ 이 번호를 쓰는 스텝이 여럿이다(옛 gil 의 번호 중복) — 정체성은 커밋 {sha} 이다",
+		"en": "⚠ several steps share this number (duplicate numbering from older gil) — the commit {sha} is what identifies this one",
+		"zh-CN": "⚠ 有多个步骤共用此编号（旧版 gil 的编号重复）——真正的身份是提交 {sha}",
+		"zh-TW": "⚠ 有多個步驟共用此編號（舊版 gil 的編號重複）——真正的身分是提交 {sha}",
+	},
+	"step.plan.tip": {
+		"ko": "⚙ 고정한 설계: ", "en": "⚙ design fixed in advance: ",
+		"zh-CN": "⚙ 事先固定的设计：", "zh-TW": "⚙ 事先固定的設計：",
+	},
+	"step.plan.broke.tip2": {
+		"ko": "⚠ 설계가 깨졌다: ", "en": "⚠ the design broke: ",
+		"zh-CN": "⚠ 设计被打破：", "zh-TW": "⚠ 設計被打破：",
+	},
+	"step.advances.tip": {
+		"ko": "◎ 목적에 다가서려는 몫: ", "en": "◎ how this means to advance the purpose: ",
+		"zh-CN": "◎ 意图向目的推进之处：", "zh-TW": "◎ 意圖向目的推進之處：",
+	},
+	"step.toward.tip": {
+		"ko": "◎ 목적에 다가선 정도: ", "en": "◎ how far it actually advanced the purpose: ",
+		"zh-CN": "◎ 实际向目的推进的程度：", "zh-TW": "◎ 實際向目的推進的程度：",
+	},
+	"step.nextdesign.tip": {
+		"ko": "◎ 다음 설계: ", "en": "◎ the next design: ",
+		"zh-CN": "◎ 下一个设计：", "zh-TW": "◎ 下一個設計：",
+	},
+	"step.supersedes.tip": {
+		"ko": "⟲ 이 스텝이 {id} 를 정정한다(그 자리에서 갈라졌다)",
+		"en": "⟲ this step supersedes {id} (it forked at that very place)",
+		"zh-CN": "⟲ 此步骤修正了 {id}（就在该处分岔）",
+		"zh-TW": "⟲ 此步驟修正了 {id}（就在該處分岔）",
+	},
+	"step.gone.by": {
+		"ko": "⤳ 구버전 — {id} 이 정정했다", "en": "⤳ superseded — {id} corrected it",
+		"zh-CN": "⤳ 旧版——由 {id} 修正", "zh-TW": "⤳ 舊版——由 {id} 修正",
+	},
+	"step.gone.branch": {
+		"ko": "⤳ 구버전 — 정정된 가지에 속한다",
+		"en": "⤳ superseded — it belongs to a branch that was corrected",
+		"zh-CN": "⤳ 旧版——属于已被修正的分支", "zh-TW": "⤳ 舊版——屬於已被修正的分支",
+	},
+	"step.gone.note": {
+		"ko": "(지워지지 않았다: 이력에 그대로 남아 있고, 살아있는 계산에서만 빠진다)",
+		"en": "(nothing was deleted: it stays in the history, and only drops out of the live reckoning)",
+		"zh-CN": "（并未删除：它仍留在历史中，只是不再计入现行的计算）",
+		"zh-TW": "（並未刪除：它仍留在歷史中，只是不再計入現行的計算）",
+	},
+	"step.supersede.badge": {
+		"ko": "⟲ 정정 {id}", "en": "⟲ supersedes {id}",
+		"zh-CN": "⟲ 修正 {id}", "zh-TW": "⟲ 修正 {id}",
+	},
+	"step.gone.badge": {
+		"ko": "⤳ 구버전", "en": "⤳ superseded", "zh-CN": "⤳ 旧版", "zh-TW": "⤳ 舊版",
+	},
+	"step.supersede.badge.tip": {
+		"ko": "이 스텝이 {id} 를 정정한다 — 옛 가지는 그대로 보존된다",
+		"en": "this step supersedes {id} — the old branch is preserved untouched",
+		"zh-CN": "此步骤修正了 {id}——旧分支原样保存",
+		"zh-TW": "此步驟修正了 {id}——舊分支原樣保存",
+	},
+	"step.gone.badge.tip": {
+		"ko": "정정으로 대체된 가지 — 이력엔 남는다",
+		"en": "a branch replaced by a correction — it remains in the history",
+		"zh-CN": "被修正取代的分支——仍留在历史中",
+		"zh-TW": "被修正取代的分支——仍留在歷史中",
+	},
+	"step.gone.badge.tip.by": {
+		"ko": "정정으로 대체된 가지 ({id} 이 정정) — 이력엔 남는다",
+		"en": "a branch replaced by a correction ({id} corrected it) — it remains in the history",
+		"zh-CN": "被修正取代的分支（由 {id} 修正）——仍留在历史中",
+		"zh-TW": "被修正取代的分支（由 {id} 修正）——仍留在歷史中",
+	},
+	"step.here.badge": {
+		"ko": "◀ 현재위치", "en": "◀ you are here",
+		"zh-CN": "◀ 当前位置", "zh-TW": "◀ 目前位置",
+	},
+
+	// 작업중(미커밋) — 아직 스텝이 아닌 것을 스텝처럼 그리지 않는다.
+	"work.branch": {
+		"ko": "브랜치: ", "en": "branch: ", "zh-CN": "分支：", "zh-TW": "分支：",
+	},
+	"work.ahead": {
+		"ko": "앵커 이후 평범한 커밋 {n}개", "en": "plain commits since the anchor: {n}",
+		"zh-CN": "锚点之后有 {n} 个普通提交", "zh-TW": "錨點之後有 {n} 個普通提交",
+	},
+	"work.commit.hint": {
+		"ko": "커밋하면 이 자리에 진짜 스텝이 선다.",
+		"en": "Commit, and a real step will stand in this place.",
+		"zh-CN": "提交之后，此处便会立起一个真正的步骤。",
+		"zh-TW": "提交之後，此處便會立起一個真正的步驟。",
+	},
+
+	// 계보 칩(들어옴·낳음) — 이 스텝이 무엇에서 왔고 무엇을 낳았나.
+	"chip.in": {
+		"ko": "들어옴", "en": "came from", "zh-CN": "来自", "zh-TW": "來自",
+	},
+	"chip.out": {
+		"ko": "낳음", "en": "led to", "zh-CN": "生出", "zh-TW": "生出",
+	},
+	"chip.start": {
+		"ko": "시작점(대문에서)", "en": "start (from the front door)",
+		"zh-CN": "起点（自大门）", "zh-TW": "起點（自大門）",
+	},
+	"chip.start.tip": {
+		"ko": "이 체인의 첫 스텝 — 대문(루트)에서 시작",
+		"en": "the first step of this chain — it starts at the front door (root)",
+		"zh-CN": "本链的第一个步骤——始于大门（根）",
+		"zh-TW": "本鏈的第一個步驟——始於大門（根）",
+	},
+	"chip.cross.chain": {
+		"ko": "부모 체인 {chain} 의 종결 스텝에서 이어받음",
+		"en": "inherited from the closing step of the parent chain {chain}",
+		"zh-CN": "承继自父链 {chain} 的终结步骤",
+		"zh-TW": "承繼自父鏈 {chain} 的終結步驟",
+	},
+	"chip.cross.cycle": {
+		"ko": "부모 사이클 {cycle} 의 스텝에서 이어받음",
+		"en": "inherited from a step of the parent cycle {cycle}",
+		"zh-CN": "承继自父循环 {cycle} 的步骤",
+		"zh-TW": "承繼自父循環 {cycle} 的步驟",
+	},
+	"chip.parent.step": {
+		"ko": "부모 스텝", "en": "parent step", "zh-CN": "父步骤", "zh-TW": "父步驟",
+	},
+	"chip.child.chain": {
+		"ko": "자식 체인 {chain} 이 여기서 이어받음",
+		"en": "the child chain {chain} inherits from here",
+		"zh-CN": "子链 {chain} 由此承继", "zh-TW": "子鏈 {chain} 由此承繼",
+	},
+	"chip.child.cycle": {
+		"ko": "자식 사이클 {cycle} 이 여기서 이어받음",
+		"en": "the child cycle {cycle} inherits from here",
+		"zh-CN": "子循环 {cycle} 由此承继", "zh-TW": "子循環 {cycle} 由此承繼",
+	},
+	"chip.sibling.back": {
+		"ko": "되돌아온 형제 가지", "en": "a sibling branch that came back",
+		"zh-CN": "折返回来的兄弟分支", "zh-TW": "折返回來的兄弟分支",
+	},
+	"chip.next.step": {
+		"ko": "다음 스텝", "en": "the next step", "zh-CN": "下一个步骤", "zh-TW": "下一個步驟",
+	},
+	"chip.leaf.dead": {
+		"ko": "죽은 잎(벽) — 여기서 끝", "en": "dead leaf (a wall) — it ends here",
+		"zh-CN": "死叶（墙）——到此为止", "zh-TW": "死葉（牆）——到此為止",
+	},
+	"chip.leaf": {
+		"ko": "잎(여기서 끝)", "en": "leaf (it ends here)",
+		"zh-CN": "叶（到此为止）", "zh-TW": "葉（到此為止）",
+	},
+	"chip.leaf.dead.tip": {
+		"ko": "이 가지는 여기서 죽었다 — 조상 define 으로 되돌아가 다른 가지를 폈다",
+		"en": "this branch died here — the thinking went back to an ancestor define and opened another branch",
+		"zh-CN": "此分支到此死去——思考退回祖先的 define，另开一支",
+		"zh-TW": "此分支到此死去——思考退回祖先的 define，另開一支",
+	},
+	"chip.leaf.tip": {
+		"ko": "이 사이클의 결말 노드", "en": "the closing node of this cycle",
+		"zh-CN": "本循环的结局节点", "zh-TW": "本循環的結局節點",
+	},
+
+	// 접힌 맵·빈 상태.
+	"map.fold.subj.cycle": {
+		"ko": "사이클 {name} — {n}스텝", "en": "cycle {name} — steps: {n}",
+		"zh-CN": "循环 {name} — {n} 个步骤", "zh-TW": "循環 {name} — {n} 個步驟",
+	},
+	"map.fold.subj.chain": {
+		"ko": "체인 {name} — {n}스텝", "en": "chain {name} — steps: {n}",
+		"zh-CN": "链 {name} — {n} 个步骤", "zh-TW": "鏈 {name} — {n} 個步驟",
+	},
+	"map.fold.solved": {
+		"ko": " ⚡분기 밟은 solved", "en": " ⚡solved after taking a branch",
+		"zh-CN": " ⚡经分岔后解决", "zh-TW": " ⚡經分岔後解決",
+	},
+	"map.empty": {
+		"ko": "아직 노드가 없다.", "en": "No nodes yet.",
+		"zh-CN": "还没有节点。", "zh-TW": "還沒有節點。",
+	},
+
+	// 층 그래프(main·dev) — 갈라짐·합류·배포.
+	"layer.main.tip": {
+		"ko": "배포된 것만 온다 — 대문", "en": "only what has shipped arrives here — the front door",
+		"zh-CN": "只有已发布的才抵达——大门", "zh-TW": "只有已發布的才抵達——大門",
+	},
+	"layer.dev.tip": {
+		"ko": "모든 작업이 시작하는 층", "en": "the layer every piece of work starts from",
+		"zh-CN": "一切工作起步的层", "zh-TW": "一切工作起步的層",
+	},
+	"layer.main.dot.tip": {
+		"ko": "대문(main) — 여기서 층이 갈라진다",
+		"en": "the front door (main) — the layer forks from here",
+		"zh-CN": "大门（main）——层由此分出", "zh-TW": "大門（main）——層由此分出",
+	},
+	"layer.fork.tip": {
+		"ko": "dev 는 대문에서 갈라진 층이다 (gil init)",
+		"en": "dev is a layer forked from the front door (gil init)",
+		"zh-CN": "dev 是自大门分出的层（gil init）", "zh-TW": "dev 是自大門分出的層（gil init）",
+	},
+	"layer.dev.start.tip": {
+		"ko": "dev 층 시작", "en": "where the dev layer begins",
+		"zh-CN": "dev 层的起点", "zh-TW": "dev 層的起點",
+	},
+	"layer.depart.tip": {
+		"ko": "출발: dev → {chain} (계보상 시조 — 대문은 물려받는다)",
+		"en": "departure: dev → {chain} (a founder in lineage — it still inherits the front door)",
+		"zh-CN": "出发：dev → {chain}（谱系上的始祖——大门仍然承继）",
+		"zh-TW": "出發：dev → {chain}（譜系上的始祖——大門仍然承繼）",
+	},
+	"layer.fork.dot.tip": {
+		"ko": "갈라짐: dev → {chain}", "en": "fork: dev → {chain}",
+		"zh-CN": "分岔：dev → {chain}", "zh-TW": "分岔：dev → {chain}",
+	},
+	"layer.merge.tip": {
+		"ko": "합류: {chain} → dev (gil merge)", "en": "merge: {chain} → dev (gil merge)",
+		"zh-CN": "合流：{chain} → dev（gil merge）", "zh-TW": "合流：{chain} → dev（gil merge）",
+	},
+	"layer.merge.dot.tip": {
+		"ko": "합류: {chain} → dev", "en": "merge: {chain} → dev",
+		"zh-CN": "合流：{chain} → dev", "zh-TW": "合流：{chain} → dev",
+	},
+	"deploy.leaf.tip": {
+		"ko": "내보낸 잎: ", "en": "the leaf that shipped: ",
+		"zh-CN": "送出的叶：", "zh-TW": "送出的葉：",
+	},
+	"deploy.leaf.lost.tip": {
+		"ko": "귀속 스텝 미상 — 이 배포 계보에서 산 잎을 찾지 못했다",
+		"en": "the owning step is unknown — no living leaf was found in this deploy's lineage",
+		"zh-CN": "归属步骤不明——在此发布的谱系中未找到活叶",
+		"zh-TW": "歸屬步驟不明——在此發布的譜系中未找到活葉",
+	},
+	"deploy.leaf.lost.badge": {
+		"ko": " (귀속 스텝 미상)", "en": " (owning step unknown)",
+		"zh-CN": "（归属步骤不明）", "zh-TW": "（歸屬步驟不明）",
+	},
+
+	// 날것의 git 그래프.
+	"git.supersede.mark": {
+		"ko": "  ⟲정정 {id}", "en": "  ⟲supersedes {id}",
+		"zh-CN": "  ⟲修正 {id}", "zh-TW": "  ⟲修正 {id}",
+	},
+	"git.gone.mark": {
+		"ko": "  ⤳구버전(정정으로 대체)", "en": "  ⤳superseded (replaced by a correction)",
+		"zh-CN": "  ⤳旧版（被修正取代）", "zh-TW": "  ⤳舊版（被修正取代）",
+	},
+	"git.lane.other": {
+		"ko": "(그 밖)", "en": "(the rest)", "zh-CN": "（其余）", "zh-TW": "（其餘）",
+	},
+	"git.layer.tip": {
+		"ko": "층: ", "en": "layer: ", "zh-CN": "层：", "zh-TW": "層：",
+	},
+
+	// 인터뷰 카드의 상태 — 사람이 답을 냈고 에이전트가 그걸 읽었나.
+	"interview.state.waiting": {
+		"ko": "⏳ 에이전트가 기다리는 중", "en": "⏳ the agent is waiting",
+		"zh-CN": "⏳ 代理正在等待", "zh-TW": "⏳ 代理正在等待",
+	},
+	"interview.state.seen": {
+		"ko": "✓ 에이전트가 읽었습니다", "en": "✓ the agent has read it",
+		"zh-CN": "✓ 代理已读", "zh-TW": "✓ 代理已讀",
+	},
+	"interview.state.unseen": {
+		"ko": "· 아직 안 읽음", "en": "· not read yet",
+		"zh-CN": "· 尚未读取", "zh-TW": "· 尚未讀取",
+	},
+
+	// 서버가 끊겼을 때. 이 줄이 한국어로만 남으면, 화면이 멈춘 이유를 못 읽는다.
+	"disconnect.msg": {
+		"ko": " ✕ 뷰어 서버에 닿지 못했습니다 — 이 페이지를 띄운 서버가 꺼졌거나 다시 떴습니다.",
+		"en": " ✕ Cannot reach the viewer server — the server that served this page has stopped or restarted.",
+		"zh-CN": " ✕ 无法连到查看器服务——提供本页的服务已停止或重启。",
+		"zh-TW": " ✕ 無法連到檢視器服務——提供本頁的服務已停止或重啟。",
+	},
+	"disconnect.hint": {
+		"ko": "<br>서버가 꺼져 있으면 터미널에서: <code>gil viewer serve</code>",
+		"en": "<br>If the server is down, run in a terminal: <code>gil viewer serve</code>",
+		"zh-CN": "<br>若服务已停止，请在终端运行：<code>gil viewer serve</code>",
+		"zh-TW": "<br>若服務已停止，請在終端執行：<code>gil viewer serve</code>",
+	},
+
+	// 화면 조각의 이름 — 한 조각이 죽으면 이 이름이 그 자리에 뜬다(viewer.partfail).
+	// 그 자리에서만 한국어로 남으면, 무엇이 죽었는지 못 읽는다.
+	"part.gitgraph": {
+		"ko": "git 그래프", "en": "the git graph", "zh-CN": "git 图", "zh-TW": "git 圖",
+	},
+	"part.stepmap": {
+		"ko": "전체맵", "en": "the overview map", "zh-CN": "全景图", "zh-TW": "全景圖",
+	},
+	"part.chainzoom": {
+		"ko": "체인그래프 줌", "en": "chain-graph zoom",
+		"zh-CN": "链图缩放", "zh-TW": "鏈圖縮放",
+	},
+	"part.interviews": {
+		"ko": "인터뷰 폼", "en": "the interview form", "zh-CN": "访谈表单", "zh-TW": "訪談表單",
+	},
+	"part.restoresel": {
+		"ko": "선택 복원", "en": "restoring your selection",
+		"zh-CN": "恢复选择", "zh-TW": "恢復選擇",
+	},
+
 	"map.work.label": {
 		"ko": "작업중", "en": "working", "zh-CN": "进行中", "zh-TW": "進行中",
 	},

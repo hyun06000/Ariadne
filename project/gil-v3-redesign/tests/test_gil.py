@@ -4240,7 +4240,9 @@ class TestIntakeBeforeChain(GilFixture):
         # 것은 **크래시 가드가 실제로 실려 나갔는가**다. 폼이 뜨는 것 자체는 브라우저로
         # 확인했다(뷰어 폼 제출 → intake done → 인용된 목적으로 체인).
         self.assertIn("if(!host)return;", html)         # 전체맵이 없어도 죽지 않는다
-        self.assertIn("step('인터뷰 폼'", html)          # 앞 단계가 죽어도 폼은 그린다
+        # 앞 단계가 죽어도 폼은 그린다. 조각 이름은 이제 사전을 탄다(part.interviews) —
+        # 여기서 한국어 원문을 단언하면, 화면을 옳게 고칠 때마다 이 시험이 빨개진다.
+        self.assertIn("step(T('part.interviews')", html)
 
     def test_plain_chain_points_at_intake(self):
         """--purpose 없이 열려 하면 개시 인터뷰 경로를 알려준다 — 거부에는 길이 붙는다."""
@@ -8902,6 +8904,67 @@ class TestVersionAsk(GilFixture):
         self.assertIn("올릴까요", self._boot(latest="v9.9.10").stdout,
                       "더 새 릴리스가 났는데 6시간 침묵에 갇혔다")
 
+    def _fake_github(self, api_status=403):
+        """한도에 걸린 GitHub 를 세운다 — API 는 403, 웹은 최신 태그로 리다이렉트.
+
+        이 시험이 없으면 그 갈래는 **코드로만 있는 길**이 된다(v3.51.0 에서 소스 빌드가 버전
+        확인을 통째로 건너뛰어 결함을 못 밟은 것과 같은 모양)."""
+        import http.server, threading
+        tag = "v9.9.9"
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path.startswith("/repos/"):      # API
+                    self.send_response(api_status)
+                    self.end_headers()
+                    return
+                self.send_response(302)                  # 웹 — 한도를 안 쓴다
+                self.send_header("Location",
+                                 "https://github.com/x/y/releases/tag/" + tag)
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        base = "http://127.0.0.1:%d" % srv.server_address[1]
+        return base, tag
+
+    def test_a_rate_limited_api_does_not_silence_the_whole_thing(self):
+        """**403 하나가 기구 전체를 끄면 안 된다** (상현님 실측).
+
+        비인증 GitHub API 는 시간당 60회다. 한 머신에서 여러 세션·여러 저장소가 돌면 이 한도는
+        쉽게 차고, 그때 gil 은 조용히 물러났다 — "대부분 이렇게 실패하면서 새 버전이 있는지
+        모르고 지나간다". 최신 태그를 아는 데 API 가 꼭 필요하진 않다: releases/latest 의
+        리다이렉트는 한도를 안 쓴다."""
+        self.gil("init", "--name", "clew")
+        base, tag = self._fake_github(api_status=403)
+        r = self._boot(latest=None, extra={"GIL_GITHUB_API": base, "GIL_GITHUB_WEB": base})
+        self.assertIn(tag, r.stdout, "API 가 403 이자 버전 문의가 통째로 꺼졌다:\n" + r.stdout)
+        self.assertIn("올릴까요", r.stdout)
+
+    def test_a_failed_lookup_is_retried_sooner_than_a_quiet_one(self):
+        """"최신이라 조용하다"와 "못 물어봐서 조용하다"는 다른 상태다.
+
+        옛 코드는 둘 다 한 시간을 쉬었다 — 일시적 403 한 번이 그 세션의 남은 시간을 삼켰다."""
+        self.gil("init", "--name", "clew")
+        dead = "http://127.0.0.1:1"   # 아무도 안 듣는 자리 — 조회가 실패한다
+        r = self._boot(latest=None, extra={"GIL_GITHUB_API": dead, "GIL_GITHUB_WEB": dead})
+        self.assertNotIn("올릴까요", r.stdout, "못 물어봤는데 물었다")
+        stamp = os.path.join(self.repo, ".git", "gil", "version-checked")
+        self.assertIn("fail", open(stamp, encoding="utf-8").read(),
+                      "실패한 조회가 성공한 조회와 같은 도장을 찍었다 — 한 시간을 통째로 쉰다")
+        # 성공한 조회는 그 표를 안 남긴다 — 두 상태가 같은 칸에 같은 모양으로 적히면
+        # 다음 조회 간격을 가를 근거가 사라진다.
+        base, tag = self._fake_github(api_status=403)
+        os.remove(stamp)
+        ok = self._boot(latest=None, extra={"GIL_GITHUB_API": base, "GIL_GITHUB_WEB": base})
+        self.assertIn(tag, ok.stdout)
+        self.assertNotIn("fail", open(stamp, encoding="utf-8").read(),
+                         "성공한 조회에 실패 표가 남았다")
+
     def test_docs_install_asks_too(self):
         """온보딩을 **심는** 자리도 묻는다.
 
@@ -9786,7 +9849,15 @@ class TestViewerLanguages(GilFixture):
         with open(src, encoding="utf-8") as f:
             lines = f.readlines()
         bad = []
+        in_block = False
         for i, ln in enumerate(lines, 1):
+            was_block = in_block
+            opens, closes = ln.count("/*"), ln.count("*/")
+            if opens > closes:
+                in_block = True
+            elif closes and in_block:
+                in_block = False
+            in_block = in_block or (was_block and not closes)
             if ln.lstrip().startswith("//"):
                 continue
             # 줄 끝 주석은 화면에 안 나간다 — 거기 한국어가 있는 건 정상이다.
@@ -9802,6 +9873,20 @@ class TestViewerLanguages(GilFixture):
             m = re.search(r"<text[^>]*>([^<]*[가-힣][^<]*)</text>", ln)
             if m and "i18nAttr" not in ln and "esc(" not in ln:
                 bad.append(f"{i}(markup): {ln.strip()[:70]}")
+            # **꼴을 세지 말고 글자를 세라.** 위 셋은 전부 "어떤 모양으로 화면에 닿는가"를
+            # 열거한다 — 그래서 열거에 없는 모양(여러 줄에 걸친 삼항, 문자열 이어붙이기,
+            # 함수 인자로 들어가는 툴팁)은 통과했고, JS 안에 한글 40여 줄이 남았다.
+            # 열거는 늘 뒤늦다. **JS 안의 한글 리터럴 자체**를 세면 새 모양도 자동으로 걸린다.
+            #
+            # 예외는 둘뿐이고, 둘 다 **화면이 아닌 것**이다: 블록 주석 안(사람이 읽는 설명)과
+            # console.*(개발자 채널 — 사람 관전자의 화면에 안 뜬다. 조각이 죽었다는 사실은
+            # 화면에도 뜨는데, 그쪽은 viewer.partfail 로 사전을 탄다).
+            if was_block or in_block or "console." in ln:
+                continue
+            for lit in re.findall(r"'((?:[^'\\]|\\.)*)'", ln):
+                if re.search(r"[가-힣]", lit):
+                    bad.append(f"{i}(literal): {ln.strip()[:70]}")
+                    break
         self.assertEqual(bad, [], "사전을 안 거친 화면 문구가 있다:\n" + "\n".join(bad))
 
     def test_serve_rejects_an_unknown_language(self):

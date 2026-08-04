@@ -2456,7 +2456,7 @@ function openCard(chain){
   head.className='card-head';
   const title=document.createElement('span');
   title.className='card-title';
-  title.textContent=chain+' — 사이클 '+cy.length+'개';
+  title.textContent=T('card.chain.title',{chain:chain,n:cy.length});
   const close=document.createElement('button');
   close.className='card-close'; close.textContent='✕';
   close.addEventListener('click',ev=>{ev.stopPropagation();collapse();});
@@ -2577,7 +2577,7 @@ function openStepCard(chain,cyc){
   head.className='card-head';
   const title=document.createElement('span');
   title.className='card-title';
-  title.textContent=chain+' / '+cyc.name+' — 스텝 '+steps.length+'개';
+  title.textContent=T('card.cycle.title',{chain:chain,cycle:cyc.name,n:steps.length});
   const close=document.createElement('button');
   close.className='card-close'; close.textContent='✕';
   close.addEventListener('click',ev=>{ev.stopPropagation();collapseStep();});
@@ -2726,16 +2726,16 @@ function openStepCard(chain,cyc){
     const dup=(byNum[n.id]||[]).length>1;
     const g=svgEl('g',{class:'snode '+stepClass(n)+(n.here?' here':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
     const t=svgEl('title',{},n.id+' '+n.kind+(n.outcome?' ='+n.outcome:'')+'\n'+n.subj+
-      (dup?'\n⚠ 이 번호를 쓰는 스텝이 여럿이다(옛 gil 의 번호 중복) — 정체성은 커밋 '+n.sha.slice(0,9)+' 이다':'')+
-      (n.plan?'\n⚙ 고정한 설계: '+n.plan:'')+
-      (n.planOutcome==='broke'?'\n⚠ 설계가 깨졌다: '+(n.planDiff||''):'')+
+      (dup?'\n'+T('step.dup.tip',{sha:n.sha.slice(0,9)}):'')+
+      (n.plan?'\n'+T('step.plan.tip')+n.plan:'')+
+      (n.planOutcome==='broke'?'\n'+T('step.plan.broke.tip2')+(n.planDiff||''):'')+
       (n.planOutcome==='held'?'\n'+T('step.plan.held'):'')+
-      (n.advances?'\n◎ 목적에 다가서려는 몫: '+n.advances:'')+
-      (n.toward?'\n◎ 목적에 다가선 정도: '+n.toward:'')+
-      (n.nextDesign?'\n◎ 다음 설계: '+n.nextDesign:'')+
-      (n.supersedes?'\n⟲ 이 스텝이 '+n.supersedes+' 를 정정한다(그 자리에서 갈라졌다)':'')+
-      (n.gone?'\n⤳ 구버전 — '+(n.goneBy?n.goneBy+' 이 정정했다':'정정된 가지에 속한다')+
-        '\n(지워지지 않았다: 이력에 그대로 남아 있고, 살아있는 계산에서만 빠진다)':''));
+      (n.advances?'\n'+T('step.advances.tip')+n.advances:'')+
+      (n.toward?'\n'+T('step.toward.tip')+n.toward:'')+
+      (n.nextDesign?'\n'+T('step.nextdesign.tip')+n.nextDesign:'')+
+      (n.supersedes?'\n'+T('step.supersedes.tip',{id:n.supersedes}):'')+
+      (n.gone?'\n'+(n.goneBy?T('step.gone.by',{id:n.goneBy}):T('step.gone.branch'))+
+        '\n'+T('step.gone.note'):''));
     // 정정된 구버전 가지는 **흐리게** — 두 판본이 나란히 살아있는 것처럼 보이면 안 된다.
     if(n.gone) g.classList.add('gone');
     g.appendChild(svgEl('circle',{r:r}));
@@ -2748,10 +2748,10 @@ function openStepCard(chain,cyc){
     }
     if(n.supersedes||n.gone){ // 정정 표식 — ⟲정정 / ⤳구버전
       const b=svgEl('text',{class:'supbadge'+(n.gone?' gone':''),dy:n.here?-r-30:-r-14},
-        n.supersedes?('⟲ 정정 '+n.supersedes):'⤳ 구버전');
+        n.supersedes?T('step.supersede.badge',{id:n.supersedes}):T('step.gone.badge'));
       b.appendChild(svgEl('title',{},n.supersedes
-        ?('이 스텝이 '+n.supersedes+' 를 정정한다 — 옛 가지는 그대로 보존된다')
-        :('정정으로 대체된 가지'+(n.goneBy?' ('+n.goneBy+' 이 정정)':'')+' — 이력엔 남는다')));
+        ?T('step.supersede.badge.tip',{id:n.supersedes})
+        :(n.goneBy?T('step.gone.badge.tip.by',{id:n.goneBy}):T('step.gone.badge.tip'))));
       g.appendChild(b);
     }
     if(n.plan||n.planOutcome){
@@ -2811,10 +2811,10 @@ function openStepCard(chain,cyc){
         d:'M '+(X(anchor.sha)+r)+' '+Y(anchor.sha)+' L '+(wx-r)+' '+wy}));
       const wg=svgEl('g',{class:'snode working',transform:'translate('+wx+','+wy+')'});
       wg.appendChild(svgEl('title',{},T('map.work.tip')+WORK.summary+
-        (WORK.branch?'\n브랜치: '+WORK.branch:'')+
-        (WORK.ahead?'\n앵커 이후 평범한 커밋 '+WORK.ahead+'개':'')+
+        (WORK.branch?'\n'+T('work.branch')+WORK.branch:'')+
+        (WORK.ahead?'\n'+T('work.ahead',{n:WORK.ahead}):'')+
         (WORK.files&&WORK.files.length?'\n'+WORK.files.join('\n'):'')+
-        '\n커밋하면 이 자리에 진짜 스텝이 선다.'));
+        '\n'+T('work.commit.hint')));
       wg.appendChild(svgEl('circle',{r:r}));
       wg.appendChild(svgEl('text',{class:'sid',dy:3},'✎'));
       wg.appendChild(svgEl('text',{class:'skind',dy:r+16},T('map.work.label')));
@@ -2931,10 +2931,10 @@ function lineage(chain,cycle,n){
   };
   // 다른 사이클/체인이면 라벨에 그 위치를 밝힌다(경계 넘는 전수를 드러냄).
   const label=(d)=> (d.chain!==chain||d.cycle!==cycle) ? (d.chain+'/'+d.cycle+'/'+d.step+' '+d.kind) : (d.step+' '+d.kind);
-  const crossHint=(d)=> (d.chain!==chain) ? '부모 체인 '+d.chain+' 의 종결 스텝에서 이어받음'
-                      : (d.cycle!==cycle) ? '부모 사이클 '+d.cycle+' 의 스텝에서 이어받음' : '부모 스텝';
+  const crossHint=(d)=> (d.chain!==chain) ? T('chip.cross.chain',{chain:d.chain})
+                      : (d.cycle!==cycle) ? T('chip.cross.cycle',{cycle:d.cycle}) : T('chip.parent.step');
   // 들어옴(부모들).
-  wrap.appendChild(chip('들어옴','lhead'));
+  wrap.appendChild(chip(T('chip.in'),'lhead'));
   const inbox=document.createElement('span'); inbox.className='lgroup';
   const parents=(self&&self.parents||[]).map(p=>bySha[p]).filter(Boolean);
   if(parents.length){
@@ -2943,7 +2943,7 @@ function lineage(chain,cycle,n){
       inbox.appendChild(chip(label(p),'lin'+(cross?' lchain':''),p,crossHint(p)));
     });
   }else{
-    inbox.appendChild(chip('시작점(대문에서)','lchain',null,'이 체인의 첫 스텝 — 대문(루트)에서 시작'));
+    inbox.appendChild(chip(T('chip.start'),'lchain',null,T('chip.start.tip')));
   }
   wrap.appendChild(inbox);
   // 이 스텝.
@@ -2951,7 +2951,7 @@ function lineage(chain,cycle,n){
   wrap.appendChild(chip(n.id+' '+n.kind,'lself k-'+stepClass(n)));
   wrap.appendChild(chip('→',''));
   // 낳음(자식들) — DAG 에서 parents 에 self.sha 를 포함하는 노드(경계 넘는 자식 포함).
-  wrap.appendChild(chip('낳음','lhead'));
+  wrap.appendChild(chip(T('chip.out'),'lhead'));
   const outbox=document.createElement('span'); outbox.className='lgroup';
   const kids=self?DAG.filter(d=>d.parents.includes(self.sha)):[];
   if(kids.length){
@@ -2959,11 +2959,11 @@ function lineage(chain,cycle,n){
       const cross=(k.chain!==chain||k.cycle!==cycle);
       const branch=(k.parent&&k.parent!=='null'&&k.parent!==n.id); // backtrack 형제가지
       outbox.appendChild(chip(label(k),'lout'+(branch?' lbranch':'')+(cross?' lchain':''),k,
-        cross?'자식 '+(k.chain!==chain?'체인 '+k.chain:'사이클 '+k.cycle)+' 이 여기서 이어받음':(branch?'되돌아온 형제 가지':'다음 스텝')));
+        cross?(k.chain!==chain?T('chip.child.chain',{chain:k.chain}):T('chip.child.cycle',{cycle:k.cycle})):(branch?T('chip.sibling.back'):T('chip.next.step'))));
     });
   }else{
-    outbox.appendChild(chip(n.kind==='fail'?'죽은 잎(벽) — 여기서 끝':'잎(여기서 끝)','ldim',null,
-      n.kind==='fail'?'이 가지는 여기서 죽었다 — 조상 define 으로 되돌아가 다른 가지를 폈다':'이 사이클의 결말 노드'));
+    outbox.appendChild(chip(n.kind==='fail'?T('chip.leaf.dead'):T('chip.leaf'),'ldim',null,
+      n.kind==='fail'?T('chip.leaf.dead.tip'):T('chip.leaf.tip')));
   }
   wrap.appendChild(outbox);
   return wrap;
@@ -3048,7 +3048,7 @@ async function openReport(chain,cycle,n){
   const badge=(label,cls)=>{const s=document.createElement('span');s.className='badge '+(cls||'');s.textContent=label;meta.appendChild(s);};
   badge(n.kind,'k-'+stepClass(n));
   if(n.outcome)badge('=' +n.outcome);
-  if(n.here)badge('◀ 현재위치','k-here');
+  if(n.here)badge(T('step.here.badge'),'k-here');
   rc.appendChild(meta);
 
   // pending 잎이면 사람이 여기서 직접 승인/기각한다(상현님). 버튼이 서버 /approve·/reject 를
@@ -3275,7 +3275,7 @@ function aggregateDAG(depth){
       parents:[...pkeys].map(pk=>'grp:'+pk),
       // ⚡ 분기: solved 인데 죽은 잎도 품음(일자 solved 와 구분, 텍스트판 v3.4.1 과 일관).
       forked:hasAlive&&hasDead, nsteps:steps.length,
-      subj:(depth==='cycle'?'사이클 '+k:'체인 '+k)+' — '+steps.length+'스텝'+(hasAlive&&hasDead?' ⚡분기 밟은 solved':''),
+      subj:(depth==='cycle'?T('map.fold.subj.cycle',{name:k,n:steps.length}):T('map.fold.subj.chain',{name:k,n:steps.length}))+(hasAlive&&hasDead?T('map.fold.solved'):''),
     });
   });
   return out;
@@ -3294,7 +3294,7 @@ function buildStepMap(){
   if(MAP_CHAIN&&!ALLCHAINS.includes(MAP_CHAIN))MAP_CHAIN='';   // 사라진 체인이 필터에 남지 않게
   const VIS=folded.filter(n=>!MAP_CHAIN||n.chain===MAP_CHAIN);
   host.appendChild(chainFilterBar(ALLCHAINS));
-  if(!VIS.length){ host.appendChild(document.createTextNode('아직 노드가 없다.')); return; }
+  if(!VIS.length){ host.appendChild(document.createTextNode(T('map.empty'))); return; }
   const byId={}; VIS.forEach(n=>byId[n.sha]=n);
   // 전체맵의 선은 **gil 룰**로 그린다(이슈 #70). 옛 전체맵은 커밋 조상관계를 날것으로 이어,
   // 계보상 무관한 체인 — orphan 이거나 그냥 나중에 열린 체인 — 까지 한 줄로 길게 붙였다.
@@ -3443,7 +3443,7 @@ function buildStepMap(){
   //    (엷은 점선은 층이 계속 살아 있다는 배경일 뿐, 사건은 실선이 잇는다.)
   if(LAYERED){
     const yMain=16, yDev=16+LANE_S, xL=padX+r-LANEPAD, xR=W-6;
-    [['main',yMain,'배포된 것만 온다 — 대문'],['dev',yDev,'모든 작업이 시작하는 층']].forEach(([nm,y,tip])=>{
+    [['main',yMain,T('layer.main.tip')],['dev',yDev,T('layer.dev.tip')]].forEach(([nm,y,tip])=>{
       const ln=svgEl('line',{class:'lanerule lane-'+nm,x1:xL,y1:y,x2:xR,y2:y});
       ln.appendChild(svgEl('title',{},nm+' — '+tip)); svg.appendChild(ln);
       const t=svgEl('text',{class:'lanename lane-'+nm,x:xL-6,y:y+4}); t.textContent=nm;
@@ -3485,9 +3485,9 @@ function buildStepMap(){
     // (1) 대문 → dev. 층은 대문에서 갈라져 나온 것이다 — 그 사실이 그림에 없으면 dev 가
     //     어디서 왔는지 알 수 없고, 첫 점이 떠 있는 것처럼 보인다.
     const xMainStart=xL+6, xDevStart=xL+LANE_X0;
-    dot(xMainStart,yMain,'main','대문(main) — 여기서 층이 갈라진다');
-    curve(xMainStart,yMain,xDevStart,yDev,'fork','dev 는 대문에서 갈라진 층이다 (gil init)');
-    dot(xDevStart,yDev,'dev','dev 층 시작');
+    dot(xMainStart,yMain,'main',T('layer.main.dot.tip'));
+    curve(xMainStart,yMain,xDevStart,yDev,'fork',T('layer.fork.tip'));
+    dot(xDevStart,yDev,'dev',T('layer.dev.start.tip'));
     // (2)(3) dev 위의 사건들 — 갈라짐(체인의 출발)과 합류(gil merge).
     //
     // **한 점에서 갈라지지 않는다.** 옛 코드는 모든 dev 시조를 xDevStart 한 점에서 뽑았다.
@@ -3588,14 +3588,14 @@ function buildStepMap(){
         const x=(slotX[e.at]!==undefined && slotGap>6) ? slotX[e.at]
               : Math.min(atX(e.at), Math.max(xDevStart, X(e.node.sha)-r*2));
         elbowDown(x,yDev,X(e.node.sha),Y(e.node.sha),'start',
-          '출발: dev → '+e.chain+' (계보상 시조 — 대문은 물려받는다)');
-        if(x>xDevStart) dot(x,yDev,'dev','갈라짐: dev → '+e.chain);
+          T('layer.depart.tip',{chain:e.chain}));
+        if(x>xDevStart) dot(x,yDev,'dev',T('layer.fork.dot.tip',{chain:e.chain}));
         devEvents.push(x);
       }else{
         const x1=X(e.node.sha), y1=Y(e.node.sha);
         const x2=isFinite(e.at)?atX(e.at):Math.min(xR-40, x1+runFor(y1-yDev));
-        elbowUp(x1,y1,x2,yDev,'merge','합류: '+e.chain+' → dev (gil merge)');
-        dot(x2,yDev,'dev','합류: '+e.chain+' → dev');
+        elbowUp(x1,y1,x2,yDev,'merge',T('layer.merge.tip',{chain:e.chain}));
+        dot(x2,yDev,'dev',T('layer.merge.dot.tip',{chain:e.chain}));
         devEvents.push(x2);
       }
     });
@@ -3608,10 +3608,10 @@ function buildStepMap(){
       const lost=(tag in LDEPLOYAT) && !LDEPLOYAT[tag];
       const at=LDEPLOYAT[tag];
       curve(x1,yDev,x2,yMain,'deploy',T('deploy.mark')+tag+': dev → main (gil deploy)'+
-        (at?'\n내보낸 잎: '+at:(lost?'\n귀속 스텝 미상 — 이 배포 계보에서 산 잎을 찾지 못했다':'')));
+        (at?'\n'+T('deploy.leaf.tip')+at:(lost?'\n'+T('deploy.leaf.lost.tip'):'')));
       dot(x2,yMain,'main',T('deploy.mark')+tag); devEvents.push(x1);
       const t=svgEl('text',{class:'lanetag',x:x2,y:yMain-8});
-      t.textContent='🚀 '+tag+(lost?' (귀속 스텝 미상)':'');
+      t.textContent='🚀 '+tag+(lost?T('deploy.leaf.lost.badge'):'');
       svg.appendChild(t);
       // 대문도 실선으로 잇는다 — 갈라진 자리에서 배포가 도착한 자리까지가 대문이 산 구간이다.
       svg.appendChild(svgEl('line',{class:'lanelive lane-main',x1:xMainStart,y1:yMain,x2:x2,y2:yMain}));
@@ -3727,7 +3727,7 @@ function buildStepMap(){
   VIS.forEach(n=>{
     const g=svgEl('g',{class:'dnode k-'+stepClass(n)+(n.here?' here':'')+(isLeaf(n,kids)?' leaf':'')+(agg?' agg':'')+(n.gone?' gone':''),transform:'translate('+X(n.sha)+','+Y(n.sha)+')'});
     const tip=agg?(n.subj+(n.here?'  ◀ HEAD':'')):(n.chain+'/'+n.cycle+'/'+n.step+' '+n.kind+(n.here?' ◀ HEAD':'')+
-      (n.supersedes?'  ⟲정정 '+n.supersedes:'')+(n.gone?'  ⤳구버전(정정으로 대체)':'')+'\n'+n.subj);
+      (n.supersedes?T('git.supersede.mark',{id:n.supersedes}):'')+(n.gone?T('git.gone.mark'):'')+'\n'+n.subj);
     g.appendChild(svgEl('title',{},tip));
     g.appendChild(svgEl('circle',{r:agg?r+2:r}));
     if(n.forked){ const s=svgEl('text',{class:'forkmark',x:0,y:3}); s.textContent='⚡'; g.appendChild(s); } // 분기 밟은 solved
@@ -3765,10 +3765,10 @@ function buildStepMap(){
         d:'M '+(X(anchor.sha)+r)+' '+Y(anchor.sha)+' L '+(wx-r)+' '+wy}));
       const wg=svgEl('g',{class:'dnode working',transform:'translate('+wx+','+wy+')'});
       const tip=T('map.work.tip')+WORK.summary+
-        (WORK.branch?'\n브랜치: '+WORK.branch:'')+
-        (WORK.ahead?'\n앵커 이후 평범한 커밋 '+WORK.ahead+'개':'')+
+        (WORK.branch?'\n'+T('work.branch')+WORK.branch:'')+
+        (WORK.ahead?'\n'+T('work.ahead',{n:WORK.ahead}):'')+
         (WORK.files&&WORK.files.length?'\n'+WORK.files.join('\n'):'')+
-        '\n커밋하면 이 자리에 진짜 스텝이 선다.';
+        '\n'+T('work.commit.hint');
       wg.appendChild(svgEl('title',{},tip));
       wg.appendChild(svgEl('circle',{r:agg?r+2:r}));
       const lb=svgEl('text',{class:'worklbl',x:0,y:-(r+6)}); lb.textContent=T('map.work.label.pen'); wg.appendChild(lb);
@@ -4097,9 +4097,9 @@ function buildGitGraph(){
     // beta·gamma·delta 가 통째로 화면 밖이었고, 그 줄들은 "그 체인엔 아무것도 없다"로 읽혔다.
     // 개수 한 자리가 "없는 것"과 "지금 안 보이는 것"을 가른다.
     const shown={}; rows.forEach(c=>{ shown[c.layer]=(shown[c.layer]||0)+1; });
-    LANES.concat(['(그 밖)']).forEach((nm,i)=>{
-      if(nm!=='(그 밖)' && !shown[nm])return;
-      if(nm==='(그 밖)' && maxL<LANES.length)return;
+    LANES.concat([T('git.lane.other')]).forEach((nm,i)=>{
+      if(nm!==T('git.lane.other') && !shown[nm])return;
+      if(nm===T('git.lane.other') && maxL<LANES.length)return;
       const y=padY+i*laneH;
       svg.appendChild(svgEl('line',{class:'gglanerule',x1:0,y1:y,x2:W-6,y2:y}));
       const n=shown[nm]||0;
@@ -4124,7 +4124,7 @@ function buildGitGraph(){
     const g=svgEl('g',{class:'ggnode'+(c.gil?' gil':''),transform:'translate('+X(c.sha)+','+Y(c.sha)+')'});
     g.appendChild(svgEl('circle',{r:c.gil?r:r-1.2,fill:color(lane[c.sha])}));
     g.appendChild(svgEl('title',{},c.sha+'  '+c.subj+
-      (c.layer?'\n층: '+c.layer:'')+(c.refs?'\n['+c.refs+']':'')));
+      (c.layer?'\n'+T('git.layer.tip')+c.layer:'')+(c.refs?'\n['+c.refs+']':'')));
     svg.appendChild(g);
     // 브랜치 이름은 **그 ref 가 가리키는 커밋에만** 붙인다 — 그게 가지의 끝이다.
     //
@@ -4189,7 +4189,7 @@ function buildGitGraph(){
   const det=document.getElementById('det-gitgraph');
   if(!det)return;
   let drawn=false;
-  const draw=()=>{ if(drawn)return; drawn=true; step('git 그래프', buildGitGraph); };
+  const draw=()=>{ if(drawn)return; drawn=true; step(T('part.gitgraph'), buildGitGraph); };
   try{ if(localStorage.getItem('gil-gitgraph-open')==='1'){ det.open=true; draw(); } }catch(e){}
   det.addEventListener('toggle',()=>{
     try{ localStorage.setItem('gil-gitgraph-open', det.open?'1':'0'); }catch(e){}
@@ -4317,7 +4317,7 @@ function buildReferences(){
     const det=document.createElement('details');
     if(just===r.chain)det.open=true;               // 방금 제출한 것만 펼친 채로
     const sum=document.createElement('summary'); sum.className='refsum';
-    const state=r.waiting?'⏳ 에이전트가 기다리는 중':(r.seen?'✓ 에이전트가 읽었습니다':'· 아직 안 읽음');
+    const state=r.waiting?T('interview.state.waiting'):(r.seen?T('interview.state.seen'):T('interview.state.unseen'));
     sum.textContent=(just===r.chain?T('ref.just'):'')+
       T('ref.sum',{chain:r.chain,sha:r.sha})+state;
     det.appendChild(sum);
@@ -4476,12 +4476,12 @@ function buildInterviews(){
         const probe=window.__gilPollUrl;
         if(probe){ try{ const p=await fetch(probe,{cache:'no-store'}); alive=p.ok; }catch(_){} }
         status.textContent=alive?(T('iv.failed')+e):
-          ' ✕ 뷰어 서버에 닿지 못했습니다 — 이 페이지를 띄운 서버가 꺼졌거나 다시 떴습니다.';
+          T('disconnect.msg');
         if(!alive){
           const hint=document.createElement('div');
           hint.className='ivwait';
           hint.innerHTML=T('iv.failed.hint')+
-            '<br>서버가 꺼져 있으면 터미널에서: <code>gil viewer serve</code>';
+            T('disconnect.hint');
           form.appendChild(hint);
         }
         submit.disabled=false;
@@ -4504,9 +4504,9 @@ function step(name, fn){
     document.body.insertBefore(b, document.body.firstChild);
   }
 }
-step('화면 언어', ()=>{ applyLang(); buildLangToggle(); }); // 그림보다 먼저 — 범례가 맞는 언어로 나야 한다
-step('전체맵', buildStepMap);          // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
-step('체인그래프 줌', enableChainGraphZoom); // 이슈 #79
-step('인터뷰 폼', buildInterviews);     // 사람 답 대기 인터뷰 폼(이슈 #33)
-step('선택 복원', restoreSel);
+step('lang', ()=>{ applyLang(); buildLangToggle(); }); // 그림보다 먼저 — 범례가 맞는 언어로 나야 한다
+step(T('part.stepmap'), buildStepMap);          // 전체맵은 항상 맨 위에 렌더(탭 없음). 기본 뎁스=step.
+step(T('part.chainzoom'), enableChainGraphZoom); // 이슈 #79
+step(T('part.interviews'), buildInterviews);     // 사람 답 대기 인터뷰 폼(이슈 #33)
+step(T('part.restoresel'), restoreSel);
 `
