@@ -229,3 +229,59 @@ func trailerAllOf(sha, key string) []string {
 	}
 	return vals
 }
+
+// ── 가설은 코드보다 먼저 선다 (이슈 #121, 상현님 실사용) ────────────────────────────
+//
+// `gil step` 은 작업 트리의 변경을 스텝 커밋에 함께 담는다. 그래서 hypothesis 를 심는 순간
+// 그때까지 쌓인 코드가 같은 커밋에 들어가고, git 이력만 보면 **"가설과 코드가 한 커밋"** 이
+// 된다. 이 도구가 지키려는 성질이 바로 기록 순서(문제 정의 → 가설 → 코드)인데, 그 증거가
+// 커밋 단위에서 사라진다. 실측으로 두 사이클에서 반복됐고, 두 번 다 verify 본문에 "깃
+// 이력만 보면 한 커밋이다"라고 손으로 적어 남겨야 했다 — **사후 해명은 증거가 아니라
+// 자기보고다.** 이 도구가 없애려던 바로 그것이다.
+//
+// 그래서 생각의 걸음(define·hypothesis)에서는 더러운 트리를 거부한다. verify·analyze·종결은
+// 산출물이 함께 들어오는 것이 자연스러우므로 건드리지 않는다.
+func dirtyTrackedFiles() []string {
+	out := strings.TrimSpace(git("status", "--porcelain", "-uno"))
+	if out == "" {
+		return nil
+	}
+	var files []string
+	for _, ln := range strings.Split(out, "\n") {
+		if len(ln) > 3 {
+			files = append(files, strings.TrimSpace(ln[3:]))
+		}
+	}
+	return files
+}
+
+// refuseDirtyThinkingStep — define·hypothesis 는 깨끗한 트리에서만 선다.
+//
+// **막기만 하면 벽이다.** 여기서 주는 길은 셋 다 실제로 통하는 것이어야 한다 — 특히
+// "먼저 커밋하라"는 못 준다: 체인 가지의 평범 커밋은 guard(#116)가 막는다.
+func refuseDirtyThinkingStep(kind string, allowDirty bool) []string {
+	if kind != "define" && kind != "hypothesis" {
+		return nil
+	}
+	files := dirtyTrackedFiles()
+	if len(files) == 0 {
+		return nil
+	}
+	if allowDirty {
+		return files // 담되, 무엇이 함께 들어왔는지 커밋에 적는다(호출부)
+	}
+	show := files
+	if len(show) > 8 {
+		show = append(append([]string{}, files[:8]...), "… 그리고 "+itoa(len(files)-8)+"개 더")
+	}
+	die("거부: " + kind + " 는 **코드보다 먼저 선다** — 지금 작업 트리에 변경 " +
+		itoa(len(files)) + "개가 있다.\n" +
+		"  이대로 새기면 그 코드가 이 커밋에 함께 담기고, git 이력만 보면 '가설과 코드가 한\n" +
+		"  커밋'이 된다. 이 도구가 지키려는 것이 바로 그 순서의 증거다(이슈 #121).\n" +
+		"    " + strings.Join(show, "\n    ") + "\n" +
+		"  셋 중 하나를 골라라:\n" +
+		"    · 그 변경이 **앞 걸음의 산물**이면 → 그 걸음으로 먼저 담아라(verify·analyze·종결).\n" +
+		"    · **다음 걸음의 재료**면 → 잠시 치워라:  git stash   (가설을 세운 뒤 git stash pop)\n" +
+		"    · 정말 함께 담아야 하면 → --allow-dirty  (그때는 무엇이 함께 들어왔는지 커밋에 남긴다)")
+	return nil
+}

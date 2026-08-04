@@ -604,6 +604,8 @@ func cmdOpen(args []string) {
 	// 닫을 때 실제 sha 를 요구한다. 그러면 원래 취지(#79·#81)가 오히려 더 세게 지켜지고,
 	// "이 사이클이 그 셋을 만들었다"는 간선이 그래프에 남는다.
 	produces := fs.strList("produces-dataset")
+	// open 은 s1 define 을 만든다 — 생각의 첫 걸음이므로 같은 문이 선다(이슈 #121).
+	openAllowDirty := fs.boolFlag("allow-dirty")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil open <chain>/<cycle> [--author <who>] (--purpose <P> | --from-plan <n>) [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
@@ -657,6 +659,7 @@ func cmdOpen(args []string) {
 	// 측정 좌표(이슈 #79·#81) — 체인이 요구하면 선언 없이는 못 연다. 같은 체인 안에서 축이
 	// 바뀌면 막지는 않되 조용히 넘어가지 않는다.
 	requireCoords(chain, *datasets, *subjects, *produces)
+	openDirtyWith := refuseDirtyThinkingStep("define", *openAllowDirty)
 	for _, ln := range coordDriftLines(chain, *datasets, *subjects) {
 		stderr(ln)
 	}
@@ -902,6 +905,9 @@ func cmdOpen(args []string) {
 	if n := strings.TrimSpace(*datasetNote); n != "" {
 		tr = append(tr, [2]string{"Gil-Dataset-Note", n})
 	}
+	if len(openDirtyWith) > 0 {
+		tr = append(tr, [2]string{"Gil-Tree-Changes", itoa(len(openDirtyWith)) + " files"})
+	}
 	for _, pd := range *produces {
 		// 산출물 선언 — 닫을 때 실제 sha 를 요구하는 근거이자, 그래프에 남는 간선이다.
 		tr = append(tr, [2]string{"Gil-Produces-Dataset", pd})
@@ -997,6 +1003,9 @@ func sealGuard(chain, cycle string) {
 func cmdStep(args []string) {
 	fs := newFlags("gil step")
 	kind := fs.str("kind", "")
+	// --allow-dirty: 생각의 걸음(define·hypothesis)에 작업 트리를 함께 담는다(이슈 #121).
+	// 기본은 거부다 — 그래야 "가설 → 코드" 순서가 커밋 단위에서 증거로 남는다.
+	allowDirty := fs.boolFlag("allow-dirty")
 	outcome := fs.str("outcome", "")
 	to := fs.str("to", "")
 	title := fs.str("title", "")
@@ -1767,6 +1776,7 @@ func cmdStep(args []string) {
 	// 계보에는 다른 가지의 스텝이 안 보여, 같은 번호가 두 번 발급된다 — 실제로 --at 으로
 	// 두고 온 가지를 닫은 뒤 산 가지로 돌아와 재분기하니 s8 이 둘 생겼다(이슈 #67 수정 중 발견).
 	// 번호는 사이클 안에서 유일해야 계보 참조(--to, Gil-Parent)가 뜻을 잃지 않는다.
+	dirtyWith := refuseDirtyThinkingStep(*kind, *allowDirty)
 	sid := nextStepID(cycleAnywhere(chain, cycle))
 	stTitle := *title
 	if stTitle == "" {
@@ -1784,6 +1794,18 @@ func cmdStep(args []string) {
 	if *kind == "hypothesis" {
 		tr = append(tr, [2]string{"Gil-Falsify", *falsify})       // 반증조건(벽의 지도의 씨앗)
 		tr = append(tr, [2]string{"Gil-Falsify-To", *falsifyTo}) // 반증 시 되돌아갈 define
+	}
+	// **함께 들어온 것은 이름을 남긴다**(이슈 #121 제안 2). --allow-dirty 로 담기로 했으면
+	// 최소한 나중에 읽을 수 있어야 한다 — 본문에 손으로 적는 해명은 증거가 아니라 자기보고다.
+	if len(dirtyWith) > 0 {
+		tr = append(tr, [2]string{"Gil-Tree-Changes", itoa(len(dirtyWith)) + " files"})
+		show := dirtyWith
+		if len(show) > 20 {
+			show = show[:20]
+		}
+		tr = append(tr, [2]string{"Gil-Tree-Files", strings.Join(show, " ")})
+	}
+	if *kind == "hypothesis" {
 		pol := *ifSupported
 		if pol == "" {
 			pol = "goal-met" // 기본(비파괴) — 대부분 가설은 supported=목표 달성

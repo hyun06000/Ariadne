@@ -12418,12 +12418,15 @@ class TestOrphanMeansOrphanInTheFilesToo(GilFixture):
                  "--criterion", "C", input="기준")
         self.gil("open", f"{name}/c1", "--author", "clew", "--purpose", "P",
                  "--body", "정의", "--fits", "목적 그 자체")
+        # **파일은 가설 뒤에 만든다**(이슈 #121): 생각의 걸음(define·hypothesis)은 깨끗한
+        # 트리에서만 선다. 옛 fixture 는 가설 앞에서 파일을 만들었고, 새 규칙이 그걸 잡았다 —
+        # fixture 가 틀렸던 것이지 규칙이 과한 게 아니다.
+        self.gil("step", f"{name}/c1", "--kind", "hypothesis", "--title", "H", "--body", "가설",
+                 "--falsify", "F", "--falsify-to", "s1", "--plan", "p", "--advances", "a")
         with open(os.path.join(self.repo, fname), "w", encoding="utf-8") as f:
             f.write("이 체인이 만든 파일\n")
         self._git("add", fname)
-        for s in (["--kind", "hypothesis", "--title", "H", "--body", "가설", "--falsify", "F",
-                   "--falsify-to", "s1", "--plan", "p", "--advances", "a"],
-                  ["--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported",
+        for s in ([ "--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported",
                    "--plan-held", "--falsify-unmet", "미관측"],
                   ["--kind", "analyze", "--title", "A", "--body", "해석", "--finding", "f"],
                   ["--kind", "success", "--title", "S", "--body", "종합", "--toward", "t",
@@ -12622,3 +12625,80 @@ class TestYouCanOpenACycleThatMakesTheDataset(GilFixture):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn(spec, self._git("log", "-1", "--format=%B", "c-design").stdout,
                       "만든 셋의 좌표가 그래프에 안 남았다")
+
+
+class TestTheHypothesisStandsBeforeTheCode(GilFixture):
+    """**사후 해명은 증거가 아니라 자기보고다** (이슈 #121, 상현님 실사용).
+
+    `gil step` 이 작업 트리를 스텝 커밋에 함께 담아, hypothesis 를 심는 순간 그때까지 쌓인
+    코드가 같은 커밋에 들어갔다. git 이력만 보면 **"가설과 코드가 한 커밋"** 이다 — 이 도구가
+    지키려는 성질이 바로 그 순서(문제 정의 → 가설 → 코드)인데 그 증거가 커밋 단위에서 사라진다.
+    실측으로 두 사이클에서 반복됐고, 두 번 다 verify 본문에 "깃 이력만 보면 한 커밋이다"라고
+    손으로 적어야 했다. **에이전트가 정직하게 남기려 해도 도구가 그것을 못 하게 한 것이다.**
+
+    verify·analyze·종결은 산출물이 함께 들어오는 것이 자연스러우므로 건드리지 않는다."""
+
+    def _cycle(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P", "--reference", "-", "--criterion", "C",
+                 input="기준")
+        self.gil("open", "c/cy", "--author", "clew", "--purpose", "P",
+                 "--body", "정의", "--fits", "목적 그 자체")
+
+    def _dirty(self, name="server.py"):
+        with open(os.path.join(self.repo, name), "w", encoding="utf-8") as f:
+            f.write("서버층 구현\n")
+        self._git("add", name)
+
+    def _hypothesis(self, *extra):
+        return self.gil("step", "c/cy", "--kind", "hypothesis", "--title", "H", "--body", "가설",
+                        "--falsify", "F", "--falsify-to", "s1", "--plan", "p", "--advances", "a",
+                        *extra)
+
+    def test_a_thinking_step_refuses_a_dirty_tree(self):
+        self._cycle()
+        self._dirty()
+        r = self._hypothesis()
+        self.assertNotEqual(r.returncode, 0, "코드를 안은 채 가설이 섰다")
+        out = r.stdout + r.stderr
+        self.assertIn("server.py", out, "무엇이 걸렸는지 안 말한다:\n" + out)
+
+    def test_the_refusal_only_offers_paths_that_actually_work(self):
+        """**"먼저 커밋하라"는 못 준다** — 체인 가지의 평범 커밋은 guard(#116)가 막는다.
+        막기만 하고 통하지 않는 길을 주면 그건 벽이다."""
+        self._cycle()
+        self._dirty()
+        out = self._hypothesis().stdout + self._hypothesis().stderr
+        self.assertIn("git stash", out, "치우는 길을 안 준다")
+        self.assertIn("--allow-dirty", out, "함께 담는 길을 안 준다")
+        self.assertNotIn("먼저 커밋하", out, "guard 가 막는 길을 가르친다")
+
+    def test_stashing_lets_the_hypothesis_stand(self):
+        self._cycle()
+        self._dirty()
+        self._git("stash", "-q")
+        r = self._hypothesis()
+        self.assertEqual(r.returncode, 0, "치웠는데도 안 선다:\n" + r.stdout + r.stderr)
+
+    def test_a_measuring_step_still_carries_its_artifacts(self):
+        """verify 는 산출물을 담는 걸음이다 — 여기까지 막으면 도구가 일을 막는다."""
+        self._cycle()
+        self._git("stash", "-q")  # 깨끗한 자리에서 가설을 세우고
+        self._hypothesis()
+        self._dirty()             # 그 뒤 코드를 쓰고
+        r = self.gil("step", "c/cy", "--kind", "verify", "--title", "V", "--body", "검증",
+                     "--verdict", "supported", "--plan-held", "--falsify-unmet", "미관측")
+        self.assertEqual(r.returncode, 0, "verify 가 산출물을 못 담는다:\n" + r.stdout + r.stderr)
+        self.assertIn("server.py", self._git("show", "--stat", "--format=", "HEAD").stdout,
+                      "verify 커밋에 산출물이 안 담겼다")
+
+    def test_allow_dirty_writes_down_what_came_along(self):
+        """함께 담기로 했으면 **무엇이 들어왔는지 커밋이 말한다** — 최소한 읽을 수는 있게."""
+        self._cycle()
+        self._dirty("f1.txt")
+        self._dirty("f2.txt")
+        r = self._hypothesis("--allow-dirty")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body = self._git("log", "-1", "--format=%B", "c-cy").stdout
+        self.assertIn("Gil-Tree-Changes: 2 files", body, "함께 들어온 것을 안 적었다")
+        self.assertIn("f1.txt", body, "어떤 파일인지 안 적었다")
