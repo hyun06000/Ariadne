@@ -11542,3 +11542,68 @@ class TestOneChannelForTheRecord(GilFixture):
         self.assertEqual(r.returncode, 0, "껐는데도 막혔다:\n" + r.stdout + r.stderr)
         self.assertIn("섞인 기록", self.gil("fsck").stdout + self.gil("fsck").stderr,
                       "껐다고 탐지까지 꺼졌다 — 탐지는 끄지 않는다")
+
+
+class TestGitGraphShowsTheSiblings(GilFixture):
+    """**대조하라고 놓은 그림이 갈라진 것을 안 그렸다** (이슈 #114, 실사용 AIL).
+
+    git 그래프(날것) 패널은 "gil 이 그리는 계보와 git 자신의 그림이 같은지 보는 자리"라고
+    스스로 말한다. 그런데 레인이 **체인 브랜치**로만 배정돼, 같은 체인의 사이클·형제 가지
+    (--competing)가 한 줄에 포개졌다 — 실측: 브랜치 31개 중 레인 6개, 나머지 30개는 레인 없는
+    칩. 정작 형제 가지가 진짜로 갈라졌는지 확인하려던 사람이 `git log --format=%P` 를 손으로
+    떠야 했다.
+
+    고친 방향은 리포트의 (b): **체인 선택기와 연동**한다. 전부에 레인을 주면 줄이 서른 개가
+    되니, 고른 체인만 남기고 그 안에서 위상 레인(형제마다 제 줄)으로 그린다."""
+
+    def _competing_repo(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "ch", "--purpose", "목적")
+        self.gil("open", "ch/c001", "--author", "clew", "--purpose", "p", "--fits", "f",
+                 "--body", "정의")
+        self._no_despite_autofill = True
+        for t in ("가설 A", "가설 B"):
+            r = self.gil("step", "ch/c001", "--kind", "hypothesis", "--to", "s1", "--competing",
+                         "--inherit", "앞 가지의 교훈", "--title", t, "--falsify", "F",
+                         "--falsify-to", "s1", "--advances", "a", "--body", "가설")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def _gitgraph(self):
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_html, encoding="utf-8") as f:
+            html = f.read()
+        m = re.search(r'id="gitgraphdata"[^>]*>(.*?)</script>', html, re.S)
+        self.assertIsNotNone(m, "git 그래프 데이터가 페이지에 없다")
+        return json.loads(m.group(1)), html
+
+    def test_each_commit_carries_its_cycle(self):
+        """레인을 사이클 단위로 펼치려면 화면이 **어느 사이클의 커밋인지**를 알아야 한다."""
+        self._competing_repo()
+        rows, _ = self._gitgraph()
+        steps = [r for r in rows if r["gil"]]
+        self.assertTrue(steps, "gil 커밋이 하나도 안 실렸다")
+        self.assertTrue(any(r.get("cycle") == "c001" for r in steps),
+                        "커밋에 사이클이 안 실렸다 — 사이클 레인을 그릴 재료가 없다: " + repr(steps[:3]))
+
+    def test_the_siblings_really_forked_in_git(self):
+        """그림 이전에 **사실**이 그래야 한다 — 형제 셋이 같은 부모에서 났나(리포트의 실측 방법)."""
+        self._competing_repo()
+        rows, _ = self._gitgraph()
+        by = {r["sha"]: r for r in rows}
+        parents = [tuple(r["parents"]) for r in rows if r["gil"] and r.get("cycle") == "c001"]
+        firsts = [p[0] for p in parents if p]
+        dup = [p for p in set(firsts) if firsts.count(p) > 1]
+        self.assertTrue(dup, "형제 가지가 git 에서 갈라지지 않았다(이 시험의 전제가 깨졌다)")
+        self.assertTrue(all(d in by for d in dup))
+
+    def test_the_panel_follows_the_chain_selector(self):
+        """두 그림을 대조하라고 놓았는데 한쪽만 선택을 따르면, 사람은 서로 다른 범위를 본다."""
+        _, html = self._gitgraph_after_build()
+        self.assertIn("ZOOMED", html, "git 그래프가 체인 선택을 읽지 않는다")
+        self.assertIn("gitgraph.zoomed", html, "펼쳤다는 사실을 화면이 말하지 않는다")
+
+    def _gitgraph_after_build(self):
+        self._competing_repo()
+        return self._gitgraph()

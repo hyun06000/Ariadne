@@ -604,6 +604,14 @@ var i18nDict = map[string]map[string]string{
 		"ko": "현재위치가 그래프에 없다", "en": "HEAD is not on the graph",
 		"zh-CN": "当前位置不在图上", "zh-TW": "目前位置不在圖上",
 	},
+	// 고른 체인 안을 펼쳤다는 사실을 화면이 말한다(이슈 #114) — 안 말하면 사람은 "다른
+	// 체인이 사라졌다"고 읽는다.
+	"gitgraph.zoomed": {
+		"ko": "체인 {chain} 안을 펼쳤다 — 형제 가지마다 제 줄. (선택을 '전체'로 되돌리면 층 레인으로 돌아간다)",
+		"en": "Expanded inside chain {chain} — one lane per sibling branch. (Set the filter back to “all” for layer lanes)",
+		"zh-CN": "已展开链 {chain} 的内部——每条兄弟分支各占一行。（把筛选器调回“全部”即可回到层泳道）",
+		"zh-TW": "已展開鏈 {chain} 的內部——每條兄弟分支各占一行。（把篩選器調回「全部」即可回到層泳道）",
+	},
 	"gitgraph.empty": {
 		"ko": "커밋이 없다.", "en": "No commits.", "zh-CN": "没有提交。", "zh-TW": "沒有提交。",
 	},

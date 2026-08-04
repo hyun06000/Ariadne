@@ -1523,8 +1523,13 @@ func gitGraphJSON() string {
 		return "[]"
 	}
 	gil := map[string]bool{}
+	// 사이클까지 싣는다(이슈 #114): 체인 하나를 고르면 그 안의 **사이클·형제 가지**가 레인을
+	// 받아야 한다. 레인이 체인 단위뿐이면 같은 체인의 형제 가지가 한 줄에 포개져, 정작 이
+	// 패널이 대조하라고 있는 "여기서 갈라졌나"가 안 보인다.
+	cyc := map[string]string{}
 	for _, n := range viewerCollectNodes() {
 		gil[n.full] = true
+		cyc[n.full] = n.cycle
 	}
 	type rec struct{ sha, full, parents, refs, subj, layer string }
 	var rows []rec
@@ -1588,8 +1593,8 @@ func gitGraphJSON() string {
 		if layer == "" {
 			layer = "main"
 		}
-		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":%s,"refs":%q,"subj":%q,"gil":%t,"layer":%q}`,
-			r.sha, r.parents, r.refs, r.subj, gil[r.full], layer))
+		sb.WriteString(fmt.Sprintf(`{"sha":%q,"parents":%s,"refs":%q,"subj":%q,"gil":%t,"layer":%q,"cycle":%q}`,
+			r.sha, r.parents, r.refs, r.subj, gil[r.full], layer, cyc[r.full]))
 	}
 	sb.WriteString("]")
 	return sb.String()
@@ -3222,6 +3227,9 @@ function chainFilterBar(chains){
     MAP_CHAIN=sel.value;
     try{ localStorage.setItem('gilMapChain',MAP_CHAIN); }catch(e){}
     buildStepMap();
+    // git 그래프도 같은 선택을 따른다 — 두 그림을 대조하라고 놓았는데 한쪽만 바뀌면
+    // 대조하는 사람이 서로 다른 범위를 보게 된다(이슈 #114).
+    if(document.getElementById('gitgraph')&&document.getElementById('gitgraph').childElementCount) buildGitGraph();
   });
   bar.appendChild(lab); bar.appendChild(sel);
   if(MAP_CHAIN){
@@ -3953,8 +3961,25 @@ function openDefaultView(){
 function buildGitGraph(){
   const host=document.getElementById('gitgraph');
   if(!host)return;
-  const rows=JSON.parse(document.getElementById('gitgraphdata')?.textContent||'[]');
+  let rows=JSON.parse(document.getElementById('gitgraphdata')?.textContent||'[]');
   if(!rows.length){ host.textContent=T('gitgraph.empty'); return; }
+  // **체인 하나를 고르면 그 안을 펼친다**(이슈 #114). 레인이 체인 단위뿐이라, 같은 체인의
+  // 사이클·형제 가지(--competing)가 한 줄에 포개져 보이지 않았다 — 실사용에서 브랜치 31개 중
+  // 레인은 6개였고, 나머지는 레인 없는 칩으로 여백에 떴다. 그런데 이 패널의 존재 이유가
+  // "gil 이 그리는 계보와 git 의 실재가 같은가"를 눈으로 대조하는 것이다. 갈라진 것을 안
+  // 그리면 대조가 성립하지 않는다.
+  //
+  // 전부에 레인을 주면 이번엔 줄이 서른 개가 된다 — 그래서 **선택기와 연동**한다. 고른 체인만
+  // 남기고, 그 안에서는 위상 레인(형제마다 제 줄)으로 그린다.
+  const ZOOMED = !!MAP_CHAIN && rows.some(c=>c.layer===MAP_CHAIN);
+  if(ZOOMED){
+    // 고른 체인 + **그 체인이 갈라져 나온 자리 한 칸**. 뿌리의 부모까지 남기지 않으면 이
+    // 체인이 어디서 났는지가 화면에서 사라져, 갈라짐을 보러 온 사람이 뿌리 없는 나무를 본다.
+    const keep=new Set(rows.filter(c=>c.layer===MAP_CHAIN).map(c=>c.sha));
+    const ctx=new Set();
+    rows.forEach(c=>{ if(keep.has(c.sha)) (c.parents||[]).forEach(p=>{ if(!keep.has(p)) ctx.add(p); }); });
+    rows=rows.filter(c=>keep.has(c.sha)||ctx.has(c.sha));
+  }
   const LAYER=(()=>{ try{ return JSON.parse(document.getElementById('layergraphdata')?.textContent||'{}'); }catch(e){ return {}; } })();
   const LAYERED=(LAYER.lanes||[]).includes('dev');
   // 전체맵과 같은 눈높이로 **간결하게**: 왼→오른 흐름, 점=커밋, 선=부모, 칩=브랜치 이름만.
@@ -3982,7 +4007,9 @@ function buildGitGraph(){
   // **같은 사실을 같은 모양으로** 놓는 일이다. 층이 없는 저장소는 옛 방식(위상)으로 둔다.
   const LANES=(LAYER.lanes||[]);
   const laneOf={}; LANES.forEach((n,i)=>laneOf[n]=i);
-  const byLayer=LAYERED && rows.some(c=>c.layer&&laneOf[c.layer]!==undefined);
+  // 고른 체인 안에서는 층 레인을 쓰지 않는다 — 그 체인의 커밋이 전부 한 줄이 되기 때문이다.
+  // 위상 레인은 "부모의 줄기를 첫 자식이 잇고 형제는 새 줄"이라, 갈라짐이 그대로 줄로 선다.
+  const byLayer=!ZOOMED && LAYERED && rows.some(c=>c.layer&&laneOf[c.layer]!==undefined);
   old2new.forEach((c,i)=>{
     const ps=(c.parents||[]).filter(p=>idx[p]!==undefined);
     let L=null;
@@ -4024,7 +4051,7 @@ function buildGitGraph(){
   // 레인 이름은 **따로 선 칸**에 세운다(아래 gutter). 옛 방식은 그림 안에 그려서, 그림이
   // 패널보다 넓어 가로로 스크롤하는 순간 이름이 같이 밀려 사라졌다 — 오른쪽을 보는 사람은
   // 어느 줄이 어느 체인인지 알 수 없었다(실측: 그림 2294px, 패널 651px).
-  const GUT=byLayer?96:0;
+  const GUT=(byLayer||ZOOMED)?96:0;
   const padX=14;
   const avail=Math.max(320, (host.clientWidth||760)-28-140-GUT);   // 140 = 오른쪽 이름표 자리
   const colW=Math.max(26, Math.min(72, avail/Math.max(1,maxDepth)));
@@ -4038,6 +4065,23 @@ function buildGitGraph(){
   // 레인 이름 — 어느 줄이 무엇인지 말하지 않으면 순서를 맞춰 놓아도 대조가 안 된다.
   // 이름은 gutter(안 밀리는 칸)에, 줄자(점선)는 그림 안에.
   let gutter=null;
+  if(ZOOMED){
+    // 펼친 화면의 레인 이름은 **사이클**이다(이 줄이 무엇인가). 한 레인에 여러 사이클이
+    // 겹치면 다 적는다 — 겹친다는 사실 자체가 읽을 거리다.
+    gutter=svgEl('svg',{class:'gggutter',viewBox:'0 0 '+GUT+' '+H,width:GUT,height:H});
+    const per={};
+    rows.forEach(c=>{ const L=lane[c.sha]; (per[L]=per[L]||{})[c.cycle||'—']=((per[L]||{})[c.cycle||'—']||0)+1; });
+    for(const L in per){
+      const y=padY+(+L)*laneH;
+      svg.appendChild(svgEl('line',{class:'gglanerule',x1:0,y1:y,x2:W-6,y2:y}));
+      const names=Object.keys(per[L]).sort();
+      const full=names.map(n=>n+' '+per[L][n]).join(' · ');
+      const t=svgEl('text',{class:'gglanename',x:GUT-8,y:y+3.5});
+      t.textContent=(full.length>15?full.slice(0,14)+'…':full);
+      t.appendChild(svgEl('title',{},full));
+      gutter.appendChild(t);
+    }
+  }
   if(byLayer){
     gutter=svgEl('svg',{class:'gggutter',viewBox:'0 0 '+GUT+' '+H,width:GUT,height:H});
     // **몇 개인지 함께 적는다**(이슈 #100②). 이 그림은 가로로 스크롤되므로, 왼쪽만 보고 있으면
@@ -4119,6 +4163,11 @@ function buildGitGraph(){
     });
   });
   const wrap=document.createElement('div'); wrap.className='ggwrap';
+  if(ZOOMED){
+    const note=document.createElement('div'); note.className='zhint';
+    note.textContent=T('gitgraph.zoomed',{chain:MAP_CHAIN});
+    host.appendChild(note);
+  }
   if(gutter){
     const gcol=document.createElement('div'); gcol.className='gggutcol'; gcol.appendChild(gutter);
     const scroll=document.createElement('div'); scroll.className='ggscroll'; scroll.appendChild(svg);
