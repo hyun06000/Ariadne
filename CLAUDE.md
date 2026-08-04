@@ -104,7 +104,14 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **층 검사**: `.gil/checks`(대문에 커밋)에 `dev:`/`main:` 명령을 선언하면 `gil merge --into dev`·
   `gil deploy` 가 그걸 **직접 돌리고 종료코드로 판정**한다. 통과는 `Gil-Checked`, 건너뜀은
   `Gil-Check-Skipped`(--skip-reason 필수)로 커밋에 남는다. 선언 없으면 막지 않되 고지한다.
-- **검증**: example 736 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.56.1**.
+- **검증**: example 740 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.57.0**.
+  v3.57.0 = **탭을 닫아도 한 번에 다시 연다**(상현님) — 뷰어를 띄운 뒤 브라우저 탭을 닫으면
+  다시 여는 길이 없었다. 포트는 저장소마다 다르고 사람은 그걸 외우지 않는다 — 그래서 "다시
+  보고 싶다"가 **주소를 찾는 일**이 됐다. `gil viewer open` 이 그 저장소의 뷰어를 찾아
+  브라우저로 열고, 꺼져 있으면 띄운 뒤 연다(주인 확인은 v3.48.0 의 `/whoami` 그대로 —
+  남이 쥔 포트는 열지 않는다). `gil viewer shortcut` 은 그 한 줄을 **사람이 누를 수 있는
+  것**으로 만든다: macOS `.app`(~/Applications, Dock·Spotlight) · Windows `.cmd` ·
+  Linux `.desktop`. 저장소 밖에서 눌러도 자기 저장소를 연다(런처에 경로를 각인한다).
   v3.56.1 = **층은 줄어들지 않는다**(#117) — `gil init` 이 심은 정상 뿌리를 가진 저장소가
   `--adopt-dev` 에서 "범위를 고친다"를 받았고, 적용하면 층이 26→8커밋으로 줄었다(개시 인터뷰·
   기준 문서·배포 마커가 층 밖으로). #113 이 고치려던 방향의 정반대다. 원인은 '층의 시작'을
