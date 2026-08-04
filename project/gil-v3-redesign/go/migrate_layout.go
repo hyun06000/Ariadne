@@ -20,6 +20,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -219,9 +220,30 @@ func dirtyChainTips(byS map[string]*lcommit, chains []string) []string {
 }
 
 // cmdMigrateToDevLayout — 옛 나무를 main-dev-chain 으로 다시 그린다.
-func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips bool) {
+//
+// replace(이슈 #97, 상현님 판단): 다시 그린 뒤 **옛 브랜치를 접고 이름을 넘겨받는다.**
+// 접두는 이주 중에만 쓰는 임시 이름이 되고, 끝나면 체인은 제 이름으로 돌아온다.
+// 묘비는 남긴다 — "없는 게 죄가 아니라 감춘 게 죄"라는 prune 의 규율 그대로다.
+func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips, replace bool, confirm string) {
 	if strings.TrimSpace(git("status", "--porcelain", "-uno")) != "" {
 		die("거부: 추적 파일에 미커밋 변경이 있다 — 이주 전에 정리하라(브랜치를 옮겨 다닌다).")
+	}
+	// --replace 의 문은 **먼저** 선다. 다 그려 놓고 마지막에 묻는 것은, 사람이 이미 결과를
+	// 본 뒤라 되돌리기 어려운 자리에서 묻는 것이다.
+	repoName := ""
+	if replace {
+		top := strings.TrimSpace(git("rev-parse", "--show-toplevel"))
+		repoName = top
+		if i := strings.LastIndexAny(top, "/\\"); i >= 0 {
+			repoName = top[i+1:]
+		}
+		if strings.TrimSpace(confirm) != repoName {
+			die("거부: --replace 는 저장소 이름을 직접 타이핑해야 한다.\n" +
+				"  이 명령은 다시 그린 뒤 **옛 브랜치를 지우고 그 이름을 새 나무에 넘긴다** —\n" +
+				"  옛 SHA 로 클론한 사람의 이력과 갈라지므로 되돌리는 값이 크다.\n" +
+				"    gil migrate --to-dev-layout --replace --confirm " + repoName + "\n" +
+				"  (지우기 전에 번들을 뜨고 묘비를 남긴다. 그래도 자동은 아니다.)")
+		}
 	}
 	byS, order := collectLayoutCommits()
 	if len(byS) == 0 {
@@ -432,6 +454,10 @@ func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips bool) {
 			"  새 브랜치(" + prefix + "*)는 남겨 두었다. 위 목록을 보고 원인을 고친 뒤,\n" +
 			"  그 브랜치들을 지우고(git branch -D) 다시 실행하라. **옛 나무는 그대로다.**")
 	}
+	if replace {
+		replaceOldTree(newSha, prefix, ordered, repoName)
+		return
+	}
 	println2("  옛 브랜치는 그대로 있다 — 지우지 않는다. 두 나무를 나란히 놓고 세어서 무손실을 확인하라:")
 	println2("    gil fsck            (새 나무의 위반)")
 	println2("    gil viewer serve    (전체맵 맨 위 두 줄에 층이 보인다)")
@@ -443,6 +469,155 @@ func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips bool) {
 	// 여기서 미리 주지 않으면, 이주를 마친 사람이 마지막 칸에서 멈춘다(내가 그랬다).
 	println2("  ▸ 그 체인에 위반이 있으면(적층 등) 접는 것이 위반을 감추는 일이라 gil 이 한 번 더 묻는다:")
 	println2("      gil chain-retire <옛체인> --reason '...' --confirm <옛체인>   (이름을 직접 타이핑하는 것이 그 게이트다)")
+}
+
+// replaceOldTree — 다시 그리기가 무손실로 끝난 뒤, **새 나무에 옛 이름을 넘긴다**(이슈 #97).
+//
+// 순서가 곧 안전장치다. (1) 번들 — 되살릴 곳이 먼저 있어야 한다. (2) 묘비 — 지우기 **전에**
+// 남긴다(prune 과 같은 규율: 순서가 뒤바뀌면 실패했을 때 아무것도 안 남는다). (3) 옛 브랜치
+// 삭제. (4) 임시 접두를 걷어내고 이름을 넘긴다.
+//
+// 왜 접두를 걷나. 접두는 두 나무가 **동시에 살아 있는 동안**에만 필요하다(같은 이름의 체인이
+// 두 벌이면 fsck 가 "s4 ×2" 로 짖는다). 옛 나무를 접은 뒤에는 그 이유가 사라지는데, 접두가
+// 남으면 사람은 이름이 바뀐 채로 영원히 살아야 한다 — 이주가 정체성을 바꾸는 일이 된다.
+func replaceOldTree(newSha map[string]string, prefix string, chains []string, repoName string) {
+	// (1) 번들 — "지웠지만 되살릴 수 있다"가 기본값이어야 한다.
+	bundle := ""
+	if dir := strings.TrimSpace(git("rev-parse", "--absolute-git-dir")); dir != "" {
+		arc := filepath.Join(dir, "gil", "archive")
+		if err := os.MkdirAll(arc, 0o755); err == nil {
+			p := filepath.Join(arc, "replace-"+repoName+".bundle")
+			if _, err := gitTry("bundle", "create", p, "--all"); err == nil {
+				bundle = p
+			}
+		}
+	}
+	if bundle == "" {
+		die("거부: 번들을 못 떴다 — 되살릴 곳 없이 옛 나무를 지우지 않는다.\n" +
+			"  새 브랜치(" + prefix + "*)는 그대로 있다. 옛 나무도 그대로다.")
+	}
+	// 옛 팁을 묘비에 적기 전에 **먼저 읽는다**(지운 뒤에는 못 읽는다).
+	oldTip := map[string]string{}
+	var oldBranches []string
+	for _, b := range branches() {
+		tip := strings.TrimSpace(git("rev-parse", b))
+		if _, ok := newSha[tip]; !ok {
+			continue // 체인 브랜치가 아니다(대문·dev 등)
+		}
+		oldTip[b] = tip
+		oldBranches = append(oldBranches, b)
+	}
+	sort.Strings(oldBranches)
+
+	// (2) 묘비 — 계보가 "여기 무엇이 있었는지"를 계속 말한다.
+	var tomb strings.Builder
+	tomb.WriteString("# 묘비 — migrate --to-dev-layout --replace\n\n")
+	tomb.WriteString("옛 나무를 main-dev-chain 으로 다시 그리고, 옛 브랜치를 지우고 이름을 넘겼다.\n")
+	tomb.WriteString("**모든 SHA 가 바뀌었다.** 옛 SHA 로 클론한 이력과는 갈라진다.\n\n")
+	tomb.WriteString("번들: " + bundle + "  (git bundle unbundle <파일> 로 옛 나무 전체를 되살릴 수 있다)\n\n")
+	tomb.WriteString("지운 옛 브랜치와 그 끝:\n")
+	for _, b := range oldBranches {
+		tomb.WriteString("- " + b + " → " + first9(oldTip[b]) + " (새 나무: " + first9(newSha[oldTip[b]]) + ")\n")
+	}
+	home := homeBranch()
+	if cur := strings.TrimSpace(git("rev-parse", "--abbrev-ref", "HEAD")); home != "" && cur != home {
+		git("checkout", "-q", home) // 지울 브랜치 위에 서서 묘비를 심을 수 없다
+	}
+	commit("gil migrate: 옛 나무를 새 나무로 대체(--replace)", tomb.String(), [][2]string{
+		{"Gil-Kind", "migrate-replace"}, {"Gil-Replace-Bundle", bundle},
+	}, true)
+	if globalExists() {
+		globalWrite("tombstones/migrate-replace-"+repoName+".md", tomb.String(),
+			"gil migrate --replace: 묘비 — "+repoName)
+	}
+
+	// (3) 옛 브랜치 삭제. 객체는 번들에 있고, GC 전까지는 저장소에도 남는다.
+	for _, b := range oldBranches {
+		git("update-ref", "-d", "refs/heads/"+b)
+	}
+
+	// (4) 임시 접두를 걷어내고 이름을 넘긴다.
+	var tips []string
+	for _, b := range oldBranches {
+		tips = append(tips, prefix+b)
+	}
+	tips = append(tips, devBranchName)
+	final := stripPrefixPass(newSha, prefix, chains, tips)
+	for _, b := range oldBranches {
+		tmp := prefix + b
+		tip := strings.TrimSpace(git("rev-parse", tmp))
+		if f, ok := final[tip]; ok {
+			tip = f
+		}
+		git("update-ref", "refs/heads/"+b, tip)
+		git("update-ref", "-d", "refs/heads/"+tmp)
+	}
+	if devT := strings.TrimSpace(git("rev-parse", devBranchName)); devT != "" {
+		if f, ok := final[devT]; ok {
+			git("update-ref", "refs/heads/"+devBranchName, f)
+		}
+	}
+	// (5) **자기가 흘린 것을 자기가 치운다.** 여기까지 오면 저장소엔 아무도 안 가리키는
+	// 커밋이 두 벌 남는다: 옛 나무와, 접두를 걷어내기 전의 중간 나무. 그대로 두면 fsck 가
+	// 곧바로 "스텝 20개가 유실 직전"이라 짖는다 — **방금 gil 이 정상 절차로 만든 것을 gil 이
+	// 위반으로 고발하는 것**이다(#116 탐지의 값을 그 자리에서 태우는 일. 실측으로 나왔다).
+	// 옛 나무는 번들에 온전히 있고(그게 이 명령이 요구한 문이다) 새 나무엔 같은 스텝이 다
+	// 살아 있으니, 여기서 지우는 것은 기록이 아니라 **찌꺼기**다. 되살릴 곳이 있을 때만 한다.
+	gitTry("reflog", "expire", "--expire=now", "--all")
+	gitTry("gc", "--prune=now", "--quiet")
+	invalidateGraphNodes()
+
+	println2("  ✓ 대체 완료 — 옛 브랜치 " + itoa(len(oldBranches)) + "개를 지우고 이름을 새 나무에 넘겼다.")
+	println2("    체인 이름은 그대로다(임시 접두 \"" + prefix + "\" 는 걷어냈다).")
+	println2("    옛 나무의 객체는 정리했다(reflog·gc) — 안 그러면 fsck 가 그걸 '유실 직전'이라 짚는다.")
+	println2("  묘비를 남겼다 — 계보는 여기 무엇이 있었는지 계속 말한다.")
+	println2("  번들: " + bundle)
+	println2("    되살리려면: git bundle unbundle " + bundle)
+	println2("  ▸ 원격이 있으면 강제 push 가 필요하다(모든 SHA 가 바뀌었다) — 사람이 판단할 일이다.")
+}
+
+// stripPrefixPass — 새 나무의 커밋에서 **임시 접두를 걷어낸다**(--replace 의 마지막 걸음).
+//
+// 트리·저자·커미터·부모 구조는 그대로 두고 **메시지의 체인 이름만** 되돌린다. 새 나무 안의
+// 커밋만 다시 쓰므로(옛 나무는 이미 접혔다) 같은 이름의 체인이 두 벌이 되는 일은 없다.
+// 옛→새 sha 대응을 돌려준다.
+func stripPrefixPass(newSha map[string]string, prefix string, chains []string, tips []string) map[string]string {
+	inNew := map[string]bool{}
+	for _, n := range newSha {
+		inNew[n] = true
+	}
+	args := append([]string{"rev-list", "--topo-order", "--reverse"}, tips...)
+	out := map[string]string{}
+	for _, sha := range strings.Fields(strings.TrimSpace(git(args...))) {
+		if !inNew[sha] {
+			continue // 층의 뿌리·대문 — 접두와 무관하고, 건드리면 SHA 만 흔든다
+		}
+		tree := strings.TrimSpace(git("log", "-1", "--format=%T", sha))
+		msg := git("log", "-1", "--format=%B", sha)
+		for _, ch := range chains {
+			msg = renameChainInMsg(msg, prefix+ch, ch)
+		}
+		cargs := []string{"commit-tree", tree}
+		for _, p := range strings.Fields(strings.TrimSpace(git("log", "-1", "--format=%P", sha))) {
+			if n, ok := out[p]; ok {
+				p = n
+			}
+			cargs = append(cargs, "-p", p)
+		}
+		id := strings.Split(strings.TrimSpace(git("log", "-1", "--format=%an"+fsep+"%ae"+fsep+"%aI"+fsep+"%cn"+fsep+"%ce"+fsep+"%cI", sha)), fsep)
+		for len(id) < 6 {
+			id = append(id, "")
+		}
+		env := append(os.Environ(),
+			"GIT_AUTHOR_NAME="+id[0], "GIT_AUTHOR_EMAIL="+id[1], "GIT_AUTHOR_DATE="+id[2],
+			"GIT_COMMITTER_NAME="+id[3], "GIT_COMMITTER_EMAIL="+id[4], "GIT_COMMITTER_DATE="+id[5])
+		n := strings.TrimSpace(runEnvIn(env, msg, cargs...))
+		if n == "" {
+			die("거부: 접두를 걷어내다 실패했다: " + first9(sha) + " — 번들로 되돌릴 수 있다.")
+		}
+		out[sha] = n
+	}
+	return out
 }
 
 // runEnvIn — 환경변수와 stdin 을 함께 주고 실행(commit-tree 용). runEnv 계열의 짝.

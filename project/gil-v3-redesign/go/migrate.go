@@ -528,6 +528,11 @@ func cmdMigrate(args []string) {
 	// 기본은 거부다 — 그 상태의 이주는 조용히 사이클을 통째로 지웠다. 강행하면 끝의 대조가
 	// 무엇이 빠졌는지 이름을 부르고, 종료코드로도 말한다.
 	allowDirty := fs.boolFlag("allow-dirty-tips")
+	// --replace: 다시 그린 뒤 **옛 브랜치를 접고 이름을 넘겨받는다**(이슈 #97, 상현님 판단).
+	// 새 이름을 만들지 않으니 접두는 이주 중에만 사는 임시 이름이 된다. 비가역의 무게가
+	// 달라지므로 문을 둘 단다: 번들 강제 + 저장소 이름 타이핑(--confirm).
+	replace := fs.boolFlag("replace")
+	confirm := fs.str("confirm", "")
 	pos := fs.parse(args)
 	_ = pos
 	if *adoptDev {
@@ -552,8 +557,11 @@ func cmdMigrate(args []string) {
 		if !idRe.MatchString(strings.TrimRight(p, "-")) {
 			die("거부: --prefix \"" + p + "\"는 소문자·숫자·하이픈만 (git ref 안전)")
 		}
-		cmdMigrateToDevLayout(p, *dryRun, *allowDirty)
+		cmdMigrateToDevLayout(p, *dryRun, *allowDirty, *replace, *confirm)
 		return
+	}
+	if *replace {
+		die("거부: --replace 는 --to-dev-layout 과 함께 쓴다(옛 나무를 새 나무로 대체하는 길).")
 	}
 	if *from == "" {
 		die("사용: gil migrate --from <v2-ref> [--room <room>] [--exclude <경로조각>]... [--prefix <접두>] [--dry-run]\n" +

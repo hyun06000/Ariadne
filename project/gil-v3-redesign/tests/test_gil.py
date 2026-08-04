@@ -8636,6 +8636,79 @@ class TestMigrateToDevLayout(GilFixture):
         self.assertEqual(self.trailer(self._chain_root("dev-b"), "Gil-Chain-From"), "dev-a",
                          "계승 선언이 옛 이름을 가리킨다")
 
+    # ── --replace: 새 나무가 옛 이름을 넘겨받는다 (이슈 #97) ──────────────
+    #
+    # 상현님 판단: 같은 이름 아래 플래그로. 사람이 "이 저장소의 이력을 옮긴다"고 생각할 때
+    # 떠올리는 낱말은 하나고, 하는 일이 다르다고 이름을 나누면 필요한 순간에 아무도 못 찾는다.
+    # 묘비는 남긴다 — 없는 게 죄가 아니라 감춘 게 죄다.
+
+    def _repo_name(self):
+        return os.path.basename(self.repo)
+
+    def test_replace_refuses_without_typing_the_repo_name(self):
+        """문은 **먼저** 선다 — 다 그려 놓고 마지막에 물으면 되돌리기 어려운 자리에서 묻는 것이다."""
+        self._old_tree()
+        r = self.gil("migrate", "--to-dev-layout", "--replace")
+        self.assertNotEqual(r.returncode, 0, "이름 타이핑 없이 대체가 통과했다")
+        self.assertIn(self._repo_name(), r.stdout + r.stderr, "무엇을 타이핑할지 안 알려준다")
+        self.assertNotEqual(self._git("rev-parse", "--verify", "-q", "a").returncode, 1,
+                            "거부인데 옛 브랜치를 건드렸다")
+        self.assertNotEqual(self._git("rev-parse", "--verify", "-q", "dev-a").returncode, 0,
+                            "거부인데 새 브랜치를 세웠다")
+
+    def test_replace_hands_the_old_names_to_the_new_tree(self):
+        """옛 브랜치는 지워지고 그 이름이 새 나무로 간다 — 접두는 이주 중에만 사는 임시 이름이다."""
+        self._old_tree()
+        before = self._steps("a", "b", "c")
+        old_a = self._git("rev-parse", "a").stdout.strip()
+        r = self.gil("migrate", "--to-dev-layout", "--replace", "--confirm", self._repo_name())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for b in ("a", "b", "c"):
+            self.assertEqual(self._git("rev-parse", "--verify", "-q", b).returncode, 0,
+                             f"{b} 라는 이름이 사라졌다 — 대체는 이름을 넘기는 일이다")
+            self.assertNotEqual(self._git("rev-parse", "--verify", "-q", f"dev-{b}").returncode, 0,
+                                f"임시 접두 브랜치 dev-{b} 가 남았다")
+        self.assertNotEqual(self._git("rev-parse", "a").stdout.strip(), old_a,
+                            "이름만 그대로고 나무는 안 바뀌었다 — 다시 그리지 않았다")
+        # 계보는 참이 됐고, 스텝은 하나도 안 새어 나갔다.
+        anc = lambda x, y: self._git("merge-base", "--is-ancestor", x, y).returncode == 0
+        self.assertTrue(anc("dev", "c"), "대체한 체인이 dev 의 자손이 아니다")
+        self.assertFalse(anc("a", "c"), "적층이 대체 뒤에도 남았다")
+        self.assertEqual(self._steps("a", "b", "c"), before, "스텝이 대체에서 새거나 늘었다")
+        # **체인의 이름도 제 이름으로 돌아온다.** 접두가 남으면 이주가 정체성을 바꾸는 일이 된다.
+        self.assertEqual(self.trailer("c", "Gil-Chain"), "c", "체인 이름에 임시 접두가 남았다")
+        self.assertEqual(self.trailer(self._chain_root("b"), "Gil-Chain-From"), "a",
+                         "계승 선언이 임시 이름을 가리킨다")
+
+    def test_replace_leaves_a_tombstone_and_a_bundle(self):
+        """지운 자리는 계보가 계속 말해야 한다 — 묘비 없는 삭제는 없다(prune 과 같은 규율)."""
+        self._old_tree()
+        old_a = self._git("rev-parse", "a").stdout.strip()
+        r = self.gil("migrate", "--to-dev-layout", "--replace", "--confirm", self._repo_name())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        bundle = os.path.join(self.repo, ".git", "gil", "archive",
+                              "replace-" + self._repo_name() + ".bundle")
+        self.assertTrue(os.path.exists(bundle), "번들이 없다 — 되살릴 곳 없이 지웠다")
+        # 번들은 **옛 나무**를 담고 있어야 한다(그게 되살릴 것의 전부다).
+        v = subprocess.run(["git", "bundle", "list-heads", bundle],
+                           capture_output=True, text=True, cwd=self.repo)
+        self.assertIn(old_a, v.stdout, "번들에 옛 브랜치의 끝이 없다")
+        tomb = self._git("log", "main", "--format=%H\t%(trailers:key=Gil-Kind,valueonly)")
+        self.assertIn("migrate-replace", tomb.stdout, "묘비 커밋이 없다")
+        body = self._git("log", "main", "--format=%B", "-n", "20").stdout
+        self.assertIn(old_a[:9], body, "묘비가 지운 브랜치의 끝을 안 적었다")
+
+    def test_replace_does_not_accuse_its_own_product(self):
+        """대체 직후 fsck 가 조용해야 한다 — 방금 gil 이 정상 절차로 치운 것을 gil 이 고발하면
+        사람은 그 고지를 통째로 무시하게 된다(실측: '스텝 20개 유실 직전')."""
+        self._old_tree()
+        r = self.gil("migrate", "--to-dev-layout", "--replace", "--confirm", self._repo_name())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        f = self.gil("fsck")
+        out = f.stdout + f.stderr
+        self.assertNotIn("유실 직전", out, "대체가 남긴 찌꺼기를 fsck 가 유실로 고발한다:\n" + out)
+        self.assertNotIn("dev-a", out, "임시 접두 나무가 아직 저장소에 남아 있다")
+
     def test_dry_run_writes_nothing(self):
         self._old_tree()
         before = self._git("rev-parse", "a").stdout.strip()
