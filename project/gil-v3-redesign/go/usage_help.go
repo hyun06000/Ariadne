@@ -496,6 +496,8 @@ var helpTable = map[string]helpEntry{
 		"gil viewer serve [--repo <경로>] [--port <포트>] [--open]   관전 서버(자동 새로고침)\n" +
 			"gil viewer build --out <파일> [--repo <경로>]     정적 자기완결 HTML 1회 출력(Pages 등)\n" +
 			"gil viewer [text] [--repo <경로>]                텍스트 트리 1회 출력\n" +
+			"gil viewer open [--repo <경로>]                  **이 저장소의 관전 창을 연다**(없으면 띄워서)\n" +
+			"gil viewer shortcut [--out <경로>]               그 한 줄을 부르는 **런처(버튼)** 를 만든다\n" +
 			"gil viewer list                                 어느 포트가 어느 저장소를 보는가\n" +
 			"gil viewer stop                                 이 저장소를 보는 뷰어를 끈다(세션정리)\n" +
 			"  **주인을 본다**: 기본 포트를 남의 저장소가 쥐고 있으면 빈 포트로 비켜서 띄우고,\n" +
@@ -507,6 +509,11 @@ var helpTable = map[string]helpEntry{
 			"    자동으로 튀어나오는 창은 도움보다 방해였다: 에이전트가 인앱 패널에 띄우려는데 밖에\n" +
 			"    창이 하나 더 뜨고, 반복 실행마다 브라우저가 쌓인다. 시스템 브라우저까지 열려면\n" +
 			"    --open 을 명시하라(gil init 도 같다). --no-open 은 기본이 된 지금 no-op 이다.\n" +
+			"  탭을 닫았으면 `gil viewer open` 한 줄이면 된다 — 포트를 사람이 외우지 않는다.\n" +
+			"  자리를 고정하려면 `.gil/viewer-port` 에 포트 한 줄(주소가 세션마다 안 바뀌어 북마크가 산다).\n" +
+			"  `gil viewer shortcut` 은 그 명령을 부르는 런처를 만든다 — mac 은 ~/Applications 의 .app\n" +
+			"  (Dock 에 끌어다 두면 버튼), 윈도우는 바탕화면 .cmd, 리눅스는 .desktop. 새 바이너리가\n" +
+			"  아니라 gil 이 그 자리에서 만드는 껍데기다.\n" +
 			"  **뷰어는 로그를 남긴다** — `<레포>/.git/gil-viewer.log` 에 기동(pid·포트·레포·버전)과\n" +
 			"    종료(신호·에러)가 적힌다(이슈 #93). 뷰어가 죽었으면 거기서 이유를 읽어라.\n" +
 			"    죽어도 서버가 통째로 사라지지 않는다: 실패한 요청 하나만 500 으로 끝난다.\n" +

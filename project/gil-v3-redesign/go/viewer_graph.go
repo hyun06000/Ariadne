@@ -988,6 +988,13 @@ func cmdViewer(args []string) {
 			println2("  127.0.0.1:" + v.Port + "  →  " + v.Repo + "  " + mark)
 		}
 		println2("  (죽은 뷰어의 이유는 각 저장소의 .git/gil-viewer.log 에 남는다.)")
+	case "open":
+		// **탭을 닫으면 다시 켜기가 어렵다**(상현님). 포트는 저장소 사이를 떠돌아, 다시 보려면
+		// 사람이 list 로 번호를 찾아 손으로 옮겨야 했다 — 도구가 할 수 있는 일이다.
+		viewerOpen()
+	case "shortcut":
+		// 그 한 줄조차 터미널 앞에 앉아 있어야 칠 수 있다. 버튼 하나로 만든다.
+		viewerShortcut(out)
 	case "stop":
 		// 켠 것을 끈다(상현님). 이 저장소를 보는 뷰어만 — 남의 것은 건드리지 않는다.
 		for _, ln := range stopMyViewers() {
@@ -1001,7 +1008,7 @@ func cmdViewer(args []string) {
 	case "", "text":
 		renderText(buildGraph())
 	default:
-		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve build text list stop]")
+		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve open shortcut build text list stop]")
 	}
 }
 

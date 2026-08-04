@@ -11680,3 +11680,61 @@ class TestAdoptDevNeverShrinksTheLayer(GilFixture):
               self.gil("migrate", "--adopt-dev", "--dry-run").stderr
         self.assertIn("지금:", out, "옮기기 전 범위를 안 보여준다:\n" + out)
         self.assertIn("이후:", out, "옮긴 뒤 범위를 안 보여준다:\n" + out)
+
+
+class TestReopeningTheViewerIsOneMove(GilFixture):
+    """**탭을 한 번 닫으면 다시 켜기가 너무 어렵다** (상현님).
+
+    뷰어 포트는 저장소 사이를 떠돈다(#110). 그래서 관전 창을 닫으면 사람이 `gil viewer list` 로
+    번호를 찾아 주소를 손으로 옮겨야 했다 — 도구가 할 수 있는 일을 사람에게 미룬 것이다.
+    그리고 그 한 줄조차 터미널 앞에 앉아 있어야 칠 수 있다.
+
+    `gil viewer open` 한 줄, 그리고 그 줄을 부르는 **런처(버튼)**. 런처는 새 바이너리가 아니라
+    gil 이 그 자리에서 만드는 껍데기라(mac .app · windows .cmd · linux .desktop) '단일 정적
+    바이너리' 원칙을 건드리지 않는다."""
+
+    def test_open_says_where_to_go(self):
+        """억제 환경에서도 **어디로 가면 되는지는 말한다** — 침묵하면 무엇을 했는지 모른다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("viewer", "open")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("뷰어", r.stdout + r.stderr)
+
+    def test_shortcut_makes_a_launcher_that_names_this_repo(self):
+        """버튼은 **자기가 어느 저장소인지 알고** 눌린다 — 눌리는 자리는 그 저장소가 아니다."""
+        self.gil("init", "--name", "clew")
+        out = os.path.join(self.repo, "btn.app")
+        r = self.gil("viewer", "shortcut", "--out", out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        script = os.path.join(out, "Contents", "MacOS", "run") if sys.platform == "darwin" else out
+        self.assertTrue(os.path.exists(script), "런처가 안 만들어졌다: " + script)
+        with open(script, encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("viewer open", body, "런처가 여는 명령을 안 부른다")
+        real = os.path.realpath(self.repo)
+        self.assertIn(real, body, "런처에 저장소 자리가 안 박혔다:\n" + body)
+
+    def test_the_launcher_is_executable(self):
+        """실행 권한이 없으면 버튼이 아니라 파일이다."""
+        if sys.platform != "darwin":
+            self.skipTest("이 시험은 .app 번들 형태에서만 의미가 있다")
+        self.gil("init", "--name", "clew")
+        out = os.path.join(self.repo, "btn.app")
+        self.gil("viewer", "shortcut", "--out", out)
+        script = os.path.join(out, "Contents", "MacOS", "run")
+        self.assertTrue(os.access(script, os.X_OK), "런처에 실행 권한이 없다")
+        self.assertTrue(os.path.exists(os.path.join(out, "Contents", "Info.plist")),
+                        "Info.plist 가 없다 — Finder 가 이걸 앱으로 안 본다")
+
+    def test_shortcut_refuses_outside_a_repository(self):
+        """열 그래프가 없는 자리에서 버튼을 만들면, 그 버튼은 누를 때마다 실패한다."""
+        work = tempfile.mkdtemp(prefix="gil-nogit-")
+        try:
+            env = dict(os.environ, GIL_NO_VIEWER="1")
+            r = subprocess.run([*GIL_CMD, "viewer", "shortcut", "--out",
+                                os.path.join(work, "btn.app")],
+                               cwd=work, capture_output=True, text=True, env=env)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("git 저장소가 아니다", r.stdout + r.stderr)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
