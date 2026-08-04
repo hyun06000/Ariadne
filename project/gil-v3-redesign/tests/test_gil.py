@@ -12373,6 +12373,23 @@ class TestTheScreenCountsOneThing(GilFixture):
         self.assertRegex(src, r"const ALLCHAINS=\[\.\.\.new Set\(\[\.\.\.DRAWN,\.\.\.DECLARED\]\)\]",
                          "선택기가 그려진 노드에서만 체인을 모은다 — 머리글과 다른 것을 센다")
 
+    def test_the_picker_gets_what_it_uses_passed_in(self):
+        """**남의 함수의 지역변수를 이름으로 집으면 그 함수 밖에서는 없는 이름이다.**
+
+        실측(상현님, 고친 지 몇 분 만에): 선택기가 다른 함수의 `DRAWN` 을 그대로 썼고, 화면에
+        "뷰어의 일부(전체맵)를 그리지 못했다: DRAWN is not defined" 가 떴다. 전체맵이 통째로
+        안 그려졌다 — 나머지는 멀쩡해서 **부분 실패**로만 보였다.
+
+        이 시험도 약한 판정이다(JS 런타임을 안 돌린다). 그래도 이 한 줄이면 같은 회귀는 막는다:
+        선택기가 쓰는 것은 **인자로 받는다**."""
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go",
+                                "viewer_serve.go"), encoding="utf-8").read()
+        self.assertIn("function chainFilterBar(chains,drawn)", src,
+                      "선택기가 쓰는 값을 인자로 안 받는다")
+        body = src.split("function chainFilterBar(chains,drawn){", 1)[1].split("\nfunction ", 1)[0]
+        self.assertNotIn("DRAWN", body,
+                         "선택기가 남의 함수의 지역변수(DRAWN)를 집는다 — 화면에서 죽는다")
+
     def test_the_list_says_why_that_chain_looks_empty(self):
         """같이 세되, **왜 비어 보이는지**는 말한다 — 안 그러면 골랐을 때 빈 화면만 남는다."""
         self.gil("init", "--name", "clew")

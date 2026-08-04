@@ -3243,14 +3243,14 @@ let MAP_CHAIN=(()=>{ try{ return localStorage.getItem('gilMapChain')||''; }catch
 // 집계라 Warp-anchor(새 명령·채널 최소) 원칙에 맞는다.
 // chainFilterBar — "지금 이 체인만" 을 고르는 줄(이슈 #79). 26개가 넘어가면 칩은 줄을 먹으니
 // select 로 둔다. 고른 값은 localStorage 에 남아 폴링 리로드를 넘어 유지된다.
-function chainFilterBar(chains){
+function chainFilterBar(chains,drawn){
   const bar=document.createElement('div'); bar.className='dagbar';
   const lab=document.createElement('span'); lab.className='zhint'; lab.textContent=T('map.filter.label');
   const sel=document.createElement('select');
   const mk=(v,t)=>{const o=document.createElement('option');o.value=v;o.textContent=t;
     if(v===MAP_CHAIN)o.selected=true;sel.appendChild(o);};
   mk('',T('map.filter.all',{n:chains.length}));
-  chains.forEach(c=>mk(c, DRAWN&&!DRAWN.has(c) ? c+' '+T('map.filter.nosteps') : c));
+  chains.forEach(c=>mk(c, drawn&&!drawn.has(c) ? c+' '+T('map.filter.nosteps') : c));
   sel.addEventListener('change',()=>{
     MAP_CHAIN=sel.value;
     try{ localStorage.setItem('gilMapChain',MAP_CHAIN); }catch(e){}
@@ -3315,7 +3315,7 @@ function buildStepMap(){
   const ALLCHAINS=[...new Set([...DRAWN,...DECLARED])].sort();
   if(MAP_CHAIN&&!ALLCHAINS.includes(MAP_CHAIN))MAP_CHAIN='';   // 사라진 체인이 필터에 남지 않게
   const VIS=folded.filter(n=>!MAP_CHAIN||n.chain===MAP_CHAIN);
-  host.appendChild(chainFilterBar(ALLCHAINS));
+  host.appendChild(chainFilterBar(ALLCHAINS,DRAWN));
   if(!VIS.length){ host.appendChild(document.createTextNode(T('map.empty'))); return; }
   const byId={}; VIS.forEach(n=>byId[n.sha]=n);
   // 전체맵의 선은 **gil 룰**로 그린다(이슈 #70). 옛 전체맵은 커밋 조상관계를 날것으로 이어,
