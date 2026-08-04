@@ -689,6 +689,67 @@ var i18nDict = map[string]map[string]string{
 		"zh-TW": "Ctrl+滾輪＝縮放 · 放大後拖曳＝平移 · 點擊小地圖＝跳到該處",
 	},
 	// 그래프 안의 '작업중' 유령 노드 — 미커밋 작업이 어디서 벌어지는지.
+	// 그림 안의 표식과 툴팁(#118). 여기 있는 것들은 사전을 거치지 않고 svgEl 인자로
+	// 곧장 들어가 있어서, 영어 화면인데 그래프 안만 한국어로 남았다 — 사전 우회 시험이
+	// `textContent=` 꼴만 봤기 때문에 아무도 못 봤다. 시험도 함께 넓혔다.
+	"chain.mark.sealed": {
+		"ko": "✓ 봉인", "en": "✓ sealed", "zh-CN": "✓ 封存", "zh-TW": "✓ 封存",
+	},
+	"chain.parent": {
+		"ko": "부모: ", "en": "parent: ", "zh-CN": "父级：", "zh-TW": "父級：",
+	},
+	"chain.parent.more": {
+		"ko": "또 하나의 부모: ", "en": "another parent: ",
+		"zh-CN": "另一个父级：", "zh-TW": "另一個父級：",
+	},
+	"cycle.parent": {
+		"ko": "부모 사이클: ", "en": "parent cycle: ",
+		"zh-CN": "父循环：", "zh-TW": "父循環：",
+	},
+	"cycle.parent.more": {
+		"ko": "또 하나의 부모 사이클: ", "en": "another parent cycle: ",
+		"zh-CN": "另一个父循环：", "zh-TW": "另一個父循環：",
+	},
+	"cycle.inherited": {
+		"ko": "물려받음: ", "en": "inherited: ", "zh-CN": "承继：", "zh-TW": "承繼：",
+	},
+	"cycle.exit.to": {
+		"ko": "이어받은 곳: ", "en": "continued into: ",
+		"zh-CN": "承接至：", "zh-TW": "承接至：",
+	},
+	"step.plan.badge": {
+		"ko": "⚙ 설계", "en": "⚙ design", "zh-CN": "⚙ 设计", "zh-TW": "⚙ 設計",
+	},
+	"step.plan.broke.badge": {
+		"ko": "⚠ 설계깨짐", "en": "⚠ design broken",
+		"zh-CN": "⚠ 设计已破", "zh-TW": "⚠ 設計已破",
+	},
+	"step.plan.held": {
+		"ko": "설계 유지", "en": "design held", "zh-CN": "设计维持", "zh-TW": "設計維持",
+	},
+	"step.plan.broke.tip": {
+		"ko": "설계가 깨졌다: ", "en": "the design broke: ",
+		"zh-CN": "设计被打破：", "zh-TW": "設計被打破：",
+	},
+	"step.declared.parent": {
+		"ko": "선언된 부모: ", "en": "declared parent: ",
+		"zh-CN": "声明的父级：", "zh-TW": "宣告的父級：",
+	},
+	"layer.dev.step": {
+		"ko": "dev {n}걸음: ", "en": "dev step {n}: ",
+		"zh-CN": "dev 第 {n} 步：", "zh-TW": "dev 第 {n} 步：",
+	},
+	"lane.commits": {
+		"ko": " — 커밋 {n}개", "en": " — {n} commits",
+		"zh-CN": " —— {n} 个提交", "zh-TW": " —— {n} 個提交",
+	},
+	"deploy.mark": {
+		"ko": "배포 ", "en": "deploy ", "zh-CN": "发布 ", "zh-TW": "發布 ",
+	},
+	"deploy.target": {
+		"ko": "대상: ", "en": "target: ", "zh-CN": "目标：", "zh-TW": "目標：",
+	},
+
 	"map.work.label": {
 		"ko": "작업중", "en": "working", "zh-CN": "进行中", "zh-TW": "進行中",
 	},

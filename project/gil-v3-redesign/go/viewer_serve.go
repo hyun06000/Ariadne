@@ -636,7 +636,7 @@ func renderHTML(g graphView, static bool) string {
 		mark := ""
 		if chainClosedViewer(ch.name) {
 			cls += " sealed"
-			mark += `<text class="cmark" dy="-34">✓ 봉인</text>`
+			mark += `<text class="cmark" dy="-34"`+i18nAttr("chain.mark.sealed")+`>✓ 봉인</text>`
 		}
 		if sb := supersededByViewer(ch.name); sb != "" {
 			cls += " superseded"
@@ -2530,7 +2530,7 @@ function openCard(chain){
       const e=(y1===y2)?svgEl('line',{class:cls,x1:x1,y1:y1,x2:x2,y2:y2})
         :(()=>{ const mx=(x1+x2)/2; return svgEl('path',{class:cls,fill:'none',
             d:'M '+x1+' '+y1+' L '+mx+' '+y1+' L '+mx+' '+y2+' L '+x2+' '+y2}); })();
-      e.appendChild(svgEl('title',{},(i?'또 하나의 부모: ':'부모: ')+p+' → '+c.name));
+      e.appendChild(svgEl('title',{},(i?T('chain.parent.more'):T('chain.parent'))+p+' → '+c.name));
       svg.appendChild(e);
     });
   });
@@ -2657,7 +2657,7 @@ function openStepCard(chain,cyc){
           d:'M '+(GX+r)+' '+gy+' C '+((GX+r+X(rt.sha)-r)/2)+' '+gy+' '+((GX+r+X(rt.sha)-r)/2)+' '+Y(rt.sha)+' '+(X(rt.sha)-r)+' '+Y(rt.sha)}));
       });
       const gg=svgEl('g',{class:'snode ghost',transform:'translate('+GX+','+gy+')'});
-      gg.appendChild(svgEl('title',{},(i?'또 하나의 부모 사이클: ':'부모 사이클: ')+pref+(inh?'\n물려받음: '+inh:'')));
+      gg.appendChild(svgEl('title',{},(i?T('cycle.parent.more'):T('cycle.parent'))+pref+(inh?'\n'+T('cycle.inherited')+inh:'')));
       gg.appendChild(svgEl('circle',{r:r}));
       gg.appendChild(svgEl('text',{class:'sid',dy:3},'←'));
       const short=pref.length>26?pref.slice(0,12)+'…'+pref.slice(-12):pref;
@@ -2675,7 +2675,7 @@ function openStepCard(chain,cyc){
         d:'M '+(X(lf.sha)+r)+' '+Y(lf.sha)+' C '+((X(lf.sha)+r+GEX-r)/2)+' '+Y(lf.sha)+' '+((X(lf.sha)+r+GEX-r)/2)+' '+GEY+' '+(GEX-r)+' '+GEY}));
     });
     const ge=svgEl('g',{class:'snode ghost',transform:'translate('+GEX+','+GEY+')'});
-    ge.appendChild(svgEl('title',{},'이어받은 곳: '+exited.map(n=>n.id+' → '+n.exit).join('\n')));
+    ge.appendChild(svgEl('title',{},T('cycle.exit.to')+exited.map(n=>n.id+' → '+n.exit).join('\n')));
     ge.appendChild(svgEl('circle',{r:r}));
     ge.appendChild(svgEl('text',{class:'sid',dy:3},'→'));
     svg.appendChild(ge);
@@ -2729,7 +2729,7 @@ function openStepCard(chain,cyc){
       (dup?'\n⚠ 이 번호를 쓰는 스텝이 여럿이다(옛 gil 의 번호 중복) — 정체성은 커밋 '+n.sha.slice(0,9)+' 이다':'')+
       (n.plan?'\n⚙ 고정한 설계: '+n.plan:'')+
       (n.planOutcome==='broke'?'\n⚠ 설계가 깨졌다: '+(n.planDiff||''):'')+
-      (n.planOutcome==='held'?'\n⚙ 설계 유지':'')+
+      (n.planOutcome==='held'?'\n'+T('step.plan.held'):'')+
       (n.advances?'\n◎ 목적에 다가서려는 몫: '+n.advances:'')+
       (n.toward?'\n◎ 목적에 다가선 정도: '+n.toward:'')+
       (n.nextDesign?'\n◎ 다음 설계: '+n.nextDesign:'')+
@@ -2757,8 +2757,8 @@ function openStepCard(chain,cyc){
     if(n.plan||n.planOutcome){
       const broke=n.planOutcome==='broke';
       const badge=svgEl('text',{class:'planbadge'+(broke?' broke':''),dy:n.here?-r-30:-r-14},
-        broke?'⚠ 설계깨짐':'⚙ 설계');
-      badge.appendChild(svgEl('title',{},broke?('설계가 깨졌다: '+(n.planDiff||'')):(n.plan||'설계 유지')));
+        broke?T('step.plan.broke.badge'):T('step.plan.badge'));
+      badge.appendChild(svgEl('title',{},broke?(T('step.plan.broke.tip')+(n.planDiff||'')):(n.plan||T('step.plan.held'))));
       g.appendChild(badge);
     }
     // 경합·지도 표식(이슈 #112). 위쪽은 이미 붐빈다(HEAD·정정·설계) — 아래 칸에 단다.
@@ -2783,8 +2783,8 @@ function openStepCard(chain,cyc){
       const staged=n.deployState==='staged';
       const rk=svgEl('text',{class:'deploybadge'+(staged?' staged':''),dy:n.here?-r-30:-r-14},
         (staged?'📦 ':'🚀 ')+n.deploy+(staged?' (staged)':''));
-      const tt=svgEl('title',{},'배포 '+n.deploy+
-        (n.deployTarget?'\n대상: '+n.deployTarget:'')+(n.deployUrl?'\n'+n.deployUrl:''));
+      const tt=svgEl('title',{},T('deploy.mark')+n.deploy+
+        (n.deployTarget?'\n'+T('deploy.target')+n.deployTarget:'')+(n.deployUrl?'\n'+n.deployUrl:''));
       rk.appendChild(tt); g.appendChild(rk);
       g.classList.add('deployed');
       if(n.deployUrl){ rk.style.cursor='pointer'; rk.addEventListener('click',ev=>{ev.stopPropagation();window.open(n.deployUrl,'_blank');}); }
@@ -3567,7 +3567,7 @@ function buildStepMap(){
     devSeq.forEach((sha,i)=>{
       if(i===0)return; // 층 시작점은 위에서 이미 찍었다
       const c=svgEl('circle',{class:'lanestep',cx:atX(i),cy:yDev,r:2.5});
-      c.appendChild(svgEl('title',{},'dev '+(i)+'걸음: '+(subjOf[sha]||sha)));
+      c.appendChild(svgEl('title',{},T('layer.dev.step',{n:String(i)})+(subjOf[sha]||sha)));
       svg.appendChild(c);
     });
     const devEvents=[xDevStart];
@@ -3607,9 +3607,9 @@ function buildStepMap(){
       // 못 찾은 것과 없는 것은 다르고, 그 차이는 화면이 말해야 한다.
       const lost=(tag in LDEPLOYAT) && !LDEPLOYAT[tag];
       const at=LDEPLOYAT[tag];
-      curve(x1,yDev,x2,yMain,'deploy','배포 '+tag+': dev → main (gil deploy)'+
+      curve(x1,yDev,x2,yMain,'deploy',T('deploy.mark')+tag+': dev → main (gil deploy)'+
         (at?'\n내보낸 잎: '+at:(lost?'\n귀속 스텝 미상 — 이 배포 계보에서 산 잎을 찾지 못했다':'')));
-      dot(x2,yMain,'main','배포 '+tag); devEvents.push(x1);
+      dot(x2,yMain,'main',T('deploy.mark')+tag); devEvents.push(x1);
       const t=svgEl('text',{class:'lanetag',x:x2,y:yMain-8});
       t.textContent='🚀 '+tag+(lost?' (귀속 스텝 미상)':'');
       svg.appendChild(t);
@@ -3694,7 +3694,7 @@ function buildStepMap(){
     const x1=X(p),y1=Y(p),x2=X(n.sha),y2=Y(n.sha), mx=(x1+x2)/2;
     const e=svgEl('path',{class:'dedge declared',fill:'none',
       d:'M '+x1+' '+y1+' C '+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2});
-    e.appendChild(svgEl('title',{},'선언된 부모: '+byId[p].cycle+'/'+byId[p].step+' → '+n.cycle+'/'+n.step));
+    e.appendChild(svgEl('title',{},T('step.declared.parent')+byId[p].cycle+'/'+byId[p].step+' → '+n.cycle+'/'+n.step));
     svg.appendChild(e);
   }); });
   VIS.forEach(n=>{ n.gparents.forEach(p=>{ if(!byId[p])return;
@@ -3738,8 +3738,8 @@ function buildStepMap(){
       const stagedD=n.deployState==='staged';
       const rk=svgEl('text',{class:'dagdeploy'+(stagedD?' staged':''),x:0,y:n.here?-r-14:-(r+5)},
         (stagedD?'📦':'🚀')+(agg?'':' '+n.deploy));
-      rk.appendChild(svgEl('title',{},'배포 '+n.deploy+
-        (n.deployTarget?'\n대상: '+n.deployTarget:'')+(n.deployUrl?'\n'+n.deployUrl:'')));
+      rk.appendChild(svgEl('title',{},T('deploy.mark')+n.deploy+
+        (n.deployTarget?'\n'+T('deploy.target')+n.deployTarget:'')+(n.deployUrl?'\n'+n.deployUrl:'')));
       g.appendChild(rk);
     }
     g.addEventListener('click',()=>agg?jumpToAgg(n):jumpToNode(n));
@@ -4107,7 +4107,7 @@ function buildGitGraph(){
       const room=13-cap.length;
       const t=svgEl('text',{class:'gglanename'+(nm==='main'?' main':(nm==='dev'?' dev':'')),
         x:GUT-8,y:y+3.5}); t.textContent=(nm.length>room?nm.slice(0,room-1)+'…':nm)+cap;
-      t.appendChild(svgEl('title',{},nm+(n?' — 커밋 '+n+'개':''))); gutter.appendChild(t);
+      t.appendChild(svgEl('title',{},nm+(n?T('lane.commits',{n:String(n)}):''))); gutter.appendChild(t);
     });
   }
   rows.forEach(c=>{

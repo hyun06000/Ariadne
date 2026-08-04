@@ -9716,8 +9716,19 @@ class TestViewerLanguages(GilFixture):
         for i, ln in enumerate(lines, 1):
             if ln.lstrip().startswith("//"):
                 continue
+            # 줄 끝 주석은 화면에 안 나간다 — 거기 한국어가 있는 건 정상이다.
+            ln = re.sub(r"\s+//[^'\"]*$", "", ln.rstrip("\n"))
             if re.search(r"(textContent|innerHTML|\.title)\s*=\s*'[^']*[가-힣]", ln):
                 bad.append(f"{i}: {ln.strip()[:70]}")
+            # **그림 안도 화면이다**(#118). 위 정규식은 `textContent=` 꼴만 봤고, SVG 라벨·
+            # 툴팁은 svgEl() 의 **인자로** 곧장 들어간다 — 그래서 영어 화면인데 그래프 안만
+            # 한국어로 남았고(실측: ✓ 봉인 · ⚙ 설계 · 배포 · 부모), 아무도 못 봤다.
+            if re.search(r"svgEl\([^)]*'[^']*[가-힣]", ln):
+                bad.append(f"{i}(svg): {ln.strip()[:70]}")
+            # Go 가 직접 쓰는 SVG 마크업도 data-i18n 짝이 있어야 갈아끼워진다.
+            m = re.search(r"<text[^>]*>([^<]*[가-힣][^<]*)</text>", ln)
+            if m and "i18nAttr" not in ln and "esc(" not in ln:
+                bad.append(f"{i}(markup): {ln.strip()[:70]}")
         self.assertEqual(bad, [], "사전을 안 거친 화면 문구가 있다:\n" + "\n".join(bad))
 
     def test_serve_rejects_an_unknown_language(self):
