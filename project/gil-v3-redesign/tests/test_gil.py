@@ -12024,3 +12024,114 @@ class TestEdgesDoNotRepeatWhatIsAlreadyThere(GilFixture):
             if ref.endswith("/s1"):
                 continue
             self.assertTrue(ps, f"{ref} 이 계보를 통째로 잃었다")
+
+
+class TestWhatTheHelpPointsAtExists(GilFixture):
+    """**없는 곳을 가리키는 안내는 안내가 아니라 막다른 골목이다.**
+
+    실제로 두 번 났다: `gil adopt --help` 가 없는 문서 페이지를 가리켰고(v3.55.0 에서 그
+    페이지를 지어 메웠다), `chain-merge` 는 충돌로 멈춘 사람에게 **존재하지 않는 명령**
+    (`gil chain-merge-continue`)을 치라고 했다. 둘 다 사람이 그 자리에 실제로 서기 전에는
+    아무도 모른다 — 도움말은 평소에 읽히지 않고, 막힌 순간에만 읽히기 때문이다.
+
+    그래서 소스에서 센다. 가리키는 것이 실재하는지는 사람이 막히기 전에 알 수 있는 사실이다."""
+
+    ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
+    GO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go")
+
+    def _go_sources(self):
+        import glob
+        return sorted(glob.glob(os.path.join(self.GO, "*.go")))
+
+    def test_every_doc_path_it_points_at_exists(self):
+        """도움말이 문서를 가리키면 그 문서가 있어야 한다."""
+        import re
+        bad = []
+        for f in self._go_sources():
+            for i, ln in enumerate(open(f, encoding="utf-8"), 1):
+                if ln.lstrip().startswith("//"):
+                    continue
+                for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
+                    for p in re.findall(r"docs/[A-Za-z0-9_./-]+\.md", lit):
+                        if not os.path.exists(os.path.join(self.ROOT, p)):
+                            bad.append(f"{os.path.basename(f)}:{i} → {p}")
+        self.assertEqual(bad, [], "도움말이 없는 문서를 가리킨다:\n" + "\n".join(sorted(set(bad))))
+
+    def test_every_command_it_tells_you_to_run_exists(self):
+        """**도구가 자기가 만든 상태에서 빠져나올 길을 자기가 줘야 한다.**
+
+        `chain-merge` 는 충돌로 멈춰 놓고 `gil chain-merge-continue` 를 치라고 했다 — 그런
+        명령은 없다. 사람은 반쯤 병합된 저장소 앞에서 막혔다."""
+        import re
+        main = open(os.path.join(self.GO, "main.go"), encoding="utf-8").read()
+        cmds = set()
+        for m in re.finditer(r'case ((?:"[a-z0-9-]+"(?:, )?)+):', main):
+            cmds |= set(re.findall(r'"([a-z0-9-]+)"', m.group(1)))
+        self.assertIn("chain-merge", cmds, "명령 목록을 못 읽었다 — 이 시험이 공회전한다")
+        bad = []
+        for f in self._go_sources():
+            for i, ln in enumerate(open(f, encoding="utf-8"), 1):
+                if ln.lstrip().startswith("//"):
+                    continue
+                for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
+                    # 커밋 **제목**은 명령이 아니라 기록이다("gil prune-request: <대상>").
+                    # 뒤에 콜론이 붙는 꼴로 가른다 — 사람이 칠 줄은 콜론으로 안 끝난다.
+                    for tok in re.findall(r"gil ([a-z][a-z0-9-]{1,20})(?![a-z0-9-])(:?)", lit):
+                        if tok[1] == ":" or tok[0] in cmds:
+                            continue
+                        # 영어 산문("gil graph viewer" · "gil records …")은 명령이 아니다.
+                        # 명령을 가리키는 줄은 그 자리에서 **칠 수 있는 꼴**이다.
+                        if not re.search(r"gil " + re.escape(tok[0]) + r"(\s+[-<]|\s*$)", lit):
+                            continue
+                        bad.append(f"{os.path.basename(f)}:{i} → gil {tok[0]}")
+        self.assertEqual(bad, [], "없는 명령을 치라고 한다:\n" + "\n".join(sorted(set(bad))))
+
+
+class TestConflictHasAWayOut(GilFixture):
+    """**도구가 자기가 만든 상태에서 빠져나올 길을 자기가 줘야 한다.**
+
+    `chain-merge` 는 충돌로 멈춰 놓고 `gil chain-merge-continue` 를 치라고 했다 — 그런 명령은
+    없다. 사람은 반쯤 병합된 저장소 앞에서 없는 명령을 치고 거기서 막힌다. 없는 길을 가리키는
+    안내는 안내가 아니라 막다른 골목이다(#91 의 끊긴 정리 사다리와 같은 병)."""
+
+    def _conflict(self):
+        self.gil("init", "--name", "clew")
+        self._git("checkout", "-q", "main")
+        p = os.path.join(self.repo, "f.txt")
+        def put(t):
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(t + "\n")
+        put("base"); self._git("add", "f.txt"); self._git("commit", "-qm", "base")
+        self._git("checkout", "-qb", "t1"); put("one"); self._git("commit", "-qam", "one")
+        self._git("checkout", "-q", "main")
+        self._git("checkout", "-qb", "t2"); put("two"); self._git("commit", "-qam", "two")
+        self._git("checkout", "-q", "main"); self._git("checkout", "-qb", "work")
+        r = self.gil("chain-merge", "unified", "--purpose", "합치기", "t1", "t2")
+        self.assertEqual(r.returncode, 2, "충돌이 안 났다:\n" + r.stdout + r.stderr)
+        return r, p
+
+    def test_the_conflict_message_names_a_command_that_runs(self):
+        r, _ = self._conflict()
+        out = r.stdout + r.stderr
+        self.assertNotIn("chain-merge-continue", out, "없는 명령을 치라고 한다")
+        self.assertIn("--resume", out, "이어가는 길을 안 보여준다")
+        self.assertIn("git commit --no-edit", out, "이 병합을 어떻게 끝내는지 안 말한다")
+
+    def test_resume_finishes_what_the_conflict_stopped(self):
+        r, p = self._conflict()
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("resolved\n")
+        self._git("add", "f.txt"); self._git("commit", "-q", "--no-edit")
+        r = self.gil("chain-merge", "unified", "--resume")
+        self.assertEqual(r.returncode, 0, "이어가기가 거부됐다:\n" + r.stdout + r.stderr)
+        # **사람이 끝낸 머지에도 표식이 얹혀야 한다.** 안 얹으면 그 갈래는 어느 병합의 것도
+        # 아니게 되고, 그 뒤 gil 이 세는 모든 것이 실제와 갈린다(#116 이 막으려던 모양).
+        subj = self._git("log", "-1", "--format=%(trailers:key=Gil-Merge,valueonly)").stdout
+        self.assertIn("t2", subj, "사람이 끝낸 병합에 표식이 없다 — 기록의 통로가 갈렸다")
+
+    def test_reopening_without_resume_points_at_resume(self):
+        """이미 있는 체인이라 거부할 때, 그 사람이 실제로 하려던 일의 길을 준다."""
+        self._conflict()
+        r = self.gil("chain-merge", "unified", "--purpose", "합치기", "t2")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--resume", r.stdout + r.stderr, "거부만 하고 길을 안 준다")

@@ -398,7 +398,13 @@ var helpTable = map[string]helpEntry{
 	"chain-merge": {
 		"gil chain-merge <newchain> --purpose <P> <tip>...   (디프리케이트 — gil merge 를 써라)\n" +
 			"  흩어진 체인을 하나로 묶어 **새 체인**을 만든다. 합류의 한 가지 모양일 뿐이라\n" +
-			"  gil merge 로 넓혔다. 옛 문서·스크립트를 위해 계속 돈다(경고를 내며).",
+			"  gil merge 로 넓혔다. 옛 문서·스크립트를 위해 계속 돈다(경고를 내며).\n" +
+			"\n" +
+			"gil chain-merge <newchain> --resume [남은 tip]...\n" +
+			"  충돌로 멈춘 순차 병합을 **이어서** 끝낸다. 사람이 `git commit --no-edit` 로 그\n" +
+			"  병합을 끝낸 뒤 부른다 — gil 이 그 커밋에 표식(Gil-Chain·Gil-Merge)을 얹고 남은\n" +
+			"  끝단을 마저 합친다. 표식을 안 얹으면 그 갈래는 어느 병합의 것도 아니게 되고,\n" +
+			"  그 뒤 gil 이 세는 모든 것이 실제와 갈린다.",
 		"docs/gil/deployment.md",
 	},
 	"docs": {

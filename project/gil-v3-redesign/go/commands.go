@@ -3862,20 +3862,48 @@ func topologicalLeaves(tips []string) []string {
 func cmdChainMerge(args []string) {
 	fs := newFlags("gil chain-merge")
 	purpose := fs.str("purpose", "")
+	// --resume: 충돌로 멈춘 순차 병합을 **이어서** 끝낸다.
+	//
+	// 왜 있어야 하나. 충돌 안내가 `gil chain-merge-continue` 를 치라고 말해 왔는데 **그런
+	// 명령은 없다.** 사람은 병합이 반쯤 된 저장소 앞에서 존재하지 않는 명령을 치고, 거기서
+	// 막힌다 — 도구가 자기가 만든 상태에서 빠져나올 길을 자기가 안 준 것이다. 없는 길을
+	// 가리키는 안내는 안내가 아니라 막다른 골목이다(#91 의 정리 사다리와 같은 병).
+	resume := fs.boolFlag("resume")
 	pos := fs.parse(args)
-	if len(pos) < 2 {
-		die("사용: gil chain-merge <newchain> --purpose <P> <tip>...")
+	if len(pos) < 1 || (len(pos) < 2 && !*resume) {
+		die("사용: gil chain-merge <newchain> --purpose <P> <tip>...\n" +
+			"  충돌로 멈춘 뒤 이어가려면: gil chain-merge <newchain> --resume [남은 tip]...")
 	}
 	name := pos[0]
 	tips := pos[1:]
-	if *purpose == "" {
+	if *purpose == "" && !*resume {
 		die("거부: --purpose 필요")
 	}
 	if !idRe.MatchString(name) {
 		die("거부: 체인 이름 \"" + name + "\"은 소문자·숫자·하이픈만")
 	}
-	if chainPurpose(name, "--branches") != "" {
-		die("거부: 체인 \"" + name + "\" 이미 존재")
+	if have := chainPurpose(name, "--branches"); have != "" && !*resume {
+		die("거부: 체인 \"" + name + "\" 이미 존재\n" +
+			"  충돌로 멈춘 병합을 이어가는 것이면: gil chain-merge " + name + " --resume <남은 tip>...")
+	} else if *resume && have == "" {
+		die("거부: 체인 \"" + name + "\" 이 아직 없다 — 이어갈 병합이 없다.\n" +
+			"  처음 여는 것이면: gil chain-merge " + name + " --purpose <P> <tip>...")
+	}
+	if *resume {
+		// 사람이 손으로 끝낸 그 머지 커밋에는 트레일러가 없다 — gil 이 만든 자리가 아니니까.
+		// 여기서 얹지 않으면 그 갈래는 **어느 병합의 것도 아니게** 되고, 그 뒤 gil 이 세는
+		// 모든 것이 실제와 갈린다(#116 이 막으려던 바로 그 모양이다).
+		if n := strings.Fields(strings.TrimSpace(git("log", "-1", "--format=%P"))); len(n) > 1 &&
+			strings.TrimSpace(git("log", "-1", "--format="+trailer("Gil-Merge"))) == "" {
+			cur := strings.TrimRight(git("log", "-1", "--format=%B"), "\n \t")
+			merged := first9(n[1])
+			if nm := strings.TrimSpace(git("name-rev", "--name-only", n[1])); nm != "" && nm != "undefined" {
+				merged = nm
+			}
+			gitInput(cur+"\n\nGil-Chain: "+name+"\nGil-Merge: "+merged+"\n",
+				"commit", "--amend", "-q", "-F", "-")
+			stderr("  ✓ 사람이 끝낸 병합에 표식을 얹었다 (" + merged + ") — 통로를 하나로 유지한다.")
+		}
 	}
 	if strings.TrimSpace(git("status", "--porcelain", "-uno")) != "" {
 		die("거부: 추적 파일에 미커밋 변경이 있다 — 머지 전 정리하라")
@@ -3902,6 +3930,12 @@ func cmdChainMerge(args []string) {
 		}
 	}
 	if len(toMerge) == 0 {
+		if *resume {
+			// 마지막 충돌을 사람이 끝낸 자리다. 표식은 위에서 얹었으니 여기서 끝이다 —
+			// 이어가라고 해 놓고 "머지할 끝단이 없다"로 거부하면, 문법이 제 안내를 배신한다.
+			println2("chain-merge: " + name + " — 이어가기 완료. 남은 끝단이 없다.")
+			return
+		}
 		die("거부: 머지할 끝단이 없다 — HEAD가 이미 모두 포함")
 	}
 
@@ -3915,8 +3949,9 @@ func cmdChainMerge(args []string) {
 			}
 			stderr("⚠ 충돌 — [" + lf + "] 병합에서 멈춤 (" + strconv.Itoa(i+1) + "/" + strconv.Itoa(len(toMerge)) + ").\n" +
 				"충돌 파일:\n" + conflicts + "\n\n" +
-				"충돌 해결 체인을 열어 사이클로 해결하라. 해결 후:\n" +
-				"  git add <해결한 파일> && gil chain-merge-continue " + name + " " + lf + "\n" +
+				"충돌 해결 체인을 열어 사이클로 해결하라. 해결 후 두 줄이다:\n" +
+				"  git add <해결한 파일> && git commit --no-edit    (이 병합을 사람이 끝낸다)\n" +
+				"  gil chain-merge " + name + " --resume" + rest2(toMerge, i) + "\n" +
 				"남은 끝단: " + rest)
 			gilExit(2) // 2 = 충돌로 멈춤 (거부 1과 구분)
 		}
@@ -3938,6 +3973,16 @@ func cmdChainMerge(args []string) {
 	}
 	newHead := strings.TrimSpace(git("rev-parse", "HEAD"))
 	println2("chain-merge: " + name + " 개설 — " + strconv.Itoa(len(toMerge)) + "갈래 순차 병합 완료 (커밋 " + first9(newHead) + ")")
+}
+
+
+// rest2 — 충돌로 멈춘 자리에서 **아직 안 합친 끝단들**. 안내가 사람이 그대로 칠 수 있는
+// 줄이어야 한다 — "남은 끝단: a, b" 를 읽고 손으로 옮겨 적게 하면 거기서 한 번 더 틀린다.
+func rest2(toMerge []string, i int) string {
+	if i+1 >= len(toMerge) {
+		return "" // 남은 끝단이 없다 — 이름만으로 이어간다(표식을 얹고 끝난다)
+	}
+	return " " + strings.Join(toMerge[i+1:], " ")
 }
 
 // ── 작은 헬퍼 ──
