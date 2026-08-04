@@ -12475,3 +12475,79 @@ class TestOrphanMeansOrphanInTheFilesToo(GilFixture):
                          "자리가 커밋에 안 남았다")
         self.assertNotEqual(self.trailer("fresh", "Gil-Chain-Orphan-At"), "",
                             "자리를 커밋에 안 적었다 — 나중에 어느 대문이었는지 못 판정한다")
+
+
+class TestQueriesDoNotLie(GilFixture):
+    """**조회가 못 본 것과 실재하지 않는 것은 다르다** (이슈 #120, 긴급 — 상현님 실사용).
+
+    `gil goto <c>/<cy>/s2` 가 "스텝 s2 없음"이라 **단정**했다. 같은 순간 `gil handoff` 는 s2 를
+    팁으로 보여줬다. 에이전트는 그 단정을 "등록에 실패했다"로 읽고 **같은 스텝을 다시 심었고**,
+    실측으로 s2 커밋이 네 벌 쌓였다. 치우려고 `git reset --soft` 를 두 번 — **gil 밖에서 이력을
+    만졌다.** 재심는 과정에서 작업 트리가 가설 커밋에 함께 들어가, git 이력만 보면 "가설과 코드가
+    한 커밋"이 됐다 — 이 도구가 지키려는 바로 그 성질(기록 순서의 증거)이 훼손된 것이다.
+
+    원인은 하나의 비대칭이었다: 조회(goto·log·번호발급)는 `--branches` 만 보고, handoff 는 HEAD
+    를 본다. 그래서 **어느 브랜치도 안 가리키는 커밋**은 한쪽에서만 사라지고, 그 번호가 다시
+    발급된다. 세 창구가 같은 그래프를 다르게 읽으면 안 된다."""
+
+    def _cycle(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P", "--reference", "-", "--criterion", "C",
+                 input="기준")
+        self.gil("open", "c/cy", "--author", "clew", "--purpose", "P",
+                 "--body", "정의", "--fits", "목적 그 자체")
+        self.gil("step", "c/cy", "--kind", "hypothesis", "--title", "H", "--body", "가설",
+                 "--falsify", "F", "--falsify-to", "s1", "--plan", "p", "--advances", "a")
+
+    def _orphan_the_tip(self):
+        """지금 팁을 **어느 브랜치도 안 가리키는** 상태로 만든다(사고의 재현)."""
+        head = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("checkout", "-q", "--detach", head)
+        for b in self._git("for-each-ref", "--contains", head, "--format=%(refname:short)",
+                           "refs/heads/").stdout.split():
+            self._git("branch", "-f", b, head + "~1")
+        return head
+
+    def test_log_accepts_a_cycle_and_lists_its_steps(self):
+        """`gil log <chain>/<cycle>` 이 인자를 통째로 **체인 이름**과 비교해, 아무것도 못 찾고
+        조용히 빈 목록을 냈다. goto 가 그 문법을 받으니 여기에도 그렇게 치는 게 자연스럽다."""
+        self._cycle()
+        r = self.gil("log", "c/cy")
+        out = r.stdout + r.stderr
+        self.assertIn("c/cy/s1", out, "사이클을 짚었는데 스텝 목록이 안 나온다:\n" + out)
+        self.assertIn("c/cy/s2", out)
+
+    def test_log_says_when_it_found_nothing(self):
+        """**조용한 빈 목록은 "없다"로 읽힌다** — 그 오독이 다시 심게 만든다."""
+        self._cycle()
+        r = self.gil("log", "c/nope")
+        out = r.stdout + r.stderr
+        self.assertIn("못 찾았다", out, "못 찾고도 아무 말이 없다:\n" + out)
+        self.assertIn("--all", out, "더 넓게 보는 길을 안 준다")
+
+    def test_a_step_no_branch_points_at_is_still_seen(self):
+        """어느 브랜치도 안 가리키는 스텝을 **없는 것으로 세지 않는다.**"""
+        self._cycle()
+        self._orphan_the_tip()
+        # --leave-open: 미종결 잎 가드가 조회보다 **앞에** 서 있다. 여기서 재려는 것은
+        # 그 가드가 아니라 조회의 시야다.
+        r = self.gil("goto", "c/cy/s9", "--leave-open")
+        out = r.stdout + r.stderr
+        self.assertIn("s2", out, "브랜치가 안 가리키는 스텝이 조회에서 사라졌다:\n" + out)
+
+    def test_the_number_is_not_reissued(self):
+        """**같은 번호가 다시 나오면 그 뒤 계보 참조(--to·Gil-Parent)가 뜻을 잃는다.**"""
+        self._cycle()
+        self._orphan_the_tip()
+        r = self.gil("step", "c/cy", "--kind", "verify", "--title", "V", "--body", "검증",
+                     "--verdict", "supported", "--plan-held", "--falsify-unmet", "미관측")
+        out = r.stdout + r.stderr
+        self.assertIn("c/cy/s3", out, "s2 가 재발급됐다(같은 번호 두 벌):\n" + out)
+
+    def test_the_refusal_does_not_assert_it_does_not_exist(self):
+        """단정하지 않는다 — 못 봤으면 어디까지 봤는지 말하고 대조할 길을 준다."""
+        self._cycle()
+        r = self.gil("goto", "c/cy/s9", "--leave-open")
+        out = r.stdout + r.stderr
+        self.assertIn("못 찾았다", out, "여전히 '없음'이라 단정한다:\n" + out)
+        self.assertIn("gil handoff", out, "대조할 길을 안 준다")

@@ -157,12 +157,36 @@ func currentCycle(chain, cycle string) []node {
 // cycleAnywhere — 이 사이클이 **그래프 어딘가에** 있나(브랜치 전체). 존재 확인 전용.
 func cycleAnywhere(chain, cycle string) []node {
 	var out []node
-	for _, n := range collectNodes("--branches") {
-		if n.chain == chain && n.cycle == cycle {
-			out = append(out, n)
+	seen := map[string]bool{}
+	// **브랜치 + HEAD.** 브랜치만 보면, 어느 브랜치도 안 가리키는 스텝은 *없는 것*이 된다 —
+	// 그런데 그 커밋은 HEAD 계보에 멀쩡히 살아 있고 handoff 는 그걸 팁으로 보여준다.
+	// 두 창구가 다른 답을 내면 사람은 "등록에 실패했다"로 읽고 **같은 스텝을 다시 심는다**
+	// (이슈 #120 실측: s2 커밋이 네 벌 쌓였고, 치우려고 gil 밖에서 git reset 을 두 번 했다).
+	// 번호 발급(nextStepID)도 이 함수를 쓰므로, 여기서 놓치면 **같은 번호가 재발급된다**.
+	for _, rng := range []string{"--branches", "HEAD"} {
+		for _, n := range collectNodes(rng) {
+			if n.chain == chain && n.cycle == cycle && !seen[n.sha] {
+				seen[n.sha] = true
+				out = append(out, n)
+			}
 		}
 	}
 	return out
+}
+
+// unreachableFromBranches — 이 커밋이 **어느 브랜치에서도 안 닿나**. 닿지 않으면 GC 대상이고,
+// gil 의 조회 대부분(--branches)에서 사라진다 — 그 사실을 사람에게 이름 붙여 말해야 한다.
+func unreachableFromBranches(sha string) bool {
+	if sha == "" {
+		return false
+	}
+	// `git branch --contains` 는 **분리된 HEAD 자신**도 한 줄로 내놓는다("(HEAD … 분리됨)") —
+	// 그걸 브랜치로 세면 "안 닿는다"를 영원히 못 알아챈다. 진짜 브랜치만 묻는다.
+	out, err := gitTry("for-each-ref", "--contains", sha, "--format=%(refname:short)", "refs/heads/")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(out) == ""
 }
 
 // reachCycle — 대상 사이클로 **찾아가서** 그 가지의 스텝들을 준다(이슈 #44·#47 G6).

@@ -219,8 +219,21 @@ func cmdGoto(args []string) {
 				ids = append(ids, n.step)
 			}
 			sort.Slice(ids, func(i, j int) bool { return stepNum(ids[i]) < stepNum(ids[j]) })
-			die("거부: " + chain + "/" + cycle + " 에 스텝 \"" + want + "\" 없음\n" +
-				"  이 사이클의 스텝: " + strings.Join(dedupe(ids), " "))
+			// **단정하지 않는다**(이슈 #120). 옛 문구는 "없음"이라고 끊어 말했고, 사람과
+			// 에이전트는 그걸 "등록에 실패했다"로 읽어 **같은 스텝을 다시 심었다**(실측: 네 벌).
+			// 조회가 못 본 것과 실재하지 않는 것은 다르다 — 그 차이를 화면에서 지운 것이
+			// 이 사고의 시작이었다. 못 봤으면 어디까지 봤는지 말하고, 대조할 길을 준다.
+			msg := "거부: " + chain + "/" + cycle + " 에서 스텝 \"" + want + "\" 를 **못 찾았다**\n" +
+				"  여기서 보이는 스텝: " + strings.Join(dedupe(ids), " ") + "\n" +
+				"  (조회가 못 본 것과 실재하지 않는 것은 다르다 — 다시 심기 전에 대조하라):\n" +
+				"    gil handoff                       (지금 팁이 무엇인지)\n" +
+				"    gil log " + chain + "/" + cycle + " --all      (모든 가지에서)"
+			// 그 자리에 진짜로 있는데 **어느 브랜치도 안 가리키는** 경우가 이 사고의 정체였다.
+			if h := strings.TrimSpace(git("rev-parse", "HEAD")); h != "" && unreachableFromBranches(h) {
+				msg += "\n  ⚠ 지금 HEAD 는 어느 브랜치에서도 안 닿는다 — 여기서 새긴 것은 조회에서 사라진다.\n" +
+					"     남기려면 먼저: git branch <이름> HEAD"
+			}
+			die(msg)
 		}
 	} else {
 		leaves := cycleLeaves(nodes)

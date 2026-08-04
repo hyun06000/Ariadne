@@ -273,12 +273,30 @@ func cmdLog(args []string) {
 }
 
 // logDepthStep — 기존 gil log(스텝 노드 나열). 참조: 옛 cmdLog 본체.
-func logDepthStep(ch string, all bool) {
+//
+// 인자는 `<chain>` 도 `<chain>/<cycle>` 도 받는다(이슈 #120). 옛 코드는 인자를 통째로 체인
+// 이름과 비교해서, 사람이 `gil log a/c1` 을 치면 **아무것도 못 찾고 조용히 빈 목록**을 냈다 —
+// goto 가 그 문법을 받으니 여기에도 그렇게 치는 것이 자연스럽고, 실제로 그렇게 쳤다.
+// 그리고 **못 찾았으면 못 찾았다고 말한다.** 조용한 빈 목록은 "그런 사이클이 없다"로 읽히고,
+// 그 오독이 같은 스텝을 다시 심게 만든다(실측: s2 가 네 벌 쌓였고 되돌리려고 gil 밖에서
+// git reset 을 두 번 했다).
+func logDepthStep(spec string, all bool) {
+	ch, cyc := spec, ""
+	if a, b, ok := cut(spec, "/"); ok {
+		ch, cyc = a, b
+	}
 	rng := "HEAD"
 	if all {
 		rng = "--branches"
 	}
 	nodes := collectNodes(rng)
+	// 사이클을 짚었으면 **그래프 전체에서** 찾는다 — 지금 어느 브랜치에 서 있느냐로 존재가
+	// 갈리면 안 된다(goto 가 이미 그렇게 한다. 세 명령이 같은 그래프를 다르게 읽으면 안 된다).
+	if cyc != "" && !all {
+		if inHead := countMatching(nodes, ch, cyc); inHead == 0 {
+			nodes = collectNodes("--branches")
+		}
+	}
 	// 정정 역방향 맵(AIL #12): 정정된 스텝 → 그를 정정한 스텝. 사이클 안에서 step id 가
 	// 유일하므로 (chain,cycle,step) 키로 잡아 다른 사이클과 안 섞이게.
 	supersededBy := map[string]string{}
@@ -295,8 +313,24 @@ func logDepthStep(ch string, all bool) {
 			refinedBy[rf] = n.chain + "/" + n.cycle + "/" + n.step
 		}
 	}
+	if ch != "" && countMatching(nodes, ch, cyc) == 0 {
+		where := ch
+		if cyc != "" {
+			where = ch + "/" + cyc
+		}
+		msg := "gil log: " + where + " 의 스텝을 여기서 못 찾았다."
+		if !all {
+			msg += "\n  이 범위(지금 브랜치 + 그래프)의 밖일 수 있다 — 전부 보려면: gil log " + where + " --all"
+		}
+		msg += "\n  이름이 맞는지 확인: gil drift   ·   지금 자리: gil handoff"
+		println2(msg)
+		return
+	}
 	for i := len(nodes) - 1; i >= 0; i-- { // 새→old 이므로 뒤집어 old→new
 		n := nodes[i]
+		if cyc != "" && n.cycle != cyc {
+			continue
+		}
 		if ch != "" && n.chain != ch {
 			continue
 		}
@@ -559,4 +593,19 @@ func noReferenceChainsNotice() string {
 		strings.Join(stuck, " ") + "\n" +
 		"     위반은 아니다(v3.37.0 이전 체인은 이 상태로 태어났다) — 다만 이대로는 아무것도 못 연다.\n" +
 		"     조치: gil interview <chain> --ask <질문JSON>  → 사람이 답하면 열린다."
+}
+
+// countMatching — 이 (체인[, 사이클])에 해당하는 스텝이 몇 개나 보이나.
+func countMatching(nodes []node, chain, cycle string) int {
+	n := 0
+	for _, x := range nodes {
+		if chain != "" && x.chain != chain {
+			continue
+		}
+		if cycle != "" && x.cycle != cycle {
+			continue
+		}
+		n++
+	}
+	return n
 }
