@@ -185,8 +185,14 @@ func rawCommitsOnGilBranches() []string {
 		if isLayerBranch(br) {
 			continue
 		}
+		// **gil 이 만든 것인지는 Gil-Chain 하나로 못 가른다.** merge·deploy 커밋은 제 트레일러
+		// (Gil-Merge·Gil-Deploy)만 달고 Gil-Chain 을 안 단다 — 그래서 gil 이 자기가 만든
+		// 합류 커밋을 "gil 이 만들지 않은 커밋"으로 고발했다(실측, AIL: 29건 중 대부분).
+		// 탐지가 제 도구의 산물을 짚으면 사람은 그 고지를 통째로 무시하게 된다. 어느 Gil-
+		// 트레일러든 있으면 gil 의 것이다.
 		log, err := gitTry("log", "--first-parent", "-n", "400",
-			"--format=%h"+fsep+"%s"+fsep+"%(trailers:key=Gil-Chain,valueonly,unfold=true)", br)
+			"--format=%h"+fsep+"%s"+fsep+
+				"%(trailers:key=Gil-Chain,key=Gil-Merge,key=Gil-Deploy,key=Gil-Kind,valueonly,unfold=true,separator=%x2C)", br)
 		if err != nil {
 			continue
 		}
@@ -199,8 +205,8 @@ func rawCommitsOnGilBranches() []string {
 			if len(f) < 3 {
 				continue
 			}
-			sha, subj, chain := strings.TrimSpace(f[0]), strings.TrimSpace(f[1]), strings.TrimSpace(f[2])
-			if chain != "" {
+			sha, subj, madeByGil := strings.TrimSpace(f[0]), strings.TrimSpace(f[1]), strings.TrimSpace(f[2])
+			if madeByGil != "" {
 				hitGil = true
 				// 이 gil 커밋 위에 쌓여 있던 평범 커밋들은 **가지 안에 낀 것**이다.
 				for _, p := range pending {

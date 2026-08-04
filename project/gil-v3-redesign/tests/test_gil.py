@@ -11545,6 +11545,29 @@ class TestOneChannelForTheRecord(GilFixture):
         out = self.gil("fsck").stdout + self.gil("fsck").stderr
         self.assertIn("섞인 기록", out, "뚫고 들어온 커밋을 아무도 안 짚었다:\n" + out)
 
+    def test_gils_own_merge_is_not_accused(self):
+        """**탐지가 제 도구의 산물을 짚으면 사람은 그 고지를 통째로 무시한다.**
+
+        결함(실사용 AIL): 판정이 `Gil-Chain` 하나만 봤다. 그런데 merge·deploy 커밋은 제
+        트레일러(Gil-Merge·Gil-Deploy)만 달고 Gil-Chain 을 안 단다 — 그래서 gil 이 `gil
+        merge` 로 만든 합류 커밋을 "gil 이 만들지 않은 커밋"이라고 고발했다(29건 중 12건).
+        """
+        self._gil_branch_repo()
+        before = self.gil("fsck").stdout + self.gil("fsck").stderr
+        self.assertNotIn("섞인 기록", before, "이 시험의 전제가 깨졌다(이미 섞여 있다)")
+        # gil 이 만든 합류 커밋 하나를 이 가지에 얹는다.
+        branch = self._git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        side = branch + "-side"
+        self._git("checkout", "-q", "-b", side)
+        self._raw_commit("side.md", extra=("--no-verify",))
+        self._git("checkout", "-q", branch)
+        self._git("merge", "--no-ff", "-m",
+                  "gil merge: " + side + " → " + branch + "\n\nGil-Merge: " + side, side)
+        out = self.gil("fsck").stdout + self.gil("fsck").stderr
+        merges = self._git("log", "-1", "--format=%h", branch).stdout.strip()
+        self.assertNotIn(merges, out,
+                         "gil 이 만든 합류 커밋을 '섞인 기록'으로 고발했다:\n" + out)
+
     def test_the_guard_can_be_turned_off(self):
         """강제는 벽이 아니라 선택이어야 한다 — 끄는 길이 없으면 사람은 도구를 버린다."""
         self._gil_branch_repo()
