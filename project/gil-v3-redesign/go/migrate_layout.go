@@ -629,15 +629,36 @@ func cmdAdoptDevLayer(dryRun bool) {
 	// 재실행이 그 자리를 고칠 수 있어야 한다 — 안 그러면 안전하다던 명령이 안전하지 않은
 	// 수리(이력 다시 쓰기)만 남기고 끝난다.
 	if hasDevLayer() {
-		start, cur := devLayerStartSHA(), devRootSHA()
+		start, cur := devLayerTrueStart(), devRootSHA()
 		if start == "" || start == cur {
 			println2("이미 dev 층이다 — 인정할 것이 없다(뿌리 " + first9(cur) + ").")
+			layerCoverage(cur)
+			return
+		}
+		// **뒤로는 옮기지 않는다**(이슈 #117, 실사용 리포트). devLayerStartSHA 는 "대문에서
+		// 갈라진 뒤 dev 전용 커밋의 가장 오래된 것"이라, 대문이 앞으로 나가면(배포·머지) 그
+		// 값도 함께 뒤로 밀린다. 그래서 **정상 뿌리(gil init 이 심은 그 자리)를 가진 저장소**가
+		// "범위를 고친다"는 말을 듣고, 적용하면 층이 26커밋에서 8커밋으로 줄었다.
+		//
+		// 판정은 조상관계로 한다: 지금 뿌리가 제안된 시작의 **조상**이면 범위는 이미 더 넓다 —
+		// 고칠 것이 없다. #113 이 고치려던 것은 뿌리가 너무 **뒤**(팁)에 심긴 경우이므로,
+		// 앞으로 옮기는 것만 수리다. 안전을 약속한 명령이 조용히 좁히면 그 약속이 거짓이 된다.
+		if gitOK("merge-base", "--is-ancestor", cur, start) {
+			println2("이미 dev 층이다 — 뿌리가 층의 시작보다 **앞**이라 범위는 이미 더 넓다(뿌리 " +
+				first9(cur) + ").")
+			println2("  (이 저장소는 고칠 것이 없다. 대문이 앞으로 나간 뒤에는 '가장 오래된 dev 전용 커밋'이 " +
+				first9(start) + " 로 밀리는데, 그건 층의 시작이 아니라 **배포 이후 구간의 시작**이다.)")
 			layerCoverage(cur)
 			return
 		}
 		println2("이미 dev 층인데 **뿌리가 층의 시작이 아니다** — 범위를 고친다(이슈 #113).")
 		println2("  지금 뿌리: " + first9(cur) + "  " + clip(subjectOf(cur), 60))
 		println2("  층의 시작: " + first9(start) + "  " + clip(subjectOf(start), 60))
+		// **옮기기 전/후를 함께** 적는다(#117 제안 3). 옮긴 뒤의 값만 보이면 줄어드는 변경이
+		// 늘어나는 변경과 같은 모양으로 읽힌다 — 사람이 멈출 자리를 못 잡는다.
+		println2("  옮기면 인정 범위가 이렇게 바뀐다:")
+		println2("    지금: " + layerCoverageLine(cur))
+		println2("    이후: " + layerCoverageLine(start))
 		if dryRun {
 			stderr("  (--dry-run — 아무것도 쓰지 않았다.)")
 			return
@@ -706,6 +727,16 @@ func cmdAdoptDevLayer(dryRun bool) {
 // layerCoverage — **인정 범위를 보고한다**(이슈 #113 제안 d). 표식 sha 만 알려주고 끝나면,
 // 1/148 같은 상태를 아무도 그 자리에서 못 알아챈다. 도구가 자기가 무엇을 인정했는지
 // 숫자로 말해야 사람이 검증할 기회를 갖는다.
+// layerCoverageLine — "인정 N / 사슬 M (뿌리 sha)" 한 줄. 전/후를 나란히 놓을 때 쓴다.
+func layerCoverageLine(root string) string {
+	if root == "" {
+		return "(뿌리 없음)"
+	}
+	inside := len(strings.Fields(strings.TrimSpace(git("rev-list", "--first-parent", root+".."+devBranchName)))) + 1
+	total := len(strings.Fields(strings.TrimSpace(git("rev-list", "--first-parent", devBranchName))))
+	return itoa(inside) + "/" + itoa(total) + " 커밋 (뿌리 " + first9(root) + ")"
+}
+
 func layerCoverage(root string) {
 	if root == "" {
 		return

@@ -85,6 +85,38 @@ func devRootSHA() string {
 // devLayerStartSHA — 이 dev 브랜치에서 **층이 실제로 시작한** 커밋. 대문에서 갈라진 뒤의
 // 가장 오래된 dev 전용 커밋이다(그 앞은 대문이 산 구간이라 층의 걸음이 아니다).
 // dev 가 대문과 같은 자리면 dev 팁 자신이다.
+// devLayerTrueStart — **층이 실제로 시작한 자리**(이슈 #117).
+//
+// 옛 판정(devLayerStartSHA)은 "대문에서 갈라진 뒤 dev 전용 커밋 중 가장 오래된 것"이었다.
+// 그런데 배포(dev → 대문)가 일어나면 그 앞의 dev 커밋들이 전부 대문에서도 닿게 되어, 그
+// 값이 **배포 이후 구간의 시작**으로 밀린다. 층은 그 자리에서 시작하지 않았다.
+//
+// 그래서 선언을 먼저 본다: `gil init` 이 심는 `Gil-Kind: dev-root` 가 층의 시작이다.
+// 다만 v3.52 의 `--adopt-dev` 는 같은 표식을 **팁에** 심었으므로(#113 이 고친 것),
+// 그렇게 심긴 것(`Gil-Dev-Adopted`)은 시작으로 치지 않는다 — 그것이 정확히 수리 대상이다.
+// 선언이 아예 없으면 옛 휴리스틱으로 물러난다(손으로 세운 저장소).
+func devLayerTrueStart() string {
+	if !gitOK("rev-parse", "--verify", "-q", "refs/heads/"+devBranchName) {
+		return ""
+	}
+	fmtStr := "%H" + fsep + trailer("Gil-Kind") + fsep + trailer("Gil-Dev-Adopted") + sep
+	best := ""
+	for _, rec := range strings.Split(gitlog("--format="+fmtStr, devBranchName), sep) {
+		f := strings.SplitN(strings.TrimSpace(rec), fsep, 3)
+		if len(f) < 3 {
+			continue
+		}
+		sha, kind, adopted := strings.TrimSpace(f[0]), strings.TrimSpace(f[1]), strings.TrimSpace(f[2])
+		if kind == "dev-root" && adopted == "" && sha != "" {
+			best = sha // git log 는 최신부터 — 계속 덮으면 가장 오래된 것이 남는다
+		}
+	}
+	if best != "" {
+		return best
+	}
+	return devLayerStartSHA()
+}
+
 func devLayerStartSHA() string {
 	home := homeBranch()
 	if home == "" || home == devBranchName {

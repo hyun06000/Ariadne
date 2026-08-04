@@ -11607,3 +11607,76 @@ class TestGitGraphShowsTheSiblings(GilFixture):
     def _gitgraph_after_build(self):
         self._competing_repo()
         return self._gitgraph()
+
+
+class TestAdoptDevNeverShrinksTheLayer(GilFixture):
+    """**안전을 약속한 명령이 조용히 좁히면 그 약속이 거짓이 된다** (이슈 #117, 실사용).
+
+    #113 은 뿌리가 너무 **뒤**(dev 팁)에 심긴 것을 고쳤다. 그런데 그 수리 판정이 정상 뿌리까지
+    잡았다: `gil init` 이 심은 옳은 뿌리를 가진 저장소가 "범위를 고친다"는 말을 들었고, 적용하면
+    층이 26커밋에서 8커밋으로 줄었다(개시 인터뷰·기준 문서·배포 마커가 전부 층 밖으로).
+
+    원인: '층의 시작'을 "대문에서 갈라진 뒤 dev 전용 커밋 중 가장 오래된 것"으로 잡는데,
+    **대문이 앞으로 나가면(배포) 그 값도 함께 뒤로 밀린다.** 그건 층의 시작이 아니라 배포 이후
+    구간의 시작이다. 판정은 조상관계로 한다 — 지금 뿌리가 제안된 시작의 조상이면 범위는 이미
+    더 넓고, 고칠 것이 없다."""
+
+    def _deployed_repo(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "ch", "--purpose", "목적")
+        self.gil("open", "ch/c001", "--author", "clew", "--purpose", "p", "--fits", "f",
+                 "--body", "정의")
+        self.gil("step", "ch/c001", "--kind", "success", "--title", "됐다",
+                 "--toward", "다 왔다", "--next-design", "다음")
+        self.gil("close", "ch/c001", "--verdict", "supported")
+        self.gil("merge", "ch", "--into", "dev", "--reason", "끝난 체인을 층으로", "--allow-open")
+        r = self.gil("deploy", "--tag", "v0.1.0", "--reason", "첫 배포")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self._git("checkout", "-q", "dev")
+        with open(os.path.join(self.repo, "note.md"), "w") as f:
+            f.write("배포 뒤\n")
+        self._git("add", "note.md")
+        self._git("commit", "-qm", "배포 뒤 dev 커밋")
+
+    def _root(self):
+        return self._git("rev-parse", "refs/gil/layer/dev").stdout.strip()
+
+    def test_a_correct_root_is_left_alone(self):
+        self._deployed_repo()
+        before = self._root()
+        r = self.gil("migrate", "--adopt-dev")
+        out = r.stdout + r.stderr
+        # 두 길 다 옳다: 선언(dev-root)을 읽어 "고칠 것 없음"이거나, 조상관계로 "이미 더 넓다".
+        self.assertTrue("인정할 것이 없다" in out or "이미 더 넓다" in out,
+                        "정상 뿌리를 '고쳐야 할 것'으로 봤다:\n" + out)
+        self.assertNotIn("범위를 고친다", out, "정상 뿌리에 수리를 권했다:\n" + out)
+        self.assertEqual(self._root(), before, "뿌리를 뒤로 옮겼다 — 층이 줄어든다")
+
+    def test_the_coverage_does_not_shrink(self):
+        """숫자로도 지킨다 — 인정 범위가 줄어드는 일은 이 명령에 없어야 한다."""
+        self._deployed_repo()
+        def inside():
+            root = self._root()
+            n = self._git("rev-list", "--first-parent", root + "..dev").stdout.split()
+            return len(n) + 1
+        before = inside()
+        self.gil("migrate", "--adopt-dev")
+        self.assertGreaterEqual(inside(), before, "인정 범위가 줄었다")
+
+    def test_a_root_planted_at_the_tip_is_still_repaired(self):
+        """#113 이 고치려던 것(뿌리가 너무 뒤에 심긴 경우)은 그대로 고쳐야 한다 —
+        좁게 막으려다 수리 자체를 막으면 되돌아간다."""
+        self._deployed_repo()
+        tip = self._git("rev-parse", "dev").stdout.strip()
+        self._git("update-ref", "refs/gil/layer/dev", tip)   # 옛 --adopt-dev 가 남기던 모양
+        r = self.gil("migrate", "--adopt-dev")
+        self.assertNotEqual(self._root(), tip, "팁에 심긴 뿌리를 안 고쳤다:\n" + r.stdout + r.stderr)
+
+    def test_the_move_shows_before_and_after(self):
+        """줄어드는 변경이 늘어나는 변경과 같은 모양으로 보이면 사람이 멈출 자리를 못 잡는다."""
+        self._deployed_repo()
+        self._git("update-ref", "refs/gil/layer/dev", self._git("rev-parse", "dev").stdout.strip())
+        out = self.gil("migrate", "--adopt-dev", "--dry-run").stdout + \
+              self.gil("migrate", "--adopt-dev", "--dry-run").stderr
+        self.assertIn("지금:", out, "옮기기 전 범위를 안 보여준다:\n" + out)
+        self.assertIn("이후:", out, "옮긴 뒤 범위를 안 보여준다:\n" + out)
