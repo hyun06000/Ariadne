@@ -285,7 +285,13 @@ func rootCandidates() []string {
 	for _, c := range open {
 		out = append(out, "["+c+"] 와 나란히 간다 — 병렬 트랙 (이어받는 것이 아니다)")
 	}
-	out = append(out, "대문에서 새로 시작한다 — 앞의 어느 것도 이어받지 않는 새 계보")
+	// **"대문"이라고만 하면 어느 대문인지 알 수 없다**(상현님, #118): 모든 것을 머지한 대문과
+	// init 직후의 대문은 다른 자리다. 그래서 실제로 설 자리를 sha 로 지목한다.
+	fresh := "대문에서 새로 시작한다 — 앞의 어느 것도 이어받지 않는 새 계보"
+	if sha, what := mainMirrorOnDev(); sha != "" {
+		fresh += " (뿌리: " + first9(sha) + " — " + what + ")"
+	}
+	out = append(out, fresh)
 	return out
 }
 

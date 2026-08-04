@@ -3729,6 +3729,16 @@ func cmdChain(args []string) {
 	for _, f := range froms {
 		tr = append(tr, [2]string{"Gil-Chain-From", f}) // 이어받는 체인 선언(이슈 #68·#107)
 	}
+	// **"이어받지 않는다"고 선언했으면 파일도 안 이어받아야 한다**(이슈 #118).
+	// dev 팁은 앞 체인들이 합류시킨 트리를 다 담고 있어서, 그래프의 계승선만 없을 뿐 파일은
+	// 전부 물려받았다 — 선택지 문구("앞의 어느 것도 이어받지 않는 새 계보")가 약속한 것과
+	// 달랐다(실측: 한 저장소의 체인 여섯이 전부 그때그때의 dev 팁에 붙어 있었다).
+	// 대문이 비추는 dev 커밋에 박으면 배포된 것만 물려받으면서 층의 규칙도 지킨다
+	// (상현님: main → dev → chain 룰을 따른다).
+	orphanAt, orphanWhat := "", ""
+	if devRooted && strings.TrimSpace(*orphanWhy) != "" {
+		orphanAt, orphanWhat = mainMirrorOnDev()
+	}
 	if w := strings.TrimSpace(*orphanWhy); w != "" {
 		// 독립도 판단이다 — 판단은 근거와 함께 남는다(그래야 나중에 '왜 안 이어받았나'를 묻지 않는다).
 		tr = append(tr, [2]string{"Gil-Chain-Orphan-Reason", w})
@@ -3737,6 +3747,11 @@ func cmdChain(args []string) {
 		// 계보상 시조 — 앞선 체인이 없다는 **선언**이다(대문은 물려받는다, layout.go).
 		// 선언을 남겨야 drift·뷰어가 이걸 '끊긴 계보'가 아니라 '여기서 새로 시작'으로 읽는다.
 		tr = append(tr, [2]string{"Gil-Chain-Orphan", "dev"})
+		// **"대문"이라는 말 대신 자리를 지목한다**(상현님, #118): 모든 것을 머지한 대문과
+		// init 직후의 대문은 다른 자리다. 어느 쪽에 섰는지는 sha 로만 정확히 말할 수 있다.
+		if orphanAt != "" {
+			tr = append(tr, [2]string{"Gil-Chain-Orphan-At", first9(orphanAt)})
+		}
 	}
 	// 체인 = git 브랜치. 현재 위치(대문/닫힌 체인 끝)에서 분기해 대문을 이어받는다(orphan 아님).
 	//
@@ -3747,6 +3762,9 @@ func cmdChain(args []string) {
 	if devRooted {
 		// dev 팁 — 대문 갱신까지 물려받는 자리. HEAD 를 쓰면 "마지막으로 있던 곳"에 얹힌다.
 		base = devTipSHA()
+		if orphanAt != "" {
+			base = orphanAt // 이어받지 않는다고 선언했으면 파일도 안 이어받는다(위 참조)
+		}
 	}
 	if len(froms) > 0 {
 		// 선언한 그 체인의 **끝**에서 갈라진다(이슈 #68). 이름이 봉인을 가리키므로(이슈 #66)
@@ -3760,6 +3778,12 @@ func cmdChain(args []string) {
 	}
 	commitOn(name, base, subject, body, tr, true)
 	println2("chain: " + name + " 개설 (브랜치 " + name + ") — 목적: " + *purpose)
+	// **자리를 이름이 아니라 sha 로 말한다**(상현님, #118): "대문"은 모든 것을 머지한 대문일
+	// 수도 있고 init 직후의 대문일 수도 있다. 어느 쪽에 섰는지는 자리를 지목해야 정확하다.
+	if orphanAt != "" {
+		println2("  ⌂ 뿌리: " + first9(orphanAt) + " — " + orphanWhat)
+		println2("     이어받지 않는다고 선언했으므로 앞 체인들이 합류시킨 파일은 안 따라온다.")
+	}
 	// 두 번째 이후의 계승은 **머지로** 끌어온다(이슈 #107 3b). 선언만 남기고 위상은 한 줄로
 	// 두면, 커밋 그래프는 여전히 "첫 체인에서만 왔다"고 말한다 — 여러 갈래의 지식이 하나로
 	// 모이는 장면은 선언이 아니라 합류선으로 그려져야 한다(#45·#53 과 같은 축: 선언과 실재).

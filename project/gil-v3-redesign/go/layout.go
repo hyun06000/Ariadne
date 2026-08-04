@@ -675,3 +675,52 @@ func behindChainsNotice() string {
 	return strings.Join(L, "\n") + "\n     낡은 값이 그 자리에 있어서 **조용히 틀린다** — 정본을 끌어오지 말고 국면을 넘겨라\n" +
 		"     (chain-close → merge <chain> --into " + devBranchName + " → intake → chain --from-intake)."
 }
+
+// mainMirrorOnDev — **대문이 지금 비추고 있는 dev 커밋**(이슈 #118, 상현님: "main → dev →
+// chain 룰을 따른다").
+//
+// 왜 이 자리가 필요한가. `--ask-root` 의 "대문에서 새로 시작한다"를 고른 체인이 dev **팁**에
+// 뿌리를 박았다. 그러면 그래프의 계승선은 안 그어지는데 **파일은 앞 체인 것을 전부 물려받는다**
+// — 선택지 문구·문서가 약속한 것과 다르다(실측: 한 저장소의 체인 여섯이 전부 그때그때의 dev
+// 팁에 붙어 있었다). "대문"과 "닫힌 체인 이어받음"이 트리 층위에서 구별되지 않은 것이다.
+//
+// 그렇다고 대문 브랜치의 끝에 박을 수는 없다 — 배포는 dev → main 머지라 main 팁은 dev 에서
+// 닿지 않고, 층 검사("시조는 dev 에서 난다")가 곧바로 깨진다. 그런데 배포 직후 **대문의
+// 내용은 그때의 dev 와 같다.** 그러니 대문이 비추는 그 dev 커밋에 박으면 둘 다 참이 된다:
+// 배포된 것만 물려받고(사람이 고른 뜻), dev 에서 났다(층의 규칙).
+//
+// 배포가 아직 없으면 층의 뿌리(dev-root)다 — 그때의 대문이 곧 층의 시작이다.
+func mainMirrorOnDev() (sha, what string) {
+	home := homeBranch()
+	if home == "" || !hasDevLayer() {
+		return "", ""
+	}
+	onDev := devReachable()
+	cur := strings.TrimSpace(git("rev-parse", home))
+	for i := 0; i < 10000 && cur != ""; i++ {
+		ps := strings.Fields(strings.TrimSpace(git("log", "-1", "--format=%P", cur)))
+		if len(ps) == 0 {
+			break
+		}
+		// 배포 머지의 **둘째 부모**가 그때 올라간 dev 다.
+		for _, p := range ps[1:] {
+			if onDev[p] {
+				return p, "대문이 지금 비추는 자리(마지막 배포에 올라간 dev)"
+			}
+		}
+		cur = ps[0]
+	}
+	if r := devRootSHA(); r != "" {
+		return r, "층의 뿌리(아직 배포가 없다 — 그때의 대문이 곧 층의 시작이다)"
+	}
+	return "", ""
+}
+
+// devReachable — dev 에서 닿는 커밋 집합. 층 검사가 쓰는 것과 같은 판정이어야 한다.
+func devReachable() map[string]bool {
+	out := map[string]bool{}
+	for _, sha := range strings.Fields(strings.TrimSpace(git("rev-list", devBranchName))) {
+		out[sha] = true
+	}
+	return out
+}

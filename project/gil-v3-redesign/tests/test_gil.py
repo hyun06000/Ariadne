@@ -12397,3 +12397,81 @@ class TestTheScreenCountsOneThing(GilFixture):
         html = self._build()
         self.assertIn("map.filter.nosteps", html, "스텝 없음을 말할 자리가 없다")
         self.assertIn("스텝 없음", html, "사전에 그 문구가 없다")
+
+
+class TestOrphanMeansOrphanInTheFilesToo(GilFixture):
+    """**"이어받지 않는다"고 선언했으면 파일도 안 이어받아야 한다** (이슈 #118, 상현님 실사용).
+
+    `--ask-root` 의 "대문에서 새로 시작한다 — 앞의 어느 것도 이어받지 않는 새 계보" 를 골라
+    연 체인이 dev 의 **현재 끝**에 뿌리를 박았다. 그래프의 계승선은 안 그어지는데(계보에는
+    `← (대문)`) **파일 층위에서는 앞 체인이 합류시킨 것을 전부 물려받았다.** 실측: 한
+    저장소의 체인 여섯이 전부 그때그때의 dev 팁에 붙어 있었다 — "대문"과 "닫힌 체인
+    이어받음"이 트리 층위에서 구별되지 않았다.
+
+    대문 브랜치의 끝에 박을 수는 없다: 배포는 dev → main 머지라 main 팁은 dev 에서 닿지 않고,
+    층 검사("시조는 dev 에서 난다")가 곧바로 깨진다. 그런데 배포 직후 **대문의 내용은 그때의
+    dev 와 같다.** 그러니 대문이 비추는 그 dev 커밋에 박으면 둘 다 참이 된다
+    (상현님: main → dev → chain 룰을 따른다)."""
+
+    def _chain_with_a_file(self, name, fname):
+        self.gil("chain", name, "--purpose", name, "--reference", "-",
+                 "--criterion", "C", input="기준")
+        self.gil("open", f"{name}/c1", "--author", "clew", "--purpose", "P",
+                 "--body", "정의", "--fits", "목적 그 자체")
+        with open(os.path.join(self.repo, fname), "w", encoding="utf-8") as f:
+            f.write("이 체인이 만든 파일\n")
+        self._git("add", fname)
+        for s in (["--kind", "hypothesis", "--title", "H", "--body", "가설", "--falsify", "F",
+                   "--falsify-to", "s1", "--plan", "p", "--advances", "a"],
+                  ["--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported",
+                   "--plan-held", "--falsify-unmet", "미관측"],
+                  ["--kind", "analyze", "--title", "A", "--body", "해석", "--finding", "f"],
+                  ["--kind", "success", "--title", "S", "--body", "종합", "--toward", "t",
+                   "--next-design", "d"]):
+            self.gil("step", f"{name}/c1", *s)
+        self.gil("close", f"{name}/c1", "--verdict", "supported")
+        self.gil("chain-close", name, "--verdict", "supported", "--retro", "-", input="회고")
+        self.gil("merge", name, "--into", "dev", "--reason", "합류")
+
+    def _has(self, ref, path):
+        return self._git("show", f"{ref}:{path}").returncode == 0
+
+    def test_it_does_not_inherit_the_previous_chain_files(self):
+        self.gil("init", "--name", "clew")
+        self._chain_with_a_file("first", "first-only.txt")
+        self.assertTrue(self._has("dev", "first-only.txt"), "fixture 가 dev 에 파일을 안 올렸다")
+        r = self.gil("chain", "fresh", "--purpose", "새 관점", "--reference", "-",
+                     "--criterion", "C", "--orphan", "새 관점으로 환기", input="기준")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(self._has("fresh", "first-only.txt"),
+                         "이어받지 않는다고 선언했는데 앞 체인의 파일을 물려받았다")
+        # 그리고 층은 여전히 참이어야 한다 — 뿌리는 dev 에서 닿는 자리다.
+        f = self.gil("fsck")
+        self.assertIn("위반 0", f.stdout + f.stderr, "층 검사가 깨졌다:\n" + f.stdout + f.stderr)
+
+    def test_after_a_deploy_it_stands_on_what_shipped(self):
+        """배포된 것은 물려받는다 — 그게 '대문'의 뜻이다(대문 = 배포된 것만 온다)."""
+        self.gil("init", "--name", "clew")
+        self._chain_with_a_file("first", "first-only.txt")
+        self._git("checkout", "-q", "dev")
+        self.gil("deploy", "--tag", "v1")
+        self.assertTrue(self._has("main", "first-only.txt"), "fixture 가 배포를 못 했다")
+        r = self.gil("chain", "fresh2", "--purpose", "배포 뒤 새 관점", "--reference", "-",
+                     "--criterion", "C", "--orphan", "환기", input="기준")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self._has("fresh2", "first-only.txt"),
+                        "배포된 것까지 안 물려받았다 — 대문에서 시작한다는 뜻이 아니다")
+
+    def test_it_names_the_node_instead_of_saying_the_front_door(self):
+        """**"대문"이라고만 하면 어느 대문인지 알 수 없다**(상현님): 모든 것을 머지한 대문과
+        init 직후의 대문은 다른 자리다. 자리를 sha 로 지목한다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("chain", "fresh", "--purpose", "새 관점", "--reference", "-",
+                     "--criterion", "C", "--orphan", "환기", input="기준")
+        out = r.stdout + r.stderr
+        self.assertIn("⌂ 뿌리:", out, "어느 자리에 섰는지 말하지 않았다:\n" + out)
+        self.assertEqual(self.trailer("fresh", "Gil-Chain-Orphan-At")[:9],
+                         self.trailer("fresh", "Gil-Chain-Orphan-At"),
+                         "자리가 커밋에 안 남았다")
+        self.assertNotEqual(self.trailer("fresh", "Gil-Chain-Orphan-At"), "",
+                            "자리를 커밋에 안 적었다 — 나중에 어느 대문이었는지 못 판정한다")
