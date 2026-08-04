@@ -12057,6 +12057,67 @@ class TestWhatTheHelpPointsAtExists(GilFixture):
                             bad.append(f"{os.path.basename(f)}:{i} → {p}")
         self.assertEqual(bad, [], "도움말이 없는 문서를 가리킨다:\n" + "\n".join(sorted(set(bad))))
 
+    def _flag_table(self):
+        """명령마다 실제로 선언된 플래그. `newFlags("gil X")` 뒤 그 함수 안의 fs.* 선언을 읽는다."""
+        import re, glob
+        decl = {}
+        for f in glob.glob(os.path.join(self.GO, "*.go")):
+            src = open(f, encoding="utf-8").read()
+            for m in re.finditer(r'newFlags\("gil ([a-z0-9 -]+)"\)', src):
+                tail = src[m.end():]
+                nxt = tail.find("\nfunc ")
+                body = tail[:nxt if nxt > 0 else len(tail)]
+                decl.setdefault(m.group(1).strip(), set()).update(
+                    re.findall(r'fs\.(?:str|boolFlag|strList|intFlag)\("([a-z0-9-]+)"', body))
+        return decl
+
+    def test_every_flag_it_tells_you_to_type_exists(self):
+        """**복붙하면 실패하는 줄을 도움말이 준다.**
+
+        실측 둘: 봉인된 체인 거부가 `gil chain <새체인> --parent` 를 주는데 그 플래그는
+        `gil open` 의 것이고(체인 계승은 --from), 합류 거부가 `gil chain … --ask-root` 를
+        주는데 --ask-root 는 `gil intake` 의 마지막 차수다. 둘 다 막힌 사람이 그대로 쳤을 때
+        "모르는 플래그"로 한 번 더 막힌다 — 안내가 사람을 두 번 세운다.
+
+        판정은 **같은 줄 안에서 그 명령에 딸린 플래그**만 본다: `gil <cmd>` 뒤로 다른 도구
+        (git·gh·curl)나 다음 `gil` 이 나오기 전까지."""
+        import re, glob
+        decl = self._flag_table()
+        self.assertIn("chain", decl, "플래그 표를 못 읽었다 — 이 시험이 공회전한다")
+        bad = []
+        for f in glob.glob(os.path.join(self.GO, "*.go")):
+            for i, ln in enumerate(open(f, encoding="utf-8"), 1):
+                if ln.lstrip().startswith("//"):
+                    continue
+                for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
+                    for m in re.finditer(r"gil ([a-z][a-z0-9-]*)\b", lit):
+                        cmd = m.group(1)
+                        if cmd not in decl:
+                            continue
+                        seg = lit[m.end():]
+                        stops = [x for x in (seg.find("gil "), seg.find("git "),
+                                             seg.find("gh "), seg.find("curl ")) if x >= 0]
+                        seg = seg[:min(stops)] if stops else seg
+                        for fl in re.findall(r"--([a-z][a-z0-9-]*)", seg):
+                            if fl not in decl[cmd]:
+                                bad.append(f"{os.path.basename(f)}:{i} → gil {cmd} --{fl}")
+        self.assertEqual(bad, [], "없는 플래그를 치라고 한다:\n" + "\n".join(sorted(set(bad))))
+
+    def test_every_repo_path_it_points_at_exists(self):
+        """에러가 레포 안의 파일을 가리키면 그 파일이 있어야 한다(문서 경로와 같은 규율)."""
+        import re, glob
+        bad = []
+        for f in glob.glob(os.path.join(self.GO, "*.go")):
+            for i, ln in enumerate(open(f, encoding="utf-8"), 1):
+                if ln.lstrip().startswith("//"):
+                    continue
+                for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
+                    for p in re.findall(
+                            r"(?<![\w/.-])((?:project|scripts|tests)/[A-Za-z0-9_./-]+\.(?:md|sh|py|go|txt))", lit):
+                        if not os.path.exists(os.path.join(self.ROOT, p)):
+                            bad.append(f"{os.path.basename(f)}:{i} → {p}")
+        self.assertEqual(bad, [], "없는 파일을 가리킨다:\n" + "\n".join(sorted(set(bad))))
+
     def test_every_command_it_tells_you_to_run_exists(self):
         """**도구가 자기가 만든 상태에서 빠져나올 길을 자기가 줘야 한다.**
 

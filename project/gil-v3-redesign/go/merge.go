@@ -87,7 +87,8 @@ func cmdMerge(args []string) {
 			msg += "  정당한 길은 **국면을 넘기는 것**이다:\n" +
 				"    gil chain-close " + target + " --retro <회고>\n" +
 				"    gil merge " + target + " --into " + devBranchName + " --reason <왜>\n" +
-				"    gil intake <슬러그> --ask <질문JSON>   →   gil chain <새 이름> --from-intake <슬러그> --ask-root\n" +
+				"    gil intake <슬러그> --ask <질문JSON>   →   gil intake <슬러그> --ask-root\n" +
+				"    gil chain <새 이름> --from-intake <슬러그> --purpose-from <번호> --criterion-from <번호>\n" +
 				"  (새 체인은 " + devBranchName + " 의 지금 자리에서 갈라진다 — 정본을 처음부터 쥐고 시작한다.)"
 			die(msg)
 		}

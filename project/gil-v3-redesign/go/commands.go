@@ -941,7 +941,7 @@ func cmdOpen(args []string) {
 func sealGuard(chain, cycle string) {
 	if chainClosed(chain, "--branches") {
 		die("거부: 체인 \"" + chain + "\" 은 닫혔다 — 봉인된 체인엔 스텝을 붙일 수 없다.\n" +
-			"  이어갈 것이 있으면 닫힌 끝에서 새 체인을 연다:  gil chain <새체인> --parent " + chain + " --inherit <전수>")
+			"  이어갈 것이 있으면 닫힌 끝에서 새 체인을 연다:  gil chain <새체인> --from " + chain + " --inherit <전수>")
 	}
 	if !closedCycles("--branches")[chain+"\x01"+cycle] {
 		return
