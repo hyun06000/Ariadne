@@ -12176,6 +12176,62 @@ class TestWhatTheHelpPointsAtExists(GilFixture):
                             bad.append(f"{rel}:{i} → gil {c} --{fl}")
         self.assertEqual(bad, [], "문서가 없는 것을 치라고 한다:\n" + "\n".join(sorted(set(bad))))
 
+    # 이 명령들은 이 시험이 돌리지 않는다. 이유는 하나씩 다르다 — 네트워크(version)·
+    # 백그라운드 프로세스(viewer·mcp)·사람 대기(interview·intake)·비가역(prune·migrate·
+    # deploy)·저장소 바깥에 쓰기(global·memory·docs·guard). **문법이 아니라 부작용 때문에**
+    # 빼는 것이므로, 여기에 이름을 더할 때는 그 이유를 적어야 한다.
+    NOT_RUN = ("viewer", "mcp", "init", "docs", "global", "memory", "prune",
+               "migrate", "deploy", "guard", "version", "handoff", "interview", "intake")
+
+    def test_the_lines_it_tells_you_to_type_actually_parse(self):
+        """**가리키는 것이 있느냐 다음 질문은, 그걸 치면 도느냐다.**
+
+        앞의 시험들은 명령과 플래그가 *실재하는지*를 봤다. 그런데 실재하는 조각으로도 안 도는
+        줄을 만들 수 있다 — 한 명령의 줄에 다른 명령의 플래그를 섞으면(실측: 합류 거부가
+        `gil chain … --ask-root`) 조각은 다 실재하는데 그 줄은 튕긴다.
+
+        그래서 격리 저장소에서 **실제로 친다.** 판정은 문법에 대해서만 한다: '알 수 없는
+        플래그'·'알 수 없는 명령'이 나오면 실패. 의미상 거부(닫히지 않았다·이미 있다…)는
+        정상이다 — 그건 그 줄이 잘못이 아니라 이 저장소의 상태가 그럴 뿐이다."""
+        import re, glob, subprocess
+        cmds = self._commands()
+        lines = {}
+        for f in glob.glob(os.path.join(self.GO, "*.go")):
+            for i, ln in enumerate(open(f, encoding="utf-8"), 1):
+                if ln.lstrip().startswith("//"):
+                    continue
+                for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
+                    for m in re.finditer(r'(?:^|\\n|\s{2,})(gil ([a-z][a-z0-9-]*)(?![^\s])[^"\\]*)', lit):
+                        lines.setdefault(m.group(1).strip(), f"{os.path.basename(f)}:{i}")
+        self.assertGreater(len(lines), 40, "안내줄을 못 뽑았다 — 이 시험이 공회전한다")
+
+        def norm(c):
+            c = re.sub(r"\s{2,}.*$", "", c)      # 줄 뒤에 붙은 설명
+            c = re.sub(r"\(.*?\)", "", c)        # (권장) 같은 괄호주
+            return re.sub(r"<[^>]*>", "X", c).replace("…", "").replace("|", "").strip()
+
+        self.gil("init", "--name", "clew")
+        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1")
+        bad, ran = [], 0
+        for c, where in sorted(lines.items()):
+            parts = norm(c).split()
+            if len(parts) < 2 or parts[1] not in cmds or parts[1] in self.NOT_RUN:
+                continue
+            ran += 1
+            try:
+                r = subprocess.run([*GIL_CMD, *parts[1:]], cwd=self.repo, env=env,
+                                   capture_output=True, text=True, timeout=20)
+            except subprocess.TimeoutExpired:
+                bad.append(f"{where} | {' '.join(parts)} | 멈췄다(타임아웃)")
+                continue
+            out = r.stdout + r.stderr
+            for mark in ("알 수 없는 플래그", "알 수 없는 명령"):
+                if mark in out:
+                    bad.append(f"{where} | {' '.join(parts)} | {out.split(chr(10))[0][:70]}")
+                    break
+        self.assertGreater(ran, 30, "돌린 줄이 너무 적다 — 추출이나 제외가 과하다")
+        self.assertEqual(bad, [], "안내가 준 줄이 문법에서 튕긴다:\n" + "\n".join(bad))
+
     def test_every_repo_path_it_points_at_exists(self):
         """에러가 레포 안의 파일을 가리키면 그 파일이 있어야 한다(문서 경로와 같은 규율)."""
         import re, glob
@@ -12269,3 +12325,58 @@ class TestConflictHasAWayOut(GilFixture):
         r = self.gil("chain-merge", "unified", "--purpose", "합치기", "t2")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--resume", r.stdout + r.stderr, "거부만 하고 길을 안 준다")
+
+
+class TestTheScreenCountsOneThing(GilFixture):
+    """**두 숫자가 어긋나면 사람은 그래프가 고장 났다고 읽는다** (상현님, AIL 실사용).
+
+    머리글은 "체인 6개"라 말하는데 전체맵의 체인 선택기에는 5개만 있었다. 둘 다 제 규칙으로는
+    옳았다 — 머리글은 **선언된** 체인(chain-root 가 있는 것)을 세고, 선택기는 **그려진 노드**에서
+    체인을 모았다. 그 사이에 스텝이 아직 없는 체인(AIL 의 ail-fullstack: chain-root 만 있고
+    스텝 0)이 하나 있었고, 화면은 그 차이를 설명하지 않았다.
+
+    열린 체인을 목록에서 빼면 "체인이 열렸다"는 신호가 화면에서 사라진다 — 그건 v3 초기에
+    한 번 고친 자리다(상현님: chain-close 후 새 체인을 발의했는데 뷰어에 아무 변화가 없었다).
+    그러니 빼는 쪽이 아니라 **같이 세는 쪽**으로 맞춘다. 다만 왜 비어 보이는지는 말해 준다."""
+
+    def _build(self):
+        out = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return open(out, encoding="utf-8").read()
+
+    def test_a_chain_with_no_steps_is_still_in_the_list(self):
+        import re, json
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "worked", "--purpose", "스텝이 있는 체인")
+        self.gil("open", "worked/c1", "--author", "clew", "--purpose", "P",
+                 "--body", "정의", "--fits", "목적 그 자체")
+        # 열기만 하고 스텝은 하나도 없는 체인 — 화면에서 사라지면 안 된다.
+        self.gil("chain", "opened", "--purpose", "열리기만 한 체인")
+        html = self._build()
+        declared = json.loads(re.search(r'id="chainsdata"[^>]*>(.*?)</script>', html, re.S).group(1))
+        self.assertIn("opened", declared, "스텝 없는 체인이 목록에서 빠졌다 — 열린 신호가 사라진다")
+        head = int(re.search(r"체인 (\d+)개", html).group(1))
+        self.assertEqual(head, len(declared),
+                         f"머리글({head})과 목록({len(declared)})이 다른 것을 센다")
+
+    def test_the_picker_is_built_from_the_same_list(self):
+        """**이 시험의 한계를 먼저 적는다**: 선택기는 JS 가 화면에서 만든다. 파이썬 시험은 그
+        런타임을 안 돌리므로 여기서는 **소스가 그 목록을 쓰는지**만 본다(약한 판정이다).
+
+        그래도 거는 이유: 앞 시험은 서버가 보낸 목록과 머리글만 봐서, 화면 쪽을 옛 코드로
+        되돌려도 통과했다 — 정작 어긋났던 자리가 화면이었는데. 약한 판정이라도 그 자리를
+        비워 두면, 다음에 같은 회귀가 아무 저항 없이 들어온다."""
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go",
+                                "viewer_serve.go"), encoding="utf-8").read()
+        self.assertIn("DECLARED", src, "선언된 체인 목록을 화면이 안 읽는다")
+        self.assertRegex(src, r"const ALLCHAINS=\[\.\.\.new Set\(\[\.\.\.DRAWN,\.\.\.DECLARED\]\)\]",
+                         "선택기가 그려진 노드에서만 체인을 모은다 — 머리글과 다른 것을 센다")
+
+    def test_the_list_says_why_that_chain_looks_empty(self):
+        """같이 세되, **왜 비어 보이는지**는 말한다 — 안 그러면 골랐을 때 빈 화면만 남는다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "opened", "--purpose", "열리기만 한 체인")
+        html = self._build()
+        self.assertIn("map.filter.nosteps", html, "스텝 없음을 말할 자리가 없다")
+        self.assertIn("스텝 없음", html, "사전에 그 문구가 없다")

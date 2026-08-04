@@ -663,6 +663,10 @@ var i18nDict = map[string]map[string]string{
 		"ko": "전체 ({n}개 체인)", "en": "All ({n} chains)",
 		"zh-CN": "全部（{n} 条链）", "zh-TW": "全部（{n} 條鏈）",
 	},
+	"map.filter.nosteps": {
+		"ko": "(스텝 없음 — 열리기만 했다)", "en": "(no steps yet — just opened)",
+		"zh-CN": "（尚无步骤——只是开启了）", "zh-TW": "（尚無步驟——只是開啟了）",
+	},
 	"map.filter.only": {
 		"ko": "— 이 체인만 그린다(다른 체인은 숨김). 계보 전체는 \"전체\".",
 		"en": "— drawing this chain only (others hidden). Pick “All” for the whole lineage.",

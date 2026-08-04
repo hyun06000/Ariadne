@@ -779,6 +779,11 @@ func renderHTML(g graphView, static bool) string {
 		b.WriteString(`<script id="cycledata" type="application/json">` + cycleJSON(g, static) + `</script>`)
 		b.WriteString(`<script id="parentdata" type="application/json">` + parentsJSON(g) + `</script>`)
 		b.WriteString(`<script id="dagdata" type="application/json">` + dagJSON(g, static) + `</script>`)
+		// **선언된 체인 전부**(스텝이 아직 없는 것 포함). 머리글은 이걸 세는데 전체맵·선택기는
+		// 그려진 노드에서 체인을 모았다 — 그래서 화면이 "체인 6개"라 말하면서 목록엔 5개만
+		// 내놨다(실측: AIL 의 ail-fullstack 은 chain-root 만 있고 스텝이 0이다). 두 숫자가
+		// 어긋나면 사람은 그래프가 고장 났다고 읽는다. 한 곳에서 온 목록을 둘 다 쓴다.
+		b.WriteString(`<script id="chainsdata" type="application/json">` + chainNamesJSON(g) + `</script>`)
 		// 작업중(미커밋)이 **어디서** 벌어지는지(#79 후속). static 스냅샷은 워킹트리와 무관하다.
 		if !static {
 			b.WriteString(`<script id="workdata" type="application/json">` + workJSON(g) + `</script>`)
@@ -1774,6 +1779,20 @@ func dagJSON(g graphView, static bool) string {
 
 // parentsJSON — 체인 계보(자식→부모)를 JS 로 넘긴다. 사이클 첫 스텝(define)을 열 때
 // "이 체인이 무엇을 이어받았는지"(들어오는 계보)를 보고서 카드에 보이려고.
+// chainNamesJSON — 선언된 체인 이름 전부(머리글이 세는 것과 **같은 목록**).
+func chainNamesJSON(g graphView) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, c := range g.chains {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf("%q", c.name))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
 func parentsJSON(g graphView) string {
 	var sb strings.Builder
 	sb.WriteString("{")
@@ -2401,6 +2420,7 @@ function buildLangToggle(){
 
 const DATA=JSON.parse(document.getElementById('cycledata')?.textContent||'{}');
 const PARENTS=JSON.parse(document.getElementById('parentdata')?.textContent||'{}');
+const DECLARED=JSON.parse(document.getElementById('chainsdata')?.textContent||'[]');
 const DAG=JSON.parse(document.getElementById('dagdata')?.textContent||'[]');
 // 미커밋 작업은 아직 커밋이 아니라 노드가 없다 — 그래서 커밋 전까지 "어디서 손대고 있는지"가
 // 그래프 어디에도 없었다(상현님). 앵커(가장 가까운 조상 스텝) 옆에 유령 노드로 그린다.
@@ -3230,7 +3250,7 @@ function chainFilterBar(chains){
   const mk=(v,t)=>{const o=document.createElement('option');o.value=v;o.textContent=t;
     if(v===MAP_CHAIN)o.selected=true;sel.appendChild(o);};
   mk('',T('map.filter.all',{n:chains.length}));
-  chains.forEach(c=>mk(c,c));
+  chains.forEach(c=>mk(c, DRAWN&&!DRAWN.has(c) ? c+' '+T('map.filter.nosteps') : c));
   sel.addEventListener('change',()=>{
     MAP_CHAIN=sel.value;
     try{ localStorage.setItem('gilMapChain',MAP_CHAIN); }catch(e){}
@@ -3290,7 +3310,9 @@ function buildStepMap(){
   if(!host)return;
   host.replaceChildren();
   const folded=aggregateDAG(MAP_DEPTH);
-  const ALLCHAINS=[...new Set(folded.map(n=>n.chain).filter(Boolean))].sort();
+  // 그려진 노드의 체인 ∪ **선언된 체인**(스텝이 아직 없어도 열린 것은 열린 것이다).
+  const DRAWN=new Set(folded.map(n=>n.chain).filter(Boolean));
+  const ALLCHAINS=[...new Set([...DRAWN,...DECLARED])].sort();
   if(MAP_CHAIN&&!ALLCHAINS.includes(MAP_CHAIN))MAP_CHAIN='';   // 사라진 체인이 필터에 남지 않게
   const VIS=folded.filter(n=>!MAP_CHAIN||n.chain===MAP_CHAIN);
   host.appendChild(chainFilterBar(ALLCHAINS));
