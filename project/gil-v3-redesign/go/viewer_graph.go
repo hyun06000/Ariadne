@@ -1168,3 +1168,57 @@ func chainLevelCommits() map[string]string {
 	}
 	return m
 }
+
+// reduceTransitiveParents — 부모 후보들 중 **다른 부모의 조상인 것**을 뺀다(이행 축소).
+//
+// 전체맵의 엣지는 커밋 위상에서 유도한다. 그런데 조상 스텝을 모으는 탐색은 머지를 지나면
+// 그 갈래 전체를 딸려 오므로, A→B→C 인 자리에 A→C 가 함께 그려진다. 사람이 보는 것은
+// "부모가 여럿인 사이클"이지만 실제로는 한 줄이다 — **바로 앞이 무엇인지**가 안 읽힌다.
+//
+// 남기는 것은 **가장 가까운 것**(다른 부모의 조상이 아닌 것)이다. 조상 쪽을 남기면 정작
+// 직전 스텝이 사라진다. 순서는 들어온 순서를 지킨다(레인 배치가 순서에 기댄다).
+func reduceTransitiveParents(ps []string, parents map[string][]string) []string {
+	uniq := make([]string, 0, len(ps))
+	seen := map[string]bool{}
+	for _, p := range ps {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			uniq = append(uniq, p)
+		}
+	}
+	if len(uniq) < 2 {
+		return uniq
+	}
+	inSet := map[string]bool{}
+	for _, p := range uniq {
+		inSet[p] = true
+	}
+	// q 에서 조상으로 거슬러 오르며 만나는 다른 후보는 전부 중복이다(q 를 통해 들어온다).
+	redundant := map[string]bool{}
+	for _, q := range uniq {
+		visited := map[string]bool{q: true}
+		stack := append([]string{}, parents[q]...)
+		for len(stack) > 0 {
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if cur == "" || visited[cur] {
+				continue
+			}
+			visited[cur] = true
+			if inSet[cur] {
+				redundant[cur] = true
+			}
+			stack = append(stack, parents[cur]...)
+		}
+	}
+	out := make([]string, 0, len(uniq))
+	for _, p := range uniq {
+		if !redundant[p] {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 { // 순환 등으로 전부 지워지면 원본을 지킨다 — 없는 것보다 낫다
+		return uniq
+	}
+	return out
+}

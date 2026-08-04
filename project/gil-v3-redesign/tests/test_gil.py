@@ -11738,3 +11738,97 @@ class TestReopeningTheViewerIsOneMove(GilFixture):
             self.assertIn("git 저장소가 아니다", r.stdout + r.stderr)
         finally:
             shutil.rmtree(work, ignore_errors=True)
+
+
+class TestEdgesDoNotRepeatWhatIsAlreadyThere(GilFixture):
+    """**A→B→C 인데 A→C 까지 그린다** (상현님 관측).
+
+    전체맵의 엣지는 커밋 위상에서 **유도한다**. 조상 스텝을 찾는 탐색이 비-스텝 커밋을 뚫고
+    올라가는데, 머지를 하나 지나면 그 갈래의 스텝이 통째로 딸려 온다 — 이미 B 를 통해 들어오는
+    A 가 C 에 직접 다시 이어진다. 실측(AIL 저장소): 한 스텝의 부모가 13개였고 그중 이행 중복이
+    아닌 것은 넷뿐이었다. 선이 많은 것은 정보가 많은 것이 아니다 — **어느 것이 바로 앞인지**가
+    안 읽힌다.
+
+    이 값은 사람이 적은 선언이 아니라 도구가 유도한 것이라, 줄여도 기록의 위조가 아니다.
+    선언된 계보(dparents)는 그대로 둔다.
+    """
+
+    def _cycle_that_pulls_the_trunk_in(self):
+        """사이클 가지에서 **체인 줄기를 git 머지로 끌어온 뒤** 스텝을 뜬다.
+
+        실사용(AIL)에서 부모 8개·13개가 나온 자리가 정확히 이 모양이다 — 머지 하나를
+        지나는 순간 그 갈래의 스텝이 통째로 조상 후보가 된다.
+        """
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "d", "--purpose", "P")
+        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
+        self.gil("step", "d/c001", "--kind", "verify", "--title", "V",
+                 "--body", "검증 보고서", "--verdict", "supported")
+        self.gil("step", "d/c001", "--kind", "success", "--title", "됨",
+                 "--body", "종합 보고서")
+        self.gil("close", "d/c001")
+        cycle_branch = self._git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        # 체인 줄기가 **갈라져 앞서간다** — 그 사이 다른 사이클이 돌았다고 보면 된다.
+        self.gil("open", "d/c002", "--author", "clew", "--purpose", "Q")
+        second = self._git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        self._git("checkout", cycle_branch)
+        with open(os.path.join(self.repo, "trunk.txt"), "w", encoding="utf-8") as f:
+            f.write("줄기의 산물\n")
+        self._git("add", "trunk.txt")
+        self._git("commit", "-m", "줄기에서 이어간 작업")
+        trunk = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("checkout", second)
+        self._git("merge", "--no-ff", "-m", "merge: 줄기를 이 사이클로", trunk)
+        self.gil("step", "d/c002", "--kind", "verify", "--title", "V",
+                 "--body", "검증 보고서", "--verdict", "supported")
+
+    def _dag_parents(self):
+        out_html = os.path.join(self.repo, "g.html")
+        r = self.gil("viewer", "build", "--out", out_html)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        html = open(out_html, encoding="utf-8").read()
+        pat = (r'\{"sha":"([0-9a-f]+)","chain":"([^"]*)","cycle":"([^"]*)","step":"([^"]*)",'
+               r'"kind":"[^"]*","outcome":"[^"]*","here":\w+,"sprout":\w+,"parents":\[([^\]]*)\]')
+        out = {}
+        for m in re.finditer(pat, html):
+            refs = [x.strip('"') for x in m.group(5).split(",") if x.strip()]
+            out[m.group(2) + "/" + m.group(3) + "/" + m.group(4)] = refs
+        self.assertTrue(out, "DAG 노드를 하나도 못 읽었다 — 시험이 형해화됐다")
+        return out
+
+    def test_no_parent_is_reachable_through_another(self):
+        """부모 중 **다른 부모의 조상인 것**이 하나도 없어야 한다.
+
+        모양에 기대지 않고 성질을 잰다 — 어느 자리에서 중복이 생기든 이 단언이 잡는다.
+        """
+        self._cycle_that_pulls_the_trunk_in()
+        parents = self._dag_parents()
+        fanin = [k for k, v in parents.items() if len(v) > 1]
+        for ref, ps in parents.items():
+            for a in ps:
+                for b in ps:
+                    if a == b:
+                        continue
+                    anc = self._git("merge-base", "--is-ancestor", a, b).returncode == 0
+                    self.assertFalse(anc, f"{ref}: {a[:7]} 는 {b[:7]} 를 통해 이미 들어온다")
+        # 축소가 다 지워서 통과한 것이 아님을 확인한다(형해화 방지).
+        self.assertEqual(len(fanin), 0,
+                         f"이행 축소 뒤에도 갈래가 남았다면 그건 진짜 합류여야 한다: {fanin}")
+
+    def test_the_fixture_really_creates_a_fan_in(self):
+        """이 시험이 **재현하고 있는지**를 시험한다 — 머지가 없으면 아무것도 안 재고 있다."""
+        self._cycle_that_pulls_the_trunk_in()
+        merges = self._git("rev-list", "--merges", "--all").stdout.split()
+        self.assertTrue(merges, "fixture 가 머지를 안 만들었다 — 재현이 아니다")
+        # 그 머지를 지난 스텝이 실제로 두 갈래의 조상을 갖는다(축소 전 상태의 근거).
+        step = self._git("log", "--all", "--format=%H %s", "--grep", "d/c002/s2").stdout.split()
+        self.assertTrue(step, "머지 뒤 스텝을 못 찾았다")
+
+    def test_no_step_loses_its_lineage_entirely(self):
+        """줄이는 것과 끊는 것은 다르다 — 부모가 있던 노드는 여전히 부모가 있어야 한다."""
+        self._cycle_that_pulls_the_trunk_in()
+        parents = self._dag_parents()
+        for ref, ps in parents.items():
+            if ref.endswith("/s1"):
+                continue
+            self.assertTrue(ps, f"{ref} 이 계보를 통째로 잃었다")
