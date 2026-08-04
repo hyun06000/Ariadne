@@ -594,6 +594,16 @@ func cmdOpen(args []string) {
 	datasets := fs.strList("dataset")
 	datasetNote := fs.str("dataset-note", "")
 	subjects := fs.strList("subject")
+	// **셋을 만드는 사이클**(이슈 #119, 상현님). 평가셋을 요구하는 체인에서 그 셋을 *만드는*
+	// 설계 사이클은 열 수가 없었다 — 셋은 이 사이클의 **산출물**인데 선언은 이 사이클을 **여는
+	// 조건**이라서다(닭-달걀). 사람이 하게 되는 것 셋(해시 날조 · 앞 국면의 엉뚱한 셋 · 파일
+	// 먼저 만들고 사이클 나중)이 전부 기록을 상하게 한다. 좌표를 요구하는 규칙이 좌표를
+	// 오염시킨 것이다.
+	//
+	// 요구를 없애지 않는다 — **옳은 시점으로 옮긴다**(리포트의 2번 제안): 열 때는 이름만,
+	// 닫을 때 실제 sha 를 요구한다. 그러면 원래 취지(#79·#81)가 오히려 더 세게 지켜지고,
+	// "이 사이클이 그 셋을 만들었다"는 간선이 그래프에 남는다.
+	produces := fs.strList("produces-dataset")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil open <chain>/<cycle> [--author <who>] (--purpose <P> | --from-plan <n>) [--parent <cyc>...] [--refutes <c>/<cy>/<step>...] [--refines <c>/<cy>/<step>...] [--goal <달성 기준>] [--inherit <전수>] [--title T] [--body B | --body-file F|-]")
@@ -646,7 +656,7 @@ func cmdOpen(args []string) {
 	}
 	// 측정 좌표(이슈 #79·#81) — 체인이 요구하면 선언 없이는 못 연다. 같은 체인 안에서 축이
 	// 바뀌면 막지는 않되 조용히 넘어가지 않는다.
-	requireCoords(chain, *datasets, *subjects)
+	requireCoords(chain, *datasets, *subjects, *produces)
 	for _, ln := range coordDriftLines(chain, *datasets, *subjects) {
 		stderr(ln)
 	}
@@ -891,6 +901,10 @@ func cmdOpen(args []string) {
 	}
 	if n := strings.TrimSpace(*datasetNote); n != "" {
 		tr = append(tr, [2]string{"Gil-Dataset-Note", n})
+	}
+	for _, pd := range *produces {
+		// 산출물 선언 — 닫을 때 실제 sha 를 요구하는 근거이자, 그래프에 남는 간선이다.
+		tr = append(tr, [2]string{"Gil-Produces-Dataset", pd})
 	}
 	for _, sj := range *subjects {
 		tr = append(tr, [2]string{"Gil-Subject", sj}) // 무엇을 쟀나 — 판정의 대상(이슈 #81)
@@ -2082,12 +2096,17 @@ func cmdClose(args []string) {
 	// --reason <왜 접나> (이슈 #115 후속): 죽은 잎 없이 --abandon 할 때 필수. 포기 선언 자체가
 	// 종결이지만, **왜** 접는지가 없으면 나중에 그것이 판단이었는지 방치였는지 모른다.
 	reason := fs.str("reason", "")
+	// **약속한 산출물의 좌표는 닫을 때 받는다**(이슈 #119). --produces-dataset 로 연 사이클은
+	// 그 셋을 만들겠다고 선언한 것이다 — 닫을 때는 그것이 실물로 있어야 하고, 그러니 여기서
+	// 실제 sha 를 요구한다. 요구를 없앤 게 아니라 **잴 수 있는 시점으로 옮긴 것**이다.
+	producedDatasets := fs.strList("dataset")
 	pos := fs.parse(args)
 	if len(pos) < 1 {
 		die("사용: gil close <chain>/<cycle> [--verdict V] [--goal-met|--goal-partial <못 한 것>|--goal-impossible <이유>] [--abandon]")
 	}
 	ref := pos[0]
 	chain, cycle, _ := cut(ref, "/")
+	requireProducedDatasets(chain, cycle, *producedDatasets)
 	steps := currentCycle(chain, cycle)
 	if len(steps) == 0 {
 		die("거부: " + ref + " 없음")
@@ -2326,6 +2345,13 @@ func cmdClose(args []string) {
 	tr := [][2]string{
 		{"Gil-Chain", chain}, {"Gil-Cycle", cycle},
 		{"Gil-Kind", "close"}, {"Gil-Verdict", *verdict},
+	}
+	// **만들겠다고 한 셋의 실물 좌표를 여기 남긴다**(이슈 #119). 받기만 하고 안 적으면 그
+	// 좌표는 검사에만 쓰이고 사라진다 — "이 사이클이 그 셋을 만들었다"는 간선이 그래프에
+	// 남아야 다음 사이클이 그 셋 위에 섰다고 말할 수 있다.
+	for _, d := range *producedDatasets {
+		tr = append(tr, [2]string{"Gil-Dataset", d})
+		body += "\n📐 이 사이클이 만든 평가셋: " + d
 	}
 	if g := cycleGoal(chain, cycle, "--branches"); g != "" {
 		// 목표에 **어떻게** 답했는지를 그래프에 남긴다(이슈 #80). 못 한 조각·불가 사유가

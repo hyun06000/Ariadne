@@ -119,11 +119,14 @@ func coordDriftLines(chain string, newDatasets, newSubjects []string) []string {
 // 왜 거부인가. 보고자의 체인은 사람이 인터뷰에서 "새 사이클을 열 때 '어느 평가셋인가'를
 // 답하지 않으면 진행이 막히면 됐다"를 **합격선으로 세웠다.** 도구가 그걸 표현하지 못하면
 // 사람이 세운 기준을 지킬 수단이 없다 — 안내로는 부족하다.
-func requireCoords(chain string, datasets, subjects []string) {
-	if chainRequires(chain, "Gil-Require-Dataset") && len(datasets) == 0 {
+func requireCoords(chain string, datasets, subjects, produces []string) {
+	if chainRequires(chain, "Gil-Require-Dataset") && len(datasets) == 0 && len(produces) == 0 {
 		die("거부: 체인 \"" + chain + "\" 은 사이클마다 평가셋 선언을 요구한다(--require-dataset 로 열린 체인).\n" +
 			"  이 측정이 **어느 셋 위에 서는지** 적어라:\n" +
 			"    gil open " + chain + "/<cycle> … --dataset <이름>@sha256:<hex>\n" +
+			"  이 사이클이 셋을 **만드는** 설계 사이클이면 산출물로 선언하라(이슈 #119):\n" +
+			"    gil open " + chain + "/<cycle> … --produces-dataset <이름>\n" +
+			"    (여는 조건은 이름뿐이고, **닫을 때** 실제 sha 를 요구한다 — 없는 좌표를 지어내지 않게)\n" +
 			"  이름만으로는 결정되지 않는다 — 같은 행수·같은 합계인데 내용이 다른 파일이 실제로 있었다(#79).")
 	}
 	if chainRequires(chain, "Gil-Require-Subject") && len(subjects) == 0 {
@@ -162,4 +165,67 @@ func cycleCoordOf(chain, cycle string) ([]string, []string) {
 		}
 	}
 	return nil, nil
+}
+
+// requireProducedDatasets — 열 때 "만들겠다"고 선언한 셋(--produces-dataset)은 **닫을 때**
+// 실물 좌표로 받는다(이슈 #119).
+//
+// 왜 여기인가. 여는 시점에 sha 를 요구하면 닭-달걀이 된다 — 셋은 이 사이클의 산출물이다.
+// 그렇다고 요구를 없애면 "무엇의 점수인지 모르는 수"가 다시 생긴다(#79·#81 이 막으려던 것).
+// 닫는 시점에는 셋이 실물로 있으므로, 그때 받으면 둘 다 지켜진다. 그리고 그 자리에 남은
+// 간선이 "이 사이클이 그 셋을 만들었다"를 말한다.
+func requireProducedDatasets(chain, cycle string, given []string) {
+	var promised []string
+	for _, n := range cycleAnywhere(chain, cycle) {
+		if n.kind == "define" || n.step == "s1" {
+			for _, p := range trailerAllOf(n.sha, "Gil-Produces-Dataset") {
+				if p != "" {
+					promised = append(promised, p)
+				}
+			}
+		}
+	}
+	if len(promised) == 0 {
+		return
+	}
+	var missing []string
+	for _, want := range promised {
+		found := false
+		for _, g := range given {
+			name, _, _ := cut(g, "@")
+			if strings.TrimSpace(name) == want && hasDatasetDigest(g) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, want)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	msg := "거부: 이 사이클은 평가셋을 **만들겠다고** 선언하고 열렸다(--produces-dataset).\n" +
+		"  닫을 때는 그것이 실물로 있어야 한다 — 실제 좌표를 적어라:\n"
+	for _, m := range missing {
+		msg += "    gil close " + chain + "/" + cycle + " … --dataset " + m + "@sha256:<hex>\n"
+	}
+	msg += "  (여는 시점에 sha 를 요구하면 닭-달걀이라 이름만 받았다. 닫는 시점에는 잴 수 있다 —\n" +
+		"   그래서 요구를 없애지 않고 이 자리로 옮겼다. 이슈 #119.)"
+	die(msg)
+}
+
+// trailerAllOf — 한 커밋의 그 키 트레일러 값 전부.
+func trailerAllOf(sha, key string) []string {
+	out := strings.TrimSpace(gitlog("-1", "--format=%(trailers:key="+key+",valueonly,unfold)", sha, "--"))
+	if out == "" {
+		return nil
+	}
+	var vals []string
+	for _, ln := range strings.Split(out, "\n") {
+		if v := strings.TrimSpace(ln); v != "" {
+			vals = append(vals, v)
+		}
+	}
+	return vals
 }

@@ -40,6 +40,8 @@ var helpTable = map[string]helpEntry{
 			"    이 문장을 되읽어 \"여기에 답하라\"고 요구한다 — 전문만 있고 판정 문장이 없으면 아무도\n" +
 			"    그 문서를 잣대로 쓰지 않는다(형해화).\n" +
 			"  --require-dataset / --require-subject: 이 체인의 사이클은 열 때 측정 좌표를 선언해야 한다\n" +
+			"    (셋을 **만드는** 사이클은 gil open … --produces-dataset <이름> 으로 연다 — 여는\n" +
+			"     조건은 이름뿐이고 **닫을 때** 실제 sha 를 요구한다. 이슈 #119)\n" +
 			"    (이슈 #79·#81). 측정 체인이 스스로 합격선을 올리는 문법 — 선언 없으면 open 이 거부된다.",
 		"docs/gil/concepts.md · docs/gil/deployment.md",
 	},

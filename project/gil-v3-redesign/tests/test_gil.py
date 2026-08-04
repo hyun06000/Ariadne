@@ -12551,3 +12551,74 @@ class TestQueriesDoNotLie(GilFixture):
         out = r.stdout + r.stderr
         self.assertIn("못 찾았다", out, "여전히 '없음'이라 단정한다:\n" + out)
         self.assertIn("gil handoff", out, "대조할 길을 안 준다")
+
+
+class TestYouCanOpenACycleThatMakesTheDataset(GilFixture):
+    """**좌표를 요구하는 규칙이 좌표를 오염시켰다** (이슈 #119, 상현님 실사용).
+
+    `--require-dataset` 로 연 체인에서는 **평가셋을 만드는 사이클**을 열 수 없었다. 그 사이클은
+    아직 잴 셋이 없는데 `gil open` 이 `<이름>@sha256:<hex>` 를 요구한다 — 셋은 이 사이클의
+    **산출물**인데 선언은 이 사이클을 **여는 조건**이다(닭-달걀).
+
+    사람이 하게 되는 것 셋이 전부 기록을 상하게 한다: 해시를 지어내거나(#79 가 막으려던 것),
+    앞 국면의 엉뚱한 셋을 적거나("이 수가 그 셋 위에 섰다"는 거짓말), 파일부터 만들고 사이클을
+    나중에 열거나(gil 이 막으려는 '코드 먼저, 기록 나중').
+
+    처방은 요구를 없애는 것이 아니라 **옳은 시점으로 옮기는 것**이다(리포트의 2번): 열 때는
+    이름만(--produces-dataset), **닫을 때** 실제 sha. 그러면 원래 취지가 오히려 더 세게
+    지켜지고, "이 사이클이 그 셋을 만들었다"는 간선이 그래프에 남는다."""
+
+    DIGEST = "a" * 64
+
+    def _chain(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "c", "--purpose", "P", "--reference", "-", "--criterion", "C",
+                 "--require-dataset", input="기준")
+
+    def _finish(self):
+        for s in (["--kind", "hypothesis", "--title", "H", "--body", "가설", "--falsify", "F",
+                   "--falsify-to", "s1", "--plan", "p", "--advances", "a"],
+                  ["--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported",
+                   "--plan-held", "--falsify-unmet", "미관측"],
+                  ["--kind", "analyze", "--title", "A", "--body", "해석", "--finding", "f"],
+                  ["--kind", "success", "--title", "S", "--body", "종합", "--toward", "t",
+                   "--next-design", "d"]):
+            r = self.gil("step", "c/design", *s)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_the_refusal_shows_the_way_out(self):
+        """막되, **없는 좌표를 지어내지 않는 길**을 그 자리에서 준다."""
+        self._chain()
+        r = self.gil("open", "c/design", "--purpose", "평가셋을 정의한다", "--title", "t",
+                     "--body", "정의", "--fits", "t")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--produces-dataset", r.stdout + r.stderr,
+                      "만드는 사이클의 길을 안 보여준다:\n" + r.stdout + r.stderr)
+
+    def test_it_opens_with_a_promise(self):
+        self._chain()
+        r = self.gil("open", "c/design", "--purpose", "평가셋을 정의한다", "--title", "t",
+                     "--body", "정의", "--fits", "t", "--produces-dataset", "app-suite")
+        self.assertEqual(r.returncode, 0, "셋을 만드는 사이클을 못 연다:\n" + r.stdout + r.stderr)
+
+    def test_closing_requires_the_real_coordinate(self):
+        """**요구는 사라지지 않는다 — 잴 수 있는 시점으로 옮겨갈 뿐이다.**"""
+        self._chain()
+        self.gil("open", "c/design", "--purpose", "평가셋 정의", "--title", "t",
+                 "--body", "정의", "--fits", "t", "--produces-dataset", "app-suite")
+        self._finish()
+        r = self.gil("close", "c/design", "--verdict", "supported")
+        self.assertNotEqual(r.returncode, 0, "약속한 셋 없이 닫혔다 — 좌표가 사라진다")
+        self.assertIn("app-suite", r.stdout + r.stderr, "무엇을 적어야 하는지 안 말한다")
+
+    def test_the_coordinate_survives_in_the_graph(self):
+        """받기만 하고 안 적으면 검사에만 쓰이고 사라진다 — 간선이 남아야 다음 사이클이 쓴다."""
+        self._chain()
+        self.gil("open", "c/design", "--purpose", "평가셋 정의", "--title", "t",
+                 "--body", "정의", "--fits", "t", "--produces-dataset", "app-suite")
+        self._finish()
+        spec = "app-suite@sha256:" + self.DIGEST
+        r = self.gil("close", "c/design", "--verdict", "supported", "--dataset", spec)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(spec, self._git("log", "-1", "--format=%B", "c-design").stdout,
+                      "만든 셋의 좌표가 그래프에 안 남았다")
