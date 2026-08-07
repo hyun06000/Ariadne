@@ -90,6 +90,11 @@ func cmdMCP(args []string) {
 	// 설정 파일을 고쳐야 하는데, 비개발자에겐 불가능한 요구다. Claude Code 는 서버를 띄울 때
 	// CLAUDE_PROJECT_DIR 에 프로젝트 루트를 넣어주므로, 그걸 따라가면 **사람이 여는 폴더마다
 	// gil 이 알아서 따라붙는다** — 등록은 한 번, 경로는 사람이 몰라도 된다.
+	//
+	// 다만 CLAUDE_PROJECT_DIR 은 **Claude Code 만** 넣어주는 벤더 환경변수다 — Claude Desktop
+	// 에서는 이 자리가 비어 모든 툴이 저장소 밖에서 죽었다. 그래서 진짜 답은 MCP 규범인
+	// **roots** 이고(mcp_roots.go), 여기 startup 해석은 그 앞의 폴백으로 남는다.
+	// 우선순위: --repo > roots > CLAUDE_PROJECT_DIR > 현재 위치.
 	target := *repo
 	if target == "" {
 		target = os.Getenv("CLAUDE_PROJECT_DIR")
@@ -99,6 +104,9 @@ func cmdMCP(args []string) {
 		if err != nil || os.Chdir(abs) != nil {
 			die("거부: 저장소 경로로 이동 못 함: " + target)
 		}
+	}
+	if *repo != "" {
+		mcpRepoPinned, _ = filepath.Abs(*repo)
 	}
 	// --repo 가 호스트의 정답을 덮으면 **거부**한다(이슈 #51, 경고에서 승격).
 	//
@@ -116,18 +124,7 @@ func cmdMCP(args []string) {
 			a, _ := filepath.Abs(*repo)
 			b, _ := filepath.Abs(host)
 			if a != b {
-				mcpRepoMismatch = "거부: 설정의 --repo 가 지금 열린 폴더를 덮어쓰고 있다.\n" +
-					"  --repo(설정에 박힌 곳): " + a + "\n" +
-					"  지금 열린 폴더:        " + b + "\n" +
-					"  이대로 두면 사람이 보는 폴더가 아닌 곳에 기록이 쌓인다 — 아무 에러도 없이.\n" +
-					"  (실측: 같은 폴더에서 사람은 체인 2개를, 에이전트는 0개를 봤다.)\n\n" +
-					"  고치는 법 — MCP 설정에서 \"--repo\" 인자만 빼라. 그러면 gil 이 열린 폴더를\n" +
-					"  자동으로 따라간다(세션마다 새로 해석한다). 보통 ~/.claude.json 에 있고,\n" +
-					"  gil 을 처음 시험하던 폴더가 그대로 박혀 있는 경우가 대부분이다:\n" +
-					"    \"args\": [\"mcp\", \"serve\"]      ← 이렇게 (--repo 없이)\n" +
-					"  고친 뒤 앱을 완전히 종료했다 다시 켜라.\n\n" +
-					"  사람에게는 이렇게 말해라: \"설정에 예전 테스트 폴더가 박혀 있어서, 지금 보고\n" +
-					"  계신 폴더가 아닌 곳에 기록이 쌓이게 돼 있어요. 설정 한 줄만 지우면 됩니다.\""
+				mcpRepoMismatch = repoMismatchMessage(a, b)
 			}
 		}
 	}
@@ -140,6 +137,9 @@ func cmdMCP(args []string) {
 		Title:   "gil — 사고 역사를 git 커밋 그래프 위에",
 		Version: gilVersion,
 	}, &mcp.ServerOptions{Capabilities: uiCapabilities()})
+	// roots 훅은 툴 등록보다 **먼저** 선다 — 어느 툴이든 실제 일을 하기 전에 저장소가 정해져
+	// 있어야 한다. 뒤에 걸면 등록 순서에 따라 어떤 툴은 저장소 없이 들어간다.
+	installRootsMiddleware(s)
 	registerGilTools(s)
 	registerGilUI(s)
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
@@ -176,19 +176,37 @@ func addList(args []string, name string, vals []string) []string {
 // 준다. 이걸 안 하면 날 git 에러("git checkout 실패: exit status 128")가 그대로 올라가는데,
 // 비개발자는 물론 에이전트도 거기서 다음 수를 못 찾는다(이슈 #47 의 최악 형태).
 func requireReady() {
+	requireRepoHere()
+	if !gitOK("rev-parse", "--verify", "-q", globalRef) {
+		die("거부: 이 저장소엔 아직 gil 세계가 없다(존재·기억이 사는 refs/gil/global 부재).\n" +
+			"  먼저 gil_init 툴을 불러라. 그 전에는 체인도 사이클도 열 수 없다.")
+	}
+}
+
+// requireRepoHere — **자리만** 본다: 어긋남이 없고, 여기가 git 저장소인가.
+//
+// 왜 갈랐나. 읽기만 하는 표면(그래프 관전)은 gil 세계가 아직 없어도 볼 것이 있다 — 평범한
+// git 저장소의 커밋 그래프다. 거기에 "gil_init 부터 불러라"를 세우면, 보러 온 사람에게
+// **저장소를 개조하라**고 답하는 셈이다. 자리 검사와 세계 검사는 묻는 것이 다르다.
+func requireRepoHere() {
 	// 저장소 해석이 어긋난 채로는 아무것도 하지 않는다(이슈 #51). 여기서 막지 않으면
 	// 기록이 사람이 안 보는 폴더에 조용히 쌓인다.
 	if mcpRepoMismatch != "" {
 		die(mcpRepoMismatch)
 	}
 	if !gitOK("rev-parse", "--git-dir") {
-		die("거부: 이 폴더는 아직 gil 로 관리되지 않는다(git 저장소가 아니다).\n" +
-			"  먼저 gil_init 툴을 불러라 — 저장소를 만들고 존재·기억까지 한 번에 세운다.\n" +
-			"  사람에게는 이렇게 말해라: \"이 폴더에서 작업 기록을 시작할게요.\"")
-	}
-	if !gitOK("rev-parse", "--verify", "-q", globalRef) {
-		die("거부: 이 저장소엔 아직 gil 세계가 없다(존재·기억이 사는 refs/gil/global 부재).\n" +
-			"  먼저 gil_init 툴을 불러라. 그 전에는 체인도 사이클도 열 수 없다.")
+		wd, _ := os.Getwd()
+		// **먼저 물어야 할 것은 "여기가 맞나"다.** 호스트가 roots 를 안 주면 gil 은 프로세스가
+		// 뜬 자리(대개 `/`)에 선다 — 그때 이 자리는 "저장소가 없다"가 아니라 "엉뚱한 데 서
+		// 있다"이다. 옛 문구는 그 구분 없이 gil_init 만 가리켰고, 실측에서 에이전트는 막힌
+		// 채로 "경로를 지정할 수단이 없다"고 답했다. 아는 것을 전할 구멍을 여기서 알려준다.
+		die("거부: 지금 선 폴더가 git 저장소가 아니다 — " + wd + "\n" +
+			"  (이 자리를 정한 것: " + repoSource + ")\n\n" +
+			"  ① 사람이 보고 있는 저장소가 따로 있다면 — 그 절대경로를 **repo 인자**에 실어\n" +
+			"     같은 툴을 다시 불러라. 호스트가 열린 폴더를 안 알려줄 때(roots 미지원)\n" +
+			"     이게 정규 경로다. 설정을 고칠 필요 없다.\n" +
+			"  ② 정말 이 폴더에서 시작하는 것이라면 — gil_init 을 불러라(저장소·존재·기억을\n" +
+			"     한 번에 세운다). 사람에게는: \"이 폴더에서 작업 기록을 시작할게요.\"")
 	}
 }
 
@@ -196,7 +214,8 @@ func requireReady() {
 func tool[In any](s *mcp.Server, name, desc string, argv func(In) []string, run func([]string)) {
 	mcp.AddTool(s, &mcp.Tool{Name: name, Description: desc},
 		func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
-			out, err := runGil(func() { requireReady(); run(argv(in)) })
+			// 호출이 저장소를 실어 왔으면 거기로 옮긴다 — roots 를 안 주는 호스트의 유일한 길.
+			out, err := runGil(func() { adoptCallRepo(in); requireReady(); run(argv(in)) })
 			if err != nil {
 				return nil, nil, err
 			}
@@ -221,8 +240,17 @@ func repoBanner() string {
 	if err != nil || wd == "" {
 		return ""
 	}
+	// 자리를 **무엇이 정했는지**까지 말한다. 이걸 안 밝히던 동안, 어긋남 하나를 쫓는 데
+	// Claude 로그와 lsof 가 필요했다 — 도구가 아는 것을 안 말하면 사람이 도구 바깥에서
+	// 캐내야 한다(#110 이 뷰어에서 고친 것과 같은 병).
+	who := mcpClient
+	if who == "" {
+		who = "(호스트가 이름을 안 밝힘)"
+	}
 	return "📂 " + wd + "\n" +
-		"  (이 폴더의 기록을 읽고 있다. 사람이 보고 있는 폴더와 다르면 그 자리에서 알려라.)\n\n"
+		"  이 자리를 정한 것: " + repoSource + "  ·  부른 호스트: " + who + "\n" +
+		"  (이 폴더의 기록을 읽고 있다. 사람이 보고 있는 폴더와 다르면 그 자리에서 알려라 —\n" +
+		"   그때는 repo 인자에 올바른 저장소 경로를 실어 다시 불러라.)\n\n"
 }
 
 // ── 툴 입력 구조체 ──
@@ -230,6 +258,7 @@ func repoBanner() string {
 // 필드 설명(jsonschema 태그)은 LLM 이 읽는 유일한 사용법이다 — CLI 도움말과 같은 말을 한다.
 
 type inChain struct {
+	inRepo
 	Name          string `json:"name" jsonschema:"체인 이름(소문자·숫자·하이픈)"`
 	Purpose       string `json:"purpose" jsonschema:"이 체인이 무엇을 풀려는지 자연어로"`
 	Inherit       string `json:"inherit,omitempty" jsonschema:"앞 체인에서 물려받은 전제·교훈"`
@@ -244,6 +273,7 @@ type inChain struct {
 }
 
 type inOpen struct {
+	inRepo
 	Target  string   `json:"target" jsonschema:"chain/cycle"`
 	Fits    string   `json:"fits,omitempty" jsonschema:"이 사이클이 체인 목적에 어떻게 기여하는가 — 필수. 여는 자리에서 체인 목적과 대면한다"`
 	Misfit  string   `json:"misfit,omitempty" jsonschema:"이 체인의 것이 아니라고 판단했으면 그 이유. 열지 않고 기억에 남긴다"`
@@ -262,6 +292,7 @@ type inOpen struct {
 }
 
 type inStep struct {
+	inRepo
 	Target      string   `json:"target" jsonschema:"chain/cycle"`
 	Kind        string   `json:"kind" jsonschema:"define|hypothesis|experiment|verify|analyze|backtrack"`
 	Title       string   `json:"title,omitempty"`
@@ -293,6 +324,7 @@ type inStep struct {
 }
 
 type inTarget struct {
+	inRepo
 	Target  string `json:"target" jsonschema:"chain/cycle"`
 	Verdict string `json:"verdict,omitempty" jsonschema:"닫는 판정(기본 supported)"`
 	Abandon bool   `json:"abandon,omitempty" jsonschema:"이 사이클을 성과 없이 접는다"`
@@ -300,6 +332,7 @@ type inTarget struct {
 }
 
 type inChainName struct {
+	inRepo
 	Name    string `json:"name" jsonschema:"체인 이름"`
 	Verdict string `json:"verdict,omitempty"`
 	Retro   string `json:"retro,omitempty" jsonschema:"회고 파일 경로 — 기준 대비 달성도. 기준(인터뷰)이 있는 체인은 필수"`
@@ -307,12 +340,14 @@ type inChainName struct {
 }
 
 type inApprove struct {
+	inRepo
 	Target string `json:"target" jsonschema:"chain/cycle"`
 	Title  string `json:"title,omitempty"`
 	Body   string `json:"body,omitempty"`
 }
 
 type inReject struct {
+	inRepo
 	Target string `json:"target" jsonschema:"chain/cycle"`
 	To     string `json:"to" jsonschema:"되돌아갈 조상 define 스텝"`
 	Title  string `json:"title,omitempty"`
@@ -320,18 +355,21 @@ type inReject struct {
 }
 
 type inLog struct {
+	inRepo
 	Chain string `json:"chain,omitempty" jsonschema:"범위를 좁힐 체인(생략=전체)"`
 	Depth string `json:"depth,omitempty" jsonschema:"chain|cycle|step (기본 step)"`
 	All   bool   `json:"all,omitempty" jsonschema:"죽은 잎·형제 가지까지 — 벽의 지도"`
 }
 
 type inGoto struct {
+	inRepo
 	Ref string `json:"ref" jsonschema:"<chain>/<cycle> (그 사이클의 산 잎으로) 또는 <chain>/<cycle>/<step> (그 자리로)"`
 }
 
-type inEmpty struct{}
+type inEmpty struct{ inRepo }
 
 type inDeploy struct {
+	inRepo
 	At    string `json:"at" jsonschema:"chain/cycle/step — 무엇을 배포했나"`
 	Tag   string `json:"tag" jsonschema:"릴리스 태그(v0.2.0)"`
 	URL   string `json:"url,omitempty"`
@@ -500,7 +538,7 @@ func registerGilTools(s *mcp.Server) {
 		// 관전 서버의 시스템 브라우저 자동 실행은 끈다 — 호스트 안에서 도는 에이전트에게는
 		// 밖으로 튀어나오는 창이 방해다(이슈 #48). 주소는 출력에 그대로 나온다.
 		a := []string{"--no-open"}
-		out, err := runGil(func() { cmdInit(addFlag(a, "name", in.Name)) })
+		out, err := runGil(func() { adoptCallRepo(in); cmdInit(addFlag(a, "name", in.Name)) })
 		if err != nil {
 			return nil, nil, err
 		}
@@ -537,15 +575,18 @@ func registerGilTools(s *mcp.Server) {
 }
 
 type inInterviewWait struct {
+	inRepo
 	Chain   string `json:"chain" jsonschema:"기다릴 체인 이름(또는 개시 인터뷰 슬러그)"`
 	Timeout string `json:"timeout,omitempty" jsonschema:"최대 대기 초(기본 600). 대화형이면 넉넉히"`
 }
 
 type inInterviewStatus struct {
+	inRepo
 	Chain string `json:"chain" jsonschema:"확인할 체인 이름"`
 }
 
 type inInit struct {
+	inRepo
 	Name string `json:"name,omitempty" jsonschema:"이 저장소에서 깨어날 존재의 이름. 생략하면 이름 없이 심고, 이름 짓는 것이 그 존재의 첫 과제가 된다"`
 }
 
@@ -560,6 +601,7 @@ type inInit struct {
 // 질문을 pending 으로 심는다 — 뷰어 폼에서 답할 수 있게. 어느 쪽이든 사람의 답이 기준이 된다.
 
 type inInterview struct {
+	inRepo
 	Chain     string          `json:"chain" jsonschema:"기준 문서를 만들 체인 이름"`
 	Title     string          `json:"title,omitempty"`
 	Questions []interviewQMCP `json:"questions" jsonschema:"사람에게 물을 질문들. 스스로 답을 지어내지 말고 반드시 물어라"`

@@ -73,7 +73,8 @@ func registerGilUI(s *mcp.Server) {
 		}},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inEmpty) (*mcp.CallToolResult, any, error) {
 		// 툴 결과는 두 독자를 갖는다: 모델(텍스트 요약)과 앱(팁 서명 → 낡음 감지).
-		summary, err := runGil(func() { cmdLog([]string{"--depth", "chain"}) })
+		// 저장소를 실어 왔으면 먼저 그리로 — 그래프는 "어느 저장소의 것이냐"가 전부다.
+		summary, err := runGil(func() { adoptCallRepo(in); requireRepoHere(); cmdLog([]string{"--depth", "chain"}) })
 		if err != nil {
 			return nil, nil, err
 		}

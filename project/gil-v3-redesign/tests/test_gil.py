@@ -20,6 +20,7 @@ import time
 import shutil
 import unittest
 import urllib.request
+from pathlib import Path
 
 # gil 은 Go 단일 바이너리가 유일 구현이다(Python 참조 은퇴, 2026-07-24 상현님).
 # 기본은 빌드된 Go 바이너리. GIL_BIN 으로 다른 경로를 물릴 수 있다.
@@ -5221,6 +5222,163 @@ class TestMCPServe(GilFixture):
         ])
         self.assertFalse(r[1][0], r[1][1])
         self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "pending")
+
+
+class TestMCPRoots(GilFixture):
+    """MCP roots — 호스트가 연 폴더를 규범대로 물어본다.
+
+    왜 여기까지 테스트하나. gil 은 저장소를 CLAUDE_PROJECT_DIR 로 찾았는데 그건 Claude Code
+    만 넣어주는 **벤더 환경변수**다. Claude Desktop 은 안 넣는다 — 그래서 Desktop 에서는
+    프로세스가 뜬 자리(저장소 밖)를 그대로 썼고, gil_graph 든 gil_log 든 첫 줄에서
+    `fatal: ... .git 저장소가 아닙니다` 로 죽었다. 실측에서 사람은 그걸 **렌더링 실패로
+    읽었다** — MCP Apps 위젯이 뜨려다 이 에러로 멈췄으니까. 화면 문제가 아니라 저장소 실종이다.
+
+    그래서 시험은 **환경변수를 지운 채** 서버를 저장소 밖에서 띄운다. 그게 Desktop 이다.
+    환경변수를 남겨 두면 시험은 Claude Code 를 한 번 더 시험하는 것이고, 정작 깨진 길은
+    영원히 안 밟힌다.
+    """
+
+    def _serve_outside(self, calls, roots=None):
+        """저장소 **밖**에서 서버를 띄우고 roots 로만 저장소를 알려준다.
+
+        roots=None 이면 클라이언트가 roots 미지원(옛 호스트) — 그때 어떻게 되는지도 센다.
+        """
+        import json, tempfile
+        self.gil("init")
+        outside = tempfile.mkdtemp()          # git 저장소가 아닌 자리 = Desktop 이 뜨는 자리
+        env = dict(os.environ, GIL_NO_VIEWER="1")
+        env.pop("CLAUDE_PROJECT_DIR", None)   # 벤더 환경변수를 지운다 — 이게 이 시험의 핵심
+        caps = {"roots": {}} if roots is not None else {}
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=outside,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        read = lambda: json.loads(p.stdout.readline())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2025-06-18", "capabilities": caps,
+                             "clientInfo": {"name": "test", "version": "1"}}})
+            read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            results = []
+            for i, (name, args) in enumerate(calls, start=10):
+                send({"jsonrpc": "2.0", "id": i, "method": "tools/call",
+                      "params": {"name": name, "arguments": args}})
+                msg = read()
+                # 서버가 roots/list 를 물으면 호스트처럼 답한다.
+                if msg.get("method") == "roots/list":
+                    send({"jsonrpc": "2.0", "id": msg["id"],
+                          "result": {"roots": roots}})
+                    msg = read()
+                if "error" in msg:
+                    results.append((True, msg["error"].get("message", "")))
+                else:
+                    r = msg["result"]
+                    results.append((bool(r.get("isError")),
+                                    r["content"][0]["text"] if r.get("content") else ""))
+            return results
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
+    def _file_uri(self, path):
+        return Path(path).resolve().as_uri()
+
+    def test_roots_locate_the_repo(self):
+        """호스트가 roots 로 알려준 폴더를 따라간다 — 환경변수 없이, 저장소 밖에서 떠도."""
+        r = self._serve_outside([("gil_log", {})],
+                                roots=[{"uri": self._file_uri(self.repo), "name": "repo"}])
+        self.assertFalse(r[0][0], r[0][1])
+        # 저장소를 못 찾던 그 에러가 사라졌다는 것이 이 시험의 판정이다.
+        self.assertNotIn("저장소가 아닙니다", r[0][1])
+        self.assertNotIn("not a git repository", r[0][1])
+        # 그리고 **그 저장소**를 읽고 있다(읽기 툴은 자기가 선 폴더를 배너로 밝힌다).
+        self.assertIn(str(Path(self.repo).resolve()), r[0][1])
+
+    def test_git_root_wins_over_first(self):
+        """멀티 루트 — git 저장소인 것을 고른다. 첫 번째를 무조건 집으면 남의 폴더에 붙는다.
+
+        #51 이 환경변수에서 이미 겪은 사고다: 사람이 보는 저장소가 아닌 곳에 기록이
+        **아무 에러도 없이** 쌓인다. 순서가 아니라 사실로 고른다.
+        """
+        import tempfile
+        junk = tempfile.mkdtemp()             # git 이 아닌 폴더가 목록 맨 앞에 온다
+        r = self._serve_outside([("gil_log", {})], roots=[
+            {"uri": self._file_uri(junk), "name": "junk"},
+            {"uri": self._file_uri(self.repo), "name": "repo"},
+        ])
+        self.assertFalse(r[0][0], r[0][1])
+        self.assertIn(str(Path(self.repo).resolve()), r[0][1])
+
+    def test_repo_argument_rescues_a_rootless_host(self):
+        """roots 를 안 주는 호스트에서도 **에이전트가 아는 경로**로 되찾는다.
+
+        실측(Claude Desktop): 호스트가 roots 를 선언하지 않아 gil 이 `/` 에 섰고, 그 자리의
+        에이전트는 이렇게 답했다 — "이 툴은 인자를 받지 않아서 저장소 경로를 지정할 수
+        없습니다". **그 에이전트는 올바른 경로를 알고 있었다.** 전할 구멍이 없었을 뿐이다.
+        구멍을 뚫는다. 설정에 박는 --repo 와 달리 이건 **그 호출 하나**에만 산다.
+        """
+        r = self._serve_outside([("gil_log", {"repo": self.repo})], roots=None)
+        self.assertFalse(r[0][0], r[0][1])
+        self.assertIn(str(Path(self.repo).resolve()), r[0][1])
+
+    def test_repo_argument_beats_roots(self):
+        """호출이 말한 저장소가 호스트가 말한 워크스페이스를 이긴다 — 더 구체적인 쪽이.
+
+        멀티 루트에서 지금 이 명령만 다른 저장소를 볼 때, 이 길이 유일하다.
+        """
+        import tempfile
+        other = tempfile.mkdtemp()
+        subprocess.run(["git", "init", "-q", other], check=True)
+        r = self._serve_outside([("gil_log", {"repo": self.repo})],
+                                roots=[{"uri": self._file_uri(other), "name": "other"}])
+        self.assertFalse(r[0][0], r[0][1])
+        self.assertIn(str(Path(self.repo).resolve()), r[0][1])
+
+    def test_bad_repo_argument_is_refused_in_human_words(self):
+        """git 저장소가 아닌 경로를 주면 날 git 에러가 아니라 사람 언어로 거부한다."""
+        import tempfile
+        r = self._serve_outside([("gil_log", {"repo": tempfile.mkdtemp()})], roots=None)
+        self.assertTrue(r[0][0])
+        self.assertIn("git 저장소가 아니다", r[0][1])
+
+    def test_banner_names_who_decided_this_spot(self):
+        """진단 — 지금 자리를 **무엇이 정했고 누가 불렀나**를 도구가 스스로 밝힌다.
+
+        이 결함을 쫓는 데 Claude 로그와 lsof 가 필요했다. 도구가 아는 것을 안 말하면 사람이
+        도구 바깥에서 캐야 한다(#110 이 뷰어에서 고친 것과 같은 병).
+        """
+        r = self._serve_outside([("gil_log", {})],
+                                roots=[{"uri": self._file_uri(self.repo), "name": "repo"}])
+        self.assertIn("이 자리를 정한 것: 호스트가 준 roots", r[0][1])
+        self.assertIn("부른 호스트: test", r[0][1])
+
+    def test_banner_names_the_call_argument(self):
+        """repo 인자로 왔으면 그렇게 말한다 — 두 길이 같은 이름으로 불리면 진단이 못 가른다."""
+        r = self._serve_outside([("gil_log", {"repo": self.repo})], roots=None)
+        self.assertIn("이 자리를 정한 것: 호출 인자(repo)", r[0][1])
+
+    def test_refusal_teaches_the_repo_argument(self):
+        """막힌 자리에서 **다음 한 수**를 준다 — 실측에서 에이전트가 못 찾은 그 수.
+
+        거부는 평소에 안 읽히고 막힌 순간에만 읽힌다(v3.51.0 의 교훈). 그 한 번에
+        빠져나갈 길이 없으면 세션이 거기서 선다.
+        """
+        r = self._serve_outside([("gil_log", {})], roots=None)
+        self.assertTrue(r[0][0])
+        self.assertIn("repo 인자", r[0][1])
+        self.assertIn("이 자리를 정한 것", r[0][1])
+
+    def test_no_roots_support_is_not_fatal(self):
+        """roots 를 안 내는 호스트에서도 gil 이 죽지는 않는다 — 옛 경로가 그대로 답이다.
+
+        없는 기구를 못 썼다고 되는 것까지 막지 않는다. 다만 저장소 밖이니 거부는 나오고,
+        그 거부는 사람 언어여야 한다(날 git 에러가 아니라).
+        """
+        r = self._serve_outside([("gil_log", {})], roots=None)
+        self.assertTrue(r[0][0])   # 저장소가 없으니 거부는 정당하다
 
 
 class TestMCPApps(GilFixture):
