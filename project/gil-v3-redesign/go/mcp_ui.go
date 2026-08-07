@@ -46,6 +46,46 @@ func tipSignatureDigest() string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
+// uiResourceMeta — 리소스 수준 `_meta.ui`(규범 2026-01-26).
+//
+// 우리는 이걸 아예 안 달고 있었다. 규범은 리소스의 _meta.ui 에 csp·permissions·prefersBorder
+// 를 정의하는데, 없으면 **앱 리소스로 안 보는 호스트가 있을 수 있다** — 읽기는 성공하고
+// 렌더는 안 되는 지금 증상과 모양이 같다. 우리 화면은 자기완결이라 바깥을 하나도 안 부른다:
+// 그 사실을 빈 csp 로 **명시**한다(선언이 없는 것과, 필요 없다고 선언한 것은 다르다).
+func uiResourceMeta() mcp.Meta {
+	return mcp.Meta{"ui": map[string]any{
+		"csp":           map[string]any{"connect-src": []string{}, "resource-src": []string{}},
+		"prefersBorder": false,
+	}}
+}
+
+// mcpUIRepo — **툴 호출이 알려준 저장소를 서버가 기억한다.**
+//
+// 왜. resources/read 는 인자를 못 싣는다. 그래서 지금까지 툴이 저장소를 URI 에 박아 돌려줬고
+// (ui://gil/status/%2FUsers%2F…), 호스트는 그걸 읽어 성공했지만 **화면엔 아무것도 안 떴다.**
+// 유력한 이유: 렌더할 UI 리소스를 목록(resources/list)에서 찾을 때 그 변형 URI 는 없다.
+// 그러니 툴은 **선언된 URI 그대로** 가리키고, 저장소는 이 프로세스가 기억한다 — 한 세션의
+// 서버는 한 호스트만 상대하므로 마지막 호출의 자리가 곧 사람이 보고 있는 자리다.
+var mcpUIRepo string
+
+// rememberUIRepo — 지금 선 자리를 기억한다(툴 핸들러가 저장소를 정한 직후에 부른다).
+func rememberUIRepo() {
+	if wd, err := os.Getwd(); err == nil {
+		mcpUIRepo = wd
+	}
+}
+
+// uiRepoFor — 이 읽기가 볼 저장소. URI 에 실려 왔으면 그것, 아니면 기억한 자리.
+func uiRepoFor(uri string) string {
+	if r := repoFromURI(uri); r != "" {
+		return r
+	}
+	if r := repoFromStatusURI(uri); r != "" {
+		return r
+	}
+	return mcpUIRepo
+}
+
 const (
 	uiGraphURI  = "ui://gil/graph"
 	uiGraphMIME = "text/html;profile=mcp-app"
@@ -64,6 +104,7 @@ func uiCapabilities() *mcp.ServerCapabilities {
 
 func registerGilUI(s *mcp.Server) {
 	s.AddResource(&mcp.Resource{
+		Meta:     uiResourceMeta(),
 		URI:      uiGraphURI,
 		Name:     "gil-graph",
 		Title:    "gil 그래프 관전",
@@ -71,7 +112,7 @@ func registerGilUI(s *mcp.Server) {
 		Description: "사고 그래프(체인>사이클>스텝)를 호스트 안에서 본다. 읽는 시점의 커밋 그래프를 " +
 			"통째로 렌더한 자기완결 HTML.",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		return renderUIResource(uiGraphURI, "")
+		return renderUIResource(uiGraphURI, uiRepoFor(uiGraphURI))
 	})
 
 	// 저장소를 **URI 에 실어** 읽는 길. resources/read 는 툴과 달리 인자를 못 싣는다 —
@@ -81,6 +122,7 @@ func registerGilUI(s *mcp.Server) {
 	// 사람 화면에는 아무것도 안 뜨고, 왜 안 뜨는지도 안 보인다. 그래서 툴이 결과에 **이 호출의
 	// 저장소가 박힌 URI** 를 실어 주고(_meta.ui.resourceUri), 호스트는 그걸 읽는다.
 	s.AddResourceTemplate(&mcp.ResourceTemplate{
+		Meta:        uiResourceMeta(),
 		URITemplate: uiGraphURI + "/{repo}",
 		Name:        "gil-graph-for-repo",
 		Title:       "gil 그래프 관전 (저장소 지정)",
@@ -91,7 +133,7 @@ func registerGilUI(s *mcp.Server) {
 		if req.Params != nil {
 			uri = req.Params.URI
 		}
-		return renderUIResource(uri, repoFromURI(uri))
+		return renderUIResource(uri, uiRepoFor(uri))
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -105,20 +147,26 @@ func registerGilUI(s *mcp.Server) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inEmpty) (*mcp.CallToolResult, any, error) {
 		// 툴 결과는 두 독자를 갖는다: 모델(텍스트 요약)과 앱(팁 서명 → 낡음 감지).
 		// 저장소를 실어 왔으면 먼저 그리로 — 그래프는 "어느 저장소의 것이냐"가 전부다.
-		summary, err := runGil(func() { adoptCallRepo(in); requireRepoHere(); cmdLog([]string{"--depth", "chain"}) })
+		summary, err := runGil(func() {
+			adoptCallRepo(in)
+			requireRepoHere()
+			rememberUIRepo() // 이 자리를 기억한다 — 뒤따르는 resources/read 가 쓴다
+			cmdLog([]string{"--depth", "chain"})
+		})
 		if err != nil {
 			return nil, nil, err
 		}
 		sig := tipSignatureDigest()
 		// **이 호출의 저장소를 URI 에 박아 돌려준다.** 안 그러면 호스트의 resources/read 는
 		// 어느 저장소인지 모른 채 돌고, roots 를 안 주는 호스트에서는 반드시 실패한다.
-		wd, _ := os.Getwd()
 		res := &mcp.CallToolResult{
 			Content:           []mcp.Content{&mcp.TextContent{Text: strings.TrimSpace(summary)}},
 			StructuredContent: map[string]any{"tipSignature": sig},
 		}
+		// **선언된 URI 그대로.** 저장소는 URI 가 아니라 서버의 기억이 답한다(위 mcpUIRepo).
 		res.Meta = mcp.Meta{"ui": map[string]any{
-			"resourceUri": uiGraphURI + "/" + url.PathEscape(wd),
+			"resourceUri": uiGraphURI,
+			"visibility":  []string{"model", "app"},
 		}}
 		return res, nil, nil
 	})
@@ -144,13 +192,27 @@ func injectUIBridge(html, sig string) string {
   function send(msg){ host.postMessage(Object.assign({jsonrpc:"2.0"},msg),"*"); }
   function notify(method,params){ send({method:method,params:params||{}}); }
 
-  // (1) 핸드셰이크. 호스트가 hostCapabilities 를 돌려준다.
+  // (1) 핸드셰이크. **호스트가 요구하는 이름으로**(protocolVersion·appInfo) — 옛 이름
+  // {appCapabilities, clientInfo} 은 -32603 으로 거부됐고, 거부되면 호스트는 이 프레임을
+  // 화면에 세우지 않는다(실측 probe).
   send({id:++id,method:"ui/initialize",params:{
-    appCapabilities:{}, clientInfo:{name:"gil-graph",version:` + jsString(gilVersion) + `}}});
+    protocolVersion:"2026-01-26",
+    appInfo:{name:"gil-graph",version:` + jsString(gilVersion) + `},
+    clientInfo:{name:"gil-graph",version:` + jsString(gilVersion) + `},
+    capabilities:{}, appCapabilities:{availableDisplayModes:["inline","fullscreen"]}}});
+  // 응답을 받으면 **initialized** 를 보낸다 — 규범이 "이 알림 전에는 호스트가 뷰에 아무것도
+  // 보내지 않는다"고 정한 관문이다(그래서 이걸 빼면 화면이 서지 않는다).
+  window.addEventListener("message",function(e){
+    var m=e.data;
+    if(m && m.id===1 && m.result && m.result.protocolVersion){
+      notify("ui/notifications/initialized",{}); reportSize();
+    }
+  });
 
   // (2) 크기 보고 — 내용이 바뀌면(카드 펼침 등) 다시 알린다.
   function reportSize(){
-    notify("ui/notifications/size-changed",{height:document.documentElement.scrollHeight});
+    notify("ui/notifications/size-changed",{width:document.documentElement.scrollWidth,
+      height:document.documentElement.scrollHeight});
   }
   window.addEventListener("load",reportSize);
   if(window.ResizeObserver) new ResizeObserver(reportSize).observe(document.documentElement);

@@ -29,13 +29,15 @@ func registerGilStatusUI(s *mcp.Server) {
 		if req.Params != nil && req.Params.URI != "" {
 			uri = req.Params.URI
 		}
-		return renderStatusResource(uri, repoFromStatusURI(uri))
+		return renderStatusResource(uri, uiRepoFor(uri))
 	}
 	s.AddResource(&mcp.Resource{
-		URI: uiStatusURI, Name: "gil-status", Title: "gil 상태 카드", MIMEType: uiGraphMIME,
+		Meta: uiResourceMeta(),
+		URI:  uiStatusURI, Name: "gil-status", Title: "gil 상태 카드", MIMEType: uiGraphMIME,
 		Description: "지금 어디·무엇을 재는 중·사람이 나설 자리·다음 한 수. 그래프는 담지 않는다.",
 	}, read)
 	s.AddResourceTemplate(&mcp.ResourceTemplate{
+		Meta:        uiResourceMeta(),
 		URITemplate: uiStatusURI + "/{repo}", Name: "gil-status-for-repo",
 		Title: "gil 상태 카드 (저장소 지정)", MIMEType: uiGraphMIME,
 		Description: "ui://gil/status/<경로> — 호스트가 열린 폴더를 안 알려줄 때(roots 미지원).",
@@ -55,21 +57,24 @@ func registerGilStatusUI(s *mcp.Server) {
 		out, err := runGil(func() {
 			adoptCallRepo(in)
 			requireRepoHere()
+			rememberUIRepo() // 뒤따르는 resources/read 가 이 자리를 쓴다
 			st = gatherStatus()
 		})
 		if err != nil {
 			return nil, nil, err
 		}
 		_ = out
-		wd, _ := os.Getwd()
 		// 모델에게는 **줄인 텍스트**를 준다(카드와 같은 사실). JSON 을 통째로 주면 그것이
 		// 그대로 대화에 실린다 — tipSignature 로 이미 한 번 값을 치른 자리다.
 		res := &mcp.CallToolResult{
 			Content:           []mcp.Content{&mcp.TextContent{Text: strings.Join(statusLines(st), "\n")}},
 			StructuredContent: map[string]any{"tipSignature": tipSignatureDigest()},
 		}
+		// **선언된 URI 그대로**(변형 URI 는 호스트의 UI 리소스 목록에 없다 — 읽기는 되고
+		// 렌더가 안 되던 자리). 저장소는 서버가 기억한다.
 		res.Meta = mcp.Meta{"ui": map[string]any{
-			"resourceUri": uiStatusURI + "/" + url.PathEscape(wd),
+			"resourceUri": uiStatusURI,
+			"visibility":  []string{"model", "app"},
 		}}
 		return res, nil, nil
 	})
@@ -87,43 +92,161 @@ func repoFromStatusURI(uri string) string {
 	return strings.TrimSpace(p)
 }
 
+// renderStatusResource — **껍데기를 낸다.** 카드는 앱이 gil_status_card 로 가져온다.
+//
+// 왜 여기서 통짜로 안 그리나. 호스트는 이 읽기를 **툴보다 먼저** 한다(실측 프레임). 그 순간
+// 우리는 어느 저장소인지 알 수 없고, 그래서 지금까지 651 바이트짜리 "어느 저장소를 볼지
+// 모른다" 를 내보내고 있었다 — 화면이 안 뜬 이유가 그것이다. 껍데기는 저장소를 몰라도 옳고,
+// 내용은 앱이 제 통로로 가져오면 언제나 지금의 것이다.
+//
+// 저장소를 이미 아는 자리(예: URI 에 실려 온 경우)에서도 껍데기를 낸다. 두 길을 두면 어느
+// 쪽으로 그려졌는지에 따라 화면이 달라지고, 그건 나중에 갈리는 종류의 이중화다.
 func renderStatusResource(uri, repo string) (*mcp.ReadResourceResult, error) {
-	page := func(html string) (*mcp.ReadResourceResult, error) {
-		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{
-			URI: uri, MIMEType: uiGraphMIME, Text: html,
-		}}}, nil
-	}
 	if repo != "" {
-		if _, err := gitTryIn(repo, "rev-parse", "--git-dir"); err != nil {
-			return page(uiProblemPage("이 경로는 git 저장소가 아니다", repo,
-				"사람이 보고 있는 폴더의 최상위(.git 이 있는 자리)를 repo 인자에 실어 다시 불러라."))
+		if _, err := gitTryIn(repo, "rev-parse", "--git-dir"); err == nil && os.Chdir(repo) == nil {
+			stopGitCache()
+			rememberUIRepo()
 		}
-		if os.Chdir(repo) != nil {
-			return page(uiProblemPage("저장소로 이동하지 못했다", repo, "경로 권한을 확인하라."))
-		}
-		stopGitCache()
 	}
-	if !gitOK("rev-parse", "--git-dir") {
-		wd, _ := os.Getwd()
-		return page(uiProblemPage("어느 저장소를 볼지 모른다", wd,
-			"이 창은 인자를 실을 수 없는 자리에서 열렸고, 호스트가 열린 폴더를 알려주지 않았다"+
-				"(MCP roots 미지원). gil_status 를 repo 인자와 함께 부르면 그 저장소가 보인다."))
-	}
-	var st statusOut
-	if _, err := runGil(func() { st = gatherStatus() }); err != nil {
-		return page(uiProblemPage("상태를 읽지 못했다", err.Error(), "gil fsck 로 그래프 상태를 확인하라."))
-	}
-	return page(injectUIBridge(statusCardHTML(st), tipSignatureDigest()))
+	return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{
+		URI: uri, MIMEType: uiGraphMIME, Text: statusCardShellHTML(),
+	}}}, nil
 }
 
-// statusCardHTML — 카드 한 장. 다크·라이트 둘 다.
+// statusCardShellHTML — 템플릿. 스타일과 빈 자리, 그리고 **제 내용을 가져오는 통로**.
 //
-// 읽는 순서를 화면 순서로 고정한다: **사람이 나설 자리 → 지금 어디 → 무엇을 재는 중 →
-// 경고 → 다음 한 수.** 기다리는 것이 있으면 그게 맨 위다 — 그것이 지금 유일하게 할 일이고,
-// 아래로 밀면 다른 줄을 읽는 동안 묻혀 버린다.
+// 이 페이지가 하는 일: (1) 호스트와 핸드셰이크 (2) `gil_status_card` 를 불러 카드 조각을 받아
+// 그려 넣는다 (3) `ui/notifications/tool-result` 가 올 때마다(= gil 이 무엇을 했다는 뜻)
+// 다시 가져온다. 레이아웃은 Go 에만 있다 — 앱은 받은 조각을 넣기만 한다.
+func statusCardShellHTML() string {
+	return statusCardDocHead() + `<body><div id="gil-card" class="card"><div class="lbl">gil</div>
+<div class="none">상태를 가져오는 중…</div></div>
+<script>
+(function(){
+  var host=window.parent, id=0, pending={}, fetching=false, fetches=0, drawn=false;
+  var VER=` + jsString(gilVersion) + `, seen=[], repo="";
+  function slot(){ return document.getElementById("gil-card"); }
+  function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
+  function notify(m,p){ send({method:m,params:p||{}}); }
+  function reportSize(){ notify("ui/notifications/size-changed",
+    {width:document.documentElement.scrollWidth,
+     height:document.documentElement.scrollHeight}); }
+
+  // **받은 것을 전부 적어 둔다.** 보내는 길은 되는데(호출이 서버에 도착한다) 응답이 콜백에
+  // 안 닿는다 — 실측: 카드 조회 14번, 화면은 계속 "가져오는 중". iframe↔호스트 프레임은
+  // 서버에 오지 않으니, 무엇이 어떤 모양으로 돌아오는지는 화면이 적어 보내야 알 수 있다.
+  function note(m){
+    if(seen.length<12) seen.push({
+      m:(m&&m.method)||null, id:(m&&m.id)!==undefined?m.id:null,
+      k:m&&typeof m==="object"?Object.keys(m).slice(0,8):typeof m,
+      rk:m&&m.result&&typeof m.result==="object"?Object.keys(m.result).slice(0,8):undefined,
+      e:m&&m.error?String(m.error.code||"")+":"+String(m.error.message||"").slice(0,60):undefined});
+  }
+  function report(tag){
+    send({id:++id,method:"tools/call",params:{name:"gil_status_card",arguments:{
+      probe:JSON.stringify({tag:tag,drawn:drawn,fetches:fetches,seen:seen}).slice(0,1900)}}});
+  }
+
+  // 카드는 **어느 칸으로 와도** 받는다. 호스트가 앱에게 넘겨주는 것은 content 뿐이었다
+  // (structuredContent 는 안 넘어온다 — 실측). 둘 다 본다: 통로가 하나뿐이라고 가정하면
+  // 호스트가 바뀔 때 다시 빈 화면이 된다.
+  function cardOf(res){
+    if(!res) return "";
+    var sc=res.structuredContent;
+    if(sc && sc.cardHtml) return sc.cardHtml;
+    var c=res.content;
+    if(c && c.length){
+      for(var i=0;i<c.length;i++){
+        var x=c[i];
+        if(x && x.type==="text" && typeof x.text==="string" && x.text.indexOf("<div")>=0) return x.text;
+      }
+    }
+    return "";
+  }
+
+  function fetchCard(){
+    if(fetching || drawn || fetches>=4) return;
+    fetching=true; fetches++;
+    var i=++id;
+    pending[i]=function(res,err){
+      fetching=false;
+      var s=slot(); if(!s) return;
+      if(err){ s.innerHTML='<div class="lbl">gil</div><div class="none">가져오지 못했다: '+
+        String((err&&(err.message||err.code))||err)+'</div>'; reportSize(); return; }
+      var html=cardOf(res);
+      // 조각이 없으면 **그 사실을 화면에 적는다** — 빈 화면은 고장과 아직을 구별해 주지 않는다.
+      if(html){ s.innerHTML=html; drawn=true; }
+      else { s.innerHTML='<div class="lbl">gil</div><div class="none">응답에 카드가 없다: '+
+        String(res&&Object.keys(res).join(","))+'</div>'; }
+      reportSize();
+    };
+    send({id:i,method:"tools/call",params:{name:"gil_status_card",
+      arguments: repo ? {repo:repo} : {}}});
+  }
+
+  // **호스트가 알려주는 저장소를 줍는다.** 앱의 조회에는 인자가 없어서 서버가 cwd 가 / 인 자리에서
+  // 돌다 거부했다(실측: isError 13회). 그런데 호스트는 tool-input/tool-result 알림에 모델이
+  // 넘긴 인자를 실어 준다 — 그걸 기억해 우리 조회에 실으면 서버의 기억에 의존하지 않는다.
+  function learnRepo(m){
+    try{
+      var p=m&&m.params||{};
+      var cands=[p.arguments,p.input,p.toolInput,p.params,(p.request&&p.request.arguments)];
+      for(var i=0;i<cands.length;i++){
+        var c=cands[i];
+        if(c && typeof c==="object" && typeof c.repo==="string" && c.repo){ 
+          if(c.repo!==repo){ repo=c.repo; drawn=false; fetches=0; fetchCard(); }
+          return;
+        }
+      }
+    }catch(_){}
+  }
+
+  window.addEventListener("message",function(e){
+    var m=e.data; note(m); if(!m) return;
+    if(m.method==="ui/notifications/tool-input"||m.method==="ui/notifications/tool-result") learnRepo(m);
+    // 응답이 **어떤 모양으로 와도** 받는다: 우리 id 에 대한 답이거나, 툴 결과 알림이거나.
+    var res=null;
+    if(m.id!==undefined && pending[m.id]){ var cb=pending[m.id]; delete pending[m.id];
+      cb(m.result,m.error); return; }
+    if(m.method==="ui/notifications/tool-result"){
+      res=(m.params&&(m.params.result||m.params))||null;
+      var h2=cardOf(res);
+      if(h2){ var s=slot(); if(s){ s.innerHTML=h2; drawn=true; reportSize(); } return; }
+      if(!drawn) fetchCard();
+    }
+  });
+
+  var hs=++id;
+  pending[hs]=function(res,err){
+    if(!err) notify("ui/notifications/initialized",{});
+    reportSize(); fetchCard();
+  };
+  send({id:hs,method:"ui/initialize",params:{
+    protocolVersion:"2026-01-26",
+    appInfo:{name:"gil-status-card",version:VER},
+    clientInfo:{name:"gil-status-card",version:VER},
+    capabilities:{},
+    appCapabilities:{availableDisplayModes:["inline","fullscreen"]}}});
+  setTimeout(function(){ if(!drawn) fetchCard(); },900);
+  setTimeout(function(){ report("2s"); },2000);
+  setTimeout(function(){ report("6s"); },6000);
+  window.addEventListener("load",reportSize);
+  if(window.ResizeObserver) new ResizeObserver(reportSize).observe(document.documentElement);
+})();
+</script></body>`
+}
+
+// statusCardHTML — 통짜 페이지(문서 + 스타일 + 카드). `gil status --card` 와, 저장소를 이미
+// 아는 자리에서 리소스를 읽을 때 쓴다.
 func statusCardHTML(st statusOut) string {
-	var b strings.Builder
-	b.WriteString(`<!doctype html><meta charset="utf-8">
+	return statusCardDocHead() + `<body>` + statusCardBodyHTML(st) + `</body>`
+}
+
+// statusCardDocHead — 문서 껍데기와 스타일. **카드 조각과 갈라 둔다** — 앱이 조각만 받아
+// 그려 넣을 때 스타일은 이미 템플릿에 있어야 한다(조각마다 스타일을 실어 보내면 같은 CSS 가
+// 호출마다 왕복한다).
+func statusCardDocHead() string {
+	return `<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{--bg:#fff;--fg:#26262a;--dim:#6f6e69;--line:#dedcd4;--card:#f1efe8;
@@ -179,7 +302,13 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .strip .knd{font-size:9.5px;fill:var(--dim);text-anchor:middle}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin:2px 0 2px;font-size:11px;color:var(--dim)}
 .legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:0}
-</style><body><div class="card">`)
+</style>`
+}
+
+// statusCardBodyHTML — **카드 조각 하나.** 앱이 이걸 받아 그려 넣는다.
+func statusCardBodyHTML(st statusOut) string {
+	var b strings.Builder
+	b.WriteString(`<div class="card">`)
 
 	if st.Chain == nil {
 		b.WriteString(`<div class="crumb">체인 밖</div><div class="repo">` + esc(st.Repo) + `</div>`)
@@ -238,7 +367,7 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 		b.WriteString(`</ul></div>`)
 	}
 
-	b.WriteString(`</div></body>`)
+	b.WriteString(`</div>`)
 	return b.String()
 }
 

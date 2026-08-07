@@ -143,7 +143,26 @@ func cmdMCP(args []string) {
 	registerGilTools(s)
 	registerGilUI(s)
 	registerGilStatusUI(s) // 가벼운 기본 화면 — 무거운 전체맵은 gil_graph 쪽에 남는다
-	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+	registerGilCardTool(s) // 앱 전용 — 화면이 자기 내용을 가져오는 통로(mcp_ui_card.go)
+	// **프레임을 우리 쪽에도 남긴다**(GIL_MCP_LOG=<파일>).
+	//
+	// 왜 필요한가. Claude Desktop 의 로그는 method 와 id 만 남기고 params·result 를 안 남긴다 —
+	// 그래서 "호스트가 어느 URI 를 읽었나 / 우리가 무엇을 몇 바이트로 줬나"를 알 방법이 없었고,
+	// 그 공백에서 렌더링 실패의 판정이 세 번 뒤집혔다(2026-08-07 매듭). 근거 없이 판정하지
+	// 않으려면 계기가 있어야 한다. 기본은 꺼짐 — 켤 때만 쓴다(프레임엔 저장소 경로가 실린다).
+	var transport mcp.Transport = &mcp.StdioTransport{}
+	if path := strings.TrimSpace(os.Getenv("GIL_MCP_LOG")); path != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err == nil {
+			defer f.Close()
+			transport = &mcp.LoggingTransport{Transport: transport, Writer: f}
+		} else {
+			// **조용히 넘기지 않는다.** 계기를 달라고 켠 것인데 열리지 않았다면, 그 사실이
+			// 어딘가에 남아야 한다 — 안 그러면 "로그가 비었다"를 "프레임이 안 왔다"로 읽는다.
+			stderr("gil mcp: GIL_MCP_LOG 를 열지 못했다(" + path + "): " + err.Error())
+		}
+	}
+	if err := s.Run(context.Background(), transport); err != nil {
 		mcpMode = false
 		die("gil mcp: 서버 종료: " + err.Error())
 	}

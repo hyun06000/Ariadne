@@ -5876,6 +5876,182 @@ class TestStatusJSON(GilFixture):
         self.assertIn("c1", out)
 
 
+class TestMCPAppsCard(GilFixture):
+    """MCP App — 상태 카드가 호스트 화면에 **실제로 뜨는** 길 (2026-08-07, 상현님과 실측).
+
+    이 클래스는 화면이 안 뜨던 다섯 자리를 하나씩 박은 것이다. 다섯 다 "규범대로 했다"고
+    믿는 동안 조용히 틀려 있었고, 계기(프레임 로그 + 화면이 제 상태를 적어 보내는 probe)를
+    달고서야 하나씩 드러났다. 그래서 시험도 **프레임 수준에서** 센다 — 사람 눈으로 확인하는
+    것은 릴리스마다 반복할 수 없다.
+
+    ① 호스트는 resources/read 를 **툴보다 먼저** 한다 → 읽기는 껍데기를 내야 한다
+    ② 앱의 핸드셰이크는 protocolVersion·appInfo 를 요구한다(옛 이름은 -32603 으로 거부됐다)
+    ③ 앱은 응답 뒤 ui/notifications/initialized 를 보내야 한다(규범의 관문)
+    ④ 호스트는 앱에게 structuredContent 를 넘기지 않는다 → 카드는 content 로 가야 한다
+    ⑤ 앱의 호출엔 인자가 없을 수 있다 → 저장소를 못 찾아도 **오류가 아니라 카드**로 답한다
+    """
+
+    def _session(self, calls, cwd=None):
+        """MCP 세션 하나. calls: (method, params) 목록. 반환: 결과 메시지 목록."""
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=cwd or self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1"))
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        def read():
+            while True:
+                line = p.stdout.readline()
+                if not line:
+                    return None
+                try:
+                    return json.loads(line)
+                except ValueError:
+                    continue
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2026-01-26",
+                             "capabilities": {"extensions": {
+                                 "io.modelcontextprotocol/ui": {
+                                     "mimeTypes": ["text/html;profile=mcp-app"]}}},
+                             "clientInfo": {"name": "test-host", "version": "1"}}})
+            init = read()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            out = [init]
+            for i, (method, params) in enumerate(calls, start=10):
+                send({"jsonrpc": "2.0", "id": i, "method": method, "params": params})
+                out.append(read())
+            return out
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
+    def _cycle(self):
+        self.gil("init", "--name", "clew")
+        ref = os.path.join(self.repo, "ref.md")
+        with open(ref, "w", encoding="utf-8") as f:
+            f.write("# 기준\n성공: 카드가 뜬다\n")
+        self.gil("chain", "ch", "--purpose", "카드", "--reference", "ref.md", "--criterion", "뜬다")
+        self._autofill_interview("ch")
+        os.remove(ref)
+        r = self.gil("open", "ch/c1", "--author", "clew", "--purpose", "무엇을 풀려는가",
+                     "--body", "문제정의 본문", "--inherit", "앞 사이클이 남긴 사실")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_server_declares_the_ui_extension_and_the_resource(self):
+        """확장 선언과 리소스가 규범의 이름·타입으로 나온다 — 여기가 틀리면 호스트는 아예 안 읽는다."""
+        self._cycle()
+        init, lst = self._session([("resources/list", {})])
+        ext = init["result"]["capabilities"].get("extensions", {})
+        self.assertIn("io.modelcontextprotocol/ui", ext)
+        self.assertIn("text/html;profile=mcp-app", ext["io.modelcontextprotocol/ui"]["mimeTypes"])
+        by = {r["uri"]: r for r in lst["result"]["resources"]}
+        self.assertIn("ui://gil/status", by)
+        self.assertEqual(by["ui://gil/status"]["mimeType"], "text/html;profile=mcp-app")
+        # 리소스 수준 _meta.ui — 없으면 앱 리소스로 안 보는 호스트가 있을 수 있다.
+        self.assertIn("ui", by["ui://gil/status"].get("_meta", {}))
+
+    def test_the_read_comes_before_the_tool_so_it_must_be_a_shell(self):
+        """**호스트는 툴보다 먼저 읽는다.** 그 순간 저장소를 모르니 통짜 렌더는 원리적으로 못 한다.
+
+        실측: 그 자리에서 651 바이트 "어느 저장소를 볼지 모른다" 를 내보내고 있었고, 그것이
+        화면이 안 뜬 첫 원인이었다. 읽기는 껍데기를 내고 내용은 앱이 가져온다.
+        """
+        self._cycle()
+        _, rd = self._session([("resources/read", {"uri": "ui://gil/status"})], cwd="/")
+        html = rd["result"]["contents"][0]["text"]
+        self.assertIn("gil_status_card", html, "껍데기에 내용을 가져오는 통로가 없다")
+        self.assertNotIn("어느 저장소를 볼지 모른다", html, "읽기 시점에 통짜로 그리려 한다")
+
+    def test_the_shell_speaks_the_handshake_the_host_requires(self):
+        """핸드셰이크는 protocolVersion·appInfo 를 요구한다.
+
+        실측: {appCapabilities, clientInfo} 로 보내자 호스트가 -32603 으로 거부했고
+        ("params.appInfo: expected object"), 거부되면 호스트는 그 프레임을 화면에 세우지
+        않는다. 그리고 응답 뒤 **initialized** 를 보내야 한다 — 규범: "호스트는 이 알림을
+        받기 전에는 뷰에 어떤 요청·알림도 보내지 않는다."
+        """
+        self._cycle()
+        _, rd = self._session([("resources/read", {"uri": "ui://gil/status"})])
+        html = rd["result"]["contents"][0]["text"]
+        self.assertIn('method:"ui/initialize"', html)
+        self.assertIn('protocolVersion:"2026-01-26"', html)
+        self.assertIn("appInfo:{name", html)
+        self.assertIn('"ui/notifications/initialized"', html)
+        # 크기 알림은 width·height 둘 다 — 규범의 모양이다.
+        self.assertIn("width:document.documentElement.scrollWidth", html)
+
+    def test_the_card_travels_in_content_because_that_is_what_reaches_the_app(self):
+        """호스트는 앱에게 **structuredContent 를 넘기지 않는다**(실측: `content,isError` 만 왔다).
+
+        그래서 카드는 content 로 간다. 그런데 두 칸 다 싣는다 — 통로가 하나뿐이라고 가정하면
+        호스트가 바뀔 때 화면이 다시 빈다.
+        """
+        self._cycle()
+        _, call = self._session([("tools/call", {"name": "gil_status_card",
+                                                 "arguments": {"repo": self.repo}})])
+        r = call["result"]
+        self.assertFalse(r.get("isError"), r)
+        text = r["content"][0]["text"]
+        self.assertTrue(text.lstrip().startswith("<div"), text[:80])
+        self.assertIn("문제정의", text, "define 카드가 아니다")
+        self.assertIn("cardHtml", r.get("structuredContent", {}))
+
+    def test_the_card_tool_is_for_the_app_not_the_model(self):
+        """카드 HTML 은 6KB 다 — 모델이 볼 이유가 없다. 규범은 내용 단위 숨김을 주지 않고
+        **툴 단위**만 준다(visibility: ["app"]). 그래서 이 툴은 앱 전용으로 선다."""
+        self._cycle()
+        _, lst = self._session([("tools/list", {})])
+        by = {t["name"]: t for t in lst["result"]["tools"]}
+        self.assertIn("gil_status_card", by)
+        vis = by["gil_status_card"].get("_meta", {}).get("ui", {}).get("visibility")
+        self.assertEqual(vis, ["app"], by["gil_status_card"].get("_meta"))
+        # 사람이 보는 툴(gil_status)은 UI 리소스를 가리키고, 선언된 URI 그대로다.
+        self.assertEqual(by["gil_status"]["_meta"]["ui"]["resourceUri"], "ui://gil/status")
+
+    def test_it_answers_with_a_card_even_when_it_cannot_find_the_repo(self):
+        """**오류가 아니라 카드로 답한다.** 앱에 isError 를 주면 화면은 "카드가 없다"만 적고
+        사람은 이유를 모른다 — 실측으로 그 화면을 봤다(13번). 화면은 언제나 무언가를 말해야
+        하고, 못 하는 것은 못 한다고 말해야 한다."""
+        self._cycle()
+        _, call = self._session([("tools/call", {"name": "gil_status_card", "arguments": {}})],
+                                cwd="/")
+        r = call["result"]
+        self.assertFalse(r.get("isError"), "앱에 오류를 돌려주면 화면이 이유를 못 적는다")
+        text = r["content"][0]["text"]
+        self.assertTrue(text.lstrip().startswith("<div"), text[:80])
+        self.assertIn("어느 저장소를 볼지 모른다", text)
+
+    def test_the_server_remembers_the_repo_the_model_gave_it(self):
+        """앱의 조회엔 인자가 없을 수 있다 — 그때는 앞선 호출에서 정해진 자리를 쓴다.
+
+        실측: 이 연결이 빠져 있어서 카드 툴이 cwd 가 / 인 자리에서 열세 번 거부됐다.
+        """
+        self._cycle()
+        _, first, second = self._session([
+            ("tools/call", {"name": "gil_status", "arguments": {"repo": self.repo}}),
+            ("tools/call", {"name": "gil_status_card", "arguments": {}}),
+        ], cwd="/")
+        self.assertFalse(first["result"].get("isError"), first)
+        text = second["result"]["content"][0]["text"]
+        self.assertIn("문제정의", text, "기억한 저장소를 안 쓴다: " + text[:120])
+
+    def test_the_app_learns_the_repo_from_the_host_notification(self):
+        """호스트는 앱에게 tool-input/tool-result 로 **모델이 넘긴 인자**를 알려준다.
+
+        그걸 주워 자기 조회에 실으면 서버의 기억에 의존하지 않는다 — 저장소가 바뀌면 그
+        자리에서 다시 그린다. (probe 가 그 알림의 존재를 알려줬다.)
+        """
+        self._cycle()
+        _, rd = self._session([("resources/read", {"uri": "ui://gil/status"})])
+        html = rd["result"]["contents"][0]["text"]
+        self.assertIn("ui/notifications/tool-input", html)
+        self.assertIn("learnRepo", html)
+        self.assertIn("arguments: repo ?", html, "배운 저장소를 조회에 싣지 않는다")
+
+
 class TestMCPRoots(GilFixture):
     """MCP roots — 호스트가 연 폴더를 규범대로 물어본다.
 
