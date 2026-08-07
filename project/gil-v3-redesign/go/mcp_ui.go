@@ -24,6 +24,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -69,15 +71,27 @@ func registerGilUI(s *mcp.Server) {
 		Description: "사고 그래프(체인>사이클>스텝)를 호스트 안에서 본다. 읽는 시점의 커밋 그래프를 " +
 			"통째로 렌더한 자기완결 HTML.",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		var html string
-		if _, err := runGil(func() { html = renderHTML(buildGraph(), true) }); err != nil {
-			return nil, err
+		return renderUIResource(uiGraphURI, "")
+	})
+
+	// 저장소를 **URI 에 실어** 읽는 길. resources/read 는 툴과 달리 인자를 못 싣는다 —
+	// 그래서 호스트가 roots 를 안 주면(Claude Desktop) 이 읽기는 프로세스가 뜬 자리(`/`)에서
+	// 돌고 git 이 죽는다. 실측 로그가 그대로다:
+	//   resources/read → 거부: git log 실패(레포 경로·gil 그래프 확인) — exit status 128
+	// 사람 화면에는 아무것도 안 뜨고, 왜 안 뜨는지도 안 보인다. 그래서 툴이 결과에 **이 호출의
+	// 저장소가 박힌 URI** 를 실어 주고(_meta.ui.resourceUri), 호스트는 그걸 읽는다.
+	s.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: uiGraphURI + "/{repo}",
+		Name:        "gil-graph-for-repo",
+		Title:       "gil 그래프 관전 (저장소 지정)",
+		MIMEType:    uiGraphMIME,
+		Description: "ui://gil/graph?repo=<절대경로> — 호스트가 열린 폴더를 안 알려줄 때 쓰는 길.",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		uri := ""
+		if req.Params != nil {
+			uri = req.Params.URI
 		}
-		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{
-			URI:      uiGraphURI,
-			MIMEType: uiGraphMIME,
-			Text:     injectUIBridge(html, tipSignatureDigest()),
-		}}}, nil
+		return renderUIResource(uri, repoFromURI(uri))
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -96,10 +110,17 @@ func registerGilUI(s *mcp.Server) {
 			return nil, nil, err
 		}
 		sig := tipSignatureDigest()
-		return &mcp.CallToolResult{
+		// **이 호출의 저장소를 URI 에 박아 돌려준다.** 안 그러면 호스트의 resources/read 는
+		// 어느 저장소인지 모른 채 돌고, roots 를 안 주는 호스트에서는 반드시 실패한다.
+		wd, _ := os.Getwd()
+		res := &mcp.CallToolResult{
 			Content:           []mcp.Content{&mcp.TextContent{Text: strings.TrimSpace(summary)}},
 			StructuredContent: map[string]any{"tipSignature": sig},
-		}, nil, nil
+		}
+		res.Meta = mcp.Meta{"ui": map[string]any{
+			"resourceUri": uiGraphURI + "/" + url.PathEscape(wd),
+		}}
+		return res, nil, nil
 	})
 }
 
@@ -180,4 +201,73 @@ func jsString(str string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// repoFromURI — ui://gil/graph?repo=<절대경로> 에서 저장소를 꺼낸다.
+func repoFromURI(uri string) string {
+	rest := strings.TrimPrefix(uri, uiGraphURI+"/")
+	if rest == uri {
+		return ""
+	}
+	p, err := url.PathUnescape(rest)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(p)
+}
+
+// renderUIResource — 위젯 HTML 을 만든다. **실패해도 에러를 돌려주지 않는다.**
+//
+// 왜. 리소스 읽기가 에러로 끝나면 호스트는 아무것도 안 그리고, 사람은 빈 자리를 본다 —
+// 무엇이 잘못됐는지도, 무엇을 하면 되는지도 화면에 없다(실측: Claude Desktop 에서 위젯이
+// 끝내 안 떴고, 이유는 서버 로그를 뒤져야 나왔다). **없는 화면보다 나쁜 것은 이유 없이
+// 빈 화면이다.** 그러니 못 그릴 때는 못 그린 이유를 그린다.
+func renderUIResource(uri, repo string) (*mcp.ReadResourceResult, error) {
+	if uri == "" {
+		uri = uiGraphURI
+	}
+	page := func(html string) (*mcp.ReadResourceResult, error) {
+		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{
+			URI: uri, MIMEType: uiGraphMIME, Text: html,
+		}}}, nil
+	}
+	if repo != "" {
+		if _, err := gitTryIn(repo, "rev-parse", "--git-dir"); err != nil {
+			return page(uiProblemPage("이 경로는 git 저장소가 아니다", repo,
+				"사람이 보고 있는 폴더의 최상위(.git 이 있는 자리)를 repo 인자에 실어 gil_graph 를 다시 불러라."))
+		}
+		if os.Chdir(repo) != nil {
+			return page(uiProblemPage("저장소로 이동하지 못했다", repo, "경로 권한을 확인하라."))
+		}
+		stopGitCache()
+	}
+	if !gitOK("rev-parse", "--git-dir") {
+		wd, _ := os.Getwd()
+		return page(uiProblemPage("어느 저장소를 그릴지 모른다", wd,
+			"이 창은 인자를 실을 수 없는 자리(resources/read)에서 열렸고, 호스트가 열린 폴더를 "+
+				"알려주지 않았다(MCP roots 미지원). gil_graph 를 repo 인자와 함께 부르면 그 저장소가 그려진다."))
+	}
+	var html string
+	if _, err := runGil(func() { html = renderHTML(buildGraph(), true) }); err != nil {
+		return page(uiProblemPage("그래프를 그리지 못했다", err.Error(),
+			"gil fsck 로 그래프 상태를 확인하라."))
+	}
+	return page(injectUIBridge(html, tipSignatureDigest()))
+}
+
+// uiProblemPage — 못 그린 이유를 **화면에** 적는다. 자기완결 HTML(외부 자원 0).
+func uiProblemPage(title, detail, next string) string {
+	esc := func(s string) string {
+		r := strings.NewReplacer("&", "\u0026amp;", "<", "\u0026lt;", ">", "\u0026gt;")
+		return r.Replace(s)
+	}
+	return `<!doctype html><meta charset="utf-8"><body style="margin:0;padding:20px;` +
+		`font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;` +
+		`background:#1b1b1f;color:#e6e6ea">` +
+		`<div style="max-width:640px;border:1px solid #7a5a24;background:#3a2a12;` +
+		`border-radius:10px;padding:16px 18px">` +
+		`<div style="font-size:15px;font-weight:600;color:#ffd79a">gil 그래프 — ` + esc(title) + `</div>` +
+		`<div style="margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;` +
+		`color:#c9c9d1;word-break:break-all">` + esc(detail) + `</div>` +
+		`<div style="margin-top:12px">` + esc(next) + `</div></div></body>`
 }

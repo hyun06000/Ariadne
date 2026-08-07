@@ -142,6 +142,7 @@ func cmdMCP(args []string) {
 	installRootsMiddleware(s)
 	registerGilTools(s)
 	registerGilUI(s)
+	registerGilStatusUI(s) // 가벼운 기본 화면 — 무거운 전체맵은 gil_graph 쪽에 남는다
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		mcpMode = false
 		die("gil mcp: 서버 종료: " + err.Error())

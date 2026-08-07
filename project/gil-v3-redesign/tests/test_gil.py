@@ -5368,6 +5368,76 @@ class TestStatusJSON(GilFixture):
         self.assertNotIn("뷰어", out)
         json.loads(r.stdout)   # 앞줄이 붙으면 이 파싱이 깨진다
 
+    def test_criterion_comes_along(self):
+        """체인의 **판정 문장**이 상태에 실린다.
+
+        승인·기각을 묻는 자리에서 기준이 없으면 그 물음은 의미가 없다 — 무엇에 비추어
+        판단하라는 건지가 없으니까. 지금까지 이 문장은 chain-root 트레일러에만 있어서
+        읽으려면 그 커밋을 스스로 찾아 열어야 했다(자기규율).
+        """
+        r = self.gil("chain", "cr", "--purpose", "목적",
+                     "--reference", "-", "--criterion", "토큰이 더 적으면 성공이다",
+                     input="기준 문서 본문\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self._autofill_interview("cr")
+        self.gil("open", "cr/c1", "--purpose", "사이클", "--author", "clew")
+        st = self.status()
+        self.assertEqual(st["chain"]["criterion"], "토큰이 더 적으면 성공이다")
+
+    def test_rollback_candidates_are_named_in_human_words(self):
+        """되돌아갈 자리를 **사람이 읽는 라벨**로 나열한다.
+
+        --to 는 "조상 define" 을 문자열로 받는데, 비개발자는 그 문자열을 알 방법이 없다 —
+        그래프를 읽고 스텝 번호를 세어야 나온다. 이 목록이 그 자리를 없앤다.
+
+        그리고 **--to 가 받는 kind 만** 낸다(define·analyze). 고를 수 없는 것을 보여주는
+        목록은 없느니만 못하다 — 사람이 고른 것을 문법이 거부한다.
+        """
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        st = self.status()
+        ids = [c["id"] for c in st["rollback_candidates"]]
+        self.assertIn("s1", ids, st["rollback_candidates"])
+        for c in st["rollback_candidates"]:
+            self.assertIn(c["kind"], ("define", "analyze"))
+            self.assertTrue(c["label"].strip())
+            self.assertNotIn("gil st/c1", c["label"], "gil 이 붙인 앞머리가 라벨에 남았다")
+
+    def test_last_verdict_answers_why_it_failed(self):
+        """사람이 가장 자주 묻는 '왜 실패했어'의 재료 — 지금 선 자리만으로는 답할 수 없다."""
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "refuted",
+                 "--falsify-out", "met", "--falsify-obs", "관측된 것")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "원인은 딴 데 있었다")
+        r = self.gil("step", "st/c1", "--kind", "fail", "--to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.status()
+        self.assertIsNotNone(st["last_verdict"])
+        self.assertEqual(st["last_verdict"]["cycle"], "c1")
+        self.assertEqual(st["last_verdict"]["result"], "fail")
+        self.assertTrue(st["last_verdict"]["why"].strip())
+
+    def test_the_next_moves_actually_run(self):
+        """**next 가 가르치는 줄이 실제로 돈다.**
+
+        처음 쓴 목록은 종결을 close 의 verdict 로 적었다 — 실물은 step 의 kind 고, close 의
+        --verdict 는 supported|partial|rejected 다. 둘을 뭉개면 `gil close … --verdict
+        success --to …` 라는 없는 문법이 나오고, 막힌 사람이 그대로 쳐서 한 번 더 막힌다.
+        도움말이 문서 경로를 가리키는지 세는 시험(v3.58.1)이 있었지만 **플래그까지는 안
+        본다** — 그래서 이 자리는 안 잡혔다. 여기서는 실제로 쳐 본다.
+        """
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "supported",
+                 "--falsify-out", "unmet", "--falsify-obs", "관측")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        st = self.status()
+        first = st["next"][0].split("  —")[0].strip().split()
+        self.assertEqual(first[0], "gil")
+        r = self.gil(*first[1:])
+        self.assertEqual(r.returncode, 0, f"next[0] 가 안 돈다: {st['next'][0]}\n{r.stderr}")
+
     def test_points_at_its_own_rendering_rules(self):
         """데이터가 **자기 그리는 법의 자리**를 함께 말한다.
 

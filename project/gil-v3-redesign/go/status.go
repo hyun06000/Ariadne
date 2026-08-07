@@ -30,6 +30,12 @@ type statusChain struct {
 	Purpose   string `json:"purpose,omitempty"`
 	Mode      string `json:"mode,omitempty"`
 	Interview string `json:"interview"` // none|pending|approved — 기준 문서의 상태
+	// Criterion — **무엇이 관측되면 이 체인이 풀린 것인가.** 사람이 세운 판정 문장.
+	//
+	// 왜 여기 있나. 승인·기각을 묻는 자리에서 기준이 없으면 그 물음은 의미가 없다 — 무엇에
+	// 비추어 판단하라는 건지가 없으니까. 지금까지 이 문장은 chain-root 커밋 트레일러에만
+	// 있어서, 읽으려면 그 커밋을 스스로 찾아 열어야 했다(자기규율).
+	Criterion string `json:"criterion,omitempty"`
 }
 
 type statusCycle struct {
@@ -38,6 +44,28 @@ type statusCycle struct {
 	RefutesIf  string `json:"refutes_if,omitempty"`
 	Plan       string `json:"plan,omitempty"`
 	FalsifyTo  string `json:"falsify_to,omitempty"` // 반증되면 물러설 자리(퇴로)
+}
+
+// statusVerdict — 이 체인에서 **마지막으로 닫힌 사이클**과 그 판정.
+//
+// 왜. 사람이 가장 자주 묻는 것이 "왜 실패했어"인데, 그 답의 재료가 지금 어디에도 없었다.
+// 지금 선 자리(step)만으로는 답할 수 없다 — 실패는 이미 닫힌 사이클에 있다.
+type statusVerdict struct {
+	Cycle  string `json:"cycle"`
+	Result string `json:"result"` // success | fail | pending
+	Why    string `json:"why,omitempty"`
+}
+
+// statusRollback — 되돌아갈 수 있는 자리 하나.
+//
+// 왜 이게 중요한가. gil reject --to / close --verdict fail --to 는 "조상 define" 을
+// 문자열로 받는데, **비개발자는 그 문자열을 알 방법이 없다.** 그래프를 읽고 스텝 번호를
+// 세어야 나온다. 후보를 사람이 읽을 수 있는 라벨과 함께 내주면 그 자리가 사라진다 —
+// 이 도구의 비개발자 진입 장벽에서 가장 단단한 부분이다.
+type statusRollback struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`  // define | analyze — --to 가 받는 두 kind
+	Label string `json:"label"` // 사람이 읽는 한 줄
 }
 
 type statusStep struct {
@@ -66,6 +94,8 @@ type statusOut struct {
 	Cycle   *statusCycle   `json:"cycle"`
 	Step    *statusStep    `json:"step"`
 	Waiting *statusWaiting `json:"waiting_for_human"`
+	LastVerdict *statusVerdict  `json:"last_verdict"`
+	Rollback    []statusRollback `json:"rollback_candidates"`
 	Next    []string       `json:"next"`
 	// RenderGuide — **이 데이터를 사람에게 보여주는 규칙이 어디 있나.**
 	//
@@ -100,6 +130,7 @@ func cmdStatus(args []string) {
 func gatherStatus() statusOut {
 	wd, _ := os.Getwd()
 	st := statusOut{Repo: wd, Branch: currentBranch(), Next: []string{}, Warnings: []string{},
+		Rollback: []statusRollback{},
 		RenderGuide: "docs/gil/status-card.md — 이 데이터를 사람에게 어떻게 보여줄지. 통째로 붙여넣지 마라."}
 
 	chain, cycle := headChainCycle()
@@ -133,7 +164,9 @@ func gatherStatus() statusOut {
 	if a, ok := agg[chain]; ok {
 		sc.Mode = a.mode
 	}
+	sc.Criterion = chainCriterionOf(chain)
 	st.Chain = &sc
+	st.LastVerdict = lastVerdictOf(chain)
 
 	if cycle != "" {
 		st.Cycle = &statusCycle{Name: cycle}
@@ -153,6 +186,7 @@ func gatherStatus() statusOut {
 				st.Cycle.FalsifyTo = h.falsifyTo
 			}
 			st.Next = nextMoves(chain, cycle, tip)
+			st.Rollback = rollbackCandidates(byID, tip)
 		}
 	}
 
@@ -181,6 +215,79 @@ func gatherStatus() statusOut {
 		st.Warnings = append(st.Warnings, strings.TrimSpace(strings.ReplaceAll(ln, "\n", " ")))
 	}
 	return st
+}
+
+// chainCriterionOf — 이 체인의 판정 문장(chain-root 의 Gil-Chain-Criterion).
+func chainCriterionOf(chain string) string {
+	const fs, rs = "\x1f", "\x1e"
+	out, err := gitTry("log", "--branches",
+		"--format=%(trailers:key=Gil-Chain,valueonly,unfold)"+fs+
+			"%(trailers:key=Gil-Chain-Criterion,valueonly,unfold)"+rs)
+	if err != nil {
+		return ""
+	}
+	for _, rec := range strings.Split(out, rs) {
+		f := strings.SplitN(rec, fs, 2)
+		if len(f) < 2 || strings.TrimSpace(f[0]) != chain {
+			continue
+		}
+		if c := strings.TrimSpace(f[1]); c != "" {
+			return c
+		}
+	}
+	return ""
+}
+
+// lastVerdictOf — 이 체인에서 마지막으로 닫힌 사이클과 판정. 없으면 nil.
+func lastVerdictOf(chain string) *statusVerdict {
+	for _, n := range collectNodes("--branches") { // 새→옛 순
+		if n.chain != chain || n.cycle == "" {
+			continue
+		}
+		switch n.kind {
+		case "success", "fail", "pending":
+			why := n.finding
+			if why == "" {
+				why = n.subject
+			}
+			return &statusVerdict{Cycle: n.cycle, Result: n.kind, Why: clip(why, 200)}
+		}
+	}
+	return nil
+}
+
+// rollbackCandidates — 지금 자리에서 **되돌아갈 수 있는** 조상들(define·analyze).
+//
+// --to 가 받는 것이 그 둘이다. 그 밖의 kind 를 후보로 내면 사람이 고른 것을 문법이 거부한다 —
+// 고를 수 없는 것을 보여주는 목록은 없느니만 못하다.
+func rollbackCandidates(byID map[string]node, tip node) []statusRollback {
+	out := []statusRollback{}
+	seen := map[string]bool{}
+	cur := tip
+	for i := 0; i < 64; i++ {
+		if cur.kind == "define" || cur.kind == "analyze" {
+			if cur.step != tip.step && !seen[cur.step] {
+				seen[cur.step] = true
+				out = append(out, statusRollback{ID: cur.step, Kind: cur.kind,
+					Label: clip(humanLabel(cur.subject), 90)})
+			}
+		}
+		p, ok := byID[cur.parent]
+		if !ok {
+			break
+		}
+		cur = p
+	}
+	return out
+}
+
+// humanLabel — 커밋 제목에서 gil 이 붙인 앞머리를 걷어 **사람이 읽는 한 줄**만 남긴다.
+// "gil c/cy/s1 define: 무엇을 풀려는가" → "무엇을 풀려는가".
+func humanLabel(subject string) string {
+	if i := strings.Index(subject, ": "); i >= 0 && strings.HasPrefix(subject, "gil ") {
+		return strings.TrimSpace(subject[i+2:])
+	}
+	return strings.TrimSpace(subject)
 }
 
 // walkBackToGil — 팁에서 첫-부모를 거슬러 가장 가까운 gil 커밋을 찾는다.
@@ -260,10 +367,14 @@ func nextMoves(chain, cycle string, tip node) []string {
 	case "verify":
 		return []string{"gil step " + ref + " --kind analyze --finding <결론 한 줄>"}
 	case "analyze":
+		// **종결은 close 가 아니라 step 의 kind 다.** close 는 그렇게 선 사이클을 봉인하는
+		// 다음 단계고, 그 --verdict 는 supported|partial|rejected 다. 처음 쓴 이 목록은
+		// 둘을 뭉개 `gil close … --verdict success --to …` 라는 **없는 문법**을 가르쳤다 —
+		// 막힌 사람이 그대로 쳤을 때 한 번 더 막히는 자리(v3.58.1·v3.58.2 가 고친 병).
 		return []string{
-			"gil close " + ref + " --verdict success  — 산 잎",
-			"gil close " + ref + " --verdict fail --to <조상 define>  — 죽은 잎, 되돌아갈 자리와 함께",
-			"gil close " + ref + " --verdict pending  — 사람에게 넘긴다",
+			"gil step " + ref + " --kind success  — 산 잎",
+			"gil step " + ref + " --kind fail --to <조상 define|analyze>  — 죽은 잎, 되돌아갈 자리와 함께",
+			"gil step " + ref + " --kind pending  — 사람에게 넘긴다",
 			"gil step " + ref + " --kind hypothesis --competing <갈래>  — 형제 가설을 나란히 세운다",
 		}
 	case "pending":
