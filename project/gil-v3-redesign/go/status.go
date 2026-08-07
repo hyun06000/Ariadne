@@ -66,6 +66,11 @@ type statusRollback struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`  // define | analyze — --to 가 받는 두 kind
 	Label string `json:"label"` // 사람이 읽는 한 줄
+	// Discards — 여기로 되돌리면 버려지는 스텝들.
+	//
+	// 목록만으로는 고를 수 없다. 사람이 알고 싶은 것은 스텝 번호가 아니라 **되돌리면
+	// 무엇을 잃는가**다 — "s4" 와 "s5~s7 이 버려진다"는 다른 정보고, 판단은 후자로 한다.
+	Discards []string `json:"discards"`
 }
 
 type statusStep struct {
@@ -73,6 +78,12 @@ type statusStep struct {
 	Kind    string `json:"kind"`
 	Subject string `json:"subject,omitempty"`
 	SHA     string `json:"sha,omitempty"`
+	// 아래 셋은 **kind 마다 다른 자리에서 본문이 된다.** analyze 는 결론이, success·fail 은
+	// 판정 기준과의 대조와 다음 설계가 카드의 몸통이다. 트레일러엔 이미 있었는데 여기로
+	// 안 나와서, 그리는 쪽이 커밋 본문을 스스로 열어야 했다(자기규율).
+	Finding    string `json:"finding,omitempty"`     // analyze — 이 분석이 밝힌 것 한 줄
+	Toward     string `json:"toward,omitempty"`      // success·fail — 체인 목적에 얼마나 다가섰나
+	NextDesign string `json:"next_design,omitempty"` // success·fail — 다음 설계
 }
 
 // statusWaiting — 사람이 나설 자리. **null 이 아니면 그것이 지금 유일하게 할 일이다.**
@@ -178,7 +189,8 @@ func gatherStatus() statusOut {
 			byID[n.step] = n
 		}
 		if tip, ok := headStepNode(nodes, tipSHA); ok {
-			st.Step = &statusStep{ID: tip.step, Kind: tip.kind, Subject: tip.subject, SHA: clip(tip.sha, 12)}
+			st.Step = &statusStep{ID: tip.step, Kind: tip.kind, Subject: tip.subject, SHA: clip(tip.sha, 12),
+				Finding: tip.finding, Toward: tip.toward, NextDesign: tip.nextDesign}
 			if h, ok := nearestKindUp(byID, tip, "hypothesis"); ok {
 				st.Cycle.Hypothesis = h.subject
 				st.Cycle.RefutesIf = h.falsify
@@ -263,15 +275,18 @@ func lastVerdictOf(chain string) *statusVerdict {
 func rollbackCandidates(byID map[string]node, tip node) []statusRollback {
 	out := []statusRollback{}
 	seen := map[string]bool{}
+	var passed []string // 팁에서 여기까지 지나온 스텝 = 되돌리면 버려지는 것들
 	cur := tip
 	for i := 0; i < 64; i++ {
 		if cur.kind == "define" || cur.kind == "analyze" {
 			if cur.step != tip.step && !seen[cur.step] {
 				seen[cur.step] = true
+				d := append([]string{}, passed...)
 				out = append(out, statusRollback{ID: cur.step, Kind: cur.kind,
-					Label: clip(humanLabel(cur.subject), 90)})
+					Label: clip(humanLabel(cur.subject), 90), Discards: d})
 			}
 		}
+		passed = append([]string{cur.step}, passed...)
 		p, ok := byID[cur.parent]
 		if !ok {
 			break

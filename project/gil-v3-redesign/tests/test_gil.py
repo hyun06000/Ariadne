@@ -5438,6 +5438,58 @@ class TestStatusJSON(GilFixture):
         r = self.gil(*first[1:])
         self.assertEqual(r.returncode, 0, f"next[0] 가 안 돈다: {st['next'][0]}\n{r.stderr}")
 
+    def test_rollback_says_what_gets_discarded(self):
+        """되돌아갈 자리는 **무엇을 잃는가**와 함께 온다.
+
+        목록만으로는 고를 수 없다. 사람이 고르는 근거는 "s4"가 아니라 "s5~s7 이 버려진다"다 —
+        번호는 주소고, 판단은 잃는 것으로 한다.
+        """
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "refuted",
+                 "--falsify-out", "met", "--falsify-obs", "관측")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        st = self.status()
+        by = {c["id"]: c for c in st["rollback_candidates"]}
+        self.assertIn("s1", by, st["rollback_candidates"])
+        # s1 로 되돌리면 그 뒤 스텝들이 버려진다 — 자기 자신은 안 버려진다.
+        self.assertIn("s2", by["s1"]["discards"])
+        self.assertNotIn("s1", by["s1"]["discards"])
+
+    def test_closure_report_fields_come_along(self):
+        """success·fail 카드의 본문이 데이터로 온다 — toward·next_design.
+
+        이 둘은 트레일러에 이미 있었는데 status 가 안 실어서, 그리는 쪽이 커밋 본문을
+        스스로 열어야 했다(자기규율). 리포트 카드의 몸통이 거기 있다.
+        """
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "supported",
+                 "--falsify-out", "unmet", "--falsify-obs", "관측")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "이 분석이 밝힌 것")
+        st = self.status()
+        self.assertEqual(st["step"]["finding"], "이 분석이 밝힌 것")
+        r = self.gil("step", "st/c1", "--kind", "success",
+                     "--toward", "체인 목적에 이만큼 다가섰다",
+                     "--next-design", "다음은 이것을 겨눈다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.status()
+        self.assertEqual(st["step"]["toward"], "체인 목적에 이만큼 다가섰다")
+        self.assertEqual(st["step"]["next_design"], "다음은 이것을 겨눈다")
+
+    def test_the_seven_kinds_are_written_down(self):
+        """일곱 kind 규칙이 **문서에** 있다 — 코드가 아니라.
+
+        화면을 Go 에 박으면 이 방식의 값어치를 그 자리에서 버린다. 그리고 규칙이 문서에만
+        있으면 안 읽히니, render_guide 가 그 자리를 가리킨다(이미 시험이 있다).
+        """
+        r = self.gil("docs", "install")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = (Path(self.repo) / "docs" / "gil" / "status-card.md").read_text()
+        for kind in ("define", "hypothesis", "verify", "analyze", "pending", "success", "fail"):
+            self.assertIn("`" + kind + "`", doc, f"{kind} 카드 규칙이 없다")
+        self.assertIn("discards", doc)
+
     def test_points_at_its_own_rendering_rules(self):
         """데이터가 **자기 그리는 법의 자리**를 함께 말한다.
 
