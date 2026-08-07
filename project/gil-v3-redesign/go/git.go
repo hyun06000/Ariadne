@@ -360,6 +360,12 @@ type node struct {
 	finding      string   // analyze: 이 분석이 밝힌 것(결론 한 줄) — 재분기가 딛는 문장(상현님)
 	despiteMap   string   // hypothesis: 벽의 지도와 다른 자리에서 갈라진 이유(상현님)
 	competing    string   // hypothesis: 형제들과 **동시에** 겨루는 자리(경합의 뿌리 스텝, #106·#107)
+	// lostTo — 경합에서 진 갈래가 가리키는 승자(gil adopt 가 진 쪽에 남긴다).
+	//
+	// 왜 CLI 쪽에도 필요한가. **채택된 갈래는 제 커밋에 아무 표식이 없다** — 채택은 진 쪽에만
+	// 적힌다. 그래서 "누가 이겼나"는 이 필드를 거꾸로 읽어야 나온다. 지금까지 뷰어만 이걸
+	// 읽었고(viewerNode), 그래서 경합의 상태는 브라우저를 띄운 사람만 볼 수 있었다.
+	lostTo string
 }
 
 // collectNodes — 커밋 그래프를 훑어 Gil-Step 트레일러를 가진 커밋을 스텝 노드로 수집.
@@ -396,6 +402,7 @@ func collectNodes(revRange string) []node {
 		trailer("Gil-Finding"),          // analyze 의 결론 — 지식 누적이 인용하는 문장
 		trailer("Gil-Despite-Map"),      // 벽의 지도를 벗어난 재분기의 이유
 		trailer("Gil-Competing"),        // 동시에 겨루는 형제 가설의 뿌리(#106·#107)
+		trailer("Gil-Lost-To"),          // 경합에서 진 갈래가 가리키는 승자(gil adopt)
 	}, fsep) + sep
 	// revRange 뒤 "--" 로 revision 확정 — 체인/브랜치명이 디렉토리명과 겹치면(예: viewer)
 	// git 이 revision/path ambiguity 로 exit 128 로 죽는다(실사용 발견, viewer 실작업).
@@ -407,7 +414,7 @@ func collectNodes(revRange string) []node {
 			continue
 		}
 		f := strings.Split(rec, fsep)
-		if len(f) < 31 {
+		if len(f) < 32 {
 			continue
 		}
 		step := strings.TrimSpace(f[4])
@@ -446,6 +453,7 @@ func collectNodes(revRange string) []node {
 			finding:      strings.TrimSpace(f[28]),
 			despiteMap:   strings.TrimSpace(f[29]),
 			competing:    strings.TrimSpace(f[30]),
+			lostTo:       strings.TrimSpace(f[31]),
 		})
 	}
 	return nodes

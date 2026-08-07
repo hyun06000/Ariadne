@@ -351,12 +351,15 @@ var helpTable = map[string]helpEntry{
 		"docs/gil/concepts.md",
 	},
 	"status": {
-		"gil status [--json]\n" +
+		"gil status [--json] [--card]\n" +
 			"  **지금 어디, 개입할 때인가**를 한 번에 답한다 — 체인·사이클·스텝, 사람이 나설\n" +
 			"  자리(waiting_for_human), 그리고 **다음 한 수**. 그래프는 담지 않는다: 작업 중에\n" +
 			"  필요한 건 지금 선 자리고, 전체 그래프는 다 끝난 뒤 한 번 읽는 물건이라 한 화면에\n" +
 			"  섞으면 둘 다 안 읽힌다. --json 은 에이전트가 읽어 **제 화면으로 그리라고** 있다 —\n" +
-			"  고정된 화면보다 그 자리에서 답하는 쪽이 낫다.",
+			"  고정된 화면보다 그 자리에서 답하는 쪽이 낫다.\n" +
+			"  --card 는 그 자리를 **카드 한 장(HTML)** 으로 낸다 — 맨 위에 이 사이클의 스텝 띠가\n" +
+			"  있고(카드 종류와 무관하게 언제나), 그 아래가 지금 kind 의 본문이다. 그리는 규칙은\n" +
+			"  docs/gil/status-card.md.",
 		"docs/gil/concepts.md",
 	},
 	"context": {

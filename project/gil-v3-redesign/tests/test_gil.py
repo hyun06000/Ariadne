@@ -5568,6 +5568,278 @@ class TestStatusJSON(GilFixture):
         st = self.status()
         self.assertIn("기울기가 넘어왔다", st["cycle"]["inherit"])
 
+    def card(self):
+        """카드 한 장(HTML). MCP 호스트만 그리는 화면은 검증할 수 없다 — 실측: 이 카드는
+        어떤 시험도 안 지나간 채로 있었고, 그래서 그리는 규칙을 지키는지 아무도 몰랐다."""
+        r = self.gil("status", "--card")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def _branching_cycle(self):
+        """척추 s1~s5(fail, s1 로 백트랙) + s1 에서 다시 갈라진 s6. 일곱 색 중 넷이 선다."""
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--title", "첫 축",
+                 "--falsify", "안 되면", "--falsify-to", "s1")
+        self.gil("step", "st/c1", "--kind", "verify", "--title", "재봤다",
+                 "--verdict", "refuted", "--falsify-met", "관측된 것")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "다른 축이 있다")
+        self.gil("step", "st/c1", "--kind", "fail", "--to", "s1", "--title", "이 축은 닫는다")
+        r = self.gil("step", "st/c1", "--kind", "hypothesis", "--to", "s1",
+                     "--inherit", "앞 가지의 벽", "--title", "둘째 축",
+                     "--falsify", "안 되면", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_every_card_carries_the_strip_on_top(self):
+        """띠는 **카드 종류와 무관하게** 맨 위에 있다(상현님).
+
+        본문은 kind 마다 다르지만 "어디에 서 있나"는 어느 카드에서도 같은 질문이다. 띠가
+        kind 마다 나타나고 사라지면 사람은 매번 화면 구조를 다시 읽어야 하고, 그러면 카드가
+        한 종류의 물건으로 안 읽힌다.
+        """
+        self._cycle()                      # define 자리
+        self.assertIn('class="strip"', self.card())
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        self.assertIn('class="strip"', self.card())   # hypothesis 자리
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "supported",
+                 "--falsify-unmet", "관측")
+        self.assertIn('class="strip"', self.card())   # verify 자리
+
+    def test_the_strip_draws_the_spine_straight_and_the_branch_down(self):
+        """꺾인 선은 곧 분기다 — 분기가 아닌 간선을 꺾으면 없는 갈라짐을 그린 것이 된다.
+
+        척추(첫 자식)는 `<line>` 곧은 가로선, 분기(둘째 자식부터)는 부모 자리에서 내려간 뒤
+        오른쪽으로 꺾는 `<path>`. 그리고 **행이 둘 이상 선다** — 형제가 한 줄에 포개지면
+        비교하려고 놓은 그림이 비교를 못 하게 한다(#114 가 전체맵에서 치른 값).
+        """
+        import re
+        self._branching_cycle()
+        svg = re.search(r'<svg class="strip".*?</svg>', self.card(), re.S).group(0)
+        ys = {int(m) for m in re.findall(r'<circle cx="\d+" cy="(\d+)"', svg)}
+        self.assertEqual(len(ys), 2, f"분기가 새 행으로 안 내려갔다: {sorted(ys)}")
+        spine = re.findall(r'<line class="e" x1="\d+" y1="(\d+)" x2="\d+" y2="(\d+)"', svg)
+        self.assertTrue(spine, "척추가 곧은 가로선으로 안 그려졌다")
+        for y1, y2 in spine:
+            self.assertEqual(y1, y2, "척추 간선이 꺾였다 — 없는 분기를 그린 것이 된다")
+        self.assertIn('<path class="e"', svg, "분기 간선이 없다")
+
+    def test_the_backtrack_is_one_arc_from_the_leaf_to_the_step_it_returned_to(self):
+        """되돌림은 **경로가 아니라 두 자리의 관계**다(상현님).
+
+        처음엔 지나온 간선을 되짚어 그렸다. 그러면 점선이 실제 간선과 나란히 겹쳐 달려서
+        **어디서 어디로 돌아갔는지가 안 보였다.** 활 하나로 굽혀 빼면 시작과 끝이 바로 읽힌다.
+        양 끝은 노드 중앙에 맞물린다 — 오프셋에서 멈추면 허공에서 끝난 선으로 읽힌다.
+        """
+        import re
+        self._branching_cycle()
+        svg = re.search(r'<svg class="strip".*?</svg>', self.card(), re.S).group(0)
+        bt = re.search(r'<path class="bt" d="([^"]+)"', svg)
+        self.assertIsNotNone(bt, "기록에 있는 백트랙이 안 그려졌다")
+        d = bt.group(1)
+        self.assertIn(" C", d, f"활이 아니라 꺾인 선으로 그렸다: {d}")
+        # s1(define, 회색)이 척추의 시작점 — 활은 그 중앙에서 끝난다.
+        first = re.search(r'<circle cx="(\d+)" cy="(\d+)" r="\d+" fill="#888780"', svg)
+        self.assertIsNotNone(first, "define 노드를 못 찾았다")
+        self.assertTrue(d.rstrip().endswith(f", {first.group(1)} {first.group(2)}"),
+                        f"활이 s1 중앙에서 끝나지 않는다: {d}")
+        # 그리고 죽은 잎(코랄)의 중앙에서 시작한다.
+        leaf = re.search(r'<circle cx="(\d+)" cy="(\d+)" r="\d+" fill="#D85A30"', svg)
+        self.assertTrue(d.startswith(f"M{leaf.group(1)} {leaf.group(2)}"),
+                        f"활이 죽은 잎에서 시작하지 않는다: {d}")
+
+    def test_the_strip_does_not_discriminate_the_dead_leaf(self):
+        """죽은 잎도 **같은 반지름·같은 실선**, 색만 다르다. 그리고 **빨강이 아니다**.
+
+        빨강은 오류의 색이라 그걸 쓰면 fail 이 잘못으로 읽히고, 사람은 되돌리기를 손실로
+        읽는다 — gil 이 막으려는 바로 그 압력이다.
+        """
+        import re
+        self._branching_cycle()
+        svg = re.search(r'<svg class="strip".*?</svg>', self.card(), re.S).group(0)
+        radii = {r for r in re.findall(r'<circle cx="\d+" cy="\d+" r="(\d+)" fill=', svg)}
+        self.assertEqual(len(radii), 1, f"노드 크기가 종류마다 다르다: {radii}")
+        self.assertIn("#D85A30", svg, "죽은 잎 코랄이 없다")
+        self.assertNotIn("#E24B4A", svg, "죽은 잎을 빨강으로 칠했다")
+
+    def test_the_ring_says_where_i_am_and_the_color_says_what_it_is(self):
+        """지금 위치는 색이 아니라 **바깥 링**이다 — 색은 종류를 말하는 자리라 둘을 한 채널에
+        얹으면 하나가 다른 하나를 덮는다."""
+        import re
+        self._branching_cycle()
+        svg = re.search(r'<svg class="strip".*?</svg>', self.card(), re.S).group(0)
+        rings = re.findall(r'<circle class="ring" cx="(\d+)" cy="(\d+)"', svg)
+        self.assertEqual(len(rings), 1, f"링이 하나가 아니다: {rings}")
+        st = self.status()
+        cur = st["step"]["id"]
+        node = re.search(r'<circle cx="(\d+)" cy="(\d+)" r="\d+" fill="[^"]+"><title>' + cur, svg)
+        self.assertIsNotNone(node, f"{cur} 노드를 못 찾았다")
+        self.assertEqual(rings[0], (node.group(1), node.group(2)), "링이 딴 스텝에 걸렸다")
+
+    def test_the_strip_draws_no_edge_it_was_not_given(self):
+        """없는 간선을 지어내지 않는다 — 스텝 하나면 선이 없다.
+
+        실측으로 값을 치른 자리다: 손으로 그리는 동안 없는 간선(s9→s8)을 지어냈다.
+        """
+        import re
+        self._cycle()
+        svg = re.search(r'<svg class="strip".*?</svg>', self.card(), re.S).group(0)
+        self.assertNotIn("<line", svg, "부모가 없는데 간선을 그렸다")
+        self.assertNotIn('class="e"', svg)
+        self.assertNotIn('class="bt"', svg, "기록에 없는 백트랙을 그렸다")
+        # 노드 하나 + 지금 자리를 말하는 링 하나. 그 둘 말고는 아무것도 없다.
+        self.assertEqual(len(re.findall(r'<circle cx="\d+" cy="\d+" r="\d+" fill=', svg)), 1)
+        self.assertEqual(svg.count('class="ring"'), 1)
+
+    def test_the_define_card_shows_the_problem_and_what_it_stands_on(self):
+        """define 카드는 **문제정의**와 **기반사실** 둘이 분명해야 한다(상현님).
+
+        뒤 칸이 없으면 문제정의는 근거 없는 선언으로 읽히고, 승인할지 판단할 재료가 없다.
+        그리고 원문(step.body)을 함께 둔다 — 요약만 두면 지어내서 감춘 것이 된다.
+        """
+        r = self.gil("chain", "df", "--purpose", "정의 카드")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self._autofill_interview("df")
+        r = self.gil("open", "df/c1", "--author", "clew", "--purpose", "초과분의 출처를 가른다",
+                     "--body", "지금 p95 는 780ms 고 예산은 300ms 다. 출처를 모른다.",
+                     "--inherit", "앞 사이클: 캐시 축은 닫혔다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        card = self.card()
+        self.assertIn("문제정의", card)
+        self.assertIn("초과분의 출처를 가른다", card)
+        self.assertIn("지금 p95 는 780ms", card, "원문이 카드에 없다")
+        self.assertIn("기반사실", card)
+        self.assertIn("캐시 축은 닫혔다", card)
+        # 승인·기각 두 갈래가 서고, '다음 한 수'는 없다(define 다음은 하나뿐이라 자명하다).
+        self.assertIn('data-act="approve"', card)
+        self.assertIn('data-act="reject"', card)
+        self.assertNotIn("다음 한 수", card)
+
+    def test_the_define_card_says_when_it_stands_on_nothing(self):
+        """물려받은 사실이 없으면 **없다고 말한다.** 칸을 지우면 근거 없는 문제정의가 근거
+        있는 것과 같아 보인다 — 없는 것을 채우지 않는 것과, 없다는 사실을 감추는 것은 다르다."""
+        self._cycle()   # --inherit 없이 연 사이클
+        card = self.card()
+        self.assertIn("기반사실", card)
+        self.assertIn("물려받은 사실이 기록에 없다", card)
+
+    def test_the_card_divides_by_background_not_by_lines(self):
+        """구획은 실선이 아니라 **카드 안의 카드**다(상현님). 그리고 kind 는 제 색 타원이다.
+
+        옅은 회색 알약이었을 때는 지금 무슨 스텝에 서 있는지가 눈에 안 들어왔다 — 카드의
+        성격을 정하는 값이 가장 약하게 그려져 있었다.
+        """
+        self._cycle()
+        card = self.card()
+        self.assertIn('class="panel"', card)
+        self.assertNotIn("border-top:1px solid var(--line)", card, "실선 구획이 남아 있다")
+        self.assertIn('class="kind k-define"', card)
+        self.assertIn(".k-define{background:", card)
+        # 저장소 경로는 남는다 — 어느 저장소의 화면인지(#110 이 오진으로 값을 치른 자리).
+        self.assertIn('class="repo"', card)
+
+    def test_the_root_step_has_no_parent_not_a_parent_named_null(self):
+        """뿌리의 부모는 **없다** — `"null"` 이라는 이름의 스텝이 아니다.
+
+        트레일러에는 파수꾼 값 `Gil-Parent: null` 이 산다(코드 곳곳이 빈 값과 같이 다룬다).
+        그걸 그대로 내보내면 그리는 쪽은 `null` 로 가는 간선을 그린다 — 문서가 "없는 것을
+        그리지 마라"고 못박은 그 자리다. 카드를 손으로 그려 보다 잡았다.
+        """
+        self._cycle()
+        st = self.status()
+        root = st["cycle"]["steps"][0]
+        self.assertEqual(root["kind"], "define")
+        self.assertEqual(root.get("parent", ""), "", f"뿌리에 없는 부모가 실렸다: {root}")
+
+    def test_hypothesis_card_says_why_it_measures(self):
+        """hypothesis 카드의 '왜 재나' 칸 — advances 가 데이터로 온다.
+
+        반증조건만 있으면 카드는 "무엇을 재나"까지만 답하고, 그 측정이 체인의 판정 기준과
+        무슨 상관인지는 사람이 스스로 이어야 한다. 그 문장은 트레일러에 이미 있었다.
+        """
+        self._cycle()
+        r = self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면",
+                     "--falsify-to", "s1", "--advances", "기준의 첫 조각을 짚는다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.status()
+        self.assertEqual(st["cycle"]["advances"], "기준의 첫 조각을 짚는다")
+        # 가설 문장에 gil 이 붙인 앞머리가 남아 있으면 사람이 읽을 자리에 주소가 앉는다.
+        self.assertNotIn("gil st/c1", st["cycle"]["hypothesis"])
+        self.assertNotIn("hypothesis:", st["cycle"]["hypothesis"])
+        # 퇴로도 함께 — 반증된 뒤에 그래프를 뒤져 스텝 번호를 세지 않게.
+        self.assertEqual(st["cycle"]["falsify_to"], "s1")
+
+    def _competition(self):
+        """같은 define 에서 갈라진 경합 둘. A 갈래를 밟은 채로 둔다."""
+        self._cycle()
+        for name in ("A", "B"):
+            r = self.gil("step", "st/c1", "--kind", "hypothesis", "--to", "s1", "--competing",
+                         "--title", f"h{name}", "--falsify", f"{name} 가 안 되면",
+                         "--falsify-to", "s1")
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_competing_branches_come_side_by_side(self):
+        """경합은 **세지 말고 나란히** — 비교할 자리가 없으면 갈래는 열어 둔 채 잊힌다.
+
+        v3.55.0 이 형제 비교를 뷰어에 그렸는데 그 화면은 브라우저를 띄운 사람만 본다.
+        작업 중에 보는 카드에 없으면, 경합의 요점인 비교가 그 자리에서 사라진다.
+        """
+        self._competition()
+        st = self.status()
+        comp = st["cycle"]["competing"]
+        self.assertEqual(len(comp), 2, comp)
+        by = {c["id"]: c for c in comp}
+        for c in comp:
+            self.assertTrue(c["refutes_if"].strip(), c)
+            self.assertEqual(c["state"], "open")
+        # 내가 밟고 있는 갈래가 표시된다 — 없으면 카드가 어느 갈래를 말하는지 모른다.
+        cur = [c["id"] for c in comp if c.get("current")]
+        self.assertEqual(len(cur), 1, comp)
+        self.assertIn(cur[0], by)
+
+    def test_a_lone_rebranch_is_not_a_competition(self):
+        """하나는 경합이 아니라 그냥 재분기다 — 그 칸을 두면 없는 겨룸을 그린 것이 된다."""
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        st = self.status()
+        self.assertEqual(st["cycle"].get("competing", []), [])
+
+    def test_the_adopted_branch_is_named_even_though_it_carries_no_mark(self):
+        """**채택된 갈래는 제 커밋에 아무 표식이 없다** — 채택은 진 쪽에만 적힌다.
+
+        그래서 승자는 진 갈래의 Gil-Lost-To 를 거꾸로 읽어야 나온다. 지금까지 그 필드는
+        뷰어만 읽었고, 경합의 승패는 브라우저를 띄운 사람만 볼 수 있었다.
+        """
+        self._competition()
+        st = self.status()
+        winner = [c["id"] for c in st["cycle"]["competing"] if c.get("current")][0]
+        loser = [c["id"] for c in st["cycle"]["competing"] if c["id"] != winner][0]
+        r = self.gil("adopt", f"st/c1/{winner}", "--reason", "이쪽이 재는 값이 더 크다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.status()
+        by = {c["id"]: c for c in st["cycle"]["competing"]}
+        self.assertEqual(by[winner]["state"], "won", st["cycle"]["competing"])
+        self.assertEqual(by[loser]["state"], "lost", st["cycle"]["competing"])
+        self.assertIn(winner, by[loser]["lost_to"])
+
+    def test_the_text_form_names_the_competition_too(self):
+        """짧은 형태도 갈래를 **이름으로** 부른다 — 두 출력이 다른 것을 세면 안 된다."""
+        self._competition()
+        out = self.gil("status").stdout
+        self.assertIn("경합", out)
+        self.assertIn("(여기)", out)
+
+    def test_hypothesis_card_rules_are_written_down(self):
+        """hypothesis 카드 규칙이 문서에 있다 — 반증조건은 아직 지나가지 않았다.
+
+        analyze 카드와 같은 문장을 같은 자리에 두면 사람은 그 차이를 못 읽는다. 시제
+        하나가 "이미 판정이 났다"고 말한다.
+        """
+        r = self.gil("docs", "install")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = (Path(self.repo) / "docs" / "gil" / "status-card.md").read_text()
+        for must in ("퇴로", "미래 시제", "경합", "cycle.competing", "cycle.advances",
+                     "despite_map"):
+            self.assertIn(must, doc, f"{must} 규칙이 없다")
+
     def test_the_strip_rules_are_written_down(self):
         """배치 규칙이 문서에 있다 — 코드가 아니라. 안 적으면 다음 세션이 또 손으로 그린다."""
         r = self.gil("docs", "install")

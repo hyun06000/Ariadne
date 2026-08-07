@@ -54,6 +54,11 @@ type statusStepNode struct {
 
 type statusCycle struct {
 	Name      string `json:"name"`
+	// Purpose — 이 사이클이 무엇을 풀려는가(Gil-Cycle-Purpose). **define 카드의 몸통이다.**
+	//
+	// 지금까지 이 문장은 스텝 제목에 앞머리와 함께 붙어서만 나왔다("gil c/cy/s1 define: …").
+	// 카드에 그걸 그대로 실으면 사람이 읽을 자리에 주소가 앉는다.
+	Purpose string `json:"purpose,omitempty"`
 	// Steps — 이 사이클의 스텝 전부(선언 순). 그리는 규칙은 docs/gil/status-card.md.
 	Steps []statusStepNode `json:"steps"`
 	// Inherit — 이 사이클이 앞에서 물려받은 것. define 카드의 **근거** 칸이 이것이다.
@@ -63,6 +68,37 @@ type statusCycle struct {
 	RefutesIf  string `json:"refutes_if,omitempty"`
 	Plan       string `json:"plan,omitempty"`
 	FalsifyTo  string `json:"falsify_to,omitempty"` // 반증되면 물러설 자리(퇴로)
+	// Advances — 이 가설이 **체인 목적에 얼마나·어떻게 다가서게 하나**(Gil-Advances).
+	//
+	// hypothesis 카드의 "이걸 왜 재나" 칸이다. 반증조건만 있으면 카드는 "무엇을 재나"까지만
+	// 답하고, 그 측정이 체인의 판정 기준과 무슨 상관인지는 사람이 스스로 이어야 한다.
+	Advances string `json:"advances,omitempty"`
+	// DespiteMap — 벽의 지도(falsify_to)와 **다른 자리**에서 갈라진 이유(Gil-Despite-Map, #105).
+	//
+	// 이건 삼키면 안 된다. 지도를 벗어난 재분기는 `--despite` 없이는 문법이 거부하는 것이고,
+	// 그 이유는 사람이 판단해야 할 재료다. 감추면 두 계획이 동시에 유효한 것처럼 보인다.
+	DespiteMap string `json:"despite_map,omitempty"`
+	// Competing — 지금 이 자리에서 **나란히 겨루는** 형제 갈래들(#106·#107·#112).
+	//
+	// 왜 status 에도 있나. v3.55.0 이 형제 비교를 뷰어에 그렸는데, 그 화면은 브라우저를 띄운
+	// 사람만 본다. 경합의 요점은 **비교**고, 비교할 자리가 없으면 갈래는 열어 둔 채 잊힌다 —
+	// 우리가 없애려던 그 매달린 잎이다. 하나뿐이면 경합이 아니라 그냥 재분기라 비운다.
+	Competing []statusSibling `json:"competing,omitempty"`
+}
+
+// statusSibling — 경합의 한 갈래. hypothesis 카드에서 **나란히 놓는 한 줄**이다.
+//
+// 상태를 어떻게 아나. 그 갈래의 잎이 말한다 — 뷰어(competitionsJSON)와 **같은 규칙**이다.
+// 두 창구가 경합의 승패를 다르게 세면 사람은 어느 쪽을 믿을지 모른다.
+type statusSibling struct {
+	ID         string `json:"id"`   // 갈래의 뿌리(--competing 을 선언한 그 가설)
+	Hypothesis string `json:"hypothesis,omitempty"`
+	RefutesIf  string `json:"refutes_if,omitempty"`
+	Plan       string `json:"plan,omitempty"`
+	Leaf       string `json:"leaf,omitempty"`  // 그 갈래가 지금 선 자리
+	State      string `json:"state"`           // open | won | lost | fail
+	LostTo     string `json:"lost_to,omitempty"`
+	Current    bool   `json:"current,omitempty"` // 내가 밟고 있는 갈래
 }
 
 // statusVerdict — 이 체인에서 **마지막으로 닫힌 사이클**과 그 판정.
@@ -97,6 +133,12 @@ type statusStep struct {
 	Kind    string `json:"kind"`
 	Subject string `json:"subject,omitempty"`
 	SHA     string `json:"sha,omitempty"`
+	// Body — 이 스텝의 본문(트레일러 제외). define 카드가 **원문**을 함께 두는 자리다.
+	//
+	// 왜 필요한가. 문제정의를 물음으로 다시 쓰는 것은 읽기 보조고, 원문을 함께 두지 않으면
+	// 지어내서 감춘 것이 된다(status-card.md). 그런데 지금까지 본문은 status 에 없어서
+	// 원문을 둘 방법이 아예 없었다 — 그리는 쪽이 커밋을 스스로 열어야 했다.
+	Body string `json:"body,omitempty"`
 	// 아래 셋은 **kind 마다 다른 자리에서 본문이 된다.** analyze 는 결론이, success·fail 은
 	// 판정 기준과의 대조와 다음 설계가 카드의 몸통이다. 트레일러엔 이미 있었는데 여기로
 	// 안 나와서, 그리는 쪽이 커밋 본문을 스스로 열어야 했다(자기규율).
@@ -140,8 +182,16 @@ type statusOut struct {
 func cmdStatus(args []string) {
 	fs := newFlags("gil status")
 	asJSON := fs.boolFlag("json")
+	// --card — 카드 한 장을 HTML 로 낸다. **MCP 호스트만 그리는 화면은 검증할 수 없다**:
+	// 지금까지 이 카드는 어떤 시험도 안 지나갔고(실측), 그래서 정작 그리는 규칙을 지키는지
+	// 아무도 몰랐다. 여기로 내면 시험이 실제로 읽고, 사람도 파일로 저장해 열어 볼 수 있다.
+	asCard := fs.boolFlag("card")
 	fs.parse(args)
 	st := gatherStatus()
+	if *asCard {
+		println2(statusCardHTML(st))
+		return
+	}
 	if *asJSON {
 		b, err := json.MarshalIndent(st, "", "  ")
 		if err != nil {
@@ -214,15 +264,22 @@ func gatherStatus() statusOut {
 				break
 			}
 		}
+		st.Cycle.Purpose = cyclePurpose(chain, cycle, "--branches")
 		if tip, ok := headStepNode(nodes, tipSHA); ok {
 			st.Step = &statusStep{ID: tip.step, Kind: tip.kind, Subject: tip.subject, SHA: clip(tip.sha, 12),
-				Finding: tip.finding, Toward: tip.toward, NextDesign: tip.nextDesign}
+				Body: stepBodyOf(tip.sha), Finding: tip.finding, Toward: tip.toward, NextDesign: tip.nextDesign}
 			if h, ok := nearestKindUp(byID, tip, "hypothesis"); ok {
-				st.Cycle.Hypothesis = h.subject
+				// gil 이 붙인 앞머리("gil c/cy/s3 hypothesis: ")를 걷는다 — 카드에 그대로
+				// 실리면 사람이 읽을 자리에 주소가 앉는다(경합 목록은 이미 걷고 있었고,
+				// 두 자리가 다른 꼴로 나오면 같은 문장이 다른 것처럼 보인다).
+				st.Cycle.Hypothesis = humanLabel(h.subject)
 				st.Cycle.RefutesIf = h.falsify
 				st.Cycle.Plan = h.plan
 				st.Cycle.FalsifyTo = h.falsifyTo
+				st.Cycle.Advances = h.advances
+				st.Cycle.DespiteMap = h.despiteMap
 			}
+			st.Cycle.Competing = competingSiblings(nodes, tip)
 			st.Next = nextMoves(chain, cycle, tip)
 			st.Rollback = rollbackCandidates(byID, tip)
 		}
@@ -253,6 +310,39 @@ func gatherStatus() statusOut {
 		st.Warnings = append(st.Warnings, strings.TrimSpace(strings.ReplaceAll(ln, "\n", " ")))
 	}
 	return st
+}
+
+// stepBodyOf — 그 커밋의 본문(트레일러 문단 제외). 없으면 빈 값.
+//
+// **자르지 않는다.** 이 본문은 스텝의 보고서고(가설 근거·문제정의·관측), 줄이면 사람이
+// 판단할 재료가 사라진다. 화면에서 접는 것은 그리는 쪽의 몫이다 — 데이터가 미리 잘라
+// 버리면 접었다 펴는 것조차 불가능해진다.
+func stepBodyOf(sha string) string {
+	if sha == "" {
+		return ""
+	}
+	out, err := gitTry("log", "-1", sha, "--format=%b")
+	if err != nil {
+		return ""
+	}
+	// 마지막 문단이 전부 트레일러면 걷어낸다(그건 기계의 말이고 사람의 보고서가 아니다).
+	paras := strings.Split(strings.TrimSpace(out), "\n\n")
+	if n := len(paras); n > 0 {
+		allTrailer := true
+		for _, ln := range strings.Split(strings.TrimSpace(paras[n-1]), "\n") {
+			if ln == "" || strings.HasPrefix(ln, " ") || strings.HasPrefix(ln, "\t") {
+				continue
+			}
+			if !strings.HasPrefix(ln, "Gil-") {
+				allTrailer = false
+				break
+			}
+		}
+		if allTrailer {
+			paras = paras[:n-1]
+		}
+	}
+	return strings.TrimSpace(strings.Join(paras, "\n\n"))
 }
 
 // chainCriterionOf — 이 체인의 판정 문장(chain-root 의 Gil-Chain-Criterion).
@@ -322,6 +412,148 @@ func rollbackCandidates(byID map[string]node, tip node) []statusRollback {
 	return out
 }
 
+// competingSiblings — 지금 밟고 있는 갈래가 속한 경합의 **갈래 전부**(#106·#107·#112).
+//
+// 왜 competingLeaves 를 쓰지 않나. 그건 "지금 겨루는 중"만 낸다(종결된 갈래를 뺀다). 카드가
+// 비교로 쓰이려면 **끝난 갈래도 있어야** 한다 — 진 갈래가 왜 졌는지가 남은 갈래를 고르는
+// 근거고, 목록에서 빠지면 사람은 그 갈래를 아직 열려 있는 것으로 오해한다.
+//
+// 상태 판정은 뷰어(competitionsJSON)와 같은 규칙이다. 채택된 갈래는 제 커밋에 표식이 없으니
+// (채택은 진 쪽에 Gil-Lost-To 로 적힌다) 승자는 진 갈래가 가리키는 자리로 역산한다.
+func competingSiblings(nodes []node, tip node) []statusSibling {
+	root := competitionRoot(tip, nodes)
+	if root == "" {
+		return nil
+	}
+	byStep := map[string]node{}
+	kids := map[string][]node{}
+	for _, n := range nodes {
+		if _, dup := byStep[n.step]; dup {
+			continue
+		}
+		byStep[n.step] = n
+		if n.parent != "" {
+			kids[n.parent] = append(kids[n.parent], n)
+		}
+	}
+	var br []node
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if n.competing != root || n.kind != "hypothesis" || seen[n.step] {
+			continue // 갈래의 뿌리는 가설이다(adopt 가 남기는 fail 도 Gil-Competing 을 단다)
+		}
+		seen[n.step] = true
+		br = append(br, n)
+	}
+	if len(br) < 2 {
+		return nil // 혼자 서 있으면 경합이 아니라 그냥 재분기다
+	}
+	sort.Slice(br, func(i, j int) bool { return stepNum(br[i].step) < stepNum(br[j].step) })
+
+	// 갈래의 잎들 = 그 뿌리에서 뻗은 자손 중 자식 없는 것.
+	leavesOf := func(rootStep string) []node {
+		var out []node
+		visited := map[string]bool{}
+		stack := []string{rootStep}
+		for len(stack) > 0 {
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if visited[cur] {
+				continue
+			}
+			visited[cur] = true
+			cs := kids[cur]
+			if len(cs) == 0 {
+				if n, ok := byStep[cur]; ok {
+					out = append(out, n)
+				}
+				continue
+			}
+			for _, c := range cs {
+				stack = append(stack, c.step)
+			}
+		}
+		return out
+	}
+	type st struct{ state, lostTo, leaf string }
+	states := map[string]st{}
+	for _, b := range br {
+		s := st{state: "open"}
+		for _, lf := range leavesOf(b.step) {
+			s.leaf = lf.step
+			switch {
+			case lf.lostTo != "":
+				s.state, s.lostTo = "lost", lf.lostTo
+			case lf.kind == "success":
+				s.state = "won"
+			case lf.kind == "fail" && s.state == "open":
+				s.state = "fail"
+			}
+			if s.state == "won" || s.state == "lost" {
+				break
+			}
+		}
+		states[b.step] = s
+	}
+	// 진 갈래가 가리키는 승자가 어느 갈래에 속하나 — 그 갈래가 이겼다.
+	inBranch := func(rootStep, target string) bool {
+		cands := append(leavesOf(rootStep), byStep[rootStep])
+		for _, lf := range cands {
+			for cur, hops := lf, 0; cur.step != "" && hops < 200; hops++ {
+				if cur.step == target {
+					return true
+				}
+				if cur.step == rootStep {
+					break
+				}
+				nxt, ok := byStep[cur.parent]
+				if !ok {
+					break
+				}
+				cur = nxt
+			}
+		}
+		return false
+	}
+	for _, b := range br {
+		if states[b.step].state != "lost" {
+			continue
+		}
+		win := states[b.step].lostTo
+		if i := strings.LastIndex(win, "/"); i >= 0 {
+			win = win[i+1:]
+		}
+		for _, o := range br {
+			if o.step != b.step && states[o.step].state == "open" && inBranch(o.step, win) {
+				s := states[o.step]
+				s.state = "won"
+				states[o.step] = s
+			}
+		}
+	}
+	// 내가 밟고 있는 갈래 — 팁에서 거슬러 오르다 만나는 첫 경합 선언.
+	mine := ""
+	for cur, hops := tip, 0; cur.step != "" && hops < 200; hops++ {
+		if cur.competing == root {
+			mine = cur.step
+			break
+		}
+		nxt, ok := byStep[cur.parent]
+		if !ok {
+			break
+		}
+		cur = nxt
+	}
+	out := []statusSibling{}
+	for _, b := range br {
+		s := states[b.step]
+		out = append(out, statusSibling{ID: b.step, Hypothesis: humanLabel(b.subject),
+			RefutesIf: b.falsify, Plan: b.plan, Leaf: s.leaf, State: s.state,
+			LostTo: s.lostTo, Current: b.step == mine})
+	}
+	return out
+}
+
 // humanLabel — 커밋 제목에서 gil 이 붙인 앞머리를 걷어 **사람이 읽는 한 줄**만 남긴다.
 // "gil c/cy/s1 define: 무엇을 풀려는가" → "무엇을 풀려는가".
 func humanLabel(subject string) string {
@@ -344,7 +576,15 @@ func cycleStepNodes(nodes []node) []statusStepNode {
 			continue
 		}
 		seen[n.step] = true
-		out = append(out, statusStepNode{ID: n.step, Kind: n.kind, Parent: n.parent, Back: n.backtrack})
+		// 뿌리 스텝의 부모는 트레일러에 **문자열 "null"** 로 산다(오래된 파수꾼 값 —
+		// 코드 곳곳이 그걸 빈 값과 같이 취급한다). 그걸 그대로 내보내면 그리는 쪽은
+		// `null` 이라는 이름의 스텝으로 가는 간선을 그린다 — 문서가 "없는 것을 그리지 마라"
+		// 라고 못박은 바로 그 자리다. 여기서 접는다.
+		parent := n.parent
+		if parent == "null" {
+			parent = ""
+		}
+		out = append(out, statusStepNode{ID: n.step, Kind: n.kind, Parent: parent, Back: n.backtrack})
 	}
 	sort.Slice(out, func(i, j int) bool { return stepNum(out[i].ID) < stepNum(out[j].ID) })
 	return out
@@ -456,6 +696,26 @@ func statusLines(st statusOut) []string {
 			L = append(L, "사이클 "+st.Cycle.Name)
 			if st.Cycle.RefutesIf != "" {
 				L = append(L, "  반증조건  "+clip(st.Cycle.RefutesIf, 90))
+			}
+			// 경합은 **세지 말고 이름을 부른다** — "3개"는 비교의 재료가 아니다.
+			if len(st.Cycle.Competing) > 1 {
+				var parts []string
+				for _, s := range st.Cycle.Competing {
+					mark := s.ID
+					if s.Current {
+						mark += "(여기)"
+					}
+					switch s.State {
+					case "won":
+						mark += "[채택]"
+					case "lost":
+						mark += "[졌음]"
+					case "fail":
+						mark += "[접힘]"
+					}
+					parts = append(parts, mark)
+				}
+				L = append(L, "  ⚖ 경합  "+strings.Join(parts, " · "))
 			}
 		}
 		if st.Step != nil {
