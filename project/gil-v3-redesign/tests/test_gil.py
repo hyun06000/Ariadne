@@ -3251,11 +3251,30 @@ class TestViewer(GilFixture):
         self.assertIn("gil ", r.stdout)
 
     def test_handoff_reports_viewer_liveness(self):
-        """gil handoff 가 뷰어 생존 여부를 보고한다(이슈 #30) — 죽어 있으면 되살릴 명령까지."""
+        """gil handoff 가 뷰어를 **살아 있을 때** 보고한다 (이슈 #30 의 갱신).
+
+        옛 규범은 죽어 있을 때도 "죽어있음 — 되살리기: …"를 냈다. 그때는 뷰어가 자동으로
+        떴으니 안 떠 있는 것이 실제로 이상 신호였다. 자동 기동을 끈 뒤로는 **안 떠 있는 것이
+        기본**이고, 정상 상태를 고장으로 적으면 읽는 쪽이 그것을 고치려 든다(실측: 대화창의
+        세션이 "뷰어 죽어있음 — 그래서 그래프가 안 떴을 수도" 라며 없는 인과를 만들었다).
+
+        그래서 판정을 둘로 가른다: 살아 있으면 주소를 말하고, 없으면 **여는 길만** 준다.
+        """
         self.gil("init", "--name", "clew")
-        r = self.gil("handoff")
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)
+        env["GIL_AUTO_VIEWER"] = "1"     # 옛 경로 — 떠 있을 때의 보고를 시험한다
+        r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("뷰어:", r.stdout)
+        subprocess.run([*GIL_CMD, "viewer", "stop"], cwd=self.repo,
+                       capture_output=True, text=True, env=env)
+
+        # 그리고 기본값(자동 기동 없음)에서는 고장을 만들지 않는다.
+        r2 = self.gil("handoff")
+        self.assertNotIn("뷰어: 죽어있음", r2.stdout)
+        self.assertIn("gil viewer open", r2.stdout)
 
     def test_chain_lineage_skips_plain_commits(self):
         """체인을 닫고 평범 커밋(gil 트레일러 없음)을 쌓은 뒤 다음 체인을 열어도
@@ -5271,6 +5290,19 @@ class TestViewerIsOptIn(GilFixture):
         self.assertIn("127.0.0.1", r.stdout + r.stderr)
         # 남긴 서버를 치운다 — 시험이 프로세스를 흘리면 다음 시험이 포트를 물려받는다.
         self._run("viewer", "stop")
+
+    def test_it_does_not_report_a_normal_state_as_broken(self):
+        """안 떠 있는 것이 기본이다 — 그걸 "죽어있음"이라 적으면 읽는 쪽이 고치려 든다.
+
+        실측(대화창): 이 한 줄을 본 세션이 "뷰어 죽어있음 — 그래서 아까 그래프가 화면에 안
+        떴을 수도 있어. 띄워줄까?"라고 답했다. 뷰어가 꺼진 것과 위젯이 안 뜬 것은 아무 상관이
+        없는데, 도구가 죽었다고 말하니 **없는 인과까지 만들어졌다.**
+        """
+        self.gil("init")
+        r = self._run("handoff")
+        out = r.stdout + r.stderr
+        self.assertNotIn("뷰어: 죽어있음", out)
+        self.assertIn("gil viewer open", out)   # 여는 길은 그대로 있다
 
     def test_off_wins_over_on(self):
         """끄는 쪽이 언제나 이긴다 — 두 스위치가 다투면 조용한 쪽이 안전하다."""
@@ -11827,6 +11859,9 @@ class TestHandoffPointsAtThisRepositorysViewer(GilFixture):
         live = [ln for ln in out.splitlines() if ln.startswith("▶ 뷰어:")]
         self.assertTrue(live, out)
         self.assertIn(pin, live[0], "선언한 자리를 안 쓴다:\n" + live[0])
+        # 자리를 알리는 것과 고장을 알리는 것은 다르다 — 자동 기동을 끈 뒤로 안 떠 있는
+        # 것은 정상이고, 그걸 "죽어있음"이라 적으면 읽는 쪽이 고치려 든다.
+        self.assertNotIn("죽어있음", live[0])
 
     def test_a_pinned_viewer_is_not_called_someone_elses(self):
         """스캔이 못 찾았다는 사실을 '남의 것'의 근거로 쓰면, 눈이 좁아진 만큼 거짓말이 는다."""
