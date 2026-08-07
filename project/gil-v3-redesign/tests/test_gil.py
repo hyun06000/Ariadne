@@ -5311,6 +5311,24 @@ class TestStatusJSON(GilFixture):
         self.assertNotIn("뷰어", out)
         json.loads(r.stdout)   # 앞줄이 붙으면 이 파싱이 깨진다
 
+    def test_points_at_its_own_rendering_rules(self):
+        """데이터가 **자기 그리는 법의 자리**를 함께 말한다.
+
+        규칙을 문서에만 두면 "에이전트가 알아서 읽기"가 되고 그건 자기규율이다 — 이
+        저장소가 반복해서 확인한 대로 자기규율은 원리적으로 불충분하다(#55·#45). 그리고
+        가리키는 문서는 **실재해야 한다**(v3.58.1·v3.58.2 계열): 없는 곳을 가리키는 안내는
+        막힌 사람을 한 번 더 세운다.
+        """
+        self._cycle()
+        st = self.status()
+        self.assertIn("status-card.md", st["render_guide"])
+        r = self.gil("docs", "install")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((Path(self.repo) / "docs" / "gil" / "status-card.md").exists(),
+                        "가리킨 문서가 설치되지 않는다")
+        idx = (Path(self.repo) / "docs" / "gil" / "index.md").read_text()
+        self.assertIn("status-card.md", idx, "목차에 없으면 없는 것으로 읽힌다")
+
     def test_text_form_says_the_same_thing(self):
         """--json 없이도 같은 값을 말한다 — 두 출력이 다른 것을 세면 어느 쪽이 사실인지 모른다."""
         self._cycle()

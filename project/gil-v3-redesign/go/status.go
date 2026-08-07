@@ -67,6 +67,13 @@ type statusOut struct {
 	Step    *statusStep    `json:"step"`
 	Waiting *statusWaiting `json:"waiting_for_human"`
 	Next    []string       `json:"next"`
+	// RenderGuide — **이 데이터를 사람에게 보여주는 규칙이 어디 있나.**
+	//
+	// 왜 데이터에 문서 경로를 싣나. 규칙을 문서에만 두면 "에이전트가 알아서 읽기"가 되고,
+	// 그건 자기규율이다 — 이 저장소가 반복해서 확인한 대로 자기규율은 원리적으로 불충분하다
+	// (#55·#45). 데이터를 읽는 순간 규칙의 자리도 함께 알게 하면, 읽을 이유가 있는 자리에서
+	// 읽힌다. 화면을 Go 에 박지 않으면서 규칙이 도달하는 유일한 길이다.
+	RenderGuide string    `json:"render_guide"`
 	Warnings []string      `json:"warnings"`
 }
 
@@ -92,7 +99,8 @@ func cmdStatus(args []string) {
 
 func gatherStatus() statusOut {
 	wd, _ := os.Getwd()
-	st := statusOut{Repo: wd, Branch: currentBranch(), Next: []string{}, Warnings: []string{}}
+	st := statusOut{Repo: wd, Branch: currentBranch(), Next: []string{}, Warnings: []string{},
+		RenderGuide: "docs/gil/status-card.md — 이 데이터를 사람에게 어떻게 보여줄지. 통째로 붙여넣지 마라."}
 
 	chain, cycle := headChainCycle()
 	// 팁이 gil 커밋이 아니면 **거슬러 올라가 가장 가까운 gil 커밋**을 쓴다.
