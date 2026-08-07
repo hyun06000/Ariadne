@@ -5522,6 +5522,60 @@ class TestStatusJSON(GilFixture):
             self.assertIn("`" + kind + "`", doc, f"{kind} 카드 규칙이 없다")
         self.assertIn("discards", doc)
 
+    def test_cycle_steps_carry_everything_the_strip_needs(self):
+        """띠를 그리는 재료가 **데이터에** 있다 — 그리는 쪽이 git 을 따로 뒤지지 않게.
+
+        값을 실측으로 치렀다: 손으로 그리는 동안 없는 간선을 지어내고(s9→s8), 있는 간선을
+        빠뜨리고(s12→s14), 브랜치 이름을 분기로 읽어 없는 갈라짐을 만들었다. 셋 다 데이터를
+        안 보고 그려서 난 일이다.
+        """
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        st = self.status()
+        steps = st["cycle"]["steps"]
+        self.assertEqual([s["id"] for s in steps], ["s1", "s2"])
+        self.assertEqual(steps[0]["kind"], "define")
+        self.assertEqual(steps[1]["parent"], "s1")   # 간선은 parent 로만 그린다
+
+    def test_backtrack_is_only_what_the_record_says(self):
+        """기록에 없는 백트랙은 데이터에도 없다 — 그리는 쪽이 지어낼 재료를 주지 않는다."""
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        st = self.status()
+        for s in st["cycle"]["steps"]:
+            self.assertEqual(s.get("back", ""), "", f"{s['id']} 에 없는 백트랙이 실렸다")
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "refuted",
+                 "--falsify-out", "met", "--falsify-obs", "관측")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        self.gil("step", "st/c1", "--kind", "fail", "--to", "s1")
+        st = self.status()
+        backs = {s["id"]: s.get("back", "") for s in st["cycle"]["steps"]}
+        self.assertEqual(backs.get("s5") or backs.get("s4"), "s1",
+                         f"되돌아간 자리가 기록대로 안 실렸다: {backs}")
+
+    def test_the_cycle_carries_what_it_inherited(self):
+        """근거 칸 — 왜 하필 이 문제를 정의했는지는 대개 앞에서 물려받은 문장에 있다.
+
+        물려받은 것이 없으면 이 필드도 없다(빈 칸을 지어내지 않는다). 그때 카드는 근거
+        구역을 통째로 뺀다 — 빈 제목만 남기면 화면은 그럴듯해지고 내용은 없다.
+        """
+        r = self.gil("chain", "inh", "--purpose", "물려받는 체인")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self._autofill_interview("inh")
+        r = self.gil("open", "inh/c1", "--purpose", "사이클", "--author", "clew",
+                     "--inherit", "앞 사이클이 세운 것: 기울기가 넘어왔다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.status()
+        self.assertIn("기울기가 넘어왔다", st["cycle"]["inherit"])
+
+    def test_the_strip_rules_are_written_down(self):
+        """배치 규칙이 문서에 있다 — 코드가 아니라. 안 적으면 다음 세션이 또 손으로 그린다."""
+        r = self.gil("docs", "install")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = (Path(self.repo) / "docs" / "gil" / "status-card.md").read_text()
+        for must in ("척추", "분기", "백트랙", "cycle.steps", "문제정의", "근거"):
+            self.assertIn(must, doc, f"{must} 규칙이 없다")
+
     def test_points_at_its_own_rendering_rules(self):
         """데이터가 **자기 그리는 법의 자리**를 함께 말한다.
 

@@ -22,6 +22,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -38,8 +39,26 @@ type statusChain struct {
 	Criterion string `json:"criterion,omitempty"`
 }
 
+// statusStepNode — 사이클 스텝 하나. **띠를 그리는 재료 전부**가 여기 있다.
+//
+// 왜 이걸 싣나. 이 넷이 없으면 그리는 쪽이 git log 를 직접 뒤져야 하고, 세션마다 다르게
+// 뒤진다. 실측으로 값을 치렀다: 손으로 그리는 동안 없는 간선을 지어내고(s9→s8), 있는
+// 간선을 빠뜨리고(s12→s14), 브랜치 이름을 분기로 읽어 없는 갈라짐을 만들었다(three-curves).
+// 셋 다 데이터를 안 보고 그려서 난 일이다.
+type statusStepNode struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Parent string `json:"parent,omitempty"`
+	Back   string `json:"back,omitempty"` // 되돌아간 자리(Gil-Backtrack) — 없으면 빈 값
+}
+
 type statusCycle struct {
 	Name      string `json:"name"`
+	// Steps — 이 사이클의 스텝 전부(선언 순). 그리는 규칙은 docs/gil/status-card.md.
+	Steps []statusStepNode `json:"steps"`
+	// Inherit — 이 사이클이 앞에서 물려받은 것. define 카드의 **근거** 칸이 이것이다.
+	// 왜 이 문제를 정의했는지는 대개 앞 사이클이 남긴 문장에 있다.
+	Inherit string `json:"inherit,omitempty"`
 	Hypothesis string `json:"hypothesis,omitempty"`
 	RefutesIf  string `json:"refutes_if,omitempty"`
 	Plan       string `json:"plan,omitempty"`
@@ -188,6 +207,13 @@ func gatherStatus() statusOut {
 		for _, n := range nodes {
 			byID[n.step] = n
 		}
+		st.Cycle.Steps = cycleStepNodes(nodes)
+		for _, n := range nodes {
+			if n.kind == "define" && n.inherit != "" {
+				st.Cycle.Inherit = n.inherit
+				break
+			}
+		}
 		if tip, ok := headStepNode(nodes, tipSHA); ok {
 			st.Step = &statusStep{ID: tip.step, Kind: tip.kind, Subject: tip.subject, SHA: clip(tip.sha, 12),
 				Finding: tip.finding, Toward: tip.toward, NextDesign: tip.nextDesign}
@@ -303,6 +329,25 @@ func humanLabel(subject string) string {
 		return strings.TrimSpace(subject[i+2:])
 	}
 	return strings.TrimSpace(subject)
+}
+
+// cycleStepNodes — 스텝을 선언 순(s1, s2, …)으로 정렬해 낸다.
+//
+// 순서가 이름순인 이유: 그리는 쪽은 parent 로 배치를 계산하므로 순서 자체는 배치에 안 쓰이지만,
+// **첫 자식이 부모의 줄을 잇는다**는 규칙 때문에 자식들의 순서는 그림을 바꾼다. 선언 순이면
+// 먼저 난 갈래가 척추가 된다 — 사람이 "원래 가던 길"이라고 읽는 그것이다.
+func cycleStepNodes(nodes []node) []statusStepNode {
+	out := []statusStepNode{}
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if n.step == "" || seen[n.step] {
+			continue
+		}
+		seen[n.step] = true
+		out = append(out, statusStepNode{ID: n.step, Kind: n.kind, Parent: n.parent, Back: n.backtrack})
+	}
+	sort.Slice(out, func(i, j int) bool { return stepNum(out[i].ID) < stepNum(out[j].ID) })
+	return out
 }
 
 // walkBackToGil — 팁에서 첫-부모를 거슬러 가장 가까운 gil 커밋을 찾는다.
