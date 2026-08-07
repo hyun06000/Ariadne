@@ -5568,6 +5568,38 @@ class TestStatusJSON(GilFixture):
         st = self.status()
         self.assertIn("기울기가 넘어왔다", st["cycle"]["inherit"])
 
+    def shell(self):
+        """껍데기(템플릿). 카드 조각과 다른 물건이다 — 배선은 여기 산다."""
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1"))
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2026-01-26", "capabilities": {},
+                             "clientInfo": {"name": "t", "version": "1"}}})
+            p.stdout.readline()
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            send({"jsonrpc": "2.0", "id": 2, "method": "resources/read",
+                  "params": {"uri": "ui://gil/status"}})
+            while True:
+                line = p.stdout.readline()
+                if not line:
+                    self.fail("껍데기를 못 읽었다")
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("id") == 2:
+                    return msg["result"]["contents"][0]["text"]
+        finally:
+            p.stdin.close()
+            p.wait(timeout=20)
+            p.stdout.close()
+            p.stderr.close()
+
     def card(self):
         """카드 한 장(HTML). MCP 호스트만 그리는 화면은 검증할 수 없다 — 실측: 이 카드는
         어떤 시험도 안 지나간 채로 있었고, 그래서 그리는 규칙을 지키는지 아무도 몰랐다."""
@@ -5735,6 +5767,60 @@ class TestStatusJSON(GilFixture):
         self.assertIn(".k-define{background:", card)
         # 저장소 경로는 남는다 — 어느 저장소의 화면인지(#110 이 오진으로 값을 치른 자리).
         self.assertIn('class="repo"', card)
+
+    def test_the_buttons_carry_what_they_will_do(self):
+        """**버튼은 자기가 무엇을 할지 데이터로 지고 선다.** 라벨은 일곱 kind 에서 같지만 뒤에서
+        도는 것은 다르다 — 그걸 숨기지 않으면서 배선은 한 곳에 둔다.
+
+        그리고 gil 에 없는 문법은 버튼이 지어내지 않는다. define 에는 "승인" 문법이 없으므로
+        사람의 판정을 대화에 넣고(ui/message) 다음 스텝은 에이전트가 쓴다 — 반증조건·퇴로·
+        설계는 판단이고, 클릭으로 채울 수 있는 값이 아니다.
+        """
+        self._cycle()
+        card = self.card()
+        self.assertIn('data-act="approve"', card)
+        self.assertIn('data-act="reject"', card)
+        self.assertIn("data-msg=", card, "대화에 전할 문장이 버튼에 없다")
+        self.assertIn("다음 스텝을 세워라", card, "승인이 다음에 할 일을 말하지 않는다")
+        self.assertIn('data-ask-reason="1"', card, "기각이 이유를 묻지 않는다")
+        # 작업 스텝에서는 진짜 명령을 물지 않는다(그 문법이 없다).
+        self.assertNotIn('data-tool="gil_approve"', card)
+
+    def test_pending_buttons_run_the_real_gate(self):
+        """pending 은 **진짜 관문**이다 — gil 문법에 승인·기각이 있다. 그러니 버튼이 그 명령을 돈다.
+
+        그리고 기각은 되돌아갈 자리를 요구하는데(--to), 그 문자열을 비개발자는 알 방법이 없다.
+        후보를 **무엇을 잃는가와 함께** 세운다 — 고르는 근거는 "s4"가 아니라 "s5 가 버려진다"다.
+        """
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "refuted", "--falsify-met", "관측")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        r = self.gil("step", "st/c1", "--kind", "pending", "--title", "사람에게 넘긴다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        card = self.card()
+        self.assertIn('data-tool="gil_approve"', card)
+        self.assertIn('data-tool="gil_reject"', card)
+        self.assertIn('data-to="s1"', card)
+        self.assertIn("버려진다", card)
+        self.assertIn("s2~s5", card, "연속한 스텝이 범위로 안 접혔다")
+        # 사람의 판정이 있는 자리에서는 대화로 미루지 않는다.
+        self.assertNotIn("data-msg=", card)
+
+    def test_the_confirm_lives_inside_the_card(self):
+        """확인은 **카드 안에서** 두 번 누르는 것이다. confirm() 은 샌드박스에서 조용히 죽는다 —
+        v3.49.0 에서 그 때문에 승인 자체가 불가능했고 아무 표시도 없었다."""
+        self._cycle()
+        shell = self.shell()
+        # **주석이 아니라 도는 줄만 센다.** 이 자리의 교훈은 주석에 남아야 하고(왜 안 쓰는지),
+        # 판정은 실제 호출에 대해서만 해야 한다 — 산문을 세면 시험이 못 쓰게 된다.
+        code = "\n".join(l for l in shell.splitlines() if not l.strip().startswith("//"))
+        self.assertNotIn("confirm(", code, "샌드박스에서 죽는 대화상자를 쓴다")
+        self.assertIn("data-armed", shell)
+        self.assertIn("정말?", shell)
+        self.assertIn("removeAttribute", shell, "무장이 풀리지 않으면 무심코 누른 것이 실행된다")
+        self.assertIn('method:"ui/message"', shell)
+        self.assertIn('method:"tools/call"', shell)
 
     def test_the_root_step_has_no_parent_not_a_parent_named_null(self):
         """뿌리의 부모는 **없다** — `"null"` 이라는 이름의 스텝이 아니다.

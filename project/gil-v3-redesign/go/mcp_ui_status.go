@@ -201,6 +201,74 @@ func statusCardShellHTML() string {
     }catch(_){}
   }
 
+  // ── 버튼 ─────────────────────────────────────────────────────────────────
+  // **두 번 눌러야 돈다.** confirm() 은 샌드박스에서 조용히 죽는다(v3.49.0 에 값을 치른
+  // 자리 — 승인 자체가 불가능했고 아무 표시도 없었다). 그래서 확인은 카드 안에서 한다:
+  // 첫 클릭에 버튼이 "정말 …?" 로 바뀌고, 두 번째 클릭에 실행한다. 4초 지나면 원복 —
+  // 무장한 채 남아 있으면 다음에 무심코 누른 것이 실행된다.
+  function say(msg){ var s=slot(); if(!s) return;
+    var d=s.querySelector(".said"); if(!d){ d=document.createElement("div");
+      d.className="said"; s.appendChild(d); } d.textContent=msg; reportSize(); }
+
+  function runAct(b){
+    var tool=b.getAttribute("data-tool"), msg=b.getAttribute("data-msg"), to=b.getAttribute("data-to");
+    if(tool){
+      // 진짜 명령이 돈다(pending 의 승인·기각). 결과는 사람에게 한 줄로 알린다.
+      var args={}; if(to) args.to=to;
+      var i=++id;
+      pending[i]=function(res,err){
+        if(err){ say("돌지 않았다: "+String((err&&(err.message||err.code))||err)); return; }
+        var txt=(res&&res.content&&res.content[0]&&res.content[0].text)||"";
+        say(res&&res.isError ? ("거부됐다 — "+txt.split("\n")[0]) : "됐다. 화면을 다시 가져온다.");
+        if(!(res&&res.isError)){ drawn=false; fetches=0; fetchCard(); }
+      };
+      send({id:i,method:"tools/call",params:{name:tool,arguments:args}});
+      return;
+    }
+    if(msg){
+      // gil 에 없는 문법은 버튼이 지어내지 않는다 — **사람의 판정을 대화에 넣고** 다음은
+      // 에이전트가 쓴다(ui/message). 이유를 적었으면 그 문장을 함께 보낸다.
+      var s=slot(), ta=s&&s.querySelector(".reason");
+      var reason=(ta&&ta.value||"").trim();
+      var text=msg.replace("{REASON}", reason ? (" 이유: "+reason) : "");
+      send({id:++id,method:"ui/message",params:{role:"user",
+        content:{type:"text",text:text}}});
+      say(reason ? "대화에 전했다(이유 포함). 다음은 에이전트가 쓴다." :
+                   "대화에 전했다. 다음은 에이전트가 쓴다.");
+      return;
+    }
+  }
+
+  document.addEventListener("click",function(ev){
+    var b=ev.target.closest && ev.target.closest("[data-act],[data-open]");
+    if(!b) return;
+    ev.preventDefault();
+    var open=b.getAttribute("data-open");
+    if(open){ var box=document.getElementById(open);
+      if(box){ box.hidden=!box.hidden; reportSize(); } return; }
+    // 이유를 묻는 버튼은 첫 클릭에 입력칸을 함께 띄운다 — 기각의 값은 이유에 있다.
+    if(b.getAttribute("data-ask-reason") && !b.hasAttribute("data-armed")){
+      var s=slot();
+      if(s && !s.querySelector(".reason")){
+        var ta=document.createElement("textarea");
+        ta.className="reason"; ta.rows=2;
+        ta.placeholder="왜 기각인가 — 한 줄이면 충분하다(비워도 된다)";
+        b.parentNode.parentNode.insertBefore(ta,b.parentNode.nextSibling);
+      }
+    }
+    if(!b.hasAttribute("data-armed")){
+      b.setAttribute("data-armed","1");
+      b.dataset.label=b.textContent;
+      b.textContent="정말? — 한 번 더";
+      reportSize();
+      setTimeout(function(){ if(b.hasAttribute("data-armed")){
+        b.removeAttribute("data-armed"); b.textContent=b.dataset.label||b.textContent; reportSize(); } },4000);
+      return;
+    }
+    b.removeAttribute("data-armed"); b.textContent=b.dataset.label||b.textContent;
+    runAct(b);
+  });
+
   window.addEventListener("message",function(e){
     var m=e.data; note(m); if(!m) return;
     if(m.method==="ui/notifications/tool-input"||m.method==="ui/notifications/tool-result") learnRepo(m);
@@ -234,6 +302,96 @@ func statusCardShellHTML() string {
   if(window.ResizeObserver) new ResizeObserver(reportSize).observe(document.documentElement);
 })();
 </script></body>`
+}
+
+
+// statusActionsHTML — **사람이 정하는 두 갈래.** 라벨은 일곱 kind 에서 같고, 뒤에서 도는
+// 것은 다르다(status-card.md). 그래서 버튼은 자기가 무엇을 할지 데이터로 지고 있고, 껍데기는
+// 그것을 그대로 실행한다 — 화면에 무엇이 도는지를 숨기지 않으면서 배선은 한 곳에 둔다.
+//
+// 두 통로가 있고, **아무 때나 아무 것이나 고르지 않는다**:
+//
+//	pending  → 진짜 관문이다. gil 문법에 승인·기각이 있다(gil approve / gil reject --to).
+//	           그러니 버튼이 그 명령을 직접 돈다(tools/call).
+//	그 밖    → gil 에는 "define 을 승인한다"는 문법이 없다. 사람의 판정을 **대화에 넣고**
+//	           (ui/message) 다음 스텝은 에이전트가 쓴다 — 반증조건·퇴로·설계는 판단이고,
+//	           클릭으로 채울 수 있는 값이 아니다. 없는 문법을 버튼으로 지어내지 않는다.
+func statusActionsHTML(st statusOut) string {
+	if st.Step == nil || st.Cycle == nil || st.Chain == nil {
+		return ""
+	}
+	ref := st.Chain.Name + "/" + st.Cycle.Name + "/" + st.Step.ID
+	if st.Waiting != nil && st.Waiting.Kind == "approval" {
+		return pendingActionsHTML(st, ref)
+	}
+	// 사람의 판정을 대화에 넣는다. 문장은 **에이전트가 다음에 할 일**까지 말한다 — "승인함"
+	// 한 줄만 던지면 그 뒤가 세션마다 갈린다.
+	ok := "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 자리를 딛고 다음 스텝을 " +
+		"세워라 — 가설이라면 반증조건·반증 시 물러설 자리·고정할 설계를 함께 정해서."
+	no := "gil " + ref + " (" + st.Step.Kind + ") 를 기각한다.{REASON} 같은 자리에서 다시 " +
+		"정의하거나(정정), 이 사이클을 무르고 원하는 자리에서 새 사이클을 열어라. " +
+		"어느 쪽이 맞는지 먼저 말해 달라."
+	return `<div class="acts">` +
+		`<button class="btn primary" data-act="approve" data-msg="` + esc(ok) + `">승인</button>` +
+		`<button class="btn" data-act="reject" data-msg="` + esc(no) + `" data-ask-reason="1">기각 · 수정</button>` +
+		`</div>`
+}
+
+// pendingActionsHTML — 사람을 기다리는 스텝. 여기서는 버튼이 **진짜 명령을 돈다.**
+//
+// 기각은 되돌아갈 자리를 요구한다(gil reject --to). 그 문자열을 비개발자가 알 방법은 없으므로
+// (그래프를 읽고 스텝을 세어야 나온다) 후보를 **무엇을 잃는가와 함께** 버튼으로 세운다 —
+// 사람이 고르는 근거는 "s4"가 아니라 "s5~s7 이 버려진다"다.
+func pendingActionsHTML(st statusOut, ref string) string {
+	var b strings.Builder
+	b.WriteString(`<div class="acts">` +
+		`<button class="btn primary" data-act="approve" data-tool="gil_approve">승인</button>` +
+		`<button class="btn" data-act="reject" data-open="gil-back">기각 — 되돌아갈 자리를 고른다</button>` +
+		`</div>`)
+	if len(st.Rollback) == 0 {
+		return b.String()
+	}
+	b.WriteString(`<div id="gil-back" class="panel" hidden>` +
+		`<div class="lbl">어디로 되돌리나 — 고르면 그 뒤가 버려진다</div>`)
+	for _, c := range st.Rollback {
+		lose := "버릴 것 없음"
+		if len(c.Discards) > 0 {
+			lose = "버려진다: " + foldRanges(c.Discards)
+		}
+		b.WriteString(`<div class="backrow">` +
+			`<button class="btn" data-act="reject" data-tool="gil_reject" data-to="` + esc(c.ID) + `">` +
+			esc(c.ID) + `</button>` +
+			`<span class="backlab">` + esc(clip(c.Label, 70)) + `</span>` +
+			`<span class="backlose">` + esc(lose) + `</span></div>`)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+// foldRanges — 연속한 스텝은 범위로 접는다(s5, s6, s7 → s5~s7). 나열이 길면 사람은 안 읽는다.
+func foldRanges(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	var out []string
+	start, prev := ids[0], ids[0]
+	flush := func() {
+		if start == prev {
+			out = append(out, start)
+			return
+		}
+		out = append(out, start+"~"+prev)
+	}
+	for _, id := range ids[1:] {
+		if stepNum(id) == stepNum(prev)+1 {
+			prev = id
+			continue
+		}
+		flush()
+		start, prev = id, id
+	}
+	flush()
+	return strings.Join(out, ", ")
 }
 
 // statusCardHTML — 통짜 페이지(문서 + 스타일 + 카드). `gil status --card` 와, 저장소를 이미
@@ -294,6 +452,13 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .btn{display:inline-block;border-radius:7px;padding:5px 14px;font:13px/1.4 inherit;
  border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
 .btn.primary{background:var(--acc);color:var(--acc-fg);border-color:var(--acc)}
+.btn[data-armed]{background:var(--warn-bg);color:var(--warn-fg);border-color:var(--warn-line)}
+.backrow{display:flex;gap:9px;align-items:baseline;margin-top:7px;flex-wrap:wrap}
+.backlab{font-size:13px}
+.backlose{font-size:12px;color:var(--dim)}
+.reason{width:100%;margin-top:8px;border-radius:8px;border:1px solid var(--line);
+ background:var(--panel);color:var(--fg);font:13px/1.5 inherit;padding:7px 9px}
+.said{margin-top:9px;font-size:13px;color:var(--dim)}
 
 .strip{display:block;margin:10px 0 2px;max-width:100%;height:auto}
 .strip .e{stroke:var(--dim);stroke-width:1.5;fill:none}
@@ -390,6 +555,7 @@ func statusCardBody(st statusOut) string {
 		b.WriteString(`<div class="panel"><div class="lbl">반증되면 돌아갈 자리</div><div>` +
 			`<code>` + esc(st.Cycle.FalsifyTo) + `</code></div></div>`)
 	}
+	b.WriteString(statusActionsHTML(st))
 	return b.String()
 }
 
@@ -429,9 +595,7 @@ func defineCardBody(st statusOut) string {
 	// 그래서 부제로 무슨 일이 일어나는지 적는다(라벨은 통일하되 숨기지 않는다).
 	// 부제는 붙이지 않는다(상현님). 승인은 가설로 이어지고 기각은 문제정의를 다시 세운다 —
 	// 그건 이 자리에 서 본 사람이면 아는 것이고, 매번 설명하면 화면만 길어진다.
-	b.WriteString(`<div class="acts">` +
-		`<button class="btn primary" data-act="approve">승인</button>` +
-		`<button class="btn" data-act="reject">기각 · 수정</button></div>`)
+	b.WriteString(statusActionsHTML(st))
 	return b.String()
 }
 
