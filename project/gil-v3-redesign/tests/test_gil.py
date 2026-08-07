@@ -5224,6 +5224,103 @@ class TestMCPServe(GilFixture):
         self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "pending")
 
 
+class TestStatusJSON(GilFixture):
+    """gil status --json — 지금 어디, 개입할 때인가.
+
+    왜 이 명령인가. 뷰어의 마찰은 UI 완성도가 아니라 **성격이 다른 두 요구가 한 화면에
+    섞인 것**이었다. 작업 중에 필요한 건 "지금 어디, 사람이 나설 자리인가" 세 줄이고,
+    전체 그래프는 다 끝난 뒤 한 번 읽는 물건이다. 전자를 보려고 브라우저를 띄우는 것이
+    비용의 정체다. 그래서 gil 은 데이터만 내고, 그리는 것은 에이전트가 한다.
+    """
+
+    def status(self):
+        r = self.gil("status", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def _cycle(self):
+        r = self.gil("chain", "st", "--purpose", "status 확인")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self._autofill_interview("st")   # open 게이트(사람이 승인한 기준) 충족
+        r = self.gil("open", "st/c1", "--purpose", "status 가 읽을 사이클", "--author", "clew")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_reports_where_and_next(self):
+        """지금 선 자리와 **다음 한 수**. 다음 한 수가 없으면 이 화면은 읽을 이유가 없다."""
+        self._cycle()
+        st = self.status()
+        self.assertEqual(st["chain"]["name"], "st")
+        self.assertEqual(st["cycle"]["name"], "c1")
+        self.assertEqual(st["step"]["kind"], "define")
+        # define 다음은 반드시 hypothesis — 문법과 같은 말을 해야 한다.
+        self.assertTrue(any("hypothesis" in n for n in st["next"]), st["next"])
+
+    def test_no_graph_in_the_payload(self):
+        """**그래프를 담지 않는다.** 담으면 이 명령도 뷰어와 같은 병에 걸린다.
+
+        섞으면 "지금 어디"를 보려는 사람이 다시 전체를 받아 들게 되고, 그게 정확히
+        지금 고치려는 것이다.
+        """
+        self._cycle()
+        st = self.status()
+        for forbidden in ("nodes", "edges", "graph", "layout"):
+            self.assertNotIn(forbidden, st, f"{forbidden} 가 실렸다 — 여기는 그래프 자리가 아니다")
+
+    def test_pending_surfaces_as_waiting_for_human(self):
+        """사람이 나설 자리가 **한 필드로** 나온다 — 이 JSON 의 존재 이유다."""
+        self._cycle()
+        r = self.gil("step", "st/c1", "--kind", "pending", "--title", "이건 사람이 정해야 한다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.status()
+        self.assertIsNotNone(st["waiting_for_human"])
+        self.assertEqual(st["waiting_for_human"]["kind"], "approval")
+        self.assertIn("approve", st["waiting_for_human"]["how_to_answer"])
+
+    def test_plain_commit_on_a_chain_branch_is_named_not_swallowed(self):
+        """팁이 gil 커밋이 아니어도 자리를 잃지 않는다 — 그리고 **그 사실을 말한다**.
+
+        실측(AIL): 체인 가지 끝에 트레일러 없는 평범한 git 커밋이 얹혀 있었다(#116 이
+        '괴리의 주범'이라 부른 자리). 팁만 보면 gil 은 "아직 아무것도 안 열렸다"고 답하는데
+        사람은 사이클 한복판에 서 있다 — 도구가 사람의 현실과 다른 것을 말하면 사람은
+        도구를 끈다. 그렇다고 조용히 메우면 #116 이 탐지로 세운 신호를 이 화면이 지운다.
+        """
+        self._cycle()
+        (Path(self.repo) / "곁가지.txt").write_text("gil 밖에서 만든 파일\n")
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-q", "--no-verify", "-m", "평범한 커밋"],
+                       cwd=self.repo, check=True)
+        st = self.status()
+        self.assertEqual(st["chain"]["name"], "st")     # 자리를 잃지 않는다
+        self.assertEqual(st["cycle"]["name"], "c1")
+        self.assertTrue(any("gil 밖 커밋" in w for w in st["warnings"]), st["warnings"])
+
+    def test_status_does_not_launch_the_viewer(self):
+        """뷰어를 대신하려고 만든 명령이 뷰어를 띄우면 안 된다.
+
+        실측: 처음 돌렸을 때 JSON 앞줄에 "뷰어: 관전 준비됨 → 127.0.0.1:8791" 이 붙었다.
+        없애려던 창을, 없애려는 명령이 띄우고 있었다.
+        """
+        self._cycle()
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)   # 억제를 풀고 — 실제 경로를 밟는다
+        r = subprocess.run([*GIL_CMD, "status", "--json"], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout + r.stderr
+        self.assertNotIn("127.0.0.1", out)
+        self.assertNotIn("뷰어", out)
+        json.loads(r.stdout)   # 앞줄이 붙으면 이 파싱이 깨진다
+
+    def test_text_form_says_the_same_thing(self):
+        """--json 없이도 같은 값을 말한다 — 두 출력이 다른 것을 세면 어느 쪽이 사실인지 모른다."""
+        self._cycle()
+        r = self.gil("status")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("st", out)
+        self.assertIn("c1", out)
+
+
 class TestMCPRoots(GilFixture):
     """MCP roots — 호스트가 연 폴더를 규범대로 물어본다.
 
