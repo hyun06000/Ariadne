@@ -740,7 +740,11 @@ class TestInit(GilFixture):
                            capture_output=True, text=True, env=env, timeout=15)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("STATE", r.stdout)
-        self.assertIn("뷰어", r.stdout)          # 관전 안내를 낸다
+        # 뷰어는 gil 에 통합됐다(별도 바이너리 없음). 다만 이제 **자동으로 뜨지 않는다** —
+        # 저장소를 만드는 것만으로 사람이 안 부른 서버가 생기지 않게(상현님). 대신 여는
+        # 길을 그 자리에서 준다: 끄기만 하면 사람은 그래프가 사라졌다고 읽는다.
+        self.assertIn("gil viewer open", r.stdout)
+        self.assertIn("gil status", r.stdout)
         self.assertNotIn("gilviewer", r.stdout)  # 옛 별도 바이너리 언급 없음(통합됨)
         # init 이 띄운 뷰어 프로세스가 남았으면 정리(포트 8790).
         subprocess.run(["pkill", "-f", "viewer serve --repo"],
@@ -5224,6 +5228,59 @@ class TestMCPServe(GilFixture):
         self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "pending")
 
 
+class TestViewerIsOptIn(GilFixture):
+    """뷰어는 **청할 때** 뜬다 — 저장소를 만드는 것만으로 서버가 생기지 않는다 (상현님).
+
+    옛 기본값에는 이유가 있었다: 그래프를 안 보고 시작하면 이미 있는 가지를 못 보고 새로
+    판다는 걱정은 실재했고, "에이전트가 알아서 열기"는 자기규율이라 불충분했다(#55).
+    그런데 그 처방의 값이 실사용에서 뒤집혔다 — 사람이 청하지도 않은 서버가 저장소마다
+    뜨고, 포트는 저장소마다 다르고, 죽으면 되살리는 일이 사람 몫이 되고, 창을 두 개 봐야
+    한다. 그리고 정작 작업 중에 필요한 것은 그래프가 아니라 "지금 어디, 개입할 때인가"
+    세 줄이었다 — 그건 이제 gil status 가 답한다.
+
+    **규범을 버린 게 아니라 매체를 바꾼 것이다.** 그래서 이 시험은 두 가지를 함께 센다:
+    자동으로 안 뜨는가, 그리고 **여는 길을 그 자리에서 알려주는가**.
+    """
+
+    def _run(self, *args, auto=False):
+        env = dict(os.environ)
+        env.pop("GIL_NO_VIEWER", None)     # 억제를 풀고 실제 경로를 밟는다
+        if auto:
+            env["GIL_AUTO_VIEWER"] = "1"
+        return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
+                              capture_output=True, text=True, env=env)
+
+    def test_init_does_not_start_a_server(self):
+        r = self._run("init")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout + r.stderr
+        self.assertNotIn("127.0.0.1", out, "청하지도 않은 서버가 떴다")
+
+    def test_init_says_how_to_open_it(self):
+        """끄기만 하면 사람은 여는 길을 잃는다 — 없앤 자리에 길을 놓는다."""
+        r = self._run("init")
+        out = r.stdout + r.stderr
+        self.assertIn("gil status", out)
+        self.assertIn("gil viewer open", out)
+
+    def test_opt_in_brings_it_back(self):
+        """켜는 길은 남긴다 — 강제는 벽이 아니라 선택이어야 한다(#116 과 같은 태도)."""
+        self.gil("init")
+        r = self._run("handoff", auto=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("127.0.0.1", r.stdout + r.stderr)
+        # 남긴 서버를 치운다 — 시험이 프로세스를 흘리면 다음 시험이 포트를 물려받는다.
+        self._run("viewer", "stop")
+
+    def test_off_wins_over_on(self):
+        """끄는 쪽이 언제나 이긴다 — 두 스위치가 다투면 조용한 쪽이 안전하다."""
+        self.gil("init")
+        env = dict(os.environ, GIL_AUTO_VIEWER="1", GIL_NO_VIEWER="1")
+        r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
+                           capture_output=True, text=True, env=env)
+        self.assertNotIn("127.0.0.1", r.stdout + r.stderr)
+
+
 class TestStatusJSON(GilFixture):
     """gil status --json — 지금 어디, 개입할 때인가.
 
@@ -6426,36 +6483,51 @@ class TestRepoResolutionIsHonest(GilFixture):
 
 
 class TestHandoffOpensViewer(GilFixture):
-    """세션을 이어받는 자리에서 관전 뷰어를 규범으로 띄운다 (이슈 #55).
+    """세션을 이어받는 자리에서 **무엇으로 상황을 잡게 하는가** (이슈 #55 의 갱신).
 
-    handoff 는 새 세션이 정신모델을 세우는 첫 관문이다. 여기서 그래프를 안 보면 그 세션 내내
-    안 본다 — 계보가 수십 개면 텍스트 나열로는 분기·죽은 잎·현재위치가 눈에 안 들어오고,
-    이미 있는 가지를 못 보고 새로 파게 된다.
+    옛 규범은 "이 주소를 인앱 브라우저로 지금 열어라 — 선택이 아니다"였다. 근거는 옳았다:
+    handoff 는 새 세션이 정신모델을 세우는 첫 관문이고, 여기서 그래프를 안 보면 그 세션 내내
+    안 본다. 그리고 "에이전트가 알아서 열기"는 자기규율이라 원리적으로 불충분하다(#45·#33).
 
-    왜 안내가 아니라 규범인가. "에이전트가 알아서 뷰어를 열기"는 자기규율이고, 자기규율은
-    원리적으로 불충분하다(LLM 은 명시된 절차도 우회한다). 강제는 도구가 레일을 까는 쪽에
-    둔다 — 이슈 #45·#33 과 같은 계열이다.
+    바뀐 것은 근거가 아니라 **수단**이다. 이어받는 자리에서 실제로 필요한 것은 "지금 어디,
+    무엇을 재는 중, 사람이 나설 자리인가"이고, 그건 창을 새로 열지 않고 gil status 가 답한다.
+    그래프는 전체를 훑을 때 쓰는 물건이라 그때 청해서 연다.
+
+    그리고 이제 서버가 자동으로 안 뜬다 — 안 띄우면서 "지금 열어라"라고 말하면 안내가 사람을
+    **없는 문 앞에** 세운다(v3.58.1·v3.58.2 가 반복해서 고친 병). 그래서 규범은 남기고
+    가리키는 곳만 옮긴다. 이 시험이 그 이동을 못박는다.
     """
 
-    def test_handoff_directs_to_open_the_viewer_in_app(self):
-        self.gil("init")
-        r = self.gil("handoff")
-        out = r.stdout + r.stderr
-        self.assertIn("관전 뷰어", out)
-        self.assertIn("인앱 브라우저", out)
-        self.assertIn("127.0.0.1", out)
-
-    def test_directive_is_normative_not_optional(self):
-        """'열 수 있으면 열어라'가 아니라 '지금 열어라'여야 한다."""
+    def test_handoff_points_at_status_first(self):
+        """이어받는 자리의 첫 한 수는 gil status 다 — 창을 열지 않고 상황이 잡힌다."""
         self.gil("init")
         out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
-        self.assertIn("선택이 아니다", out)
+        self.assertIn("gil status", out)
 
-    def test_outside_browser_is_last_resort(self):
-        """밖의 브라우저 창은 사람이 앱을 떠나야 하므로 마지막 수단이다."""
+    def test_handoff_still_points_at_the_graph_for_the_whole_survey(self):
+        """뷰어를 부정하지 않는다 — 전체를 훑는 일은 여전히 그래프의 몫이다.
+
+        끄기만 하고 여는 길을 안 주면, 사람은 그래프가 사라졌다고 읽는다.
+        """
         self.gil("init")
         out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
-        self.assertIn("마지막 수단", out)
+        self.assertIn("gil viewer open", out)
+
+    def test_the_reason_survives_the_change_of_medium(self):
+        """#55 의 근거는 그대로 남는다 — 왜 그래프를 봐야 하는지가 사라지면 규범도 사라진다."""
+        self.gil("init")
+        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
+        self.assertIn("이미 있는 가지를 못 보고 새로 파", out)
+
+    def test_it_does_not_send_you_to_a_door_that_is_not_there(self):
+        """서버를 안 띄우면서 '지금 열어라'라고 말하지 않는다.
+
+        옛 문안은 자동 기동을 전제로 했다. 전제가 사라졌는데 문장이 남으면, 안내가
+        사람을 한 번 더 세운다 — 이 저장소가 v3.58.1·v3.58.2 에서 다섯 자리를 고친 병이다.
+        """
+        self.gil("init")
+        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
+        self.assertNotIn("선택이 아니다", out)
 
 
 class TestChainSuccessionIsDeclaredNotInferred(GilFixture):
@@ -7365,8 +7437,11 @@ class TestViewerIdentityBeforeClaim(GilFixture):
         port = 8875
         self._fake_server_on(port, '{"repo":"/somewhere/else"}')
         out = self._handoff_with_port(port)
-        self.assertIn("남의 그래프를 보게 된다", out)
-        self.assertIn("--port", out)   # 다른 포트로 띄우라는 다음 한 수
+        # 옛 규범은 "지금 열어라"라고 하면서 주소를 냈으므로, 남의 포트일 때 **경고로**
+        # 막아야 했다. 지금은 내 저장소를 보는 뷰어일 때만 주소를 낸다 — 애초에 틀린 곳을
+        # 가리키지 않는다. 막는 방식이 경고에서 침묵으로 바뀐 것이고, 지키는 것은 같다.
+        self.assertNotIn("127.0.0.1:" + str(port), out)
+        self.assertIn("--port", out)   # 비켜 띄우라는 다음 한 수는 그대로 준다
 
 
 class TestAtReturnsAndIdsStayUnique(GilFixture):
@@ -10233,7 +10308,10 @@ class TestViewerOwnership(GilFixture):
         base = self._free_port()
         other = self._other_repo()
         held = self._serve(other, base)
-        env = dict(os.environ, GIL_VIEWER_PORT=base)
+        # 이 시험은 **자동 기동 경로**를 검증한다(남이 쥔 포트 앞에서 비켜 띄우는 동작).
+        # 자동 기동은 이제 옵트인이므로 여기서 명시적으로 켠다 — 기본값이 바뀌었다고 그
+        # 경로의 검증을 잃으면, 켠 사람에게만 나는 결함이 아무에게도 안 잡힌다.
+        env = dict(os.environ, GIL_VIEWER_PORT=base, GIL_AUTO_VIEWER="1")
         env.pop("GIL_NO_VIEWER", None)
         try:
             r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,

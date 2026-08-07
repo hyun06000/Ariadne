@@ -168,9 +168,16 @@ func cmdInit(args []string) {
 	// 워크플로우를 배운다 — 여기서 한 번 물어 두는 값이 가장 싸다.
 	versionAskPrint()
 
-	// 뷰어 자동 기동 — 사람이 브라우저에서 사고 그래프를 바로 관전한다(상현님).
-	// 실패해도 init 은 깨지지 않는다(안내만).
-	launchViewer()
+	// 뷰어는 **청할 때 뜬다**(상현님). 옛 init 은 여기서 관전 서버를 띄웠는데, 그러면
+	// 저장소를 만드는 것만으로 사람이 안 부른 서버가 하나 생긴다. 작업 중에 필요한 세 줄은
+	// gil status 가 답하고, 전체를 훑고 싶을 때 아래 한 줄로 연다.
+	if viewerAutoOn() {
+		launchViewer()
+	} else {
+		println2("")
+		println2("  지금 어디인지 보려면:  gil status        (서버 없이, 이 자리에서)")
+		println2("  전체 그래프를 훑으려면: gil viewer open   (그때 뜬다)")
+	}
 	println2("")
 	if named {
 		println2("NEXT 너는 [" + *name + "] 로 심어졌다(사람이 준 이름). 첫 과제는 정체성을 채우는 것이다:")
