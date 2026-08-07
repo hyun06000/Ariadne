@@ -22,10 +22,27 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// tipSignatureDigest — 팁 서명을 **짧은 지문 하나로** 접는다. MCP 경계 전용.
+//
+// 왜. tipSignature() 는 브랜치 하나하나와 로컬 대기 상태를 줄줄이 잇는다. 뷰어 안에서는
+// 그래도 됐다 — 브라우저가 이전 값과 문자열 비교만 하고 사람은 그걸 볼 일이 없다. 그런데
+// MCP 로 나가는 순간 그 문자열은 **대화에 실린다.** 실측(AIL): 브랜치 130여 개와 seen 집합이
+// 통째로 나가 4KB 가 넘었고, 사람이 툴 응답으로 본 것이 그 날 데이터 전부였다. 화면에도
+// 문맥에도 잡음이고, 호출마다 반복된다.
+//
+// 서명은 **같은지 다른지**만 답하면 된다. 내용은 필요 없다. 그러니 접는다 — 접힌 값도
+// 같은 판정을 내리고(같은 입력 → 같은 지문), 사람이 읽을 것이 아니라는 게 눈에 보인다.
+func tipSignatureDigest() string {
+	sum := sha256.Sum256([]byte(tipSignature()))
+	return hex.EncodeToString(sum[:])[:16]
+}
 
 const (
 	uiGraphURI  = "ui://gil/graph"
@@ -59,7 +76,7 @@ func registerGilUI(s *mcp.Server) {
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{
 			URI:      uiGraphURI,
 			MIMEType: uiGraphMIME,
-			Text:     injectUIBridge(html, tipSignature()),
+			Text:     injectUIBridge(html, tipSignatureDigest()),
 		}}}, nil
 	})
 
@@ -78,7 +95,7 @@ func registerGilUI(s *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
-		sig := tipSignature()
+		sig := tipSignatureDigest()
 		return &mcp.CallToolResult{
 			Content:           []mcp.Content{&mcp.TextContent{Text: strings.TrimSpace(summary)}},
 			StructuredContent: map[string]any{"tipSignature": sig},

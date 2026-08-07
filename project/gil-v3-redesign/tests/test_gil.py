@@ -5468,7 +5468,25 @@ class TestMCPApps(GilFixture):
         r = self._session(go)
         self.assertFalse(r.get("isError"), r)
         self.assertIn("tipSignature", r["structuredContent"])
-        self.assertTrue(r["structuredContent"]["tipSignature"].strip())
+        sig = r["structuredContent"]["tipSignature"]
+        self.assertTrue(sig.strip())
+
+        # 서명은 **접힌 지문**이지 데이터가 아니다.
+        #
+        # 왜 여기까지 센다. tipSignature() 는 브랜치 하나하나를 줄줄이 잇는다 — 뷰어 안에서는
+        # 브라우저가 문자열 비교만 하니 그래도 됐다. 그런데 MCP 로 나가면 그 문자열은
+        # **대화에 실린다.** 실측(AIL): 브랜치 130여 개와 seen 집합이 통째로 나가 4KB 를
+        # 넘겼고, 사람이 툴 응답으로 본 것이 그 날 데이터 전부였다. 서명은 같은지 다른지만
+        # 답하면 되고, 내용은 필요 없다.
+        self.assertLess(len(sig), 64, f"서명이 길다({len(sig)}자) — 접히지 않았다")
+        self.assertNotIn("\n", sig)
+        self.assertNotIn("uiprobe", sig, "브랜치 이름이 서명에 날것으로 실렸다")
+
+        # 그리고 **여전히 판정은 한다** — 그래프가 움직이면 지문도 바뀐다.
+        self.gil("open", "uiprobe/second", "--hypothesis", "지문이 움직이나",
+                 "--refutes-if", "안 움직이면")
+        r2 = self._session(go)
+        self.assertNotEqual(sig, r2["structuredContent"]["tipSignature"])
 
     def _chain_for_ui(self):
         r = self.gil("chain", "uiprobe", "--purpose", "UI 리소스 확인")
