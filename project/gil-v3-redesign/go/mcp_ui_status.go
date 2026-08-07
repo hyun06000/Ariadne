@@ -326,8 +326,13 @@ func statusActionsHTML(st statusOut) string {
 	}
 	// 사람의 판정을 대화에 넣는다. 문장은 **에이전트가 다음에 할 일**까지 말한다 — "승인함"
 	// 한 줄만 던지면 그 뒤가 세션마다 갈린다.
-	ok := "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 자리를 딛고 다음 스텝을 " +
-		"세워라 — 가설이라면 반증조건·반증 시 물러설 자리·고정할 설계를 함께 정해서."
+	// 승인 문장은 **다음에 무엇을 하라**까지 말한다("승인함" 한 줄만 던지면 그 뒤가 세션마다
+	// 갈린다). 그 한 수는 **gil 이 준 것**을 그대로 옮긴다 — 여기서 창작하면 문법이 허용하지
+	// 않는 수를 사람 입으로 지시하게 된다(v3.58.1·v3.58.2 가 고친 병).
+	ok := "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 자리를 딛고 다음 스텝을 세워라."
+	if len(st.Next) > 0 {
+		ok += " 다음 한 수: " + st.Next[0]
+	}
 	no := "gil " + ref + " (" + st.Step.Kind + ") 를 기각한다.{REASON} 같은 자리에서 다시 " +
 		"정의하거나(정정), 이 사이클을 무르고 원하는 자리에서 새 사이클을 열어라. " +
 		"어느 쪽이 맞는지 먼저 말해 달라."
@@ -392,6 +397,126 @@ func foldRanges(ids []string) string {
 	}
 	flush()
 	return strings.Join(out, ", ")
+}
+
+
+// hypothesisCardBody — **무엇이 참이라고 보나, 그리고 무엇이 관측되면 멈추나** (상현님).
+//
+// 세 칸이 이 카드다: 세운 가설 · 그것이 무엇에서 나왔나(문제정의) · 가드레일(반증조건과 퇴로).
+// 반증조건은 여기서 **앞으로 잴 것**이다 — analyze 에서는 이미 지나간 것이고, 같은 문장을
+// 같은 자리에 두면 사람은 그 차이를 못 읽는다(status-card.md).
+//
+// **없는 칸은 만들지 않는다.** 상현님이 물은 "옳다고 보이려면 무엇이 관측되어야 하나"는
+// gil 에 필드가 없다 — 문법은 반증 쪽만 요구하고(--falsify), 기대되는 관측은 본문 산문에
+// 묻혀 있다. 그래서 그 자리는 **본문 원문**으로 답한다(요약해서 감추지 않는다). 빈 칸을
+// 제목만 남겨 두면 화면은 그럴듯해지고 판단은 틀려진다.
+func hypothesisCardBody(st statusOut) string {
+	var b strings.Builder
+
+	b.WriteString(`<div class="panel"><div class="lbl">가설 — 무엇이 참이라고 보나</div>`)
+	if h := st.Cycle.Hypothesis; h != "" {
+		b.WriteString(`<div class="big">` + esc(h) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">가설 문장이 없다.</div>`)
+	}
+	// 본문(보고서)은 이 스텝에 서 있을 때만 그 스텝의 것이다 — 뒤 스텝에 서 있으면 여기
+	// 실리는 본문은 다른 스텝의 것이 된다. 없는 것을 남의 것으로 채우지 않는다.
+	if st.Step.Kind == "hypothesis" && st.Step.Body != "" {
+		b.WriteString(`<div class="orig">` + esc(st.Step.Body) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	b.WriteString(`<div class="panel"><div class="lbl">무엇에서 나왔나 — 이 사이클의 문제정의</div>`)
+	if p := st.Cycle.Purpose; p != "" {
+		b.WriteString(`<div class="big">` + esc(p) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">문제 정의 문장이 없다.</div>`)
+	}
+	if inh := st.Cycle.Inherit; inh != "" {
+		b.WriteString(`<div class="orig">물려받은 사실: ` + esc(inh) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	// 가드레일. **반증조건과 퇴로는 한 칸에 함께 선다** — "무엇이 관측되면 멈추나"와 "멈추면
+	// 어디로 물러서나"는 한 결정이고, 떼어 놓으면 퇴로가 부속처럼 읽힌다.
+	b.WriteString(`<div class="panel"><div class="lbl">가드레일 — 이것이 관측되면 멈춘다</div>`)
+	if r := st.Cycle.RefutesIf; r != "" {
+		b.WriteString(`<div class="big">` + esc(r) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">반증조건이 없다 — 이 가설은 무엇으로도 죽지 않는다.</div>`)
+	}
+	if to := st.Cycle.FalsifyTo; to != "" {
+		line := "멈추면 " + to + " 로 돌아간다"
+		for _, c := range st.Rollback {
+			if c.ID == to {
+				line += " — " + clip(c.Label, 60)
+				if len(c.Discards) > 0 {
+					line += " (버려진다: " + foldRanges(c.Discards) + ")"
+				}
+				break
+			}
+		}
+		b.WriteString(`<div class="orig">` + esc(line) + `</div>`)
+	}
+	// 지도를 벗어나 갈라진 이유는 **삼키지 않는다**(#105) — 감추면 두 계획이 동시에 유효한
+	// 것처럼 보인다.
+	if d := st.Cycle.DespiteMap; d != "" {
+		b.WriteString(`<div class="orig">벽의 지도를 벗어나 갈라진 이유: ` + esc(d) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	// 재기 전에 못박은 것과, 이 측정이 체인 목적에 다가서려는 몫. 둘 다 있을 때만 칸을 만든다.
+	if st.Cycle.Plan != "" || st.Cycle.Advances != "" {
+		b.WriteString(`<div class="panel">`)
+		if st.Cycle.Plan != "" {
+			b.WriteString(`<div class="lbl">재기 전에 못박은 설계</div><div class="big">` +
+				esc(st.Cycle.Plan) + `</div>`)
+		}
+		if st.Cycle.Advances != "" {
+			b.WriteString(`<div class="orig">왜 재나: ` + esc(st.Cycle.Advances))
+			if st.Chain.Criterion != "" {
+				b.WriteString(` · 체인 판정 기준: ` + esc(st.Chain.Criterion))
+			}
+			b.WriteString(`</div>`)
+		}
+		b.WriteString(`</div>`)
+	}
+
+	b.WriteString(competingHTML(st))
+	b.WriteString(statusActionsHTML(st))
+	return b.String()
+}
+
+// competingHTML — 나란히 겨루는 갈래들. **세지 말고 이름을 부른다**(#112) — "경합 3개"는
+// 비교의 재료가 아니다. 하나뿐이면 경합이 아니라 재분기라 아무것도 그리지 않는다.
+func competingHTML(st statusOut) string {
+	if len(st.Cycle.Competing) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="panel"><div class="lbl">나란히 겨루는 갈래 ` +
+		itoa(len(st.Cycle.Competing)) + `</div>`)
+	for _, s := range st.Cycle.Competing {
+		state := map[string]string{"open": "열림", "won": "채택됨", "fail": "접힘"}[s.State]
+		if s.State == "lost" {
+			state = "졌음"
+			if i := strings.LastIndex(s.LostTo, "/"); i >= 0 {
+				state += " → " + s.LostTo[i+1:]
+			}
+		}
+		if state == "" {
+			state = s.State
+		}
+		here := ""
+		if s.Current {
+			here = ` <span class="backlose">여기</span>`
+		}
+		b.WriteString(`<div class="backrow"><code>` + esc(s.ID) + `</code>` + here +
+			`<span class="backlab">` + esc(clip(s.Hypothesis, 60)) + `</span>` +
+			`<span class="backlose">반증: ` + esc(clip(s.RefutesIf, 50)) + ` · ` + esc(state) + `</span></div>`)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
 }
 
 // statusCardHTML — 통짜 페이지(문서 + 스타일 + 카드). `gil status --card` 와, 저장소를 이미
@@ -522,15 +647,10 @@ func statusCardBodyHTML(st statusOut) string {
 		b.WriteString(`<div class="box warn">⚠ ` + esc(w) + `</div>`)
 	}
 
-	// define 에서는 다음 한 수를 적지 않는다(상현님) — 다음은 hypothesis 하나뿐이라 자명하고,
-	// 그 자리는 **사람이 정하는 두 갈래**(승인·기각)가 쓴다. 선택지가 하나면 목록이 아니다.
-	if len(st.Next) > 0 && !(st.Step != nil && st.Step.Kind == "define") {
-		b.WriteString(`<div class="panel"><div class="lbl">다음 한 수</div><ul>`)
-		for _, n := range st.Next {
-			b.WriteString(`<li>` + codeify(n) + `</li>`)
-		}
-		b.WriteString(`</ul></div>`)
-	}
+	// **다음 한 수는 카드에 없다**(상현님). 이 화면은 사람이 보는 것이고, 사람이 정할 것은
+	// 승인·기각 두 갈래다 — 그 자리는 버튼이 쓴다. gil 명령줄은 에이전트가 칠 것이라 카드에
+	// 두면 사람에게는 읽을 이유 없는 줄이 되고, 화면에서 가장 길어지는 칸이 된다.
+	// (데이터에는 그대로 있다 — status --json 의 next 는 에이전트가 읽고 그대로 친다.)
 
 	b.WriteString(`</div>`)
 	return b.String()
@@ -543,8 +663,11 @@ func statusCardBody(st statusOut) string {
 	if st.Cycle == nil || st.Step == nil {
 		return ""
 	}
-	if st.Step.Kind == "define" {
+	switch st.Step.Kind {
+	case "define":
 		return defineCardBody(st)
+	case "hypothesis":
+		return hypothesisCardBody(st)
 	}
 	var b strings.Builder
 	if st.Cycle.RefutesIf != "" {

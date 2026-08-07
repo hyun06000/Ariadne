@@ -5600,6 +5600,18 @@ class TestStatusJSON(GilFixture):
             p.stdout.close()
             p.stderr.close()
 
+    def visible(self, html):
+        """**사람에게 보이는 글자만** 남긴다(태그·속성·스크립트를 걷는다).
+
+        왜 이 구분이 필요한가. 규칙은 "카드에 **그리지** 마라"이고, 속성에 담겨 에이전트에게
+        가는 문장은 그리는 것이 아니다 — 승인 버튼은 gil 이 준 다음 한 수를 대화로 실어
+        보낸다(창작하지 않으려고). 문자열의 존재를 세면 그 구분이 사라져 시험이 못 쓰게 된다.
+        """
+        import re
+        h = re.sub(r"<script.*?</script>", " ", html, flags=re.S)
+        h = re.sub(r"<style.*?</style>", " ", h, flags=re.S)
+        return re.sub(r"<[^>]*>", " ", h)
+
     def card(self):
         """카드 한 장(HTML). MCP 호스트만 그리는 화면은 검증할 수 없다 — 실측: 이 카드는
         어떤 시험도 안 지나간 채로 있었고, 그래서 그리는 규칙을 지키는지 아무도 몰랐다."""
@@ -5743,7 +5755,7 @@ class TestStatusJSON(GilFixture):
         # 승인·기각 두 갈래가 서고, '다음 한 수'는 없다(define 다음은 하나뿐이라 자명하다).
         self.assertIn('data-act="approve"', card)
         self.assertIn('data-act="reject"', card)
-        self.assertNotIn("다음 한 수", card)
+        self.assertNotIn("다음 한 수", self.visible(card))
 
     def test_the_define_card_says_when_it_stands_on_nothing(self):
         """물려받은 사실이 없으면 **없다고 말한다.** 칸을 지우면 근거 없는 문제정의가 근거
@@ -5806,6 +5818,25 @@ class TestStatusJSON(GilFixture):
         self.assertIn("s2~s5", card, "연속한 스텝이 범위로 안 접혔다")
         # 사람의 판정이 있는 자리에서는 대화로 미루지 않는다.
         self.assertNotIn("data-msg=", card)
+
+    def test_no_card_draws_the_next_move(self):
+        """**다음 한 수는 카드에 없다**(상현님). 사람이 정할 것은 승인·기각 두 갈래고, 그 자리는
+        버튼이 쓴다. gil 명령줄은 에이전트가 칠 것이라 카드에 두면 사람에게는 읽을 이유 없는
+        줄이 되고 화면에서 가장 길어지는 칸이 된다 — 데이터(`next`)에는 그대로 있다."""
+        self._cycle()
+        self.assertNotIn("다음 한 수", self.visible(self.card()), "define 카드에 남았다")
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
+        self.assertNotIn("다음 한 수", self.visible(self.card()), "hypothesis 카드에 남았다")
+        self.gil("step", "st/c1", "--kind", "verify", "--verdict", "refuted", "--falsify-met", "관측")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        seen = self.visible(self.card())
+        self.assertNotIn("다음 한 수", seen, "analyze 카드에 남았다(선택지가 넷인 자리)")
+        self.assertNotIn("--kind success", seen, "명령줄이 화면에 남았다")
+        # 다만 **대화로 가는 문장**에는 gil 이 준 그 줄이 실려야 한다 — 에이전트가 문법을
+        # 창작하면 사람은 막힌 뒤에야 안다.
+        self.assertIn("다음 한 수:", self.card(), "승인이 다음 한 수를 에이전트에게 안 넘긴다")
+        # 데이터에는 있어야 한다 — 에이전트가 읽고 치는 값이다.
+        self.assertTrue(self.status()["next"], "next 가 데이터에서도 사라졌다")
 
     def test_the_confirm_lives_inside_the_card(self):
         """확인은 **카드 안에서** 두 번 누르는 것이다. confirm() 은 샌드박스에서 조용히 죽는다 —
