@@ -34,7 +34,7 @@ func registerGilStatusUI(s *mcp.Server) {
 	s.AddResource(&mcp.Resource{
 		Meta: uiResourceMeta(),
 		URI:  uiStatusURI, Name: "gil-status", Title: "gil 상태 카드", MIMEType: uiGraphMIME,
-		Description: "지금 어디·무엇을 재는 중·사람이 나설 자리·다음 한 수. 그래프는 담지 않는다.",
+		Description: "지금 어느 단계인지·무엇을 측정 중인지·사람의 판단이 필요한지·다음 단계. 그래프는 담지 않는다.",
 	}, read)
 	s.AddResourceTemplate(&mcp.ResourceTemplate{
 		Meta:        uiResourceMeta(),
@@ -45,8 +45,8 @@ func registerGilStatusUI(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "gil_status",
-		Description: "지금 어디까지 왔는지를 카드로 보여준다 — 체인·사이클·스텝, 사람이 나설 " +
-			"자리, 다음 한 수. 사람이 '어디까지 왔어'·'뭐 하는 중이야'라고 묻거나 스텝을 하나 " +
+		Description: "지금 어디까지 왔는지를 카드로 보여준다 — 체인·사이클·스텝, 사람의 판단이 " +
+			"필요한 곳, 다음 단계. 사람이 '어디까지 왔어'·'뭐 하는 중이야'라고 묻거나 스텝을 하나 " +
 			"끝냈을 때 부른다. 전체 그래프가 필요할 때만 gil_graph 를 쓴다(이건 가볍고 그건 무겁다).",
 		Meta: mcp.Meta{"ui": map[string]any{
 			"resourceUri": uiStatusURI,
@@ -358,24 +358,25 @@ func statusActionsHTML(st statusOut) string {
 	// 승인 문장은 **다음에 무엇을 하라**까지 말한다("승인함" 한 줄만 던지면 그 뒤가 세션마다
 	// 갈린다). 그 한 수는 **gil 이 준 것**을 그대로 옮긴다 — 여기서 창작하면 문법이 허용하지
 	// 않는 수를 사람 입으로 지시하게 된다(v3.58.1·v3.58.2 가 고친 병).
-	ok := "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 자리를 딛고 다음 스텝을 세워라."
+	ok := "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 결과를 근거로 다음 단계를 세워라."
 	// **종결은 잎이다** — 그 뒤에 스텝을 이어 붙일 수 없다(#60①). 여기서 "다음 스텝을
 	// 세워라"고 쓰면 사람이 승인을 누른 그 순간, 에이전트는 gil 이 거부할 수를 지시받는다.
 	// 없는 문법을 버튼이 지어내지 않는다는 규칙은 **문장에도** 걸린다.
 	if st.Step.Kind == "success" || st.Step.Kind == "fail" {
-		ok = "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 잎은 여기서 끝난다 — " +
-			"이어 붙이지 말고 아래 중 하나로 가라."
+		ok = "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 분기는 여기서 종결된다 — " +
+			"뒤에 단계를 잇지 말고 아래 중 하나로 가라."
 	}
 	// **후보가 여럿이면 여럿을 준다.** 첫 줄만 실으면 그건 카드가 사람 대신 고른 것이다 —
-	// analyze 뒤는 넷(산 잎·죽은 잎·사람에게·형제 가설)이고, 그 선택이 이 사이클의 방향이다.
+	// analyze 뒤는 넷(지지로 종결·기각으로 종결·사람 판단 요청·경쟁 가설)이고,
+	// 그 선택이 이 사이클의 방향이다.
 	if len(st.Next) > 0 {
-		ok += " 다음 한 수: " + strings.Join(st.Next, " / ")
+		ok += " 다음 단계: " + strings.Join(st.Next, " / ")
 		if len(st.Next) > 1 {
 			ok += " (gil 이 준 후보 전부다 — 어느 쪽인지 먼저 판단해라)"
 		}
 	}
-	no := "gil " + ref + " (" + st.Step.Kind + ") 를 기각한다.{REASON} 같은 자리에서 다시 " +
-		"정의하거나(정정), 이 사이클을 무르고 원하는 자리에서 새 사이클을 열어라. " +
+	no := "gil " + ref + " (" + st.Step.Kind + ") 를 기각한다.{REASON} 같은 단계에서 다시 " +
+		"정의하거나(정정), 이 사이클을 무르고 원하는 단계에서 새 사이클을 열어라. " +
 		"어느 쪽이 맞는지 먼저 말해 달라."
 	return `<div class="acts">` +
 		`<button class="btn primary" data-act="approve" data-msg="` + esc(ok) + `">승인</button>` +
@@ -392,13 +393,13 @@ func pendingActionsHTML(st statusOut, ref string) string {
 	var b strings.Builder
 	b.WriteString(`<div class="acts">` +
 		`<button class="btn primary" data-act="approve" data-tool="gil_approve">승인</button>` +
-		`<button class="btn" data-act="reject" data-open="gil-back">기각 — 되돌아갈 자리를 고른다</button>` +
+		`<button class="btn" data-act="reject" data-open="gil-back">기각 — 되돌아갈 단계를 고른다</button>` +
 		`</div>`)
 	if len(st.Rollback) == 0 {
 		return b.String()
 	}
 	b.WriteString(`<div id="gil-back" class="panel" hidden>` +
-		`<div class="lbl">어디로 되돌리나 — 고르면 그 뒤가 버려진다</div>`)
+		`<div class="lbl">어느 단계로 되돌아가나 — 고르면 그 뒤 단계가 버려진다</div>`)
 	for _, c := range st.Rollback {
 		lose := "버릴 것 없음"
 		if len(c.Discards) > 0 {
@@ -473,20 +474,20 @@ func hypothesisCardBody(st statusOut) string {
 		b.WriteString(`<div class="none">문제 정의 문장이 없다.</div>`)
 	}
 	if inh := st.Cycle.Inherit; inh != "" {
-		b.WriteString(`<div class="orig">물려받은 사실: ` + esc(inh) + `</div>`)
+		b.WriteString(`<div class="orig">앞에서 확인된 사실: ` + esc(inh) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
 	// 가드레일. **반증조건과 퇴로는 한 칸에 함께 선다** — "무엇이 관측되면 멈추나"와 "멈추면
 	// 어디로 물러서나"는 한 결정이고, 떼어 놓으면 퇴로가 부속처럼 읽힌다.
-	b.WriteString(`<div class="panel"><div class="lbl">가드레일 — 이것이 관측되면 멈춘다</div>`)
+	b.WriteString(`<div class="panel"><div class="lbl">반증조건 — 이것이 관측되면 가설을 기각한다</div>`)
 	if r := st.Cycle.RefutesIf; r != "" {
 		b.WriteString(`<div class="big">` + esc(r) + `</div>`)
 	} else {
-		b.WriteString(`<div class="none">반증조건이 없다 — 이 가설은 무엇으로도 죽지 않는다.</div>`)
+		b.WriteString(`<div class="none">반증조건이 없다 — 어떤 관측으로도 이 가설을 기각할 수 없다(반증 가능성이 없다).</div>`)
 	}
 	if to := st.Cycle.FalsifyTo; to != "" {
-		line := "멈추면 " + to + " 로 돌아간다"
+		line := "반증되면 " + to + " 단계로 되돌아간다"
 		for _, c := range st.Rollback {
 			if c.ID == to {
 				line += " — " + clip(c.Label, 60)
@@ -501,7 +502,7 @@ func hypothesisCardBody(st statusOut) string {
 	// 지도를 벗어나 갈라진 이유는 **삼키지 않는다**(#105) — 감추면 두 계획이 동시에 유효한
 	// 것처럼 보인다.
 	if d := st.Cycle.DespiteMap; d != "" {
-		b.WriteString(`<div class="orig">벽의 지도를 벗어나 갈라진 이유: ` + esc(d) + `</div>`)
+		b.WriteString(`<div class="orig">미리 정한 복귀 단계가 아닌 곳에서 분기한 이유: ` + esc(d) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
@@ -509,11 +510,11 @@ func hypothesisCardBody(st statusOut) string {
 	if st.Cycle.Plan != "" || st.Cycle.Advances != "" {
 		b.WriteString(`<div class="panel">`)
 		if st.Cycle.Plan != "" {
-			b.WriteString(`<div class="lbl">재기 전에 못박은 설계</div><div class="big">` +
+			b.WriteString(`<div class="lbl">측정 전에 정한 방법</div><div class="big">` +
 				esc(st.Cycle.Plan) + `</div>`)
 		}
 		if st.Cycle.Advances != "" {
-			b.WriteString(`<div class="orig">왜 재나: ` + esc(st.Cycle.Advances))
+			b.WriteString(`<div class="orig">이 측정의 목적: ` + esc(st.Cycle.Advances))
 			if st.Chain.Criterion != "" {
 				b.WriteString(` · 체인 판정 기준: ` + esc(st.Chain.Criterion))
 			}
@@ -534,12 +535,12 @@ func competingHTML(st statusOut) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(`<div class="panel"><div class="lbl">나란히 겨루는 갈래 ` +
+	b.WriteString(`<div class="panel"><div class="lbl">동시에 검증 중인 경쟁 가설 ` +
 		itoa(len(st.Cycle.Competing)) + `</div>`)
 	for _, s := range st.Cycle.Competing {
-		state := map[string]string{"open": "열림", "won": "채택됨", "fail": "접힘"}[s.State]
+		state := map[string]string{"open": "검증 중", "won": "채택됨", "fail": "반증됨"}[s.State]
 		if s.State == "lost" {
-			state = "졌음"
+			state = "채택 안 됨"
 			if i := strings.LastIndex(s.LostTo, "/"); i >= 0 {
 				state += " → " + s.LostTo[i+1:]
 			}
@@ -549,7 +550,7 @@ func competingHTML(st statusOut) string {
 		}
 		here := ""
 		if s.Current {
-			here = ` <span class="backlose">여기</span>`
+			here = ` <span class="backlose">현재</span>`
 		}
 		b.WriteString(`<div class="backrow"><code>` + esc(s.ID) + `</code>` + here +
 			`<span class="backlab">` + esc(clip(s.Hypothesis, 60)) + `</span>` +
@@ -644,6 +645,7 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .strip .knd{font-size:9.5px;fill:var(--dim);text-anchor:middle}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin:2px 0 2px;font-size:11px;color:var(--dim)}
 .legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:0}
+.legend .gloss{opacity:.72}
 </style>`
 }
 
@@ -665,7 +667,7 @@ func statusCardBodyHTML(st statusOut) string {
 		// 비개발자에게는 답이 아니라 새 물음이다. 그 문자열은 데이터에 그대로 있다 —
 		// 그건 에이전트가 읽고 치는 값이다.
 		if st.Waiting != nil {
-			b.WriteString(`<div class="box wait"><div class="t">⏳ 사람이 정할 자리</div><div>` +
+			b.WriteString(`<div class="box wait"><div class="t">⏳ 사람의 판단이 필요하다</div><div>` +
 				esc(st.Waiting.What) + `</div><div style="margin-top:6px">` +
 				esc(waitHumanLine(st.Waiting)) + `</div></div>`)
 		}
@@ -679,8 +681,15 @@ func statusCardBodyHTML(st statusOut) string {
 			b.WriteString(`<span class="sep">›</span>` + esc(st.Cycle.Name))
 		}
 		if st.Step != nil {
+			// kind 이름 옆에 **뜻 한 마디**를 붙인다. 이름은 gil 의 문법이라 못 바꾸고,
+			// 이름만 놓으면 이 도구를 아는 사람만 읽을 수 있다 — 카드는 도구를 모르는 사람이
+			// 판단하려고 보는 화면이다.
+			label := st.Step.Kind
+			if g := kindGloss[st.Step.Kind]; g != "" {
+				label += " · " + g
+			}
 			b.WriteString(`<span class="sep">›</span>` + esc(st.Step.ID) +
-				`<span class="kind k-` + esc(st.Step.Kind) + `">` + esc(st.Step.Kind) + `</span>`)
+				`<span class="kind k-` + esc(st.Step.Kind) + `">` + esc(label) + `</span>`)
 		}
 		b.WriteString(`</div><div class="repo">` + esc(st.Repo) + `</div>`)
 
@@ -738,7 +747,7 @@ func statusCardBody(st statusOut) string {
 	// 알 수 없는 kind. **없는 얼굴을 있는 척 그리지 않는다** — 무엇에 서 있는지만 말하고
 	// 판정은 사람에게 넘긴다.
 	var b strings.Builder
-	b.WriteString(`<div class="panel"><div class="lbl">이 kind 의 얼굴이 아직 없다</div>` +
+	b.WriteString(`<div class="panel"><div class="lbl">이 단계 종류의 표시 규칙이 아직 없다</div>` +
 		`<div class="none">` + esc(st.Step.Kind) + ` — 이 스텝이 무엇을 담는지는 gil status --json 이 말한다.</div></div>`)
 	b.WriteString(statusActionsHTML(st))
 	return b.String()
@@ -757,7 +766,7 @@ func verifyCardBody(st statusOut) string {
 	var b strings.Builder
 	m := st.Cycle.Measured
 
-	b.WriteString(`<div class="panel"><div class="lbl">쟀다 — 무엇이 나왔나</div>`)
+	b.WriteString(`<div class="panel"><div class="lbl">측정 결과 — 무엇이 관측됐나</div>`)
 	if m != nil && m.Verdict != "" {
 		b.WriteString(`<div class="big">` + esc(verdictWord(m.Verdict)) + `</div>`)
 	} else {
@@ -775,11 +784,11 @@ func verifyCardBody(st statusOut) string {
 	b.WriteString(`</div>`)
 
 	// **과거형이다.** 이 조건은 가설이 심어 둔 것이고 방금 지나갔다.
-	b.WriteString(`<div class="panel"><div class="lbl">무엇이 관측되면 틀리기로 했나</div>`)
+	b.WriteString(`<div class="panel"><div class="lbl">반증조건 — 무엇이 관측되면 기각하기로 했나</div>`)
 	if r := st.Cycle.RefutesIf; r != "" {
 		b.WriteString(`<div class="big">` + esc(r) + `</div>`)
 	} else {
-		b.WriteString(`<div class="none">반증조건이 없다 — 이 측정은 무엇으로도 이 가설을 죽이지 못한다.</div>`)
+		b.WriteString(`<div class="none">반증조건이 없다 — 이 측정으로는 가설을 기각할 수 없다.</div>`)
 	}
 	b.WriteString(`</div>`)
 
@@ -787,27 +796,27 @@ func verifyCardBody(st statusOut) string {
 	// 물건을 잰 것이고, 그게 사람이 기각할 가장 큰 근거다. 그런데 색으로 소리치지는 않는다:
 	// 색은 kind 에서만 뜻을 갖는다(status-card.md). 신호는 ⚠ 한 글자가 진다.
 	if st.Cycle.Plan != "" || (m != nil && m.PlanOutcome != "") {
-		b.WriteString(`<div class="panel"><div class="lbl">재기 전에 못박은 설계는 유지됐나</div>`)
+		b.WriteString(`<div class="panel"><div class="lbl">측정 전에 정한 방법 — 그대로 실행됐나</div>`)
 		switch {
 		case m != nil && m.PlanOutcome == "broke":
-			b.WriteString(`<div class="big">⚠ 깨졌다 — 잰 것이 못박은 것과 다르다</div>`)
+			b.WriteString(`<div class="big">⚠ 그대로 실행되지 않았다 — 계획한 방법과 실제가 다르다</div>`)
 			if m.PlanDiff != "" {
 				b.WriteString(`<div class="orig">무엇이 달랐나: ` + esc(m.PlanDiff) + `</div>`)
 			}
 		case m != nil && m.PlanOutcome == "held":
-			b.WriteString(`<div class="big">유지됐다</div>`)
+			b.WriteString(`<div class="big">그대로 실행됐다</div>`)
 		default:
-			b.WriteString(`<div class="none">설계가 유지됐는지에 대한 답이 기록에 없다.</div>`)
+			b.WriteString(`<div class="none">정한 방법대로 실행됐는지에 대한 답이 기록에 없다.</div>`)
 		}
 		if st.Cycle.Plan != "" {
-			b.WriteString(`<div class="orig">못박은 것: ` + esc(st.Cycle.Plan) + `</div>`)
+			b.WriteString(`<div class="orig">정한 방법: ` + esc(st.Cycle.Plan) + `</div>`)
 		}
 		b.WriteString(`</div>`)
 	}
 
 	// 측정 보고서 원문. **자르지 않는다** — 표·수치가 이 스텝의 몸이고, 접는 것은 사람의 몫이다.
 	if body := st.Step.Body; body != "" {
-		b.WriteString(`<div class="panel"><div class="lbl">측정 보고서 — 원문</div>` +
+		b.WriteString(`<div class="panel"><div class="lbl">측정 기록 — 원문</div>` +
 			`<div class="orig">` + esc(body) + `</div></div>`)
 	}
 
@@ -831,7 +840,7 @@ func analyzeCardBody(st statusOut) string {
 	if f := st.Step.Finding; f != "" {
 		b.WriteString(`<div class="big">` + esc(f) + `</div>`)
 	} else {
-		b.WriteString(`<div class="none">결론 문장이 없다 — 재분기가 딛을 자리가 없다.</div>`)
+		b.WriteString(`<div class="none">결론 문장이 없다 — 다음 가설이 근거로 삼을 문장이 없다.</div>`)
 	}
 	if body := st.Step.Body; body != "" {
 		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
@@ -839,15 +848,15 @@ func analyzeCardBody(st statusOut) string {
 	b.WriteString(`</div>`)
 
 	if m := st.Cycle.Measured; m != nil {
-		b.WriteString(measurePanel("무엇을 딛고 있나 — "+m.Step+" 의 측정", m,
-			hypothesisNote(st, "그때의 가설: ")))
+		b.WriteString(measurePanel("근거가 된 측정 — "+m.Step, m,
+			hypothesisNote(st, "검증한 가설: ")))
 	}
 
 	// **되돌아갈 자리는 여기서 처음 뜬다.** analyze 가 그 판단을 하는 자리다(status-card.md).
-	// 버튼은 달지 않는다 — 재분기는 `--inherit <이 벽의 교훈>` 을 요구하고 그건 판단이지
+	// 버튼은 달지 않는다 — 다시 분기하려면 `--inherit <이 기각에서 알게 된 것>` 이 필요하고 그건 판단이지
 	// 클릭으로 채울 값이 아니다. 없는 문법을 버튼으로 지어내지 않는 것과 같은 규칙이다.
 	if len(st.Rollback) > 0 {
-		b.WriteString(`<div class="panel"><div class="lbl">여기서 되돌아갈 수 있는 자리 — 고르면 그 뒤가 버려진다</div>`)
+		b.WriteString(`<div class="panel"><div class="lbl">되돌아갈 수 있는 단계 — 고르면 그 뒤 단계가 버려진다</div>`)
 		for _, c := range st.Rollback {
 			lose := "버릴 것 없음"
 			if len(c.Discards) > 0 {
@@ -907,14 +916,14 @@ func pendingCardBody(st statusOut) string {
 func successCardBody(st statusOut) string {
 	var b strings.Builder
 
-	b.WriteString(`<div class="panel"><div class="lbl">기준에 얼마나 다가섰나</div>`)
+	b.WriteString(`<div class="panel"><div class="lbl">판정 기준에 얼마나 접근했나</div>`)
 	if t := st.Step.Toward; t != "" {
 		b.WriteString(`<div class="big">` + esc(t) + `</div>`)
 	} else {
 		// **사람이 pending 을 승인해 gil 이 만든 success 에는 회고가 없다** — approve 는
 		// --toward·--next-design 을 묻지 않는다. 빈 칸을 지우면 회고를 쓴 종결과 안 쓴
 		// 종결이 화면에서 같아 보인다. 없다는 것도 사실이라 말한다.
-		b.WriteString(`<div class="none">회고가 기록에 없다 — 사람이 pending 을 승인해 만들어진 종결이면 gil 이 그것을 묻지 않는다.</div>`)
+		b.WriteString(`<div class="none">판정 기준과 대조한 기록이 없다 — 사람이 pending(사람 판단 대기)을 승인해 만들어진 종결에는 gil 이 그것을 묻지 않는다.</div>`)
 	}
 	if c := st.Chain.Criterion; c != "" {
 		b.WriteString(`<div class="orig">체인 판정 기준: ` + esc(c) + `</div>`)
@@ -922,16 +931,16 @@ func successCardBody(st statusOut) string {
 	b.WriteString(`</div>`)
 
 	if n := st.Step.NextDesign; n != "" {
-		b.WriteString(`<div class="panel"><div class="lbl">다음 과녁</div><div class="big">` +
+		b.WriteString(`<div class="panel"><div class="lbl">다음 설계</div><div class="big">` +
 			esc(n) + `</div></div>`)
 	}
 
-	// 무엇을 재서 그렇게 됐나 — 산 잎이 무엇을 딛고 섰는지. 한 칸이면 충분하다.
+	// 근거가 된 측정 — 이 종결이 무엇 위에 섰는지. 한 칸이면 충분하다.
 	if m := st.Cycle.Measured; m != nil {
-		b.WriteString(measurePanel("무엇을 재서 그렇게 됐나", m, hypothesisNote(st, "가설: ")))
+		b.WriteString(measurePanel("근거가 된 측정", m, hypothesisNote(st, "검증한 가설: ")))
 	}
 	if body := st.Step.Body; body != "" {
-		b.WriteString(`<div class="panel"><div class="lbl">종결 보고 — 원문</div>` +
+		b.WriteString(`<div class="panel"><div class="lbl">종결 기록 — 원문</div>` +
 			`<div class="orig">` + esc(body) + `</div></div>`)
 	}
 
@@ -945,25 +954,25 @@ func successCardBody(st statusOut) string {
 // 사이클이 아니다. 카드가 실패를 사과하는 어조로 쓰이면 사람은 되돌리기를 손실로 읽고,
 // 그러면 앞으로만 가려는 압력이 생긴다. gil 이 막으려는 바로 그것이다.
 //
-// **다음 과녁(`next_design`)은 그리지 않는다**(status-card.md). 죽은 잎 위에 "다음 설계"를
+// **다음 설계(`next_design`)는 그리지 않는다**(status-card.md). 기각된 분기 위에 그것을
 // 크게 놓으면 화면이 "이제 앞으로 간다"고 말하는데, 옳은 읽기는 "물러서서 다시 갈라진다"다.
 // 데이터에는 그대로 있다 — 그건 에이전트가 읽는 값이다.
 func failCardBody(st statusOut) string {
 	var b strings.Builder
 	m := st.Cycle.Measured
 
-	b.WriteString(`<div class="panel"><div class="lbl">왜 죽었나</div>`)
+	b.WriteString(`<div class="panel"><div class="lbl">왜 기각됐나</div>`)
 	if m != nil && m.Observed != "" {
 		b.WriteString(`<div class="big">` + esc(m.Observed) + `</div>`)
 	} else {
-		b.WriteString(`<div class="none">이 벽을 만든 관측이 기록에 없다.</div>`)
+		b.WriteString(`<div class="none">기각의 근거가 된 관측이 기록에 없다.</div>`)
 	}
 	if r := st.Cycle.RefutesIf; r != "" {
-		line := "틀리기로 한 조건: " + r
+		line := "반증조건: " + r
 		// 조건과 관측을 나란히 두기만 하면 사람이 둘을 대조해야 한다. gil 은 그 대조를
 		// 이미 기록해 두었다(`--falsify-met`) — 적어 두었으면 말한다.
 		if m != nil && m.Falsify == "met" {
-			line += " → 그리고 그것이 관측됐다"
+			line += " → 이 조건이 실제로 관측됐다"
 		}
 		b.WriteString(`<div class="orig">` + esc(line) + `</div>`)
 	}
@@ -972,15 +981,15 @@ func failCardBody(st statusOut) string {
 	}
 	b.WriteString(`</div>`)
 
-	// 벽의 지도 — **어디로 물러서나.** 이 자리가 없으면 사람은 반증된 뒤에 그래프를 뒤져
-	// 스텝 번호를 세게 된다(비개발자에게 가장 단단한 벽).
-	b.WriteString(`<div class="panel"><div class="lbl">어디로 물러서나 — 벽의 지도</div>`)
+	// 복귀 단계 — **어디로 되돌아가나.** 이 칸이 없으면 사람은 반증된 뒤에 그래프를 뒤져
+	// 스텝 번호를 세게 된다(비개발자에게 가장 넘기 어려운 자리다).
+	b.WriteString(`<div class="panel"><div class="lbl">어느 단계로 되돌아가나 — 가설을 세울 때 미리 정한 복귀 단계</div>`)
 	switch to := backOfCurrent(st); {
 	case to == "pending":
-		b.WriteString(`<div class="big">아직 미정</div>` +
-			`<div class="orig">다음 재분기가 이 자리를 확정한다 — 지금 지어내지 않는다.</div>`)
+		b.WriteString(`<div class="big">아직 정해지지 않았다</div>` +
+			`<div class="orig">다음 가설을 세울 때 확정한다 — 지금 지어내지 않는다.</div>`)
 	case to != "":
-		line := to + " 로 물러선다"
+		line := to + " 단계로 되돌아간다"
 		var extra string
 		for _, c := range st.Rollback {
 			if c.ID == to {
@@ -996,16 +1005,16 @@ func failCardBody(st statusOut) string {
 			b.WriteString(`<div class="orig">` + esc(extra) + `</div>`)
 		}
 	default:
-		b.WriteString(`<div class="none">되돌아갈 자리가 기록에 없다.</div>`)
+		b.WriteString(`<div class="none">되돌아갈 단계가 기록에 없다.</div>`)
 	}
 	// 어조. 여기서 "실패했다"고 쓰면 사람은 되돌리기를 손실로 읽는다. 그리고 **사이클이
 	// 살아 있다고 단정하지도 않는다** — 사람이 이 define 자체를 접기로 할 수도 있다.
 	// 사실만 적는다: 이 자리에서 다른 갈래를 낼 수 있다는 것.
-	b.WriteString(`<div class="orig">죽은 것은 이 가설이다 — 이 자리에서 다른 갈래를 낼 수 있다.</div>`)
+	b.WriteString(`<div class="orig">기각된 것은 이 가설이다 — 이 단계에서 다른 가설을 세울 수 있다.</div>`)
 	b.WriteString(`</div>`)
 
 	if t := st.Step.Toward; t != "" {
-		b.WriteString(`<div class="panel"><div class="lbl">배운 것 — 이 벽이 남긴 것</div>` +
+		b.WriteString(`<div class="panel"><div class="lbl">이 기각으로 알게 된 것</div>` +
 			`<div class="big">` + esc(t) + `</div>`)
 		if c := st.Chain.Criterion; c != "" {
 			b.WriteString(`<div class="orig">체인 판정 기준: ` + esc(c) + `</div>`)
@@ -1044,7 +1053,7 @@ func measurePanel(lbl string, m *statusMeasure, note string) string {
 	// 설계가 깨진 것은 뒤 카드에서도 사라지면 안 된다 — 잰 것이 못박은 것과 다르면 그 뒤의
 	// 결론·종결이 다 그 위에 서 있다.
 	if m.PlanOutcome == "broke" {
-		line := "⚠ 고정한 설계가 깨졌다"
+		line := "⚠ 정한 방법대로 실행되지 않았다"
 		if m.PlanDiff != "" {
 			line += ": " + m.PlanDiff
 		}
@@ -1116,13 +1125,13 @@ func defineCardBody(st statusOut) string {
 	}
 	b.WriteString(`</div>`)
 
-	b.WriteString(`<div class="panel"><div class="lbl">기반사실 — 어떤 물려받은 사실에서 이 문제가 나왔나</div>`)
+	b.WriteString(`<div class="panel"><div class="lbl">전제 — 앞에서 확인된 어떤 사실에서 이 문제가 나왔나</div>`)
 	if inh := st.Cycle.Inherit; inh != "" {
 		b.WriteString(`<div class="big">` + esc(inh) + `</div>`)
 	} else {
 		// 없는 것을 채우지 않되, **없다는 사실은 말한다.** 빈 칸을 지우면 근거가 없다는 것이
 		// 화면에서 사라지고, 그건 근거가 있는 것과 같아 보인다.
-		b.WriteString(`<div class="none">물려받은 사실이 기록에 없다 — 이 문제정의는 앞 사이클의 결론을 딛고 있지 않다.</div>`)
+		b.WriteString(`<div class="none">앞에서 확인된 사실이 기록에 없다 — 이 문제 정의는 앞 사이클의 결론에 근거하지 않는다.</div>`)
 	}
 	b.WriteString(`</div>`)
 

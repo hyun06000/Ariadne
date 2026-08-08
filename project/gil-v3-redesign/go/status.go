@@ -152,7 +152,7 @@ func measureLine(m *statusMeasure) string {
 	// 설계가 깨진 것은 **짧은 형태에서도 사라지면 안 된다** — 잰 것이 못박은 것과 다르면
 	// 그 측정은 다른 물건을 잰 것이고, 그게 사람이 기각할 가장 큰 근거다.
 	if m.PlanOutcome == "broke" {
-		parts = append(parts, "⚠ 고정한 설계가 깨졌다")
+		parts = append(parts, "⚠ 정한 방법대로 실행되지 않았다")
 	}
 	return strings.Join(parts, " · ")
 }
@@ -750,10 +750,10 @@ func nextMoves(chain, cycle string, tip node) []string {
 		// 둘을 뭉개 `gil close … --verdict success --to …` 라는 **없는 문법**을 가르쳤다 —
 		// 막힌 사람이 그대로 쳤을 때 한 번 더 막히는 자리(v3.58.1·v3.58.2 가 고친 병).
 		return []string{
-			"gil step " + ref + " --kind success  — 산 잎",
-			"gil step " + ref + " --kind fail --to <조상 define|analyze>  — 죽은 잎, 되돌아갈 자리와 함께",
-			"gil step " + ref + " --kind pending  — 사람에게 넘긴다",
-			"gil step " + ref + " --kind hypothesis --competing <갈래>  — 형제 가설을 나란히 세운다",
+			"gil step " + ref + " --kind success  — 가설이 지지됨: 이 분기를 종결한다",
+			"gil step " + ref + " --kind fail --to <조상 define|analyze>  — 가설이 기각됨: 되돌아갈 단계와 함께 종결한다",
+			"gil step " + ref + " --kind pending  — 사람의 판단을 요청한다",
+			"gil step " + ref + " --kind hypothesis --to <조상 define|analyze> --competing  — 경쟁 가설을 동시에 세운다",
 		}
 	case "pending":
 		return []string{
@@ -765,7 +765,7 @@ func nextMoves(chain, cycle string, tip node) []string {
 		// 사라진다(#60①). 그런데 지금까지 여기가 빈 목록이었고, 그 공백을 카드의 승인 버튼이
 		// "이 자리를 딛고 다음 스텝을 세워라"로 메웠다 — 없는 수를 사람 입으로 지시한 것이다.
 		// 빈 자리는 채워지지 않는 게 아니라 **지어내서 채워진다**.
-		return []string{"gil close " + ref + "  — 잎이 다 종결됐으면 이 사이클을 봉인한다"}
+		return []string{"gil close " + ref + "  — 모든 분기가 종결됐으면 이 사이클을 닫는다"}
 	case "fail":
 		// fail 은 죽음이 아니라 발견이다 — 기본 수는 닫는 것이 아니라 **다시 갈라지는 것**이다.
 		// 그 자리는 이미 기록에 있다(Gil-Backtrack = 벽의 지도). 지도가 미정이면(#105) 그
@@ -775,8 +775,8 @@ func nextMoves(chain, cycle string, tip node) []string {
 			to = "<조상 define|analyze>"
 		}
 		return []string{
-			"gil step " + ref + " --kind hypothesis --to " + to + " --inherit <이 벽의 교훈>  — 다른 갈래를 낸다",
-			"gil close " + ref + " --abandon --reason <왜 접나>  — 이 define 자체가 막다른 길이었다면",
+			"gil step " + ref + " --kind hypothesis --to " + to + " --inherit <이 기각에서 알게 된 것>  — 다른 가설을 세운다",
+			"gil close " + ref + " --abandon --reason <왜 중단하나>  — 이 문제 정의로는 답에 이를 수 없다고 판단되면",
 		}
 	}
 	return []string{}
@@ -804,33 +804,38 @@ func statusLines(st statusOut) []string {
 				for _, s := range st.Cycle.Competing {
 					mark := s.ID
 					if s.Current {
-						mark += "(여기)"
+						mark += "(현재)"
 					}
 					switch s.State {
 					case "won":
 						mark += "[채택]"
 					case "lost":
-						mark += "[졌음]"
+						mark += "[채택 안 됨]"
 					case "fail":
-						mark += "[접힘]"
+						mark += "[반증됨]"
 					}
 					parts = append(parts, mark)
 				}
-				L = append(L, "  ⚖ 경합  "+strings.Join(parts, " · "))
+				L = append(L, "  ⚖ 경쟁 가설  "+strings.Join(parts, " · "))
 			}
 		}
 		if st.Step != nil {
-			L = append(L, "스텝  "+st.Step.ID+" "+st.Step.Kind+"  "+clip(st.Step.Subject, 70))
+			// 카드와 같은 뜻풀이를 단다 — 두 출력이 다른 말을 하면 안 된다.
+			kind := st.Step.Kind
+			if g := kindGloss[kind]; g != "" {
+				kind += "(" + g + ")"
+			}
+			L = append(L, "스텝  "+st.Step.ID+" "+kind+"  "+clip(st.Step.Subject, 70))
 		}
 	}
 	if st.Waiting != nil {
-		L = append(L, "", "⏳ 사람을 기다린다 — "+st.Waiting.What, "   "+st.Waiting.Answer)
+		L = append(L, "", "⏳ 사람의 판단을 기다린다 — "+st.Waiting.What, "   "+st.Waiting.Answer)
 	}
 	for _, w := range st.Warnings {
 		L = append(L, "⚠ "+w)
 	}
 	if len(st.Next) > 0 {
-		L = append(L, "", "다음 한 수:")
+		L = append(L, "", "다음 단계:")
 		for _, n := range st.Next {
 			L = append(L, "  "+n)
 		}

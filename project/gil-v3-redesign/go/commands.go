@@ -2004,13 +2004,13 @@ func cmdApprove(args []string) {
 	if b := strings.TrimSpace(*by); b != "" {
 		resolveAnsweredIn(b)
 		if stBody == "" {
-			stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 가지는 산 잎.\n\n" +
+			stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 분기를 가설 지지로 종결한다.\n\n" +
 				"근거: 이 물음의 답은 **" + b + "** 에서 이미 났다(이슈 #85). 사람은 '지금 답하라'가 아니라\n" +
 				"'이 후속이 답이 맞나'를 판단해 승인했다."
 		}
 	}
 	if stBody == "" {
-		stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 가지는 산 잎."
+		stBody = "사람이 pending(" + tip.step + ")을 승인했다 — 이 분기를 가설 지지로 종결한다."
 	}
 	// pending 은 부모가 될 수 없다(AIL #41, 상현님) — pending 을 부모로 삼는 대신, pending 의
 	// 부모를 이어받고 pending 자체는 Gil-Supersedes 로 대체(정정). pending 은 잎으로 남고
@@ -2072,7 +2072,7 @@ func cmdReject(args []string) {
 	subject := "gil " + chain + "/" + cycle + "/" + sid + " fail: " + stTitle
 	stBody := resolveBody(*body, *bodyFile)
 	if stBody == "" {
-		stBody = "사람이 pending(" + tip.step + ")을 기각했다 — 죽은 잎. " + *to + " 로 되돌아간다."
+		stBody = "사람이 pending(" + tip.step + ")을 기각했다 — 이 분기를 가설 기각으로 종결하고 " + *to + " 단계로 되돌아간다."
 	}
 	// pending 은 부모가 될 수 없다(AIL #41) — pending 의 부모를 잇고 pending 은 supersede(정정).
 	tr := [][2]string{

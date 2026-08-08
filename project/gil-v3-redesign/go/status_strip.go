@@ -32,14 +32,30 @@ func stripKindColor(kind string) string {
 	case "pending":
 		return "#EF9F27" // 앰버 — 사람 대기
 	case "success":
-		return "#639922" // 초록 — 산 잎
+		return "#639922" // 초록 — 가설 지지로 종결
 	case "fail":
-		return "#D85A30" // 코랄 — 죽은 잎
+		return "#D85A30" // 코랄 — 가설 기각으로 종결
 	}
 	return "#B4B2A9"
 }
 
-// statusKindLegend — 띠 아래 한 줄, **일곱 kind 의 색**(상현님: 캡션 자리에 색을).
+// kindGloss — kind 이름 옆에 붙는 **사람 말 한 마디**.
+//
+// 왜 필요한가. kind 는 gil 의 문법이라 명령줄에도 그대로 나오므로 이름은 못 바꾼다. 그런데
+// 이름만 놓으면 `define`·`analyze`·`pending` 이 무엇인지는 이 도구를 아는 사람만 안다 —
+// 카드는 도구를 모르는 사람이 판단하려고 보는 화면이다. 이름은 그대로 두고 뜻을 옆에 적는다:
+// 하나를 다른 하나로 **바꾸면** 화면과 명령줄이 다른 이름을 쓰게 되고, 그게 더 큰 벽이 된다.
+var kindGloss = map[string]string{
+	"define":     "문제 정의",
+	"hypothesis": "가설",
+	"verify":     "측정",
+	"analyze":    "분석과 결론",
+	"pending":    "사람 판단 대기",
+	"success":    "가설 지지로 종결",
+	"fail":       "가설 기각으로 종결",
+}
+
+// statusKindLegend — 띠 아래 한 줄, **일곱 kind 의 색과 뜻**(상현님: 캡션 자리에 색을).
 //
 // 왜 늘 일곱을 다 내나. 지금 사이클에 있는 것만 내면 범례가 사이클마다 달라지고, 그러면
 // "이 색이 무엇인가"를 매번 다시 배워야 한다. 색의 뜻은 사이클의 사정과 무관하게 고정이다.
@@ -47,7 +63,8 @@ func statusKindLegend() string {
 	var b strings.Builder
 	b.WriteString(`<div class="legend">`)
 	for _, k := range []string{"define", "hypothesis", "verify", "analyze", "pending", "success", "fail"} {
-		b.WriteString(`<span><i style="background:` + stripKindColor(k) + `"></i>` + k + `</span>`)
+		b.WriteString(`<span><i style="background:` + stripKindColor(k) + `"></i>` +
+			k + ` <span class="gloss">` + kindGloss[k] + `</span></span>`)
 	}
 	b.WriteString(`</div>`)
 	return b.String()

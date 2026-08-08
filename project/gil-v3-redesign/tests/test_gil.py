@@ -5335,7 +5335,7 @@ class TestStatusJSON(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_reports_where_and_next(self):
-        """지금 선 자리와 **다음 한 수**. 다음 한 수가 없으면 이 화면은 읽을 이유가 없다."""
+        """지금 선 자리와 **다음 단계**. 다음 단계가 없으면 이 화면은 읽을 이유가 없다."""
         self._cycle()
         st = self.status()
         self.assertEqual(st["chain"]["name"], "st")
@@ -5608,7 +5608,7 @@ class TestStatusJSON(GilFixture):
         """**사람에게 보이는 글자만** 남긴다(태그·속성·스크립트를 걷는다).
 
         왜 이 구분이 필요한가. 규칙은 "카드에 **그리지** 마라"이고, 속성에 담겨 에이전트에게
-        가는 문장은 그리는 것이 아니다 — 승인 버튼은 gil 이 준 다음 한 수를 대화로 실어
+        가는 문장은 그리는 것이 아니다 — 승인 버튼은 gil 이 준 다음 단계를 대화로 실어
         보낸다(창작하지 않으려고). 문자열의 존재를 세면 그 구분이 사라져 시험이 못 쓰게 된다.
         """
         import re
@@ -5754,20 +5754,20 @@ class TestStatusJSON(GilFixture):
         self.assertIn("문제정의", card)
         self.assertIn("초과분의 출처를 가른다", card)
         self.assertIn("지금 p95 는 780ms", card, "원문이 카드에 없다")
-        self.assertIn("기반사실", card)
+        self.assertIn("전제", card)
         self.assertIn("캐시 축은 닫혔다", card)
-        # 승인·기각 두 갈래가 서고, '다음 한 수'는 없다(define 다음은 하나뿐이라 자명하다).
+        # 승인·기각 두 갈래가 서고, '다음 단계'는 없다(define 다음은 하나뿐이라 자명하다).
         self.assertIn('data-act="approve"', card)
         self.assertIn('data-act="reject"', card)
-        self.assertNotIn("다음 한 수", self.visible(card))
+        self.assertNotIn("다음 단계", self.visible(card))
 
     def test_the_define_card_says_when_it_stands_on_nothing(self):
         """물려받은 사실이 없으면 **없다고 말한다.** 칸을 지우면 근거 없는 문제정의가 근거
         있는 것과 같아 보인다 — 없는 것을 채우지 않는 것과, 없다는 사실을 감추는 것은 다르다."""
         self._cycle()   # --inherit 없이 연 사이클
         card = self.card()
-        self.assertIn("기반사실", card)
-        self.assertIn("물려받은 사실이 기록에 없다", card)
+        self.assertIn("전제", card)
+        self.assertIn("앞에서 확인된 사실이 기록에 없다", card)
 
     def test_the_card_divides_by_background_not_by_lines(self):
         """구획은 실선이 아니라 **카드 안의 카드**다(상현님). 그리고 kind 는 제 색 타원이다.
@@ -5797,7 +5797,7 @@ class TestStatusJSON(GilFixture):
         self.assertIn('data-act="approve"', card)
         self.assertIn('data-act="reject"', card)
         self.assertIn("data-msg=", card, "대화에 전할 문장이 버튼에 없다")
-        self.assertIn("다음 스텝을 세워라", card, "승인이 다음에 할 일을 말하지 않는다")
+        self.assertIn("다음 단계를 세워라", card, "승인이 다음에 할 일을 말하지 않는다")
         self.assertIn('data-ask-reason="1"', card, "기각이 이유를 묻지 않는다")
         # 작업 스텝에서는 진짜 명령을 물지 않는다(그 문법이 없다).
         self.assertNotIn('data-tool="gil_approve"', card)
@@ -5824,21 +5824,21 @@ class TestStatusJSON(GilFixture):
         self.assertNotIn("data-msg=", card)
 
     def test_no_card_draws_the_next_move(self):
-        """**다음 한 수는 카드에 없다**(상현님). 사람이 정할 것은 승인·기각 두 갈래고, 그 자리는
+        """**다음 단계는 카드에 없다**(상현님). 사람이 정할 것은 승인·기각 두 갈래고, 그 자리는
         버튼이 쓴다. gil 명령줄은 에이전트가 칠 것이라 카드에 두면 사람에게는 읽을 이유 없는
         줄이 되고 화면에서 가장 길어지는 칸이 된다 — 데이터(`next`)에는 그대로 있다."""
         self._cycle()
-        self.assertNotIn("다음 한 수", self.visible(self.card()), "define 카드에 남았다")
+        self.assertNotIn("다음 단계", self.visible(self.card()), "define 카드에 남았다")
         self.gil("step", "st/c1", "--kind", "hypothesis", "--falsify", "틀리면", "--falsify-to", "s1")
-        self.assertNotIn("다음 한 수", self.visible(self.card()), "hypothesis 카드에 남았다")
+        self.assertNotIn("다음 단계", self.visible(self.card()), "hypothesis 카드에 남았다")
         self.gil("step", "st/c1", "--kind", "verify", "--verdict", "refuted", "--falsify-met", "관측")
         self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
         seen = self.visible(self.card())
-        self.assertNotIn("다음 한 수", seen, "analyze 카드에 남았다(선택지가 넷인 자리)")
+        self.assertNotIn("다음 단계", seen, "analyze 카드에 남았다(선택지가 넷인 자리)")
         self.assertNotIn("--kind success", seen, "명령줄이 화면에 남았다")
         # 다만 **대화로 가는 문장**에는 gil 이 준 그 줄이 실려야 한다 — 에이전트가 문법을
         # 창작하면 사람은 막힌 뒤에야 안다.
-        self.assertIn("다음 한 수:", self.card(), "승인이 다음 한 수를 에이전트에게 안 넘긴다")
+        self.assertIn("다음 단계:", self.card(), "승인이 다음 단계를 에이전트에게 안 넘긴다")
         # 데이터에는 있어야 한다 — 에이전트가 읽고 치는 값이다.
         self.assertTrue(self.status()["next"], "next 가 데이터에서도 사라졌다")
 
@@ -5893,26 +5893,26 @@ class TestStatusJSON(GilFixture):
         self._measured(plan="broke")
         card = self.card()
         seen = self.visible(card)
-        self.assertIn("쟀다", seen)
+        self.assertIn("측정 결과", seen)
         self.assertNotIn("재는 중", seen, "이미 난 판정을 현재형으로 부른다")
         self.assertIn("가설을 지지했다", seen, "필드 이름(supported)을 그대로 읽었다")
         self.assertIn("반증조건은 관측되지 않았다", seen)
         # 판정만 있고 관측이 없으면 사람은 그 판정을 **검산할 수 없다**.
         self.assertIn("435ms", seen)
-        # 설계가 깨진 것은 사람이 기각할 가장 큰 근거다 — 잰 것이 못박은 것과 다르다는 뜻이다.
-        self.assertIn("깨졌다", seen)
+        # 정한 방법대로 안 됐다는 것이 사람이 기각할 가장 큰 근거다 — 다른 것을 잰 셈이니까.
+        self.assertIn("그대로 실행되지 않았다", seen)
         self.assertIn("실행경로가 3개", seen)
         # 측정 보고서 원문은 자르지 않는다.
         self.assertIn("절차와 수치는 여기 원문으로 남는다", seen)
-        # 되돌아갈 후보는 여기 없다 — 되돌릴지는 analyze 에서 정한다.
+        # 되돌아갈 단계 후보는 여기 없다 — 되돌릴지는 analyze 에서 정한다.
         self.assertNotIn("되돌아갈", seen)
 
     def test_the_verify_card_says_when_the_plan_held(self):
-        """유지됐으면 유지됐다고 말한다 — ⚠ 를 늘 달면 그 표시가 아무 뜻도 없어진다."""
+        """정한 대로 됐으면 그렇다고 말한다 — ⚠ 를 늘 달면 그 표시가 아무 뜻도 없어진다."""
         self._measured(plan="held")
         seen = self.visible(self.card())
-        self.assertIn("유지됐다", seen)
-        self.assertNotIn("깨졌다", seen)
+        self.assertIn("그대로 실행됐다", seen)
+        self.assertNotIn("실행되지 않았다", seen)
 
     def test_the_analyze_card_puts_the_finding_first(self):
         """`finding` 은 gil 이 문법으로 요구하는 값이고 **재분기가 딛는 문장**이다.
@@ -5924,8 +5924,8 @@ class TestStatusJSON(GilFixture):
         card = self.card()
         seen = self.visible(card)
         self.assertIn("state 축은 345ms 를 설명한다", seen)
-        self.assertIn("무엇을 딛고 있나", seen, "결론이 무엇 위에 섰는지가 없다")
-        self.assertIn("되돌아갈 수 있는 자리", seen)
+        self.assertIn("근거가 된 측정", seen, "결론이 무엇 위에 섰는지가 없다")
+        self.assertIn("되돌아갈 수 있는 단계", seen)
         self.assertIn("버려진다", seen, "번호만으로는 고를 수 없다")
         # **버튼은 안 단다.** 재분기는 --inherit <이 벽의 교훈> 을 요구하고 그건 판단이지
         # 클릭으로 채울 값이 아니다(pending 의 기각과 다른 점 — 거기엔 문법이 있다).
@@ -5970,7 +5970,7 @@ class TestStatusJSON(GilFixture):
         self.assertIn('data-tool="gil_approve"', card)
 
     def test_the_success_card_holds_the_retrospect_next_to_the_yardstick(self):
-        """종결 둘은 순서가 뒤집힌다 — 다음 한 수가 아니라 **판정 기준과의 대조**가 본문이다.
+        """종결 둘은 순서가 뒤집힌다 — 다음 단계가 아니라 **판정 기준과의 대조**가 본문이다.
         떼어 놓으면 "얼마나 다가섰나"가 무엇에 비추어 한 말인지 사라진다."""
         self._measured()
         self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
@@ -5980,9 +5980,9 @@ class TestStatusJSON(GilFixture):
         seen = self.visible(self.card())
         self.assertIn("기준에 780→435ms 로 다가섰다", seen)
         self.assertIn(self.status()["chain"]["criterion"], seen, "무엇에 비추어 한 말인지가 없다")
-        self.assertIn("다음 과녁", seen)
+        self.assertIn("다음 설계", seen)
         self.assertIn("다음은 배치 축", seen)
-        self.assertIn("무엇을 재서 그렇게 됐나", seen)
+        self.assertIn("근거가 된 측정", seen)
 
     def test_the_success_that_approve_made_says_it_has_no_retrospect(self):
         """`gil approve` 는 --toward·--next-design 을 **묻지 않는다.** 그러면 회고가 없는
@@ -5995,7 +5995,7 @@ class TestStatusJSON(GilFixture):
         st = self.status()
         self.assertEqual(st["step"]["kind"], "success")
         self.assertEqual(st["step"].get("toward", ""), "")
-        self.assertIn("회고가 기록에 없다", self.visible(self.card()))
+        self.assertIn("판정 기준과 대조한 기록이 없다", self.visible(self.card()))
 
     def test_the_fail_card_says_why_it_died_and_where_it_retreats(self):
         """fail 은 죽음이 아니라 발견이다. 사람이 볼 것은 사과가 아니라 **왜 죽었고 어디로
@@ -6007,16 +6007,16 @@ class TestStatusJSON(GilFixture):
                      "--next-design", "다음은 배치 축")
         self.assertEqual(r.returncode, 0, r.stderr)
         seen = self.visible(self.card())
-        self.assertIn("왜 죽었나", seen)
-        self.assertIn("3회 평균 +0.4%", seen, "이 벽을 만든 관측이 없다")
-        self.assertIn("벽의 지도", seen)
-        self.assertIn("s1 로 물러선다", seen)
+        self.assertIn("왜 기각됐나", seen)
+        self.assertIn("3회 평균 +0.4%", seen, "기각의 근거가 된 관측이 없다")
+        self.assertIn("복귀 단계", seen)
+        self.assertIn("s1 단계로 되돌아간다", seen)
         self.assertIn("버려진다", seen)
-        self.assertIn("배운 것", seen)
+        self.assertIn("이 기각으로 알게 된 것", seen)
         self.assertIn("다가서진 못했지만", seen)
-        # **다음 과녁은 그리지 않는다** — 죽은 잎 위에 놓으면 화면이 "이제 앞으로 간다"고
-        # 말하는데, 옳은 읽기는 "물러서서 다시 갈라진다"다. 데이터에는 그대로 있다.
-        self.assertNotIn("다음은 배치 축", seen, "죽은 잎 위에 다음 설계를 크게 놓았다")
+        # **다음 설계는 그리지 않는다** — 기각된 분기 위에 놓으면 화면이 "이제 앞으로 간다"고
+        # 말하는데, 옳은 읽기는 "되돌아가서 다시 분기한다"다. 데이터에는 그대로 있다.
+        self.assertNotIn("다음은 배치 축", seen, "기각된 분기 위에 다음 설계를 크게 놓았다")
         self.assertEqual(self.status()["step"]["next_design"], "다음은 배치 축")
 
     def test_a_leaf_never_tells_the_human_to_build_the_next_step_on_it(self):
@@ -6033,11 +6033,11 @@ class TestStatusJSON(GilFixture):
         self.gil("step", "st/c1", "--kind", "success", "--title", "닫는다")
         card = self.card()
         msg = _html.unescape(re.search(r'data-act="approve"[^>]*data-msg="([^"]*)"', card).group(1))
-        self.assertNotIn("다음 스텝을 세워라", msg)
-        self.assertIn("이 잎은 여기서 끝난다", msg)
+        self.assertNotIn("다음 단계를 세워라", msg)
+        self.assertIn("이 분기는 여기서 종결된다", msg)
         # 그리고 **그 다음이 실제로 돈다.** 안 도는 줄을 가르치면 막힌 사람이 한 번 더 막힌다.
         st = self.status()
-        self.assertTrue(st["next"], "잎에서 다음 한 수가 통째로 비었다")
+        self.assertTrue(st["next"], "잎에서 다음 단계가 통째로 비었다")
         first = st["next"][0].split("  —")[0].strip().split()
         self.assertEqual(first[0], "gil")
         r = self.gil(*first[1:])
@@ -6191,8 +6191,8 @@ class TestStatusJSON(GilFixture):
         """짧은 형태도 갈래를 **이름으로** 부른다 — 두 출력이 다른 것을 세면 안 된다."""
         self._competition()
         out = self.gil("status").stdout
-        self.assertIn("경합", out)
-        self.assertIn("(여기)", out)
+        self.assertIn("경쟁 가설", out)
+        self.assertIn("(현재)", out)
 
     def test_hypothesis_card_rules_are_written_down(self):
         """hypothesis 카드 규칙이 문서에 있다 — 반증조건은 아직 지나가지 않았다.
@@ -6203,7 +6203,7 @@ class TestStatusJSON(GilFixture):
         r = self.gil("docs", "install")
         self.assertEqual(r.returncode, 0, r.stderr)
         doc = (Path(self.repo) / "docs" / "gil" / "status-card.md").read_text()
-        for must in ("퇴로", "미래 시제", "경합", "cycle.competing", "cycle.advances",
+        for must in ("복귀 단계", "미래 시제", "경쟁 가설", "cycle.competing", "cycle.advances",
                      "despite_map"):
             self.assertIn(must, doc, f"{must} 규칙이 없다")
 
@@ -6212,7 +6212,7 @@ class TestStatusJSON(GilFixture):
         r = self.gil("docs", "install")
         self.assertEqual(r.returncode, 0, r.stderr)
         doc = (Path(self.repo) / "docs" / "gil" / "status-card.md").read_text()
-        for must in ("척추", "분기", "백트랙", "cycle.steps", "문제정의", "근거"):
+        for must in ("척추", "분기", "백트랙", "cycle.steps", "문제정의", "전제"):
             self.assertIn(must, doc, f"{must} 규칙이 없다")
 
     def test_points_at_its_own_rendering_rules(self):
