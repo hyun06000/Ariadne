@@ -6088,6 +6088,122 @@ class TestStatusJSON(GilFixture):
         # 아닌 값이 배경이 되어 카드가 통째로 안 읽힌다. 모르는 것은 안 한다.
         self.assertNotIn("styles.variables", shell)
 
+    # ── 본문은 보고서다 — 날것으로 찍으면 가장 정보가 많은 칸이 가장 안 읽힌다 ────────
+
+    def _report_body(self):
+        """표·강조·리스트·코드블록·그림 둘·바깥 그림 하나가 든 보고서."""
+        return (
+            "절차: 진입점에서 1회 읽기로 접고 부하 3회.\n"
+            "\n"
+            "| 회차 | p95 |\n"
+            "|---|---|\n"
+            "| 1 | 431ms |\n"
+            "| 2 | 448ms |\n"
+            "\n"
+            "### 남은 것\n"
+            "\n"
+            "- **state 축**은 345ms 를 설명한다\n"
+            "- 남은 135ms 는 `batch` 축이다\n"
+            "\n"
+            '<svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">'
+            '<rect width="10" height="10" fill="#378ADD"/></svg>\n'
+            "\n"
+            "![측정 곡선](data:image/png;base64,iVBORw0KGgo=)\n"
+            "\n"
+            "![바깥 그림](https://example.com/plot.png)\n"
+        )
+
+    def test_the_card_renders_the_report_instead_of_printing_it_raw(self):
+        """본문은 커밋에 실려 오는 **보고서**고 에이전트는 그걸 마크다운으로 쓴다.
+
+        카드가 날것으로 찍으면 표는 파이프 줄로, 강조는 별 네 개로 보인다 — 화면에서 정보가
+        가장 많은 칸이 가장 안 읽히는 칸이 된다(상현님 실측).
+        """
+        self._cycle()
+        r = self.gil("step", "st/c1", "--kind", "hypothesis", "--title", "축을 세운다",
+                     "--body", self._report_body(),
+                     "--falsify", "안 되면", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        card = self.card()
+        self.assertIn("<table>", card, "표가 파이프 줄로 찍혔다")
+        self.assertIn("<th>회차</th>", card)
+        self.assertIn("<td>431ms</td>", card)
+        self.assertIn("<strong>state 축</strong>", card, "강조가 별 네 개로 남았다")
+        self.assertIn("<h3>남은 것</h3>", card)
+        self.assertIn("<li>", card)
+        self.assertIn("<code>batch</code>", card)
+        # 날것 문법이 화면 글자로 남지 않는다.
+        seen = self.visible(card)
+        self.assertNotIn("|---|", seen)
+        self.assertNotIn("**state 축**", seen)
+        self.assertNotIn("### 남은 것", seen)
+
+    def test_pictures_travel_as_pictures_and_ascii_art_is_not_one(self):
+        """**시각화할 수 있는 것은 시각화한다**(상현님). 통로는 둘뿐이다: 본문에 그대로 쓴
+        SVG, 그리고 data: 로 심은 그림.
+
+        날 SVG 는 <img> 로 감싸 나른다 — 그 문맥에서는 스크립트가 안 돌고 바깥 요청도 안 간다.
+        그림을 요구하면서 위험한 통로를 열어 둘 수는 없다.
+        """
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--title", "축",
+                 "--body", self._report_body(), "--falsify", "안 되면", "--falsify-to", "s1")
+        card = self.card()
+        self.assertIn('src="data:image/svg+xml;base64,', card, "날 SVG 가 그림이 안 됐다")
+        self.assertNotIn("<svg viewBox=\"0 0 10 10\"", card, "SVG 를 문서에 그대로 심었다")
+        self.assertIn('src="data:image/png;base64,iVBORw0KGgo="', card)
+        # **바깥 주소는 안 그린다** — 샌드박스에서 막히고, 저장소 내용을 밖으로 내보내는
+        # 통로가 된다. 다만 **막았다는 사실은 적는다**: 빈 자리는 그림이 없는 것과 같아 보인다.
+        self.assertNotIn("https://example.com/plot.png", card)
+        self.assertIn("바깥 주소 대신", self.visible(card))
+
+    def test_the_one_line_values_render_their_emphasis_too(self):
+        """한 줄짜리 트레일러 값에도 강조와 코드가 온다 — 거기만 날것으로 두면 같은 문법이
+        어떤 칸에서는 그려지고 어떤 칸에서는 별표로 남는다."""
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis",
+                 "--title", "`state` 접근이 **초과분**을 설명한다",
+                 "--falsify", "안 되면", "--falsify-to", "s1")
+        card = self.card()
+        self.assertIn("<code>state</code>", card)
+        self.assertIn("<strong>초과분</strong>", card)
+
+    def test_the_legend_names_the_colors_in_english_only(self):
+        """범례는 **색 열쇠**다(상현님). 뜻풀이는 머리글 타원이 이미 지고 있으니, 일곱 줄에
+        다 붙이면 색 열쇠가 문장 일곱 개짜리 표가 된다."""
+        self._cycle()
+        card = self.card()
+        import re
+        legend = re.search(r'<div class="legend">.*?</div>\s*</div>', card, re.S).group(0)
+        for k in ("define", "hypothesis", "verify", "analyze", "pending", "success", "fail"):
+            self.assertIn(">" + k + "</span>", legend, f"{k} 가 이름만으로 안 섰다")
+        self.assertNotIn("문제 정의", legend)
+        self.assertNotIn("가설 지지로 종결", legend)
+        # 다만 **지금 서 있는 kind** 는 머리글에서 뜻까지 말한다.
+        self.assertIn("define · 문제 정의", card)
+
+    def test_the_body_rules_are_written_down(self):
+        """용어와 그림의 규칙은 문서에 산다 — 안 적으면 다음 세션이 또 아스키아트를 그린다."""
+        r = self.gil("docs", "install")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = (Path(self.repo) / "docs" / "gil" / "reports.md").read_text()
+        for must in ("아스키아트는 그림이 아니다", "data:image/png;base64", "<svg",
+                     "반증조건", "바깥 주소"):
+            self.assertIn(must, doc, f"{must} 규칙이 없다")
+
+    def test_the_step_guide_asks_for_scientific_words_and_real_pictures(self):
+        """gil 출력은 에이전트에게 주는 프롬프트다 — 규칙이 문서에만 있으면 자기규율이다."""
+        self._cycle()
+        r = self.gil("step", "st/c1", "--kind", "hypothesis", "--title", "축",
+                     "--falsify", "안 되면", "--falsify-to", "s1")
+        out = r.stderr + r.stdout
+        self.assertIn("용어는 과학의 것으로", out)
+        r2 = self.gil("step", "st/c1", "--kind", "verify", "--verdict", "supported",
+                      "--falsify-unmet", "관측", "--plan-held")
+        out2 = r2.stderr + r2.stdout
+        self.assertIn("아스키아트는 그림이 아니다", out2)
+        self.assertIn("data:image/png;base64", out2)
+
     def test_the_confirm_lives_inside_the_card(self):
         """확인은 **카드 안에서** 두 번 누르는 것이다. confirm() 은 샌드박스에서 조용히 죽는다 —
         v3.49.0 에서 그 때문에 승인 자체가 불가능했고 아무 표시도 없었다."""

@@ -456,25 +456,25 @@ func hypothesisCardBody(st statusOut) string {
 
 	b.WriteString(`<div class="panel"><div class="lbl">가설 — 무엇이 참이라고 보나</div>`)
 	if h := st.Cycle.Hypothesis; h != "" {
-		b.WriteString(`<div class="big">` + esc(h) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(h) + `</div>`)
 	} else {
 		b.WriteString(`<div class="none">가설 문장이 없다.</div>`)
 	}
 	// 본문(보고서)은 이 스텝에 서 있을 때만 그 스텝의 것이다 — 뒤 스텝에 서 있으면 여기
 	// 실리는 본문은 다른 스텝의 것이 된다. 없는 것을 남의 것으로 채우지 않는다.
 	if st.Step.Kind == "hypothesis" && st.Step.Body != "" {
-		b.WriteString(`<div class="orig">` + esc(st.Step.Body) + `</div>`)
+		b.WriteString(`<div class="orig md">` + mdToHTML(st.Step.Body) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
 	b.WriteString(`<div class="panel"><div class="lbl">무엇에서 나왔나 — 이 사이클의 문제정의</div>`)
 	if p := st.Cycle.Purpose; p != "" {
-		b.WriteString(`<div class="big">` + esc(p) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(p) + `</div>`)
 	} else {
 		b.WriteString(`<div class="none">문제 정의 문장이 없다.</div>`)
 	}
 	if inh := st.Cycle.Inherit; inh != "" {
-		b.WriteString(`<div class="orig">앞에서 확인된 사실: ` + esc(inh) + `</div>`)
+		b.WriteString(`<div class="orig">앞에서 확인된 사실: ` + mdInlineHTML(inh) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
@@ -482,7 +482,7 @@ func hypothesisCardBody(st statusOut) string {
 	// 어디로 물러서나"는 한 결정이고, 떼어 놓으면 퇴로가 부속처럼 읽힌다.
 	b.WriteString(`<div class="panel"><div class="lbl">반증조건 — 이것이 관측되면 가설을 기각한다</div>`)
 	if r := st.Cycle.RefutesIf; r != "" {
-		b.WriteString(`<div class="big">` + esc(r) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(r) + `</div>`)
 	} else {
 		b.WriteString(`<div class="none">반증조건이 없다 — 어떤 관측으로도 이 가설을 기각할 수 없다(반증 가능성이 없다).</div>`)
 	}
@@ -511,10 +511,10 @@ func hypothesisCardBody(st statusOut) string {
 		b.WriteString(`<div class="panel">`)
 		if st.Cycle.Plan != "" {
 			b.WriteString(`<div class="lbl">측정 전에 정한 방법</div><div class="big">` +
-				esc(st.Cycle.Plan) + `</div>`)
+				mdInlineHTML(st.Cycle.Plan) + `</div>`)
 		}
 		if st.Cycle.Advances != "" {
-			b.WriteString(`<div class="orig">이 측정의 목적: ` + esc(st.Cycle.Advances))
+			b.WriteString(`<div class="orig">이 측정의 목적: ` + mdInlineHTML(st.Cycle.Advances))
 			if st.Chain.Criterion != "" {
 				b.WriteString(` · 체인 판정 기준: ` + esc(st.Chain.Criterion))
 			}
@@ -645,7 +645,33 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .strip .knd{font-size:9.5px;fill:var(--dim);text-anchor:middle}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin:2px 0 2px;font-size:11px;color:var(--dim)}
 .legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:0}
-.legend .gloss{opacity:.72}
+
+/* 렌더된 본문. .orig 의 pre-wrap 을 끈다 — 진짜 요소를 그리는 자리라 원문 줄바꿈을
+   그대로 지키면 표·리스트 사이에 빈 줄이 겹쳐 쌓인다. */
+/* 색도 되돌린다. .orig 는 원래 '곁들이는 원문' 이라 흐린 톤인데, 렌더된 보고서는 곁들이는
+   것이 아니라 **판단의 재료 그 자체**다(pending 의 물음, verify 의 측정 기록). 위계는 크기가
+   진다 — 머리 문장은 .big 이 더 크다. */
+.md{white-space:normal;color:var(--fg)}
+.md>*:first-child{margin-top:0}
+.md>*:last-child{margin-bottom:0}
+.md p{margin:.5em 0}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin:.9em 0 .35em;font-size:14px;color:var(--fg)}
+.md h1{font-size:16px}.md h2{font-size:15px}
+.md ul,.md ol{margin:.4em 0;padding-left:20px}
+.md li{margin:2px 0}
+.md blockquote{margin:.5em 0;padding:2px 0 2px 10px;border-left:2px solid var(--line)}
+.md pre.code{margin:.6em 0;padding:9px 11px;border-radius:8px;background:var(--code);
+ overflow-x:auto;white-space:pre;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+/* 표는 카드 폭을 넘길 수 있다 — 제 칸 안에서 가로로 구른다(페이지가 흔들리지 않게). */
+.md table{display:block;overflow-x:auto;border-collapse:collapse;margin:.6em 0;max-width:100%}
+.md th,.md td{border:1px solid var(--line);padding:4px 9px;text-align:left;
+ font-size:12.5px;white-space:nowrap}
+.md th{background:var(--card);font-weight:600}
+/* 그림은 이 본문의 몸이다 — 카드 폭에 맞추되 잘라내지 않는다. */
+.md .mdimg{display:block;max-width:100%;height:auto;margin:.6em 0;border-radius:8px}
+.md .mdnote{display:block;margin:.5em 0;font-size:12px;color:var(--warn-fg);
+ background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px}
+.md a{color:inherit}
 </style>`
 }
 
@@ -786,7 +812,7 @@ func verifyCardBody(st statusOut) string {
 	// **과거형이다.** 이 조건은 가설이 심어 둔 것이고 방금 지나갔다.
 	b.WriteString(`<div class="panel"><div class="lbl">반증조건 — 무엇이 관측되면 기각하기로 했나</div>`)
 	if r := st.Cycle.RefutesIf; r != "" {
-		b.WriteString(`<div class="big">` + esc(r) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(r) + `</div>`)
 	} else {
 		b.WriteString(`<div class="none">반증조건이 없다 — 이 측정으로는 가설을 기각할 수 없다.</div>`)
 	}
@@ -809,7 +835,7 @@ func verifyCardBody(st statusOut) string {
 			b.WriteString(`<div class="none">정한 방법대로 실행됐는지에 대한 답이 기록에 없다.</div>`)
 		}
 		if st.Cycle.Plan != "" {
-			b.WriteString(`<div class="orig">정한 방법: ` + esc(st.Cycle.Plan) + `</div>`)
+			b.WriteString(`<div class="orig">정한 방법: ` + mdInlineHTML(st.Cycle.Plan) + `</div>`)
 		}
 		b.WriteString(`</div>`)
 	}
@@ -817,7 +843,7 @@ func verifyCardBody(st statusOut) string {
 	// 측정 보고서 원문. **자르지 않는다** — 표·수치가 이 스텝의 몸이고, 접는 것은 사람의 몫이다.
 	if body := st.Step.Body; body != "" {
 		b.WriteString(`<div class="panel"><div class="lbl">측정 기록 — 원문</div>` +
-			`<div class="orig">` + esc(body) + `</div></div>`)
+			`<div class="orig md">` + mdToHTML(body) + `</div></div>`)
 	}
 
 	b.WriteString(competingHTML(st))
@@ -838,12 +864,12 @@ func analyzeCardBody(st statusOut) string {
 
 	b.WriteString(`<div class="panel"><div class="lbl">결론 — 이 분석이 밝힌 것</div>`)
 	if f := st.Step.Finding; f != "" {
-		b.WriteString(`<div class="big">` + esc(f) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(f) + `</div>`)
 	} else {
 		b.WriteString(`<div class="none">결론 문장이 없다 — 다음 가설이 근거로 삼을 문장이 없다.</div>`)
 	}
 	if body := st.Step.Body; body != "" {
-		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
+		b.WriteString(`<div class="orig md">` + mdToHTML(body) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
@@ -887,7 +913,7 @@ func pendingCardBody(st statusOut) string {
 		b.WriteString(`<div class="big">` + esc(s) + `</div>`)
 	}
 	if body := st.Step.Body; body != "" {
-		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
+		b.WriteString(`<div class="orig md">` + mdToHTML(body) + `</div>`)
 	} else {
 		// gil 자신이 이 자리에서 "본문이 얇다 — pending 스텝은 보고서여야 한다"고 경고한다.
 		// 카드도 같은 것을 말한다: 물음만 있고 재료가 없으면 사람은 판단할 수 없다.
@@ -898,7 +924,7 @@ func pendingCardBody(st statusOut) string {
 	// 무엇에 비추어 판단하나. 기준이 없으면 승인·기각을 묻는 물음 자체가 의미가 없다.
 	b.WriteString(`<div class="panel"><div class="lbl">무엇에 비추어 판단하나 — 이 체인이 풀렸다고 할 기준</div>`)
 	if c := st.Chain.Criterion; c != "" {
-		b.WriteString(`<div class="big">` + esc(c) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(c) + `</div>`)
 	} else {
 		b.WriteString(`<div class="none">이 체인엔 사람이 세운 판정 기준이 없다 — 무엇에 비추어 판단하라는 것인지가 기록에 없다.</div>`)
 	}
@@ -918,7 +944,7 @@ func successCardBody(st statusOut) string {
 
 	b.WriteString(`<div class="panel"><div class="lbl">판정 기준에 얼마나 접근했나</div>`)
 	if t := st.Step.Toward; t != "" {
-		b.WriteString(`<div class="big">` + esc(t) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(t) + `</div>`)
 	} else {
 		// **사람이 pending 을 승인해 gil 이 만든 success 에는 회고가 없다** — approve 는
 		// --toward·--next-design 을 묻지 않는다. 빈 칸을 지우면 회고를 쓴 종결과 안 쓴
@@ -926,13 +952,13 @@ func successCardBody(st statusOut) string {
 		b.WriteString(`<div class="none">판정 기준과 대조한 기록이 없다 — 사람이 pending(사람 판단 대기)을 승인해 만들어진 종결에는 gil 이 그것을 묻지 않는다.</div>`)
 	}
 	if c := st.Chain.Criterion; c != "" {
-		b.WriteString(`<div class="orig">체인 판정 기준: ` + esc(c) + `</div>`)
+		b.WriteString(`<div class="orig">체인 판정 기준: ` + mdInlineHTML(c) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
 	if n := st.Step.NextDesign; n != "" {
 		b.WriteString(`<div class="panel"><div class="lbl">다음 설계</div><div class="big">` +
-			esc(n) + `</div></div>`)
+			mdInlineHTML(n) + `</div></div>`)
 	}
 
 	// 근거가 된 측정 — 이 종결이 무엇 위에 섰는지. 한 칸이면 충분하다.
@@ -941,7 +967,7 @@ func successCardBody(st statusOut) string {
 	}
 	if body := st.Step.Body; body != "" {
 		b.WriteString(`<div class="panel"><div class="lbl">종결 기록 — 원문</div>` +
-			`<div class="orig">` + esc(body) + `</div></div>`)
+			`<div class="orig md">` + mdToHTML(body) + `</div></div>`)
 	}
 
 	b.WriteString(statusActionsHTML(st))
@@ -977,7 +1003,7 @@ func failCardBody(st statusOut) string {
 		b.WriteString(`<div class="orig">` + esc(line) + `</div>`)
 	}
 	if body := st.Step.Body; body != "" {
-		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
+		b.WriteString(`<div class="orig md">` + mdToHTML(body) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
@@ -1015,9 +1041,9 @@ func failCardBody(st statusOut) string {
 
 	if t := st.Step.Toward; t != "" {
 		b.WriteString(`<div class="panel"><div class="lbl">이 기각으로 알게 된 것</div>` +
-			`<div class="big">` + esc(t) + `</div>`)
+			`<div class="big">` + mdInlineHTML(t) + `</div>`)
 		if c := st.Chain.Criterion; c != "" {
-			b.WriteString(`<div class="orig">체인 판정 기준: ` + esc(c) + `</div>`)
+			b.WriteString(`<div class="orig">체인 판정 기준: ` + mdInlineHTML(c) + `</div>`)
 		}
 		b.WriteString(`</div>`)
 	}
@@ -1115,19 +1141,19 @@ func defineCardBody(st statusOut) string {
 	var b strings.Builder
 	b.WriteString(`<div class="panel"><div class="lbl">문제정의 — 무엇을 풀려고 하나</div>`)
 	if p := st.Cycle.Purpose; p != "" {
-		b.WriteString(`<div class="big">` + esc(p) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(p) + `</div>`)
 	} else {
 		b.WriteString(`<div class="none">이 사이클엔 목적 문장이 없다.</div>`)
 	}
 	// 원문은 **반드시 함께** 둔다. 요약만 두면 지어내서 감춘 것이 된다.
 	if body := st.Step.Body; body != "" {
-		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
+		b.WriteString(`<div class="orig md">` + mdToHTML(body) + `</div>`)
 	}
 	b.WriteString(`</div>`)
 
 	b.WriteString(`<div class="panel"><div class="lbl">전제 — 앞에서 확인된 어떤 사실에서 이 문제가 나왔나</div>`)
 	if inh := st.Cycle.Inherit; inh != "" {
-		b.WriteString(`<div class="big">` + esc(inh) + `</div>`)
+		b.WriteString(`<div class="big">` + mdInlineHTML(inh) + `</div>`)
 	} else {
 		// 없는 것을 채우지 않되, **없다는 사실은 말한다.** 빈 칸을 지우면 근거가 없다는 것이
 		// 화면에서 사라지고, 그건 근거가 있는 것과 같아 보인다.

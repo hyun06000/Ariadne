@@ -55,16 +55,18 @@ var kindGloss = map[string]string{
 	"fail":       "가설 기각으로 종결",
 }
 
-// statusKindLegend — 띠 아래 한 줄, **일곱 kind 의 색과 뜻**(상현님: 캡션 자리에 색을).
+// statusKindLegend — 띠 아래 한 줄, **일곱 kind 의 색**(상현님: 캡션 자리에 색을).
 //
 // 왜 늘 일곱을 다 내나. 지금 사이클에 있는 것만 내면 범례가 사이클마다 달라지고, 그러면
 // "이 색이 무엇인가"를 매번 다시 배워야 한다. 색의 뜻은 사이클의 사정과 무관하게 고정이다.
+//
+// **여기는 이름만 적는다**(상현님). 뜻풀이는 머리글 타원이 이미 지고 있다 — 지금 서 있는
+// kind 하나면 충분하고, 일곱 줄에 다 붙이면 색 열쇠가 문장 일곱 개짜리 표가 된다.
 func statusKindLegend() string {
 	var b strings.Builder
 	b.WriteString(`<div class="legend">`)
 	for _, k := range []string{"define", "hypothesis", "verify", "analyze", "pending", "success", "fail"} {
-		b.WriteString(`<span><i style="background:` + stripKindColor(k) + `"></i>` +
-			k + ` <span class="gloss">` + kindGloss[k] + `</span></span>`)
+		b.WriteString(`<span><i style="background:` + stripKindColor(k) + `"></i>` + k + `</span>`)
 	}
 	b.WriteString(`</div>`)
 	return b.String()
