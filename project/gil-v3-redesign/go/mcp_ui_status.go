@@ -119,12 +119,22 @@ func renderStatusResource(uri, repo string) (*mcp.ReadResourceResult, error) {
 // 그려 넣는다 (3) `ui/notifications/tool-result` 가 올 때마다(= gil 이 무엇을 했다는 뜻)
 // 다시 가져온다. 레이아웃은 Go 에만 있다 — 앱은 받은 조각을 넣기만 한다.
 func statusCardShellHTML() string {
+	// **계기는 기본으로 꺼 둔다.** 이 보고는 화면이 안 뜨던 자리를 찾는 데 값을 다 했다 —
+	// 호스트가 무엇으로 답했는지, 프레임이 실제로 섰는지는 이 길 말고는 볼 수 없었다. 그런데
+	// 켜 둔 채로 릴리스하면 **모든 세션이 매번 두 번씩** 진단 호출을 하고, 그 호출이 사람의
+	// 도구 목록과 프레임 로그에 남는다. 도구가 자기를 진단하는 비용을 사용자가 늘 치를 이유는
+	// 없다. 필요할 때 켠다: `GIL_UI_PROBE=1`(MCP 서버 프로세스의 환경변수).
+	probe := os.Getenv("GIL_UI_PROBE") == "1"
+	probeJS := "false"
+	if probe {
+		probeJS = "true"
+	}
 	return statusCardDocHead() + `<body><div id="gil-card" class="card"><div class="lbl">gil</div>
 <div class="none">상태를 가져오는 중…</div></div>
 <script>
 (function(){
   var host=window.parent, id=0, pending={}, fetching=false, fetches=0, drawn=false;
-  var VER=` + jsString(gilVersion) + `, seen=[], repo="";
+  var VER=` + jsString(gilVersion) + `, seen=[], repo="", PROBE=` + probeJS + `;
   function slot(){ return document.getElementById("gil-card"); }
   function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
   function notify(m,p){ send({method:m,params:p||{}}); }
@@ -136,13 +146,19 @@ func statusCardShellHTML() string {
   // 안 닿는다 — 실측: 카드 조회 14번, 화면은 계속 "가져오는 중". iframe↔호스트 프레임은
   // 서버에 오지 않으니, 무엇이 어떤 모양으로 돌아오는지는 화면이 적어 보내야 알 수 있다.
   function note(m){
+    if(!PROBE) return;
     if(seen.length<12) seen.push({
       m:(m&&m.method)||null, id:(m&&m.id)!==undefined?m.id:null,
       k:m&&typeof m==="object"?Object.keys(m).slice(0,8):typeof m,
       rk:m&&m.result&&typeof m.result==="object"?Object.keys(m.result).slice(0,8):undefined,
+      // 호스트가 핸드셰이크에 무엇을 실어 주는지 — 테마를 실제로 주는지가 여기서만 보인다.
+      hc:m&&m.result&&m.result.hostContext&&typeof m.result.hostContext==="object"
+        ?Object.keys(m.result.hostContext).slice(0,8).concat(["theme="+String(m.result.hostContext.theme||"")])
+        :undefined,
       e:m&&m.error?String(m.error.code||"")+":"+String(m.error.message||"").slice(0,60):undefined});
   }
   function report(tag){
+    if(!PROBE) return;
     send({id:++id,method:"tools/call",params:{name:"gil_status_card",arguments:{
       probe:JSON.stringify({tag:tag,drawn:drawn,fetches:fetches,seen:seen}).slice(0,1900)}}});
   }
@@ -284,9 +300,23 @@ func statusCardShellHTML() string {
     }
   });
 
+  // **호스트가 제 테마를 말해 주면 그것이 이긴다.** 샌드박스 안의 prefers-color-scheme 은
+  // OS 의 것이라, 앱만 어둡게 써 온 사람에게는 어두운 화면 한가운데 흰 카드가 선다.
+  // 어느 칸으로 오는지는 호스트마다 다를 수 있으니 몇 자리를 본다 — cardOf·learnRepo 와
+  // 같은 이유다(통로가 하나뿐이라 가정하면 호스트가 바뀔 때 화면이 어긋난다).
+  // 색 변수 자체는 **가져다 쓰지 않는다**: 이름을 모르는 채 우리 --bg 에 꽂으면 배경이
+  // 아닌 값이 배경이 되어 카드가 통째로 안 읽힌다. 모르는 것은 안 한다.
+  function applyTheme(res){
+    try{
+      var hc=(res&&res.hostContext)||{};
+      var t=hc.theme||(hc.styles&&hc.styles.theme)||(res&&res.theme)||"";
+      if(t==="dark"||t==="light") document.documentElement.setAttribute("data-theme",t);
+    }catch(_){}
+  }
+
   var hs=++id;
   pending[hs]=function(res,err){
-    if(!err) notify("ui/notifications/initialized",{});
+    if(!err){ applyTheme(res); notify("ui/notifications/initialized",{}); }
     reportSize(); fetchCard();
   };
   send({id:hs,method:"ui/initialize",params:{
@@ -296,14 +326,13 @@ func statusCardShellHTML() string {
     capabilities:{},
     appCapabilities:{availableDisplayModes:["inline","fullscreen"]}}});
   setTimeout(function(){ if(!drawn) fetchCard(); },900);
-  setTimeout(function(){ report("2s"); },2000);
-  setTimeout(function(){ report("6s"); },6000);
+  if(PROBE){ setTimeout(function(){ report("2s"); },2000);
+             setTimeout(function(){ report("6s"); },6000); }
   window.addEventListener("load",reportSize);
   if(window.ResizeObserver) new ResizeObserver(reportSize).observe(document.documentElement);
 })();
 </script></body>`
 }
-
 
 // statusActionsHTML — **사람이 정하는 두 갈래.** 라벨은 일곱 kind 에서 같고, 뒤에서 도는
 // 것은 다르다(status-card.md). 그래서 버튼은 자기가 무엇을 할지 데이터로 지고 있고, 껍데기는
@@ -330,8 +359,20 @@ func statusActionsHTML(st statusOut) string {
 	// 갈린다). 그 한 수는 **gil 이 준 것**을 그대로 옮긴다 — 여기서 창작하면 문법이 허용하지
 	// 않는 수를 사람 입으로 지시하게 된다(v3.58.1·v3.58.2 가 고친 병).
 	ok := "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 자리를 딛고 다음 스텝을 세워라."
+	// **종결은 잎이다** — 그 뒤에 스텝을 이어 붙일 수 없다(#60①). 여기서 "다음 스텝을
+	// 세워라"고 쓰면 사람이 승인을 누른 그 순간, 에이전트는 gil 이 거부할 수를 지시받는다.
+	// 없는 문법을 버튼이 지어내지 않는다는 규칙은 **문장에도** 걸린다.
+	if st.Step.Kind == "success" || st.Step.Kind == "fail" {
+		ok = "gil " + ref + " (" + st.Step.Kind + ") 를 승인한다. 이 잎은 여기서 끝난다 — " +
+			"이어 붙이지 말고 아래 중 하나로 가라."
+	}
+	// **후보가 여럿이면 여럿을 준다.** 첫 줄만 실으면 그건 카드가 사람 대신 고른 것이다 —
+	// analyze 뒤는 넷(산 잎·죽은 잎·사람에게·형제 가설)이고, 그 선택이 이 사이클의 방향이다.
 	if len(st.Next) > 0 {
-		ok += " 다음 한 수: " + st.Next[0]
+		ok += " 다음 한 수: " + strings.Join(st.Next, " / ")
+		if len(st.Next) > 1 {
+			ok += " (gil 이 준 후보 전부다 — 어느 쪽인지 먼저 판단해라)"
+		}
 	}
 	no := "gil " + ref + " (" + st.Step.Kind + ") 를 기각한다.{REASON} 같은 자리에서 다시 " +
 		"정의하거나(정정), 이 사이클을 무르고 원하는 자리에서 새 사이클을 열어라. " +
@@ -398,7 +439,6 @@ func foldRanges(ids []string) string {
 	flush()
 	return strings.Join(out, ", ")
 }
-
 
 // hypothesisCardBody — **무엇이 참이라고 보나, 그리고 무엇이 관측되면 멈추나** (상현님).
 //
@@ -525,20 +565,32 @@ func statusCardHTML(st statusOut) string {
 	return statusCardDocHead() + `<body>` + statusCardBodyHTML(st) + `</body>`
 }
 
+// 팔레트는 **한 벌씩만 쓴다.** 같은 색을 CSS 에 두 번 적으면(미디어 쿼리 하나, 명시 테마
+// 하나) 다음에 한쪽만 고쳐지고, 그러면 호스트가 테마를 말해 준 사람과 안 말해 준 사람이
+// 다른 화면을 본다. CSS 는 선언 블록을 재사용할 방법이 없으니 Go 에서 잇는다.
+const cardVarsLight = `--bg:#fff;--fg:#26262a;--dim:#6f6e69;--line:#dedcd4;--card:#f1efe8;` +
+	`--warn-bg:#fff6e5;--warn-fg:#7a4d00;--warn-line:#f0d9a8;` +
+	`--wait-bg:#eaf2ff;--wait-fg:#12406b;--wait-line:#bcd6f5;--code:#f1efe8;--panel:#fff;--acc:#444441;--acc-fg:#fff`
+
+const cardVarsDark = `--bg:#17171a;--fg:#e9e7e1;--dim:#9b9992;--line:#3a3a3d;--card:#232326;` +
+	`--warn-bg:#3a2a12;--warn-fg:#ffd79a;--warn-line:#7a5a24;` +
+	`--wait-bg:#12283f;--wait-fg:#bcd9ff;--wait-line:#2a557f;--code:#2f2f33;--panel:#2e2e32;--acc:#d3d1c7;--acc-fg:#26262a`
+
 // statusCardDocHead — 문서 껍데기와 스타일. **카드 조각과 갈라 둔다** — 앱이 조각만 받아
 // 그려 넣을 때 스타일은 이미 템플릿에 있어야 한다(조각마다 스타일을 실어 보내면 같은 CSS 가
 // 호출마다 왕복한다).
+//
+// **테마는 호스트가 말해 주면 그것이 이긴다.** 샌드박스 iframe 의 `prefers-color-scheme` 은
+// OS·브라우저의 것이지 호스트 앱의 것이 아니다 — 사람이 앱을 어둡게 해 두고 OS 는 밝게 둔
+// 흔한 조합에서, 어두운 화면 한가운데 흰 카드가 선다. 그래서 `data-theme` 이 양쪽 방향으로
+// 미디어 쿼리를 이긴다(밝게 고정한 사람이 밤에 어두워지지도 않게).
 func statusCardDocHead() string {
 	return `<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{--bg:#fff;--fg:#26262a;--dim:#6f6e69;--line:#dedcd4;--card:#f1efe8;
-      --warn-bg:#fff6e5;--warn-fg:#7a4d00;--warn-line:#f0d9a8;
-      --wait-bg:#eaf2ff;--wait-fg:#12406b;--wait-line:#bcd6f5;--code:#f1efe8;--panel:#fff;--acc:#444441;--acc-fg:#fff}
-@media (prefers-color-scheme:dark){
-:root{--bg:#17171a;--fg:#e9e7e1;--dim:#9b9992;--line:#3a3a3d;--card:#232326;
-      --warn-bg:#3a2a12;--warn-fg:#ffd79a;--warn-line:#7a5a24;
-      --wait-bg:#12283f;--wait-fg:#bcd9ff;--wait-line:#2a557f;--code:#2f2f33;--panel:#2e2e32;--acc:#d3d1c7;--acc-fg:#26262a}}
+:root,:root[data-theme="light"]{` + cardVarsLight + `}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){` + cardVarsDark + `}}
+:root[data-theme="dark"]{` + cardVarsDark + `}
 *{box-sizing:border-box}
 body{margin:0;padding:16px;background:var(--bg);color:var(--fg);
  font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
@@ -605,13 +657,17 @@ func statusCardBodyHTML(st statusOut) string {
 		b.WriteString(`<div class="row"><div class="val">아직 연 체인이 없거나 층(dev·main) 위에 서 있다.</div></div>`)
 	} else {
 		// 사람이 나설 자리 — 있으면 맨 위.
+		//
+		// **명령줄은 여기에도 안 온다.** 예전엔 `waiting_for_human.how_to_answer` 를 그대로
+		// 실었고, 그러면 카드가 `gil approve` · `gil reject --to <조상 define>` 두 줄을
+		// 그렸다 — 바로 그 두 줄을 도는 버튼 **바로 위에**. 사람이 읽을 이유 없는 줄이
+		// 화면에서 가장 눈에 띄는 자리를 차지했고, `<조상 define>` 같은 자리표시자는
+		// 비개발자에게는 답이 아니라 새 물음이다. 그 문자열은 데이터에 그대로 있다 —
+		// 그건 에이전트가 읽고 치는 값이다.
 		if st.Waiting != nil {
 			b.WriteString(`<div class="box wait"><div class="t">⏳ 사람이 정할 자리</div><div>` +
-				esc(st.Waiting.What) + `</div><div style="margin-top:6px">`)
-			for _, ln := range strings.Split(st.Waiting.Answer, "\n") {
-				b.WriteString(`<div>` + codeify(ln) + `</div>`)
-			}
-			b.WriteString(`</div></div>`)
+				esc(st.Waiting.What) + `</div><div style="margin-top:6px">` +
+				esc(waitHumanLine(st.Waiting)) + `</div></div>`)
 		}
 		// 머리글은 **체인 › 사이클 › 스텝** 셋을 다 부른다. 체인 이름이 빠지면 여러 체인을
 		// 오가는 사람이 지금 어느 계보 안에 있는지 모른다(#110 이 저장소 이름에서 겪은 병).
@@ -668,18 +724,374 @@ func statusCardBody(st statusOut) string {
 		return defineCardBody(st)
 	case "hypothesis":
 		return hypothesisCardBody(st)
+	case "verify":
+		return verifyCardBody(st)
+	case "analyze":
+		return analyzeCardBody(st)
+	case "pending":
+		return pendingCardBody(st)
+	case "success":
+		return successCardBody(st)
+	case "fail":
+		return failCardBody(st)
 	}
+	// 알 수 없는 kind. **없는 얼굴을 있는 척 그리지 않는다** — 무엇에 서 있는지만 말하고
+	// 판정은 사람에게 넘긴다.
 	var b strings.Builder
-	if st.Cycle.RefutesIf != "" {
-		b.WriteString(`<div class="panel"><div class="lbl">재는 중 — 무엇이 관측되면 틀리나</div>` +
-			`<div class="big">` + esc(clip(st.Cycle.RefutesIf, 220)) + `</div></div>`)
-	}
-	if st.Cycle.FalsifyTo != "" {
-		b.WriteString(`<div class="panel"><div class="lbl">반증되면 돌아갈 자리</div><div>` +
-			`<code>` + esc(st.Cycle.FalsifyTo) + `</code></div></div>`)
-	}
+	b.WriteString(`<div class="panel"><div class="lbl">이 kind 의 얼굴이 아직 없다</div>` +
+		`<div class="none">` + esc(st.Step.Kind) + ` — 이 스텝이 무엇을 담는지는 gil status --json 이 말한다.</div></div>`)
 	b.WriteString(statusActionsHTML(st))
 	return b.String()
+}
+
+// verifyCardBody — **쟀다, 무엇이 나왔나** (status-card.md).
+//
+// 시제가 이 카드의 전부다. 지금까지 여기엔 얼굴이 없어서 공통 본문이 "재는 중 — 무엇이
+// 관측되면 틀리나"를 그렸다. 그런데 verify 스텝은 **판정과 함께 태어난다**(문법이 그걸
+// 요구한다: `--verdict supported|refuted` 와 `--falsify-met|--falsify-unmet <관측>`). 이미
+// 지나간 측정을 "재는 중"이라 부르면 사람은 아직 결과가 없는 줄 안다 — 문서가 hypothesis·
+// analyze 사이에서 경계한 바로 그 병이고, 그 사이에 낀 이 카드가 제일 크게 앓았다.
+//
+// **되돌아갈 후보는 여기 없다.** 되돌릴지는 analyze 에서 정한다(status-card.md).
+func verifyCardBody(st statusOut) string {
+	var b strings.Builder
+	m := st.Cycle.Measured
+
+	b.WriteString(`<div class="panel"><div class="lbl">쟀다 — 무엇이 나왔나</div>`)
+	if m != nil && m.Verdict != "" {
+		b.WriteString(`<div class="big">` + esc(verdictWord(m.Verdict)) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">판정이 기록에 없다 — 이 측정이 가설을 지지했는지 반증했는지 알 수 없다.</div>`)
+	}
+	// 판정과 관측은 **따로** 적힌다(규칙 17). 판정만 보이고 관측이 사라지면 사람은 그
+	// 판정을 검산할 수 없다 — 승인을 누르는 근거가 통째로 없어진다.
+	if m != nil && m.Falsify != "" {
+		line := falsifyWord(m.Falsify)
+		if m.Observed != "" {
+			line += " · 관측: " + m.Observed
+		}
+		b.WriteString(`<div class="orig">` + esc(line) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	// **과거형이다.** 이 조건은 가설이 심어 둔 것이고 방금 지나갔다.
+	b.WriteString(`<div class="panel"><div class="lbl">무엇이 관측되면 틀리기로 했나</div>`)
+	if r := st.Cycle.RefutesIf; r != "" {
+		b.WriteString(`<div class="big">` + esc(r) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">반증조건이 없다 — 이 측정은 무엇으로도 이 가설을 죽이지 못한다.</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	// 고정한 설계. **깨진 것은 강한 신호다** — 잰 것이 못박은 것과 다르면 이 측정은 다른
+	// 물건을 잰 것이고, 그게 사람이 기각할 가장 큰 근거다. 그런데 색으로 소리치지는 않는다:
+	// 색은 kind 에서만 뜻을 갖는다(status-card.md). 신호는 ⚠ 한 글자가 진다.
+	if st.Cycle.Plan != "" || (m != nil && m.PlanOutcome != "") {
+		b.WriteString(`<div class="panel"><div class="lbl">재기 전에 못박은 설계는 유지됐나</div>`)
+		switch {
+		case m != nil && m.PlanOutcome == "broke":
+			b.WriteString(`<div class="big">⚠ 깨졌다 — 잰 것이 못박은 것과 다르다</div>`)
+			if m.PlanDiff != "" {
+				b.WriteString(`<div class="orig">무엇이 달랐나: ` + esc(m.PlanDiff) + `</div>`)
+			}
+		case m != nil && m.PlanOutcome == "held":
+			b.WriteString(`<div class="big">유지됐다</div>`)
+		default:
+			b.WriteString(`<div class="none">설계가 유지됐는지에 대한 답이 기록에 없다.</div>`)
+		}
+		if st.Cycle.Plan != "" {
+			b.WriteString(`<div class="orig">못박은 것: ` + esc(st.Cycle.Plan) + `</div>`)
+		}
+		b.WriteString(`</div>`)
+	}
+
+	// 측정 보고서 원문. **자르지 않는다** — 표·수치가 이 스텝의 몸이고, 접는 것은 사람의 몫이다.
+	if body := st.Step.Body; body != "" {
+		b.WriteString(`<div class="panel"><div class="lbl">측정 보고서 — 원문</div>` +
+			`<div class="orig">` + esc(body) + `</div></div>`)
+	}
+
+	b.WriteString(competingHTML(st))
+	b.WriteString(statusActionsHTML(st))
+	return b.String()
+}
+
+// analyzeCardBody — **그래서 무엇을 알았나, 그리고 어디로 되돌아갈 수 있나** (status-card.md).
+//
+// 결론(`finding`)은 gil 이 문법으로 요구하는 값이다 — 상현님 실사용에서 analyze 가 결론 없이
+// 지나가고 곧장 define 으로 되돌아간 뒤 필수가 됐다. 그런데 카드에는 그 문장이 **한 번도 뜬
+// 적이 없다**. 재분기가 딛는 문장이 화면에서 빠져 있었다.
+//
+// 반증조건 **전문은 빼고** 측정 한 줄만 남긴다: 여기서 그 조건은 이미 지나갔고, 사람이 볼
+// 것은 "무엇이 관측됐고 그래서 무엇을 알았나"다.
+func analyzeCardBody(st statusOut) string {
+	var b strings.Builder
+
+	b.WriteString(`<div class="panel"><div class="lbl">결론 — 이 분석이 밝힌 것</div>`)
+	if f := st.Step.Finding; f != "" {
+		b.WriteString(`<div class="big">` + esc(f) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">결론 문장이 없다 — 재분기가 딛을 자리가 없다.</div>`)
+	}
+	if body := st.Step.Body; body != "" {
+		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	if m := st.Cycle.Measured; m != nil {
+		b.WriteString(measurePanel("무엇을 딛고 있나 — "+m.Step+" 의 측정", m,
+			hypothesisNote(st, "그때의 가설: ")))
+	}
+
+	// **되돌아갈 자리는 여기서 처음 뜬다.** analyze 가 그 판단을 하는 자리다(status-card.md).
+	// 버튼은 달지 않는다 — 재분기는 `--inherit <이 벽의 교훈>` 을 요구하고 그건 판단이지
+	// 클릭으로 채울 값이 아니다. 없는 문법을 버튼으로 지어내지 않는 것과 같은 규칙이다.
+	if len(st.Rollback) > 0 {
+		b.WriteString(`<div class="panel"><div class="lbl">여기서 되돌아갈 수 있는 자리 — 고르면 그 뒤가 버려진다</div>`)
+		for _, c := range st.Rollback {
+			lose := "버릴 것 없음"
+			if len(c.Discards) > 0 {
+				lose = "버려진다: " + foldRanges(c.Discards)
+			}
+			b.WriteString(`<div class="backrow"><code>` + esc(c.ID) + `</code>` +
+				`<span class="backlab">` + esc(clip(c.Label, 70)) + `</span>` +
+				`<span class="backlose">` + esc(lose) + `</span></div>`)
+		}
+		b.WriteString(`</div>`)
+	}
+
+	b.WriteString(competingHTML(st))
+	b.WriteString(statusActionsHTML(st))
+	return b.String()
+}
+
+// pendingCardBody — **사람이 정할 것 하나. 나머지는 전부 뺀다** (status-card.md).
+//
+// 이 카드는 gil 전체에서 사람이 실제로 값을 더하는 두 자리 중 하나다. 그런데 지금까지 그
+// 자리에 뜬 것은 공통 본문의 "재는 중 — 무엇이 관측되면 틀리나" 였고, **에이전트가 사람에게
+// 물으려고 쓴 보고서(step.body)는 화면에 한 글자도 안 나왔다.** 물음이 없는 물음 화면이었다.
+func pendingCardBody(st statusOut) string {
+	var b strings.Builder
+
+	b.WriteString(`<div class="panel"><div class="lbl">무엇을 묻는가</div>`)
+	if s := humanLabel(st.Step.Subject); s != "" {
+		b.WriteString(`<div class="big">` + esc(s) + `</div>`)
+	}
+	if body := st.Step.Body; body != "" {
+		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
+	} else {
+		// gil 자신이 이 자리에서 "본문이 얇다 — pending 스텝은 보고서여야 한다"고 경고한다.
+		// 카드도 같은 것을 말한다: 물음만 있고 재료가 없으면 사람은 판단할 수 없다.
+		b.WriteString(`<div class="none">보고서가 없다 — 판단할 재료 없이 승인·기각을 묻고 있다.</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	// 무엇에 비추어 판단하나. 기준이 없으면 승인·기각을 묻는 물음 자체가 의미가 없다.
+	b.WriteString(`<div class="panel"><div class="lbl">무엇에 비추어 판단하나 — 이 체인이 풀렸다고 할 기준</div>`)
+	if c := st.Chain.Criterion; c != "" {
+		b.WriteString(`<div class="big">` + esc(c) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">이 체인엔 사람이 세운 판정 기준이 없다 — 무엇에 비추어 판단하라는 것인지가 기록에 없다.</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	b.WriteString(statusActionsHTML(st))
+	return b.String()
+}
+
+// successCardBody — **이 사이클이 무엇을 남겼나** (status-card.md).
+//
+// 작업 중인 다섯과 순서가 뒤집힌다: 다음 한 수가 아니라 **판정 기준과의 대조**가 본문이다.
+// 그래서 `toward` 를 기준 문장과 한 칸에 나란히 놓는다 — 떼어 놓으면 "얼마나 다가섰나"가
+// 무엇에 비추어 한 말인지가 사라진다.
+func successCardBody(st statusOut) string {
+	var b strings.Builder
+
+	b.WriteString(`<div class="panel"><div class="lbl">기준에 얼마나 다가섰나</div>`)
+	if t := st.Step.Toward; t != "" {
+		b.WriteString(`<div class="big">` + esc(t) + `</div>`)
+	} else {
+		// **사람이 pending 을 승인해 gil 이 만든 success 에는 회고가 없다** — approve 는
+		// --toward·--next-design 을 묻지 않는다. 빈 칸을 지우면 회고를 쓴 종결과 안 쓴
+		// 종결이 화면에서 같아 보인다. 없다는 것도 사실이라 말한다.
+		b.WriteString(`<div class="none">회고가 기록에 없다 — 사람이 pending 을 승인해 만들어진 종결이면 gil 이 그것을 묻지 않는다.</div>`)
+	}
+	if c := st.Chain.Criterion; c != "" {
+		b.WriteString(`<div class="orig">체인 판정 기준: ` + esc(c) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	if n := st.Step.NextDesign; n != "" {
+		b.WriteString(`<div class="panel"><div class="lbl">다음 과녁</div><div class="big">` +
+			esc(n) + `</div></div>`)
+	}
+
+	// 무엇을 재서 그렇게 됐나 — 산 잎이 무엇을 딛고 섰는지. 한 칸이면 충분하다.
+	if m := st.Cycle.Measured; m != nil {
+		b.WriteString(measurePanel("무엇을 재서 그렇게 됐나", m, hypothesisNote(st, "가설: ")))
+	}
+	if body := st.Step.Body; body != "" {
+		b.WriteString(`<div class="panel"><div class="lbl">종결 보고 — 원문</div>` +
+			`<div class="orig">` + esc(body) + `</div></div>`)
+	}
+
+	b.WriteString(statusActionsHTML(st))
+	return b.String()
+}
+
+// failCardBody — **왜 죽었나, 어디로 물러서나, 무엇을 배웠나** (status-card.md).
+//
+// 어조가 이 카드의 값이다. **fail 은 죽음이 아니라 발견이다** — 죽은 것은 이 가설이지
+// 사이클이 아니다. 카드가 실패를 사과하는 어조로 쓰이면 사람은 되돌리기를 손실로 읽고,
+// 그러면 앞으로만 가려는 압력이 생긴다. gil 이 막으려는 바로 그것이다.
+//
+// **다음 과녁(`next_design`)은 그리지 않는다**(status-card.md). 죽은 잎 위에 "다음 설계"를
+// 크게 놓으면 화면이 "이제 앞으로 간다"고 말하는데, 옳은 읽기는 "물러서서 다시 갈라진다"다.
+// 데이터에는 그대로 있다 — 그건 에이전트가 읽는 값이다.
+func failCardBody(st statusOut) string {
+	var b strings.Builder
+	m := st.Cycle.Measured
+
+	b.WriteString(`<div class="panel"><div class="lbl">왜 죽었나</div>`)
+	if m != nil && m.Observed != "" {
+		b.WriteString(`<div class="big">` + esc(m.Observed) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">이 벽을 만든 관측이 기록에 없다.</div>`)
+	}
+	if r := st.Cycle.RefutesIf; r != "" {
+		line := "틀리기로 한 조건: " + r
+		// 조건과 관측을 나란히 두기만 하면 사람이 둘을 대조해야 한다. gil 은 그 대조를
+		// 이미 기록해 두었다(`--falsify-met`) — 적어 두었으면 말한다.
+		if m != nil && m.Falsify == "met" {
+			line += " → 그리고 그것이 관측됐다"
+		}
+		b.WriteString(`<div class="orig">` + esc(line) + `</div>`)
+	}
+	if body := st.Step.Body; body != "" {
+		b.WriteString(`<div class="orig">` + esc(body) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+
+	// 벽의 지도 — **어디로 물러서나.** 이 자리가 없으면 사람은 반증된 뒤에 그래프를 뒤져
+	// 스텝 번호를 세게 된다(비개발자에게 가장 단단한 벽).
+	b.WriteString(`<div class="panel"><div class="lbl">어디로 물러서나 — 벽의 지도</div>`)
+	switch to := backOfCurrent(st); {
+	case to == "pending":
+		b.WriteString(`<div class="big">아직 미정</div>` +
+			`<div class="orig">다음 재분기가 이 자리를 확정한다 — 지금 지어내지 않는다.</div>`)
+	case to != "":
+		line := to + " 로 물러선다"
+		var extra string
+		for _, c := range st.Rollback {
+			if c.ID == to {
+				line += " — " + clip(c.Label, 70)
+				if len(c.Discards) > 0 {
+					extra = "버려진다: " + foldRanges(c.Discards)
+				}
+				break
+			}
+		}
+		b.WriteString(`<div class="big">` + esc(line) + `</div>`)
+		if extra != "" {
+			b.WriteString(`<div class="orig">` + esc(extra) + `</div>`)
+		}
+	default:
+		b.WriteString(`<div class="none">되돌아갈 자리가 기록에 없다.</div>`)
+	}
+	// 어조. 여기서 "실패했다"고 쓰면 사람은 되돌리기를 손실로 읽는다. 그리고 **사이클이
+	// 살아 있다고 단정하지도 않는다** — 사람이 이 define 자체를 접기로 할 수도 있다.
+	// 사실만 적는다: 이 자리에서 다른 갈래를 낼 수 있다는 것.
+	b.WriteString(`<div class="orig">죽은 것은 이 가설이다 — 이 자리에서 다른 갈래를 낼 수 있다.</div>`)
+	b.WriteString(`</div>`)
+
+	if t := st.Step.Toward; t != "" {
+		b.WriteString(`<div class="panel"><div class="lbl">배운 것 — 이 벽이 남긴 것</div>` +
+			`<div class="big">` + esc(t) + `</div>`)
+		if c := st.Chain.Criterion; c != "" {
+			b.WriteString(`<div class="orig">체인 판정 기준: ` + esc(c) + `</div>`)
+		}
+		b.WriteString(`</div>`)
+	}
+
+	b.WriteString(competingHTML(st))
+	b.WriteString(statusActionsHTML(st))
+	return b.String()
+}
+
+// measurePanel — 한 번의 측정을 한 칸에. **판정은 크게, 관측은 그 아래로.**
+//
+// 짧은 형태(`gil status`)는 이 넷을 한 줄로 잇는다(measureLine). 카드에서 같은 줄을 16px
+// 로 키우면 화면에서 가장 긴 칸이 되고, 그러면 판정이 관측에 묻힌다 — 사람이 먼저 볼 것은
+// "지지됐나 반증됐나"고, 관측은 그 판정을 검산할 때 읽는 것이다.
+func measurePanel(lbl string, m *statusMeasure, note string) string {
+	var head []string
+	if w := verdictWord(m.Verdict); w != "" {
+		head = append(head, w)
+	}
+	if w := falsifyWord(m.Falsify); w != "" {
+		head = append(head, w)
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="panel"><div class="lbl">` + esc(lbl) + `</div>`)
+	if len(head) > 0 {
+		b.WriteString(`<div class="big">` + esc(strings.Join(head, " · ")) + `</div>`)
+	} else {
+		b.WriteString(`<div class="none">판정이 기록에 없다.</div>`)
+	}
+	if m.Observed != "" {
+		b.WriteString(`<div class="orig">관측: ` + esc(m.Observed) + `</div>`)
+	}
+	// 설계가 깨진 것은 뒤 카드에서도 사라지면 안 된다 — 잰 것이 못박은 것과 다르면 그 뒤의
+	// 결론·종결이 다 그 위에 서 있다.
+	if m.PlanOutcome == "broke" {
+		line := "⚠ 고정한 설계가 깨졌다"
+		if m.PlanDiff != "" {
+			line += ": " + m.PlanDiff
+		}
+		b.WriteString(`<div class="orig">` + esc(line) + `</div>`)
+	}
+	if note != "" {
+		b.WriteString(`<div class="orig">` + esc(note) + `</div>`)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+// hypothesisNote — "이 측정이 무엇을 재려 한 것인가" 한 줄. 없으면 빈 값(칸을 안 만든다).
+func hypothesisNote(st statusOut, prefix string) string {
+	if st.Cycle == nil || st.Cycle.Hypothesis == "" {
+		return ""
+	}
+	return prefix + clip(st.Cycle.Hypothesis, 120)
+}
+
+// backOfCurrent — 지금 선 스텝이 되돌아간 자리(Gil-Backtrack). 띠를 그리는 데이터에 이미
+// 있으므로 새 필드를 만들지 않는다 — 같은 사실이 두 자리에 살면 언젠가 갈린다.
+func backOfCurrent(st statusOut) string {
+	if st.Cycle == nil || st.Step == nil {
+		return ""
+	}
+	for _, n := range st.Cycle.Steps {
+		if n.ID == st.Step.ID {
+			return n.Back
+		}
+	}
+	return ""
+}
+
+// waitHumanLine — 사람이 무엇을 하면 되는지, **명령줄 없이** 한 줄.
+//
+// `waiting_for_human.how_to_answer` 는 에이전트가 읽고 치는 값이다(`gil approve`,
+// `gil reject --to <조상 define>`). 그걸 카드에 그대로 실으면 자리표시자가 사람에게
+// 답 대신 새 물음으로 도착한다 — 게다가 그 두 줄을 실제로 도는 버튼이 바로 아래 있다.
+func waitHumanLine(w *statusWaiting) string {
+	switch w.Kind {
+	case "approval":
+		return "아래 승인·기각 버튼이 그 판정을 그대로 옮긴다. 사람의 답 전엔 이 사이클을 못 이어간다."
+	case "interview":
+		return "체인의 기준 문서에 대한 답이다. 에이전트가 여는 인터뷰 창구에 적으면 그때부터 사이클을 열 수 있다."
+	}
+	return ""
 }
 
 // defineCardBody — **문제정의**와 **기반사실** 둘이 분명하게 드러나야 한다 (상현님).
@@ -722,21 +1134,9 @@ func defineCardBody(st statusOut) string {
 	return b.String()
 }
 
-// codeify — "gil …" 로 시작하는 앞부분을 <code> 로 감싸고 설명은 그대로 둔다.
-// 사람이 **칠 수 있는 것**과 읽을 것을 눈으로 가른다.
-func codeify(s string) string {
-	s = strings.TrimSpace(s)
-	if !strings.HasPrefix(s, "gil ") {
-		return esc(s)
-	}
-	cmd, rest := s, ""
-	if i := strings.Index(s, "  —"); i >= 0 {
-		cmd, rest = strings.TrimSpace(s[:i]), s[i:]
-	} else if i := strings.Index(s, " (") ; i >= 0 {
-		cmd, rest = strings.TrimSpace(s[:i]), s[i:]
-	}
-	return `<code>` + esc(cmd) + `</code>` + esc(rest)
-}
+// (codeify 는 지웠다. "gil …" 줄을 <code> 로 감싸 사람이 칠 수 있는 것과 읽을 것을 눈으로
+// 가르던 헬퍼였는데, 카드가 **명령줄을 아예 안 그리게** 되면서 부를 자리가 없어졌다.
+// 안 쓰는 채로 두면 다음 세션이 "여기 명령줄을 그려도 되는구나"로 읽는다.)
 
 func escHTML(s string) string {
 	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace(s)

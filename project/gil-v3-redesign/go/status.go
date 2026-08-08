@@ -53,7 +53,7 @@ type statusStepNode struct {
 }
 
 type statusCycle struct {
-	Name      string `json:"name"`
+	Name string `json:"name"`
 	// Purpose — 이 사이클이 무엇을 풀려는가(Gil-Cycle-Purpose). **define 카드의 몸통이다.**
 	//
 	// 지금까지 이 문장은 스텝 제목에 앞머리와 함께 붙어서만 나왔다("gil c/cy/s1 define: …").
@@ -63,7 +63,7 @@ type statusCycle struct {
 	Steps []statusStepNode `json:"steps"`
 	// Inherit — 이 사이클이 앞에서 물려받은 것. define 카드의 **근거** 칸이 이것이다.
 	// 왜 이 문제를 정의했는지는 대개 앞 사이클이 남긴 문장에 있다.
-	Inherit string `json:"inherit,omitempty"`
+	Inherit    string `json:"inherit,omitempty"`
 	Hypothesis string `json:"hypothesis,omitempty"`
 	RefutesIf  string `json:"refutes_if,omitempty"`
 	Plan       string `json:"plan,omitempty"`
@@ -78,6 +78,16 @@ type statusCycle struct {
 	// 이건 삼키면 안 된다. 지도를 벗어난 재분기는 `--despite` 없이는 문법이 거부하는 것이고,
 	// 그 이유는 사람이 판단해야 할 재료다. 감추면 두 계획이 동시에 유효한 것처럼 보인다.
 	DespiteMap string `json:"despite_map,omitempty"`
+	// Measured — 이 자리에서 **가장 가까운 verify 가 무엇을 재서 무엇이 나왔나**.
+	//
+	// 왜 사이클에 있나. verify 스텝의 판정(verdict·반증조건 충족 여부·관측·설계 유지 여부)은
+	// 지금까지 status 에 **아예 나오지 않았다** — 카드를 만들다 잡았다. 그래서 verify 카드는
+	// 그릴 것이 없었고, analyze·success·fail 카드도 "무엇을 재서 그렇게 됐나"에 답할 수
+	// 없었다. 그 넷이 다 이 하나를 본다: 두 자리에서 따로 세면 같은 측정이 다르게 읽힌다.
+	//
+	// **가장 가까운 조상**이다(가설과 같은 규칙) — 형제 가지가 있으면 사이클에서 아무 verify 나
+	// 집는 것은 지금 선 가지의 측정이 아니다.
+	Measured *statusMeasure `json:"measured,omitempty"`
 	// Competing — 지금 이 자리에서 **나란히 겨루는** 형제 갈래들(#106·#107·#112).
 	//
 	// 왜 status 에도 있나. v3.55.0 이 형제 비교를 뷰어에 그렸는데, 그 화면은 브라우저를 띄운
@@ -86,17 +96,78 @@ type statusCycle struct {
 	Competing []statusSibling `json:"competing,omitempty"`
 }
 
+// statusMeasure — 한 번의 측정이 남긴 것 전부. verify 카드의 몸통이고, 그 뒤 세 카드
+// (analyze·success·fail)가 "무엇을 딛고 있나"를 말할 때 쓰는 근거다.
+//
+// 왜 관측(Observed)이 판정(Verdict)과 따로 있나. gil 은 둘을 따로 받는다 —
+// `--verdict supported|refuted` 는 **가설에 대한 판정**이고, `--falsify-met|--falsify-unmet
+// <무엇을 관측했나>` 는 **반증조건에 대한 답**이다. 규칙 17 이 그 둘의 모순을 막는다(충족됐는데
+// supported 는 거부). 카드에서 판정만 보이고 관측이 사라지면 사람은 그 판정을 검산할 수 없다.
+type statusMeasure struct {
+	Step     string `json:"step"`
+	Verdict  string `json:"verdict,omitempty"`         // supported | refuted — 이 측정이 가설을 지지했나
+	Falsify  string `json:"falsify_outcome,omitempty"` // met | unmet — 반증조건이 관측됐나
+	Observed string `json:"observed,omitempty"`        // 그 판단의 근거가 된 관측
+	// Plan* — 재기 전에 못박은 설계가 실측에서 유지됐나(이슈 #76). **broke 는 강한 신호다**:
+	// 잰 것이 못박은 것과 다르면, 그 측정은 다른 물건을 잰 것이다. 사람이 기각할 근거가
+	// 여기 있는데 카드가 안 보여주면 그 자리는 없는 것과 같다.
+	PlanOutcome string `json:"plan_outcome,omitempty"` // held | broke
+	PlanDiff    string `json:"plan_diff,omitempty"`    // 깨졌으면 무엇이 달랐나
+}
+
+// 측정을 **사람이 쓰는 말로** 옮긴다. 필드 이름(`supported`·`met`·`broke`)을 그대로 읽지
+// 마라 — status-card.md 가 못박은 규칙이고, 여기 한 곳에 두어야 카드와 터미널이 같은 말을 한다.
+func verdictWord(v string) string {
+	switch v {
+	case "supported":
+		return "가설을 지지했다"
+	case "refuted":
+		return "가설을 반증했다"
+	}
+	return v
+}
+
+func falsifyWord(f string) string {
+	switch f {
+	case "met":
+		return "반증조건이 관측됐다"
+	case "unmet":
+		return "반증조건은 관측되지 않았다"
+	}
+	return f
+}
+
+// measureLine — 한 줄짜리 측정 요약(짧은 형태·카드가 함께 쓴다).
+func measureLine(m *statusMeasure) string {
+	var parts []string
+	if w := verdictWord(m.Verdict); w != "" {
+		parts = append(parts, w)
+	}
+	if w := falsifyWord(m.Falsify); w != "" {
+		parts = append(parts, w)
+	}
+	if m.Observed != "" {
+		parts = append(parts, "관측: "+clip(m.Observed, 70))
+	}
+	// 설계가 깨진 것은 **짧은 형태에서도 사라지면 안 된다** — 잰 것이 못박은 것과 다르면
+	// 그 측정은 다른 물건을 잰 것이고, 그게 사람이 기각할 가장 큰 근거다.
+	if m.PlanOutcome == "broke" {
+		parts = append(parts, "⚠ 고정한 설계가 깨졌다")
+	}
+	return strings.Join(parts, " · ")
+}
+
 // statusSibling — 경합의 한 갈래. hypothesis 카드에서 **나란히 놓는 한 줄**이다.
 //
 // 상태를 어떻게 아나. 그 갈래의 잎이 말한다 — 뷰어(competitionsJSON)와 **같은 규칙**이다.
 // 두 창구가 경합의 승패를 다르게 세면 사람은 어느 쪽을 믿을지 모른다.
 type statusSibling struct {
-	ID         string `json:"id"`   // 갈래의 뿌리(--competing 을 선언한 그 가설)
+	ID         string `json:"id"` // 갈래의 뿌리(--competing 을 선언한 그 가설)
 	Hypothesis string `json:"hypothesis,omitempty"`
 	RefutesIf  string `json:"refutes_if,omitempty"`
 	Plan       string `json:"plan,omitempty"`
-	Leaf       string `json:"leaf,omitempty"`  // 그 갈래가 지금 선 자리
-	State      string `json:"state"`           // open | won | lost | fail
+	Leaf       string `json:"leaf,omitempty"` // 그 갈래가 지금 선 자리
+	State      string `json:"state"`          // open | won | lost | fail
 	LostTo     string `json:"lost_to,omitempty"`
 	Current    bool   `json:"current,omitempty"` // 내가 밟고 있는 갈래
 }
@@ -153,30 +224,30 @@ type statusStep struct {
 // 값을 더하는 순간은 그래프를 볼 때가 아니라 "그거 검증할 값어치 있나"와 "어디까지
 // 되돌릴까" 두 지점이고, 그 두 순간이 여기로 나온다.
 type statusWaiting struct {
-	Kind   string `json:"kind"`             // interview | approval
+	Kind   string `json:"kind"` // interview | approval
 	Chain  string `json:"chain"`
-	What   string `json:"what"`             // 무엇을 기다리나(사람 언어)
-	Answer string `json:"how_to_answer"`    // 사람이 답하면 무엇이 풀리나 / 에이전트가 칠 한 수
+	What   string `json:"what"`          // 무엇을 기다리나(사람 언어)
+	Answer string `json:"how_to_answer"` // 사람이 답하면 무엇이 풀리나 / 에이전트가 칠 한 수
 }
 
 type statusOut struct {
-	Repo    string         `json:"repo"`
-	Branch  string         `json:"branch,omitempty"`
-	Chain   *statusChain   `json:"chain"`
-	Cycle   *statusCycle   `json:"cycle"`
-	Step    *statusStep    `json:"step"`
-	Waiting *statusWaiting `json:"waiting_for_human"`
-	LastVerdict *statusVerdict  `json:"last_verdict"`
+	Repo        string           `json:"repo"`
+	Branch      string           `json:"branch,omitempty"`
+	Chain       *statusChain     `json:"chain"`
+	Cycle       *statusCycle     `json:"cycle"`
+	Step        *statusStep      `json:"step"`
+	Waiting     *statusWaiting   `json:"waiting_for_human"`
+	LastVerdict *statusVerdict   `json:"last_verdict"`
 	Rollback    []statusRollback `json:"rollback_candidates"`
-	Next    []string       `json:"next"`
+	Next        []string         `json:"next"`
 	// RenderGuide — **이 데이터를 사람에게 보여주는 규칙이 어디 있나.**
 	//
 	// 왜 데이터에 문서 경로를 싣나. 규칙을 문서에만 두면 "에이전트가 알아서 읽기"가 되고,
 	// 그건 자기규율이다 — 이 저장소가 반복해서 확인한 대로 자기규율은 원리적으로 불충분하다
 	// (#55·#45). 데이터를 읽는 순간 규칙의 자리도 함께 알게 하면, 읽을 이유가 있는 자리에서
 	// 읽힌다. 화면을 Go 에 박지 않으면서 규칙이 도달하는 유일한 길이다.
-	RenderGuide string    `json:"render_guide"`
-	Warnings []string      `json:"warnings"`
+	RenderGuide string   `json:"render_guide"`
+	Warnings    []string `json:"warnings"`
 }
 
 func cmdStatus(args []string) {
@@ -210,7 +281,7 @@ func cmdStatus(args []string) {
 func gatherStatus() statusOut {
 	wd, _ := os.Getwd()
 	st := statusOut{Repo: wd, Branch: currentBranch(), Next: []string{}, Warnings: []string{},
-		Rollback: []statusRollback{},
+		Rollback:    []statusRollback{},
 		RenderGuide: "docs/gil/status-card.md — 이 데이터를 사람에게 어떻게 보여줄지. 통째로 붙여넣지 마라."}
 
 	chain, cycle := headChainCycle()
@@ -279,6 +350,13 @@ func gatherStatus() statusOut {
 				st.Cycle.Advances = h.advances
 				st.Cycle.DespiteMap = h.despiteMap
 			}
+			// 무엇을 재서 무엇이 나왔나. 가설과 **같은 규칙**(가장 가까운 조상)이다 —
+			// 형제 가지가 있을 때 사이클에서 아무 verify 나 집으면 이 가지의 측정이 아니다.
+			if v, ok := nearestKindUp(byID, tip, "verify"); ok {
+				st.Cycle.Measured = &statusMeasure{Step: v.step, Verdict: v.verdict,
+					Falsify: v.falsifyOut, Observed: v.falsifyObs,
+					PlanOutcome: v.planOutcome, PlanDiff: v.planDiff}
+			}
 			st.Cycle.Competing = competingSiblings(nodes, tip)
 			st.Next = nextMoves(chain, cycle, tip)
 			st.Rollback = rollbackCandidates(byID, tip)
@@ -300,7 +378,7 @@ func gatherStatus() statusOut {
 	// 이 자리를 잡았다). 그러니 지금 선 커밋의 kind 를 직접 읽는다.
 	if st.Waiting == nil && trailerOf(tipSHA, "Gil-Kind") == "pending" {
 		st.Waiting = &statusWaiting{Kind: "approval", Chain: chain,
-			What:   "이 스텝에 대한 사람의 승인 또는 기각",
+			What: "이 스텝에 대한 사람의 승인 또는 기각",
 			Answer: "승인하려면 gil approve\n" +
 				"기각하려면 gil reject --to <조상 define>\n" +
 				"사람의 답 전엔 이 사이클을 못 이어간다."}
@@ -682,6 +760,24 @@ func nextMoves(chain, cycle string, tip node) []string {
 			"gil approve",
 			"gil reject --to <조상 define>",
 		}
+	case "success":
+		// **잎에서는 다음이 스텝이 아니다** — 종결 뒤에 이어 붙이면 "이 가지는 끝났다"는 뜻이
+		// 사라진다(#60①). 그런데 지금까지 여기가 빈 목록이었고, 그 공백을 카드의 승인 버튼이
+		// "이 자리를 딛고 다음 스텝을 세워라"로 메웠다 — 없는 수를 사람 입으로 지시한 것이다.
+		// 빈 자리는 채워지지 않는 게 아니라 **지어내서 채워진다**.
+		return []string{"gil close " + ref + "  — 잎이 다 종결됐으면 이 사이클을 봉인한다"}
+	case "fail":
+		// fail 은 죽음이 아니라 발견이다 — 기본 수는 닫는 것이 아니라 **다시 갈라지는 것**이다.
+		// 그 자리는 이미 기록에 있다(Gil-Backtrack = 벽의 지도). 지도가 미정이면(#105) 그
+		// 자리를 지어내지 않고 물음표로 남긴다 — 다음 재분기가 확정한다.
+		to := tip.backtrack
+		if to == "" || to == "pending" {
+			to = "<조상 define|analyze>"
+		}
+		return []string{
+			"gil step " + ref + " --kind hypothesis --to " + to + " --inherit <이 벽의 교훈>  — 다른 갈래를 낸다",
+			"gil close " + ref + " --abandon --reason <왜 접나>  — 이 define 자체가 막다른 길이었다면",
+		}
 	}
 	return []string{}
 }
@@ -696,6 +792,11 @@ func statusLines(st statusOut) []string {
 			L = append(L, "사이클 "+st.Cycle.Name)
 			if st.Cycle.RefutesIf != "" {
 				L = append(L, "  반증조건  "+clip(st.Cycle.RefutesIf, 90))
+			}
+			// 측정도 짧은 형태에 나온다 — 카드가 말하는 것을 터미널이 안 말하면 두 출력이
+			// 다른 것을 세는 것이 된다(이 파일이 처음부터 지킨 규칙).
+			if m := st.Cycle.Measured; m != nil {
+				L = append(L, "  측정("+m.Step+")  "+measureLine(m))
 			}
 			// 경합은 **세지 말고 이름을 부른다** — "3개"는 비교의 재료가 아니다.
 			if len(st.Cycle.Competing) > 1 {

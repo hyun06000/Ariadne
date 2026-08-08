@@ -5568,13 +5568,17 @@ class TestStatusJSON(GilFixture):
         st = self.status()
         self.assertIn("기울기가 넘어왔다", st["cycle"]["inherit"])
 
-    def shell(self):
-        """껍데기(템플릿). 카드 조각과 다른 물건이다 — 배선은 여기 산다."""
+    def shell(self, env=None):
+        """껍데기(템플릿). 카드 조각과 다른 물건이다 — 배선은 여기 산다.
+
+        env: 서버 프로세스에 얹을 환경변수(진단 계기 GIL_UI_PROBE 처럼 껍데기를 바꾸는 것).
+        """
         import json
         p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, bufsize=1,
-                             env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1"))
+                             env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1",
+                                      **(env or {})))
         send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
         try:
             send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -5837,6 +5841,252 @@ class TestStatusJSON(GilFixture):
         self.assertIn("다음 한 수:", self.card(), "승인이 다음 한 수를 에이전트에게 안 넘긴다")
         # 데이터에는 있어야 한다 — 에이전트가 읽고 치는 값이다.
         self.assertTrue(self.status()["next"], "next 가 데이터에서도 사라졌다")
+
+    # ── 나머지 다섯 얼굴 (verify·analyze·pending·success·fail) ──────────────
+    #
+    # 이 다섯은 오래 얼굴이 없었고, 그동안 공통 본문이 **"재는 중 — 무엇이 관측되면 틀리나"**
+    # 를 다섯 자리에 똑같이 그렸다. 죽은 잎 위에도, 이미 닫힌 산 잎 위에도. 시제 하나가
+    # 사람에게 "아직 결과가 없다"고 말하는데, 그 자리들은 판정이 이미 난 자리다.
+
+    def _measured(self, verdict="supported", plan="held"):
+        """define → hypothesis → verify. **측정이 실제로 기록된** 자리에 선다."""
+        self._cycle()
+        self.gil("step", "st/c1", "--kind", "hypothesis", "--title", "state 축이 초과분을 설명한다",
+                 "--falsify", "접어도 p95 가 600ms 아래로 안 내려가면 이 축은 틀렸다",
+                 "--falsify-to", "s1", "--plan", "신규 실행경로 1개")
+        args = ["step", "st/c1", "--kind", "verify", "--verdict", verdict, "--title", "3회 측정",
+                "--body", "절차와 수치는 여기 원문으로 남는다."]
+        args += ["--falsify-met", "3회 평균 +0.4% — 개선 없음"] if verdict == "refuted" \
+            else ["--falsify-unmet", "3회 평균 435ms — 600ms 아래"]
+        args += ["--plan-broke", "실행경로가 3개 생겼다(예상 1)"] if plan == "broke" \
+            else ["--plan-held"]
+        r = self.gil(*args)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_measurement_comes_from_the_nearest_verify(self):
+        """측정은 **한 자리에서** 온다(`cycle.measured`) — 네 카드가 그 하나를 본다.
+
+        verify 가 남긴 넷(판정·반증조건 충족 여부·관측·설계 유지 여부)은 지금까지 status 에
+        아예 안 나왔다. 그래서 verify 카드는 그릴 것이 없었고, analyze·success·fail 도
+        "무엇을 재서 그렇게 됐나"에 답할 수 없었다.
+        """
+        self._measured(plan="broke")
+        m = self.status()["cycle"]["measured"]
+        self.assertEqual(m["verdict"], "supported")
+        self.assertEqual(m["falsify_outcome"], "unmet")
+        self.assertIn("435ms", m["observed"])
+        self.assertEqual(m["plan_outcome"], "broke")
+        self.assertIn("실행경로가 3개", m["plan_diff"])
+        # **가장 가까운 조상**이다(가설과 같은 규칙). 형제 갈래에는 제 측정이 없다 —
+        # 사이클에서 아무 verify 나 집으면 남의 측정을 이 갈래의 것으로 말하게 된다.
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "다른 축이 있다")
+        r = self.gil("step", "st/c1", "--kind", "hypothesis", "--to", "s1",
+                     "--inherit", "앞 가지의 벽", "--falsify", "안 되면", "--falsify-to", "s1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIsNone(self.status()["cycle"].get("measured"),
+                          "새 갈래가 앞 갈래의 측정을 제 것처럼 말한다")
+
+    def test_the_verify_card_says_what_came_out_not_what_is_being_measured(self):
+        """verify 스텝은 **판정과 함께 태어난다** — 문법이 그걸 요구한다(`--verdict`,
+        `--falsify-met|--falsify-unmet`). 이미 지나간 측정을 '재는 중'이라 부르면 사람은
+        아직 결과가 없는 줄 안다."""
+        self._measured(plan="broke")
+        card = self.card()
+        seen = self.visible(card)
+        self.assertIn("쟀다", seen)
+        self.assertNotIn("재는 중", seen, "이미 난 판정을 현재형으로 부른다")
+        self.assertIn("가설을 지지했다", seen, "필드 이름(supported)을 그대로 읽었다")
+        self.assertIn("반증조건은 관측되지 않았다", seen)
+        # 판정만 있고 관측이 없으면 사람은 그 판정을 **검산할 수 없다**.
+        self.assertIn("435ms", seen)
+        # 설계가 깨진 것은 사람이 기각할 가장 큰 근거다 — 잰 것이 못박은 것과 다르다는 뜻이다.
+        self.assertIn("깨졌다", seen)
+        self.assertIn("실행경로가 3개", seen)
+        # 측정 보고서 원문은 자르지 않는다.
+        self.assertIn("절차와 수치는 여기 원문으로 남는다", seen)
+        # 되돌아갈 후보는 여기 없다 — 되돌릴지는 analyze 에서 정한다.
+        self.assertNotIn("되돌아갈", seen)
+
+    def test_the_verify_card_says_when_the_plan_held(self):
+        """유지됐으면 유지됐다고 말한다 — ⚠ 를 늘 달면 그 표시가 아무 뜻도 없어진다."""
+        self._measured(plan="held")
+        seen = self.visible(self.card())
+        self.assertIn("유지됐다", seen)
+        self.assertNotIn("깨졌다", seen)
+
+    def test_the_analyze_card_puts_the_finding_first(self):
+        """`finding` 은 gil 이 문법으로 요구하는 값이고 **재분기가 딛는 문장**이다.
+        그런데 카드에는 한 번도 뜬 적이 없었다."""
+        self._measured()
+        r = self.gil("step", "st/c1", "--kind", "analyze",
+                     "--finding", "state 축은 345ms 를 설명한다 — 남은 135ms 는 다른 축이다")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        card = self.card()
+        seen = self.visible(card)
+        self.assertIn("state 축은 345ms 를 설명한다", seen)
+        self.assertIn("무엇을 딛고 있나", seen, "결론이 무엇 위에 섰는지가 없다")
+        self.assertIn("되돌아갈 수 있는 자리", seen)
+        self.assertIn("버려진다", seen, "번호만으로는 고를 수 없다")
+        # **버튼은 안 단다.** 재분기는 --inherit <이 벽의 교훈> 을 요구하고 그건 판단이지
+        # 클릭으로 채울 값이 아니다(pending 의 기각과 다른 점 — 거기엔 문법이 있다).
+        self.assertNotIn('data-tool="gil_reject"', card)
+
+    def test_the_approval_sentence_carries_every_next_gil_gave(self):
+        """analyze 뒤는 **넷**이다. 첫 줄만 실으면 그건 카드가 사람 대신 고른 것이다.
+
+        규칙은 "gil 이 준 것을 그대로 옮겨라"이지 "첫 줄만"이 아니다 — 그 선택이 이 사이클의
+        방향을 정한다.
+        """
+        import html as _html
+        import re
+        self._measured()
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        st = self.status()
+        self.assertGreater(len(st["next"]), 1, st["next"])
+        msg = _html.unescape(re.search(r'data-act="approve"[^>]*data-msg="([^"]*)"',
+                                       self.card()).group(1))
+        for n in st["next"]:
+            self.assertIn(n, msg, f"gil 이 준 수가 승인 문장에서 빠졌다: {n}")
+
+    def test_the_pending_card_shows_the_question_and_the_yardstick(self):
+        """pending 은 사람이 실제로 값을 더하는 자리다. 그런데 그 자리에 뜬 것은 공통 본문이었고
+        **에이전트가 물으려고 쓴 보고서(step.body)는 한 글자도 안 나왔다** — 물음이 없는 물음 화면."""
+        self._measured()
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        r = self.gil("step", "st/c1", "--kind", "pending", "--title", "여기서 닫을지 묻는다",
+                     "--body", "선택지 둘: 여기서 닫거나, 한 축 더 열거나. 12ms 모자란다.")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        card = self.card()
+        seen = self.visible(card)
+        self.assertIn("무엇을 묻는가", seen)
+        self.assertIn("12ms 모자란다", seen, "물음의 재료가 화면에 없다")
+        self.assertIn("무엇에 비추어 판단하나", seen)
+        self.assertIn(self.status()["chain"]["criterion"], seen)
+        # 나머지는 전부 뺀다 — 여기서 사람이 할 일은 하나다.
+        self.assertNotIn("반증조건", seen)
+        # 그리고 **명령줄은 상자에도 안 온다** — 그 두 줄을 도는 버튼이 바로 아래 있다.
+        self.assertNotIn("gil approve", seen)
+        self.assertNotIn("gil reject", seen)
+        self.assertIn('data-tool="gil_approve"', card)
+
+    def test_the_success_card_holds_the_retrospect_next_to_the_yardstick(self):
+        """종결 둘은 순서가 뒤집힌다 — 다음 한 수가 아니라 **판정 기준과의 대조**가 본문이다.
+        떼어 놓으면 "얼마나 다가섰나"가 무엇에 비추어 한 말인지 사라진다."""
+        self._measured()
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        r = self.gil("step", "st/c1", "--kind", "success", "--title", "이 축을 닫는다",
+                     "--toward", "기준에 780→435ms 로 다가섰다", "--next-design", "다음은 배치 축")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        seen = self.visible(self.card())
+        self.assertIn("기준에 780→435ms 로 다가섰다", seen)
+        self.assertIn(self.status()["chain"]["criterion"], seen, "무엇에 비추어 한 말인지가 없다")
+        self.assertIn("다음 과녁", seen)
+        self.assertIn("다음은 배치 축", seen)
+        self.assertIn("무엇을 재서 그렇게 됐나", seen)
+
+    def test_the_success_that_approve_made_says_it_has_no_retrospect(self):
+        """`gil approve` 는 --toward·--next-design 을 **묻지 않는다.** 그러면 회고가 없는
+        종결이 생긴다 — 칸을 지우면 회고를 쓴 종결과 안 쓴 종결이 화면에서 같아 보인다."""
+        self._measured()
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        self.gil("step", "st/c1", "--kind", "pending", "--title", "묻는다", "--body", "보고서")
+        r = self.gil("approve", "st/c1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.status()
+        self.assertEqual(st["step"]["kind"], "success")
+        self.assertEqual(st["step"].get("toward", ""), "")
+        self.assertIn("회고가 기록에 없다", self.visible(self.card()))
+
+    def test_the_fail_card_says_why_it_died_and_where_it_retreats(self):
+        """fail 은 죽음이 아니라 발견이다. 사람이 볼 것은 사과가 아니라 **왜 죽었고 어디로
+        물러서나**다 — 그 자리가 없으면 반증된 뒤에 그래프를 뒤져 스텝 번호를 세게 된다."""
+        self._measured(verdict="refuted")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "이 축은 죽었다")
+        r = self.gil("step", "st/c1", "--kind", "fail", "--to", "s1", "--title", "이 축을 닫는다",
+                     "--toward", "다가서진 못했지만 후보 하나를 지웠다",
+                     "--next-design", "다음은 배치 축")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        seen = self.visible(self.card())
+        self.assertIn("왜 죽었나", seen)
+        self.assertIn("3회 평균 +0.4%", seen, "이 벽을 만든 관측이 없다")
+        self.assertIn("벽의 지도", seen)
+        self.assertIn("s1 로 물러선다", seen)
+        self.assertIn("버려진다", seen)
+        self.assertIn("배운 것", seen)
+        self.assertIn("다가서진 못했지만", seen)
+        # **다음 과녁은 그리지 않는다** — 죽은 잎 위에 놓으면 화면이 "이제 앞으로 간다"고
+        # 말하는데, 옳은 읽기는 "물러서서 다시 갈라진다"다. 데이터에는 그대로 있다.
+        self.assertNotIn("다음은 배치 축", seen, "죽은 잎 위에 다음 설계를 크게 놓았다")
+        self.assertEqual(self.status()["step"]["next_design"], "다음은 배치 축")
+
+    def test_a_leaf_never_tells_the_human_to_build_the_next_step_on_it(self):
+        """**종결은 잎이다** — 그 뒤에 스텝을 이어 붙일 수 없다(#60①).
+
+        그런데 `next` 가 오래 비어 있었고, 그 공백을 승인 버튼이 "이 자리를 딛고 다음 스텝을
+        세워라"로 메웠다. 사람이 승인을 누른 그 순간 에이전트는 gil 이 거부할 수를 지시받는다.
+        빈 자리는 채워지지 않는 게 아니라 **지어내서 채워진다.**
+        """
+        import html as _html
+        import re
+        self._measured()
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "결론")
+        self.gil("step", "st/c1", "--kind", "success", "--title", "닫는다")
+        card = self.card()
+        msg = _html.unescape(re.search(r'data-act="approve"[^>]*data-msg="([^"]*)"', card).group(1))
+        self.assertNotIn("다음 스텝을 세워라", msg)
+        self.assertIn("이 잎은 여기서 끝난다", msg)
+        # 그리고 **그 다음이 실제로 돈다.** 안 도는 줄을 가르치면 막힌 사람이 한 번 더 막힌다.
+        st = self.status()
+        self.assertTrue(st["next"], "잎에서 다음 한 수가 통째로 비었다")
+        first = st["next"][0].split("  —")[0].strip().split()
+        self.assertEqual(first[0], "gil")
+        r = self.gil(*first[1:])
+        self.assertEqual(r.returncode, 0, f"next[0] 가 안 돈다: {st['next'][0]}\n{r.stderr}")
+
+    def test_the_fail_next_points_at_the_wall_map_it_recorded(self):
+        """fail 의 기본 수는 닫는 것이 아니라 **다시 갈라지는 것**이고, 그 자리는 이미
+        기록에 있다(Gil-Backtrack). 자리표시자로 두면 사람이 그래프를 세게 된다."""
+        self._measured(verdict="refuted")
+        self.gil("step", "st/c1", "--kind", "analyze", "--finding", "죽었다")
+        self.gil("step", "st/c1", "--kind", "fail", "--to", "s1", "--title", "닫는다")
+        nxt = self.status()["next"]
+        self.assertTrue(any("--kind hypothesis --to s1" in n for n in nxt), nxt)
+        self.assertTrue(any("--abandon" in n for n in nxt), nxt)
+
+    def test_the_probe_is_off_unless_someone_turns_it_on(self):
+        """계기는 **기본으로 꺼 둔다.** 이 보고는 화면이 안 뜨던 다섯 자리를 찾는 데 값을 다
+        했지만, 켠 채로 릴리스하면 모든 세션이 매번 두 번씩 진단 호출을 한다. 도구가 자기를
+        진단하는 비용을 사용자가 늘 치를 이유는 없다."""
+        self._cycle()
+        off = self.shell()
+        self.assertIn("PROBE=false", off, "진단 보고가 기본으로 켜져 있다")
+        # 부르는 자리도 막혀 있어야 한다 — 함수 안에서만 막으면 타이머는 계속 돈다.
+        self.assertIn("if(PROBE){ setTimeout", off, "보고 타이머가 무조건 걸린다")
+        self.assertIn("if(!PROBE) return;", off)
+        # 그리고 **켜는 길이 실제로 켠다** — 끄는 길만 만들면 다음에 막혔을 때 계기가 없다.
+        self.assertIn("PROBE=true", self.shell(env={"GIL_UI_PROBE": "1"}))
+
+    def test_the_card_follows_the_theme_the_host_declares(self):
+        """샌드박스 iframe 의 `prefers-color-scheme` 은 **OS 의 것**이지 호스트 앱의 것이 아니다.
+
+        앱만 어둡게 써 온 사람에게는 어두운 화면 한가운데 흰 카드가 선다. 호스트가 제 테마를
+        말해 주면 그것이 이겨야 하고, **양쪽 방향으로** 이겨야 한다 — 밝게 고정한 사람이
+        밤에 어두워지지도 않게.
+        """
+        import re
+        self._cycle()
+        shell = self.shell()
+        self.assertIn("applyTheme", shell, "호스트가 준 테마를 안 읽는다")
+        self.assertIn(':root[data-theme="dark"]{', shell)
+        self.assertIn(':root:not([data-theme="light"])', shell, "밝게 고정해도 밤에 어두워진다")
+        # 팔레트는 **한 벌씩만.** 같은 색을 두 번 적으면 다음에 한쪽만 고쳐지고, 그러면
+        # 테마를 말해 준 호스트와 안 말해 준 호스트가 다른 화면을 본다.
+        blocks = re.findall(r"\{(--bg:[^}]*)\}", shell)
+        self.assertEqual(len(blocks), 3, blocks)
+        self.assertEqual(blocks[1], blocks[2], "어두운 팔레트 두 벌이 갈렸다")
+        # 색 변수는 **가져다 쓰지 않는다** — 이름을 모르는 채 우리 --bg 에 꽂으면 배경이
+        # 아닌 값이 배경이 되어 카드가 통째로 안 읽힌다. 모르는 것은 안 한다.
+        self.assertNotIn("styles.variables", shell)
 
     def test_the_confirm_lives_inside_the_card(self):
         """확인은 **카드 안에서** 두 번 누르는 것이다. confirm() 은 샌드박스에서 조용히 죽는다 —

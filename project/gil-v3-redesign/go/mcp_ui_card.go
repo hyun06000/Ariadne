@@ -38,7 +38,11 @@ type inCardArgs struct {
 	// "호스트가 핸드셰이크에 무엇이라 답했나 / 프레임이 실제로 보이는 크기인가"를 볼 방법이
 	// 없었고, 그 공백에서 판정이 세 번 뒤집혔다. 화면이 제 상태를 이 칸에 적어 보내면 우리
 	// 프레임 로그에 남는다 — 추측하지 않으려면 계기가 있어야 한다.
-	Probe string `json:"probe,omitempty" jsonschema:"진단용 — 화면이 자기 상태(호스트 응답·크기)를 적어 보내는 칸"`
+	//
+	// **기본은 꺼져 있다.** 껍데기는 `GIL_UI_PROBE=1` 일 때만 이 칸을 채워 보낸다 — 켜 둔
+	// 채로 릴리스하면 모든 세션이 매번 두 번씩 진단 호출을 한다. 받는 쪽(여기)은 늘 열어
+	// 둔다: 켠 사람이 다음 릴리스를 기다릴 이유가 없다.
+	Probe string `json:"probe,omitempty" jsonschema:"진단용 — 화면이 자기 상태(호스트 응답·크기)를 적어 보내는 칸. GIL_UI_PROBE=1 일 때만 온다"`
 }
 
 func (i inCardArgs) repoArg() string { return i.Repo }
