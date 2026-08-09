@@ -96,14 +96,20 @@ func cmdMCP(args []string) {
 	// **roots** 이고(mcp_roots.go), 여기 startup 해석은 그 앞의 폴백으로 남는다.
 	// 우선순위: --repo > roots > CLAUDE_PROJECT_DIR > 현재 위치.
 	target := *repo
+	chose := repoSourceFlag
 	if target == "" {
-		target = os.Getenv("CLAUDE_PROJECT_DIR")
+		target, chose = os.Getenv("CLAUDE_PROJECT_DIR"), repoSourceEnv
 	}
 	if target != "" {
 		abs, err := filepath.Abs(target)
 		if err != nil || os.Chdir(abs) != nil {
 			die("거부: 저장소 경로로 이동 못 함: " + target)
 		}
+		// **누가 이 자리를 정했는지 기록한다.** 여기서 chdir 만 하고 repoSource 를 안 고치던
+		// 동안, 진단 배너는 Claude Code 설정(CLAUDE_PROJECT_DIR 로 자리를 받는 정규 구성)에서도
+		// "프로세스가 뜬 자리"라고 답했다 — 도구가 자기 자리의 출처를 틀리게 말한 것이다(#110 이
+		// 세운 값이 바로 이 한 줄이다). 세울 자리를 판정하는 데도 이 값을 쓰므로 더 중요해졌다.
+		repoSource = chose
 	}
 	if *repo != "" {
 		mcpRepoPinned, _ = filepath.Abs(*repo)
@@ -599,6 +605,10 @@ func registerGilTools(s *mcp.Server) {
 		// 남의 디스크에 저장소를 세우는 일이라 사람의 승낙을 받는다(상현님 판단). 폼이 안 서는
 		// 호스트면 승낙으로 치지 않는다 — 사람에게 직접 묻고 다시 부르라고 넘긴다(#57).
 		if !gitOK("rev-parse", "--git-dir") {
+			// 세우는 자리는 **누군가 고른 자리**여야 한다 — gil_start 와 같은 규칙(start.go).
+			if err := chosenPlaceErr(); err != nil {
+				return nil, nil, err
+			}
 			if ok, how := elicitWorldConfirm(ctx, req, in.Confirmed); !ok {
 				if how == "declined" {
 					return nil, nil, errString("멈춤: 사람이 이 폴더에 세우지 않겠다고 답했다.\n" +

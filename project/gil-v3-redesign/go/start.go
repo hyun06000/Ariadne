@@ -29,6 +29,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -193,6 +194,7 @@ func startAdvance(st startState) bool {
 	case stageNoWorld:
 		how := "사람이 직접 친 명령"
 		if startConfirmWorld != nil {
+			requireChosenPlace()
 			ok, h := startConfirmWorld()
 			if !ok {
 				if h == "declined" {
@@ -236,6 +238,73 @@ func startAdvance(st startState) bool {
 		return true
 	}
 	return false
+}
+
+// requireChosenPlace — **프로젝트를 담는 자리에는 프로젝트를 세우지 않는다** (상현님 실사용).
+//
+// 실측 세 번째 판(2026-08-09). 앞 커밋이 "폼이 안 서면 사람에게 물어라"로 고쳤고 그건 먹혔다 —
+// 에이전트가 우회하지 않고 제대로 물었다. 그런데 그 물음이 이렇게 나갔다:
+//
+//	"기본 경로가 / 로 잡혀 있는데, 보통은 지금 작업 중인 폴더에 세우는 게 맞습니다."
+//
+// **gil 이 `/` 에 서 있었다.** Claude Desktop 은 roots 를 선언하지 않아 프로세스가 뜬 자리가
+// 그대로 자리가 됐고, 안내는 거기다 대고 "여기에 저장소를 세우게 된다: /" 라고 태연히 말했다.
+// 사람이 "네" 라고 답했으면 `/` 에 저장소를 세우려 들었을 것이다 — 에이전트가 이상함을
+// 알아채고 되물어 준 덕에 안 났을 뿐, **그건 운이다.**
+//
+// ── 판정을 어디에 걸 것인가 ──
+//
+// 처음엔 **누가 이 자리를 골랐나**로 걸었다(roots·repo 인자면 정당, "프로세스가 뜬 자리"면
+// 거부). 원리적으로는 깔끔했는데 **정당한 경우를 함께 막았다**: 호스트가 프로젝트 폴더
+// *안에서* 서버를 띄우는 구성이 실제로 있고(우리 시험이 그 모양이다), 그건 띄운 쪽이 자리를
+// 고른 것이다. 시험 넷이 빨개져서 알았다 — 규칙이 예쁘다고 옳은 것은 아니다.
+//
+// 그래서 판정은 **그 자리가 무엇인가**로 건다. `/` 와 홈 디렉터리 자신은 프로젝트가 아니라
+// **프로젝트들을 담는 자리**다. 누가 골랐든 거기에 저장소를 세우는 것은 사고다(그 아래 전부가
+// 한 저장소가 된다). 열거가 짧은 것은 인정하지만, 이건 위험한 경로의 목록이 아니라 **성질이
+// 다른 두 자리**다 — 그리고 그 성질이 이유 그대로 메시지에 적힌다.
+//
+// 나머지 자리는 막지 않는다. 어디에 세울지는 승낙 절차가 경로를 이름으로 보여주며 묻는다 —
+// 실사용에서도 그 자리는 제대로 돌았다(에이전트가 경로를 사람에게 그대로 보여줬다).
+func requireChosenPlace() {
+	if err := chosenPlaceErr(); err != nil {
+		die(err.Error())
+	}
+}
+
+// chosenPlaceErr — 같은 판정을 error 로. gil_init 처럼 die 가 아니라 error 로 돌려야 하는
+// 자리가 있어서 둘로 쓴다 — **판정은 한 곳에만 산다**(갈라 두면 한쪽만 낡는다).
+func chosenPlaceErr() error {
+	wd, err := os.Getwd()
+	if err != nil || wd == "" {
+		return nil
+	}
+	why := containerPlace(wd)
+	if why == "" {
+		return nil
+	}
+	return errString("거부: 여기는 프로젝트가 아니라 **" + why + "** 다 — " + wd + "\n" +
+		"  (이 자리를 정한 것: " + repoSource + ")\n" +
+		"  여기에 저장소를 세우면 그 아래 있는 것이 전부 한 저장소에 들어간다. 사고다.\n\n" +
+		"  **사람이 보고 있는 폴더의 절대경로를 repo 인자에 실어 다시 불러라.**\n" +
+		"  경로를 모르면 사람에게 물어라 — \"어느 폴더에서 시작할까요? 폴더의 전체 경로를\n" +
+		"  알려주세요.\" 대개 너는 이미 그 경로를 알고 있다(사람이 연 폴더가 대화에 있다).\n" +
+		"  아는 것을 repo 에 실으면 그만이다 — 설정을 고칠 필요 없다.")
+}
+
+// containerPlace — 이 경로가 **프로젝트를 담는 자리**면 그게 무엇인지, 아니면 "".
+//
+// 둘뿐이다. 늘리고 싶어지면 먼저 물어라 — "그 자리에 저장소가 생기면 무엇이 함께 들어가나?"
+// 답이 "그 아래 전부"일 때만 여기 온다.
+func containerPlace(p string) string {
+	clean := filepath.Clean(p)
+	if clean == string(filepath.Separator) || clean == filepath.VolumeName(clean)+string(filepath.Separator) {
+		return "파일시스템의 뿌리"
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" && filepath.Clean(home) == clean {
+		return "홈 디렉터리 자신"
+	}
+	return ""
 }
 
 // startQuestionsJSON — 목적과 기준, 두 열린 질문. 이 둘이 체인의 --purpose-from ·

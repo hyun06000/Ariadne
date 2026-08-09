@@ -169,7 +169,7 @@ func adoptCallRepoForCreate(in hasRepo) error {
 	if os.Chdir(abs) != nil {
 		return errString("거부: 저장소 경로로 이동 못 함: " + abs)
 	}
-	repoSource = "호출 인자(repo)"
+	repoSource = repoSourceArg
 	stopGitCache()
 	return nil
 }

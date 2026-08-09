@@ -79,7 +79,7 @@ func adoptCallRepo(in any) {
 	if os.Chdir(abs) != nil {
 		die("거부: 저장소 경로로 이동 못 함: " + abs)
 	}
-	repoSource = "호출 인자(repo)"
+	repoSource = repoSourceArg
 	stopGitCache() // 옮겼으니 앞서 읽어 둔 것은 다른 저장소의 것이다
 }
 
@@ -89,7 +89,17 @@ func adoptCallRepo(in any) {
 // 어디에 서 있나"를 안 말했기 때문이다(#110 이 뷰어에서 고친 것과 같은 병: 화면에 정체가
 // 없으면 사람은 남의 그래프를 보며 자기 것이 비었다고 오진한다). 도구가 스스로 밝히면
 // 다음 어긋남은 한 줄로 끝난다.
-var repoSource = "프로세스가 뜬 자리"
+var repoSource = repoSourceUnchosen
+
+// 자리를 정한 것들. **문자열을 코드 여기저기에 흩지 않는다** — 이 값으로 판정하는 자리가
+// 생겼기 때문이다(세계를 세워도 되는 자리인가: start.go 의 requireChosenPlace).
+const (
+	repoSourceUnchosen = "프로세스가 뜬 자리" // 아무도 고르지 않았다 — 프로세스가 어쩌다 뜬 곳
+	repoSourceRoots    = "호스트가 준 roots"
+	repoSourceArg      = "호출 인자(repo)"
+	repoSourceFlag     = "설정의 --repo"
+	repoSourceEnv      = "호스트가 준 CLAUDE_PROJECT_DIR"
+)
 
 // mcpClient — 초기화 때 호스트가 밝힌 자기 이름. 어느 호스트에서 어긋났는지가 곧 단서다.
 var mcpClient string
@@ -161,7 +171,7 @@ func adoptHostRoot(ctx context.Context, ss *mcp.ServerSession) {
 	if os.Chdir(pick) != nil {
 		return
 	}
-	repoSource = "호스트가 준 roots"
+	repoSource = repoSourceRoots
 	// 옮겼으니 앞서 읽어 둔 것은 다른 저장소의 것이다.
 	stopGitCache()
 }

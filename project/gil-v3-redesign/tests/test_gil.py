@@ -14654,3 +14654,108 @@ class TestAFormlessHostCanStillStart(GilFixture):
         out, _ = self._call({"confirmed": True}, answers_forms=False)
         self.assertIn("에이전트가 사람에게 물어", out,
                       "확인의 출처를 폼의 승낙과 똑같이 적었다")
+
+
+class TestTheWorldStandsOnlyWhereSomeoneChose(GilFixture):
+    """**프로젝트를 담는 자리에는 프로젝트를 세우지 않는다** (상현님 실사용, 2026-08-09).
+
+    앞 커밋이 "폼이 안 서면 사람에게 물어라"로 고쳤고 그건 먹혔다 — 에이전트가 우회하지 않고
+    제대로 물었다. 그런데 그 물음이 이렇게 나갔다:
+
+        "기본 경로가 / 로 잡혀 있는데, 보통은 지금 작업 중인 폴더에 세우는 게 맞습니다."
+
+    **gil 이 `/` 에 서 있었다.** Claude Desktop 은 roots 를 선언하지 않아 프로세스가 뜬 자리가
+    그대로 자리가 됐고, 안내는 거기다 대고 "여기에 저장소를 세우게 된다: /" 라고 태연히 말했다.
+    사람이 "네" 라고 답했으면 `/` 에 저장소를 세우려 들었을 것이다 — 에이전트가 이상함을
+    알아채고 되물어 준 덕에 안 났을 뿐, **그건 운이다.**
+
+    처음엔 **누가 이 자리를 골랐나**로 판정을 걸었다(roots·repo 면 정당, "프로세스가 뜬 자리"면
+    거부). 원리적으로 깔끔했는데 **정당한 경우를 함께 막았다** — 호스트가 프로젝트 폴더 *안에서*
+    서버를 띄우는 구성이 실제로 있고, 그건 띄운 쪽이 자리를 고른 것이다. 시험 넷이 빨개져서
+    알았다: **규칙이 예쁘다고 옳은 것은 아니다.**
+
+    그래서 판정은 **그 자리가 무엇인가**로 건다. `/` 와 홈 자신은 프로젝트가 아니라 프로젝트를
+    **담는** 자리다 — 누가 골랐든 거기에 세우면 그 아래 전부가 한 저장소가 된다. 그리고
+    **승낙은 "할지"에 대한 것이지 "어디에"가 아니다** — confirmed 가 자리를 정당화하지 못한다."""
+
+    def _start(self, args, cwd="/"):
+        """roots 를 안 주는 호스트로, 지정한 자리에서 뜬 서버에 gil_start 를 건다."""
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=cwd, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1"})
+        self.addCleanup(p.terminate)
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("method"):
+                    if "id" in m:      # 폼 요청 포함 — 이 호스트는 아무것도 못 띄운다
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "unsupported"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "no-roots", "version": "0"}}})
+        pump(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+              "params": {"name": "gil_start", "arguments": args}})
+        r = pump(2)
+        if r is None:
+            return "", "(응답 없음)"
+        if "error" in r:
+            return "", r["error"].get("message", "")
+        res = r["result"]
+        txt = "".join(c.get("text", "") for c in res.get("content", []))
+        return ("", txt) if res.get("isError") else (txt, "")
+
+    def test_it_refuses_the_filesystem_root(self):
+        """실사용에서 gil 이 실제로 서 있던 자리다 — 거기를 세울 곳으로 내밀면 안 된다."""
+        _, err = self._start({})
+        self.assertIn("파일시스템의 뿌리", err, "`/` 를 세울 자리로 받아들였다")
+        self.assertIn("repo", err, "무엇을 실어 오면 되는지 말하지 않았다")
+
+    def test_consent_does_not_justify_the_place(self):
+        """**승낙은 '할지'에 대한 것이지 '어디에'가 아니다.** confirmed 로 뚫려선 안 된다."""
+        _, err = self._start({"confirmed": True})
+        self.assertIn("파일시스템의 뿌리", err,
+                      "confirmed 하나로 루트에 저장소를 세울 수 있게 됐다")
+        self.assertFalse(os.path.isdir("/.git"), "루트에 저장소를 세웠다")
+
+    def test_a_real_folder_stands(self):
+        """담는 자리가 아니면 선다 — 막기만 하면 그건 레일이 아니라 벽이다."""
+        out, err = self._start({"repo": self.repo, "confirmed": True})
+        self.assertEqual(err, "", f"평범한 폴더인데 막혔다:\n{err}")
+        self.assertIn("gil init 완료", out)
+
+    def test_a_server_launched_inside_the_project_stands(self):
+        """호스트가 프로젝트 폴더 안에서 서버를 띄우는 구성 — 그것도 고른 것이다.
+
+        이 시험이 없어서 앞선 '누가 골랐나' 판정이 정당한 경우를 막았다(시험 넷이 빨개졌다)."""
+        out, err = self._start({"confirmed": True}, cwd=self.repo)
+        self.assertEqual(err, "", f"프로젝트 폴더 안에서 띄웠는데 막혔다:\n{err}")
+        self.assertIn("gil init 완료", out)
+
+    def test_the_cli_stands_where_the_human_typed(self):
+        """CLI 는 사람이 그 폴더에서 직접 친 것이다 — cd 가 곧 선택이다."""
+        r = self.gil("start")
+        out = r.stdout + r.stderr
+        self.assertNotIn("프로젝트가 아니라", out, "사람이 직접 친 자리를 되물었다")
+        self.assertIn("gil init 완료", out)

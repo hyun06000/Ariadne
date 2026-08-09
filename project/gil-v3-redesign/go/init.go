@@ -137,9 +137,11 @@ func cmdInit(args []string) {
 	}
 	println2("  온보딩: 문서 " + itoa(docsWrote) + "개(docs/gil/·llms.txt) + 대문 진입점 블록 " + gateState + ".")
 	if onboardingCommitted {
-		println2("     커밋까지 마쳤다 — 복원 경로의 첫 칸이 이제 저장소에 있다(갱신: " + surfaceCmd("docs") + " install).")
+		println2("     커밋까지 마쳤다 — 복원 경로의 첫 칸이 이제 저장소에 있다(갱신: " +
+			surfaceCall("docs", "install", "") + ").")
 	} else if docsWrote > 0 || gateState != "unchanged" {
-		println2("     작업트리에 있다 — 커밋은 네가 한다(갱신: " + surfaceCmd("docs") + " install [--force]).")
+		println2("     작업트리에 있다 — 커밋은 네가 한다(갱신: " +
+			surfaceCall("docs", "install [--force]", "") + ").")
 	}
 	if devMade {
 		println2("  층: main(대문) → dev 분기 완료 — 지금 HEAD 는 dev 다. 작업은 여기서 시작한다.")
