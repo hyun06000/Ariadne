@@ -599,9 +599,16 @@ func registerGilTools(s *mcp.Server) {
 		// 남의 디스크에 저장소를 세우는 일이라 사람의 승낙을 받는다(상현님 판단). 폼이 안 서는
 		// 호스트면 승낙으로 치지 않는다 — 사람에게 직접 묻고 다시 부르라고 넘긴다(#57).
 		if !gitOK("rev-parse", "--git-dir") {
-			if ok, _ := elicitWorldConfirm(ctx, req); !ok {
-				return nil, nil, errString("멈춤: 여기에 gil 세계를 세우는 것을 사람이 승낙하지 않았다.\n" +
-					"  이 자리가 맞는지 사람에게 확인하고, 맞으면 다시 불러라.")
+			if ok, how := elicitWorldConfirm(ctx, req, in.Confirmed); !ok {
+				if how == "declined" {
+					return nil, nil, errString("멈춤: 사람이 이 폴더에 세우지 않겠다고 답했다.\n" +
+						"  어디에 세울지 묻고, 그 폴더의 절대경로를 repo 에 실어 다시 불러라.")
+				}
+				// 폼이 안 섰다 — 사람의 뜻은 알 수 없다. 단언하지 않고 물을 길을 준다(#57).
+				return nil, nil, errString("멈춤: 이 호스트에 네이티브 폼이 서지 않아 사람에게 직접 물어야 한다.\n" +
+					"  (사람이 거절한 것이 아니다 — 폼이 뜨지 못한 것이고, 둘은 다르다.)\n" +
+					"  \"여기에 작업 기록을 시작할까요?\" 를 묻고, \"네\"면 confirmed 를 실어 다시 불러라.\n" +
+					"  **git init 을 대신 치지 마라** — 그건 우회지 승낙이 아니다.")
 			}
 		}
 		// 관전 서버의 시스템 브라우저 자동 실행은 끈다 — 호스트 안에서 도는 에이전트에게는
@@ -656,7 +663,8 @@ type inInterviewStatus struct {
 
 type inInit struct {
 	inRepo
-	Name string `json:"name,omitempty" jsonschema:"이 저장소에서 깨어날 존재의 이름. 생략하면 이름 없이 심고, 이름 짓는 것이 그 존재의 첫 과제가 된다"`
+	Confirmed bool   `json:"confirmed,omitempty" jsonschema:"이 호스트에 네이티브 폼이 없어 네가 **사람에게 직접 물어** 승낙받았을 때만 true"`
+	Name      string `json:"name,omitempty" jsonschema:"이 저장소에서 깨어날 존재의 이름. 생략하면 이름 없이 심고, 이름 짓는 것이 그 존재의 첫 과제가 된다"`
 }
 
 // ── 단계 B: 인터뷰 = Elicitation ──

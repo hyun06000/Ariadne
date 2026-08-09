@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -24,10 +25,149 @@ const (
 // git 은 git을 실행하고 stdout을 준다. 실패하면 exit(참조: check=True).
 func git(args ...string) string {
 	out, err := gitTry(args...)
+	if err != nil && clearStaleIndexLock(err.Error()) {
+		out, err = gitTry(args...) // 치웠으면 **딱 한 번** 다시 — 무한 재시도는 하지 않는다
+	}
 	if err != nil {
-		die("git " + strings.Join(args, " ") + " 실패: " + err.Error())
+		gitDie(args, err)
 	}
 	return out
+}
+
+// clearStaleIndexLock — 죽은 git 이 남긴 잠금을 **gil 이 직접 치운다** (상현님 지시, 2026-08-09).
+//
+// 왜 도구가 하나. 이 자리에서 사람에게 `rm …/.git/index.lock` 을 부탁하는 것이 옛 처방이었는데,
+// 상현님이 짚었다: **비개발자는 터미널에 뭘 해달라고 하면 대응하지 못한다.** 그러면 시작하려던
+// 사람이 첫 칸에서 멈춘다 — 도구가 치울 수 있는 것을 사람의 숙제로 넘긴 셈이다.
+//
+// 안전은 **나이**로 지킨다. gil 이 부르는 git 은 작은 저장소에 add/commit 을 거는 것이라
+// 밀리초 단위다. 10초 넘게 그대로인 잠금은 그것을 만든 git 이 이미 없다는 뜻이다(정황이지
+// 증명은 아니라서, 갓 생긴 잠금은 절대 건드리지 않는다 — 남의 git 을 밟는 쪽이 더 나쁘다).
+// 끄는 길도 둔다: GIL_NO_LOCK_CLEAR=1. 강제는 벽이 아니라 선택이어야 한다(#116 의 태도).
+//
+// 그리고 **치웠다는 사실을 말한다.** 조용히 치우면 "왜 됐지"를 아무도 모르고, 다음에 같은 일이
+// 나면 원인 규명이 다시 0에서 시작한다.
+func clearStaleIndexLock(e string) bool {
+	if os.Getenv("GIL_NO_LOCK_CLEAR") != "" {
+		return false
+	}
+	if !strings.Contains(e, "index.lock") || !strings.Contains(e, "File exists") {
+		return false
+	}
+	lock := gitIndexLockPath()
+	if lock == "" {
+		return false
+	}
+	age, ok := fileAgeSeconds(lock)
+	if !ok || age < staleLockSeconds {
+		return false // 방금 생겼다 — 지금 도는 git 일 수 있다. 건드리지 않는다.
+	}
+	if err := os.Remove(lock); err != nil {
+		// **못 치웠다.** 공유 폴더·가상화 샌드박스에서는 안에서 지우는 것이 막힌다(실측:
+		// Claude Desktop 의 VM 마운트에서 git 이 제 탐침 파일조차 못 지웠다). 여기서 조용히
+		// 넘기면 뒤따르는 진단이 "치웠는데도 안 된다"와 "못 치웠다"를 구분 못 하게 된다.
+		lockClearFailed = err.Error()
+		return false
+	}
+	println2("  🔓 죽은 git 이 남긴 잠금을 치웠다(" + itoa(age) + "초 전 것): " + lock)
+	println2("     이 저장소에서 git 이 한 번 중간에 죽었다는 뜻이다 — 기록은 멀쩡하다.")
+	return true
+}
+
+// staleLockSeconds — 이 나이를 넘긴 잠금만 치운다.
+const staleLockSeconds = 10
+
+// lockClearFailed — 치우려다 실패했으면 그 이유. 진단이 "안 해봤다"와 "해봤는데 막혔다"를
+// 구분해서 말하기 위한 것이다.
+var lockClearFailed string
+
+// gitDie — git 실패를 **gil 의 말로** 옮긴다 (2026-08-09, 상현님 실사용).
+//
+// 왜. 날 git 에러를 그대로 올리면 비개발자는 물론 **에이전트도 다음 수를 못 찾는다**(#47).
+// 실측: Claude Desktop 에서 새 프로젝트를 시작하다 `git add CLAUDE.md 실패: exit status 128 —
+// fatal: Unable to create '…/.git/index.lock': File exists` 가 그대로 올라갔다. 에이전트는
+// 거기서 **진단도 처방도 누가 실행할지도 전부 지어냈다** — "샌드박스에서 지울 권한이 없어서"는
+// gil 이 한 말이 아니라 에이전트의 추측이었다(우연히 맞았다. 다음번에도 맞으리란 보장은 없다).
+//
+// 도구가 아는 것을 안 말하면 사람이 도구 바깥에서 캐낸다. 아는 것은 말한다.
+func gitDie(args []string, err error) {
+	msg := "git " + strings.Join(args, " ") + " 실패: " + err.Error()
+	if hint := gitFailureHint(err.Error()); hint != "" {
+		msg += "\n\n" + hint
+	}
+	die(msg)
+}
+
+// gitFailureHint — 아는 실패면 사람 언어로 옮기고 **정확한 복구 한 줄**을 준다.
+// 모르는 실패에는 아무 말도 얹지 않는다 — 지어낸 진단은 없는 진단보다 나쁘다.
+func gitFailureHint(e string) string {
+	if !strings.Contains(e, "index.lock") || !strings.Contains(e, "File exists") {
+		return ""
+	}
+	lock := gitIndexLockPath()
+	var b strings.Builder
+	b.WriteString("이건 gil 의 거부가 아니라 **git 의 잠금 파일**이다 — 이 저장소에서 git 이\n")
+	b.WriteString("한 번 죽었거나(그때 잠금이 남는다), 이 파일시스템이 삭제를 막고 있다는 뜻이다.\n")
+	if lock != "" {
+		if age, ok := fileAgeSeconds(lock); ok {
+			// **판정하지 않고 근거를 준다.** 잠금이 오래됐다는 것은 "지금 도는 git 이 없다"의
+			// 강한 정황이지만 증명은 아니다 — 구분 못 하는 것을 단언하지 않는다(#57).
+			b.WriteString("  잠금: " + lock + "  (만들어진 지 " + itoa(age) + "초)\n")
+			if age >= 30 {
+				b.WriteString("  30초 넘게 그대로다 — 지금 도는 git 이 있을 가능성은 낮다(정황이지 증명은 아니다).\n")
+			} else {
+				b.WriteString("  방금 생겼다 — **다른 git 이 지금 돌고 있을 수 있다.** 잠깐 기다렸다 다시 해라.\n")
+			}
+		} else {
+			b.WriteString("  잠금: " + lock + "\n")
+		}
+	}
+	if lockClearFailed != "" {
+		b.WriteString("  gil 이 직접 치우려 했으나 **막혔다**: " + lockClearFailed + "\n")
+		b.WriteString("  (공유 폴더·가상화 샌드박스에서 흔하다 — 안에서는 지울 수 없는 자리가 있다.)\n")
+	}
+	b.WriteString("\n  살아있는 git 이 없다면 그 파일을 지우면 풀린다:\n")
+	if lock != "" {
+		b.WriteString("      rm \"" + lock + "\"\n")
+	} else {
+		b.WriteString("      rm \"<저장소>/.git/index.lock\"\n")
+	}
+	if mcpMode {
+		// **누가 칠 수 있는지가 다르다.** MCP 세션은 대개 셸이 없고, 있어도 공유 폴더로 들어온
+		// 저장소에서는 삭제가 막히는 환경이 있다(실측: Claude Desktop 의 가상화 샌드박스에서
+		// git 이 제 탐침 파일조차 못 지웠다). 그래서 이 표면에서는 사람에게 넘기는 것이 정답이고,
+		// 넘길 때 **에이전트가 문장을 지어내지 않게** 넘길 말을 여기서 준다.
+		b.WriteString("\n  이 표면에는 그 한 줄을 칠 손이 없다 — 사람에게 그대로 청해라:\n")
+		b.WriteString("    \"터미널에서 위 한 줄만 실행해 주세요. git 이 남긴 잠금 파일이라 지우면 풀립니다.\"\n")
+		b.WriteString("  (공유 폴더·가상화 샌드박스에서는 안에서 지우는 것이 막히기도 한다 —\n")
+		b.WriteString("   그때는 사람의 터미널이 유일한 길이다. 네가 원인을 추측해 말하지는 마라.)")
+	} else {
+		b.WriteString("\n  (지운 뒤 같은 명령을 다시 부르면 이어진다.)")
+	}
+	return b.String()
+}
+
+// gitIndexLockPath — 이 저장소의 index.lock 절대경로("" = 못 알아냄).
+// gitTry 를 쓴다 — 여기서 또 죽으면 진단하려다 진단을 잃는다.
+func gitIndexLockPath() string {
+	out, err := gitTry("rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return ""
+	}
+	d := strings.TrimSpace(out)
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "index.lock")
+}
+
+// fileAgeSeconds — 이 파일이 만들어진 지 몇 초인가.
+func fileAgeSeconds(path string) (int, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	return int(time.Since(st.ModTime()).Seconds()), true
 }
 
 // gitCommand — 모든 git 자식 프로세스는 이걸 거친다. 윈도우에서 콘솔 창이 번쩍이지 않게
@@ -294,7 +434,10 @@ func gitInput(msg string, args ...string) string {
 		if e := strings.TrimSpace(errOut.String()); e != "" {
 			err = errors.New(err.Error() + " — " + e)
 		}
-		die("git " + strings.Join(args, " ") + " 실패: " + err.Error())
+		if clearStaleIndexLock(err.Error()) {
+			return gitInput(msg, args...) // 치웠으면 한 번 다시(치우기는 한 번만 성립한다)
+		}
+		gitDie(args, err)
 	}
 	return out.String()
 }
@@ -610,7 +753,7 @@ func die(msg string) {
 	}
 	os.Stderr.WriteString(msg + "\n")
 	traceSummary() // 거부로 끝나도 시간은 밝힌다 — 느린 거부가 제일 답답하다(이슈 #88)
-	runDieHooks() // 원인을 먼저, 뒷정리 안내는 그 다음(이슈 #64②)
+	runDieHooks()  // 원인을 먼저, 뒷정리 안내는 그 다음(이슈 #64②)
 	os.Exit(1)
 }
 

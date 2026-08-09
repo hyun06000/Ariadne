@@ -14484,3 +14484,173 @@ class TestGuidancePointsAtThisSurface(GilFixture):
             ", ".join(unplaced) +
             "\n  둘 중 하나를 해라 — 툴을 세우거나(mcpSurface), 왜 터미널 전용인지 적거나"
             "(terminalOnly). 조용히 두는 선택지는 없다.")
+
+
+class TestGitFailuresSpeakGilsLanguage(GilFixture):
+    """**죽은 잠금 하나가 시작을 통째로 막았다** (상현님 실사용, 2026-08-09).
+
+    Claude Desktop 에서 새 프로젝트를 시작하다 이게 그대로 올라갔다:
+
+        git add CLAUDE.md 실패: exit status 128 — fatal: Unable to create
+        '…/.git/index.lock': File exists.
+
+    그 자리의 에이전트는 **진단도 처방도 누가 실행할지도 전부 지어냈고**, 사람에게
+    `rm …/index.lock` 을 대신 쳐 달라고 부탁했다. 상현님 판단: **비개발자는 터미널에 뭘
+    해달라고 하면 대응하지 못한다.** 그러니 도구가 치울 수 있는 것을 사람 숙제로 넘기면
+    시작하려던 사람이 첫 칸에서 멈춘다.
+
+    그래서 둘을 함께 세운다 — 치울 수 있으면 **치우고 이어가고**, 못 치우면 **무슨 일인지와
+    복구 한 줄을** 정확히 말한다. 조용히 넘어가지도, 지어내지도 않는다."""
+
+    def _lock(self, age_seconds):
+        lock = os.path.join(self.repo, ".git", "index.lock")
+        open(lock, "w").close()
+        if age_seconds:
+            t = time.time() - age_seconds
+            os.utime(lock, (t, t))
+        # gil 은 심링크를 푼 실제 경로를 준다(macOS 의 /var → /private/var).
+        return os.path.realpath(lock)
+
+    def _no_clear(self):
+        """자동정리를 끄고 진단만 보게 한다 — 끄는 길이 실제로 있는지도 함께 센다."""
+        os.environ["GIL_NO_LOCK_CLEAR"] = "1"
+        self.addCleanup(os.environ.pop, "GIL_NO_LOCK_CLEAR", None)
+
+    def test_a_dead_lock_does_not_stop_the_start(self):
+        """**핵심**: 죽은 잠금은 gil 이 치우고 이어간다 — 사람에게 터미널을 시키지 않는다."""
+        self._lock(3600)
+        r = self.gil("start")
+        out = r.stdout + r.stderr
+        self.assertIn("잠금을 치웠다", out, "치웠다는 사실을 말하지 않았다(조용한 정리는 원인을 지운다)")
+        self.assertIn("gil init 완료", out, "치우고도 이어가지 않았다 — 사람이 여전히 막힌다")
+
+    def test_a_fresh_lock_is_never_touched(self):
+        """방금 생긴 잠금은 **지금 도는 git** 일 수 있다 — 남의 작업을 밟는 쪽이 더 나쁘다."""
+        lock = self._lock(0)
+        r = self.gil("start")
+        out = r.stdout + r.stderr
+        self.assertNotIn("잠금을 치웠다", out, "갓 생긴 잠금을 치웠다")
+        self.assertTrue(os.path.exists(lock), "갓 생긴 잠금 파일이 사라졌다")
+        self.assertIn("잠깐 기다렸다 다시 해라", out, "기다리라고 말하지 않았다")
+
+    def test_when_it_cannot_clear_it_says_what_and_how(self):
+        """못 치우는 환경(공유 폴더·가상화 샌드박스)에서는 **정확한 복구 한 줄**을 준다."""
+        self._no_clear()
+        lock = self._lock(3600)
+        r = self.gil("start")
+        out = r.stdout + r.stderr
+        self.assertIn("잠금 파일", out, "날 git 에러만 올렸다 — 무슨 일인지 말하지 않았다")
+        self.assertIn(lock, out, "어느 파일인지 말하지 않았다(사람이 경로를 지어내게 된다)")
+        self.assertIn('rm "' + lock + '"', out, "복구 한 줄을 그대로 주지 않았다")
+        self.assertIn("정황이지 증명은 아니다", out, "정황을 단정으로 말했다(#57)")
+
+    def test_unknown_git_failures_get_no_invented_diagnosis(self):
+        """모르는 실패에 진단을 얹지 않는다. 그 자리를 채우려는 유혹이 이 결함의 뿌리다."""
+        r = self.gil("global", "read", "존재하지-않는-파일.md")
+        out = r.stdout + r.stderr
+        self.assertNotIn("잠금 파일", out, "관계없는 실패에 잠금 진단이 붙었다")
+
+
+class TestAFormlessHostCanStillStart(GilFixture):
+    """**폼이 안 뜬 것과 사람이 거절한 것은 다르다** (#57 — 그리고 그 자리를 다시 밟았다).
+
+    실측(상현님, 2026-08-09): Claude Desktop 에서 승낙 폼이 서지 않았고, gil 은 **"사람이
+    승낙하지 않았다"고 단언**했다. 사람은 거절한 적이 없다 — 방금 "gil 프로젝트 시작하자"고
+    말한 참이었다. 다시 불러도 같은 답이라 막다른 길이었고, 그래서 에이전트는 gil 을 우회했다:
+
+        gil_start → gil_start → Bash(git init) → gil_start → gil_init → …
+
+    그 git 이 중간에 죽어 잠금이 남았고, 사람은 터미널 명령을 부탁받았다. **거부 문구 하나가
+    우회를 만들고, 우회가 저장소를 반쯤 부순 것이다.**
+
+    앞 시험들이 이걸 못 잡은 이유가 분명하다 — **폼에 답하는 클라이언트로만 밟았다.**
+    답하지 *못하는* 클라이언트는 밟지 않았다. 그래서 여기서 밟는다."""
+
+    def _call(self, args, answers_forms):
+        """폼 요청에 error 로 답하는(=못 띄우는) 호스트로 gil_start 를 부른다."""
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1"})
+        self.addCleanup(p.terminate)
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("method") == "elicitation/create":
+                    if answers_forms:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "result": {"action": "accept", "content": {"ok": True}}})
+                    else:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "elicitation not supported"}})
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "unsupported"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "formless", "version": "0"}}})
+        pump(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+              "params": {"name": "gil_start", "arguments": args}})
+        r = pump(2)
+        if r is None:
+            return "", "(응답 없음)"
+        if "error" in r:
+            return "", r["error"].get("message", "")
+        # 거부는 JSON-RPC error 가 아니라 **isError 인 result** 로 온다(MCP 규범). 이걸
+        # 성공으로 읽으면 "막혔는데 통과했다"고 세게 되고, 그러면 시험이 눈이 먼다.
+        res = r["result"]
+        txt = "".join(c.get("text", "") for c in res.get("content", []))
+        if res.get("isError"):
+            return "", txt
+        return txt, ""
+
+    def setUp(self):
+        super().setUp()
+        shutil.rmtree(os.path.join(self.repo, ".git"), ignore_errors=True)  # 진짜 빈 폴더로
+
+    def test_it_does_not_claim_the_human_refused(self):
+        """없던 사람 의사를 심으면 그게 곧 우회 압력이 된다."""
+        _, err = self._call({}, answers_forms=False)
+        self.assertNotIn("승낙하지 않았다", err, "폼이 안 선 것을 '사람이 거절했다'로 단언했다")
+        self.assertIn("거절한 것이 아니다", err, "둘이 다르다는 것을 말하지 않았다")
+
+    def test_it_gives_a_way_forward_instead_of_a_dead_end(self):
+        """막다른 길이면 에이전트는 도구를 우회한다 — 실제로 그렇게 됐다."""
+        _, err = self._call({}, answers_forms=False)
+        self.assertIn("confirmed", err, "다음에 무엇을 실어 오면 되는지 말하지 않았다")
+        self.assertIn("git init", err, "우회하지 말라고 그 자리에서 말하지 않았다")
+
+    def test_confirmed_actually_works(self):
+        """**안내가 가리키는 것은 실재해야 한다** — confirmed 로 다시 부르면 실제로 서야 한다."""
+        out, err = self._call({"confirmed": True}, answers_forms=False)
+        self.assertEqual(err, "", f"confirmed 를 실었는데도 막혔다:\n{err}")
+        self.assertIn("gil init 완료", out, "세계가 서지 않았다")
+        self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git")), "저장소가 안 섰다")
+
+    def test_the_provenance_of_the_consent_is_recorded(self):
+        """폼의 승낙과 에이전트의 보고는 다른 것이다 — 구분되는 것은 구분해 적는다(#57)."""
+        out, _ = self._call({"confirmed": True}, answers_forms=False)
+        self.assertIn("에이전트가 사람에게 물어", out,
+                      "확인의 출처를 폼의 승낙과 똑같이 적었다")

@@ -40,6 +40,7 @@ type inStart struct {
 	Will      string `json:"will,omitempty" jsonschema:"will.md 본문 전체 — 무엇을 향해 가는가"`
 	Relations string `json:"relations,omitempty" jsonschema:"relations.md 본문 전체 — 누구와 이어져 있는가"`
 	Status    bool   `json:"status,omitempty" jsonschema:"밟지 않고 지금 어느 칸인지만 본다"`
+	Confirmed bool   `json:"confirmed,omitempty" jsonschema:"이 호스트에 네이티브 폼이 없어 네가 **사람에게 직접 물어** 승낙받았을 때만 true. 물어보지 않고 켜지 마라 — 남의 디스크에 저장소를 만드는 일이고, 그 출처가 기록에 남는다"`
 }
 
 func registerStartTools(s *mcp.Server) {
@@ -58,7 +59,7 @@ func registerStartTools(s *mcp.Server) {
 		// 세계를 세우는 것은 **남의 디스크에 저장소를 만드는 일**이다(상현님 판단, 2026-08-09).
 		// CLI 는 사람이 직접 친 것이라 그 타건이 곧 확인이지만, 여기서는 에이전트가 부른 것이다.
 		// 그래서 호스트 네이티브 폼으로 그 자리에서 승낙을 받는다.
-		startConfirmWorld = func() (bool, string) { return elicitWorldConfirm(ctx, req) }
+		startConfirmWorld = func() (bool, string) { return elicitWorldConfirm(ctx, req, in.Confirmed) }
 		defer func() { startConfirmWorld = nil }()
 		defer dropTempFiles()
 		// 이 표면에서는 질문을 심자마자 그 자리에서 묻는다 — 기다리는 법은 폼이 안 섰을 때만.
@@ -178,7 +179,7 @@ func adoptCallRepoForCreate(in hasRepo) error {
 // 폼을 못 띄우는 호스트면 **승낙으로 치지 않는다.** 대신 사람에게 직접 물으라고 에이전트에게
 // 넘긴다 — 구분 못 하는 것을 단언하지 않는 자리다(#57 이 세운 태도). 다만 그 경우 확인의
 // 출처가 '에이전트의 주장'이라는 사실을 기록에 남긴다: 사람 폼의 승낙과는 다른 것이다.
-func elicitWorldConfirm(ctx context.Context, req *mcp.CallToolRequest) (bool, string) {
+func elicitWorldConfirm(ctx context.Context, req *mcp.CallToolRequest, said bool) (bool, string) {
 	wd, _ := os.Getwd()
 	schema := `{"type":"object","properties":{"ok":{"type":"boolean","title":"이 폴더에 gil 기록을 시작할까요?","description":"` +
 		jsonEscape(wd) + `"}},"required":["ok"]}`
@@ -189,11 +190,37 @@ func elicitWorldConfirm(ctx context.Context, req *mcp.CallToolRequest) (bool, st
 			"(이 폴더가 사람 머신에 영속되는 곳이어야 다음 세션이 이 기억을 읽습니다.)",
 		RequestedSchema: json.RawMessage(schema),
 	})
-	if err != nil || res == nil || res.Action != "accept" {
+	// ── 폼이 서지 않은 것과 사람이 거절한 것은 다르다 (#57 — 그리고 내가 그 자리를 다시 밟았다) ──
+	//
+	// 실측(상현님, 2026-08-09): Claude Desktop 에서 이 폼이 서지 않았고, gil 은 **"사람이
+	// 승낙하지 않았다"고 단언**했다. 사람은 거절한 적이 없다 — 방금 "gil 프로젝트 시작하자"고
+	// 말한 참이었다. 그러니 에이전트가 받은 것은 거짓이었고, 다시 불러도 같은 답이라 막다른
+	// 길이었다. 그래서 에이전트는 gil 을 우회했다: Bash → `git init`. 그 git 이 중간에 죽어
+	// 잠금이 남았고, 사람은 터미널 명령을 대신 쳐 달라는 부탁을 받았다.
+	//
+	// **거부 문구 하나가 우회를 만들고, 우회가 저장소를 반쯤 부쉈다.** 구분 못 하는 것을
+	// 단언하면 없던 사람 의사를 심고, 그건 곧 우회 압력이 된다 — #57 이 인터뷰에서 배운 것을
+	// 여기서 되풀이했다.
+	if err != nil || res == nil {
+		// 폼 자체가 성립하지 않았다. 이 호스트에는 네이티브 폼이 없는 것이다.
+		if said {
+			// 에이전트가 "사람에게 물어 승낙받았다"고 말했다. 그 말을 **출처와 함께** 받는다 —
+			// 폼의 승낙과 같은 것이라고 하지 않는다(구분되는 것은 구분해서 적는다).
+			return true, "폼 없는 호스트 — 에이전트가 사람에게 물어 승낙받았다고 보고"
+		}
+		return false, "" // 아래 startAdvance 가 "물어보고 다시 오라"로 안내한다
+	}
+	if res.Action != "accept" {
+		// 폼은 갔는데 accept 가 아니다. 사람이 취소했을 수도, 호스트가 못 그려 즉시 돌려준
+		// 것일 수도 있다 — 여기서는 구분할 수 없다(#57). 그러니 거절로 단정하지 않는다.
+		if said {
+			return true, "폼이 " + res.Action + " 로 돌아옴 — 에이전트가 사람에게 물어 승낙받았다고 보고"
+		}
 		return false, ""
 	}
 	if v, ok := res.Content["ok"].(bool); ok && !v {
-		return false, ""
+		// **이건 진짜 거절이다** — 폼이 사람에게 갔고 사람이 아니오를 골랐다. 유일하게 단언할 수 있는 자리.
+		return false, "declined"
 	}
 	return true, "사람이 호스트 폼에서 승낙"
 }
