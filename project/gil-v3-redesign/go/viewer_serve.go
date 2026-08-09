@@ -60,45 +60,24 @@ func assembleReference(chain string, answers []struct {
 	Type   string          `json:"type"`
 	Answer json.RawMessage `json:"answer"`
 }) string {
+	// 옮겨 적는 규칙은 **한 벌이다**(intake.go 의 writeRefSections) — 여기와 카드 쪽이 두
+	// 벌이던 동안 카드 쪽만 #109 를 안 배웠고, 그 차이가 조용히 체인 목적을 오염시켰다.
+	// 이 함수가 하는 일은 이제 답의 **모양을 알아보는 것**뿐이다(배열이냐 문자열이냐).
+	secs := make([]refSection, 0, len(answers))
+	for _, a := range answers {
+		s := refSection{Q: a.Q}
+		var arr []string
+		if json.Unmarshal(a.Answer, &arr) == nil {
+			s.List, s.Items = true, arr
+		} else if err := json.Unmarshal(a.Answer, &s.Text); err != nil {
+			s.Text = "" // 알아볼 수 없는 답은 없는 답으로 — 지어내지 않는다
+		}
+		secs = append(secs, s)
+	}
 	var b strings.Builder
 	b.WriteString("# 기준 문서 (레퍼런스 트루스) — " + chain + "\n\n")
 	b.WriteString("이 체인의 사이클·가설·성패판정이 비추어야 할 기준. 사람과의 인터뷰로 확정됐다.\n\n")
-	for i, a := range answers {
-		// 질문이 여러 줄이면 **첫 줄만 제목**이고 나머지는 인용(`> `)으로 접는다(이슈 #109).
-		// 제목 아래 맨 줄로 두면 그 줄들이 사람의 답과 구분되지 않아, --purpose-from 이
-		// 고르지도 않은 후보 목록까지 체인 목적에 통째로 박았다. 답은 답만이어야 한다.
-		qLines := strings.Split(strings.TrimSpace(a.Q), "\n")
-		b.WriteString("## " + itoa(i+1) + ". " + strings.TrimSpace(qLines[0]) + "\n\n")
-		for _, ql := range qLines[1:] {
-			b.WriteString("> " + strings.TrimSpace(ql) + "\n")
-		}
-		if len(qLines) > 1 {
-			b.WriteString("\n")
-		}
-		// answer 가 배열이면 리스트로, 문자열이면 문단으로.
-		var arr []string
-		if json.Unmarshal(a.Answer, &arr) == nil {
-			if len(arr) == 0 {
-				b.WriteString("_(답 없음)_\n\n")
-			} else {
-				for _, v := range arr {
-					b.WriteString("- " + strings.TrimSpace(v) + "\n")
-				}
-				b.WriteString("\n")
-			}
-			continue
-		}
-		var s string
-		if json.Unmarshal(a.Answer, &s) == nil {
-			if strings.TrimSpace(s) == "" {
-				b.WriteString("_(답 없음)_\n\n")
-			} else {
-				b.WriteString(strings.TrimSpace(s) + "\n\n")
-			}
-			continue
-		}
-		b.WriteString("_(답 없음)_\n\n")
-	}
+	writeRefSections(&b, secs)
 	return b.String()
 }
 

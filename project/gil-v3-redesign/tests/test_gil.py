@@ -12105,6 +12105,122 @@ class TestLongQuestionDoesNotBecomeTheAnswer(GilFixture):
         self.assertIn("radio", r.stderr)
 
 
+class TestTheCardWritesWhatTheParserReads(GilFixture):
+    """**기준 문서를 쓰는 규칙이 한 벌인가** — 카드 폼 경로로 끝까지 밟는다 (2026-08-10).
+
+    위 TestOnlyTheAnswerIsLifted 는 답 문서를 **손으로 써서** --resolve 로 넣는다. 그러니
+    그것이 재는 것은 파서이고, **쓰는 쪽**은 한 번도 안 밟힌다. 그 사이에 조립기가 두 벌이
+    됐고 카드 쪽만 #109 를 안 배웠다:
+
+      ① 여러 줄 질문을 `> ` 로 안 접어 2행 이후(고르지 않은 후보들)가 사람의 답으로 파싱됐다
+      ② 빈 답을 `(답 없음)` 으로 적어 파서가 못 걸러냈다 — 체인의 성패 기준이 **문자 그대로
+         "(답 없음)"** 으로 확정되고, 그 뒤 모든 판정이 빈 자를 대고 재는 일이 된다
+
+    둘 다 오류를 안 낸다. 커밋은 성공하고 git log 는 멀쩡해 보인다 — 그래서 조용히 틀린다."""
+
+    def _app(self):
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1", "GIL_NO_VERSION_CHECK": "1"})
+        self.addCleanup(p.terminate)
+        state = {"id": 0}
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                try:
+                    m = json.loads(ln.strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "unsupported"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        state["id"] += 1
+        send({"jsonrpc": "2.0", "id": state["id"], "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "app", "version": "0"}}})
+        pump(state["id"])
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        def call(name, args):
+            state["id"] += 1
+            send({"jsonrpc": "2.0", "id": state["id"], "method": "tools/call",
+                  "params": {"name": name, "arguments": args}})
+            r = pump(state["id"])
+            if r is None:
+                return "", "(응답 없음)"
+            if "error" in r:
+                return "", r["error"].get("message", "")
+            res = r["result"]
+            txt = "".join(c.get("text", "") for c in res.get("content", []))
+            return ("", txt) if res.get("isError") else (txt, "")
+        return call
+
+    # 1번은 **여러 줄** 질문(후보 나열), 3번은 사람이 비워 둘 칸.
+    QS = [{"q": "다음 시드 후보 중 무엇을 할까요?\n① 다중 모델 검증\n② 런타임 실행 검증\n"
+                "③ 문법 표면적\n이 셋 밖의 것도 좋습니다.", "type": "text"},
+          {"q": "무엇이 관측되면 풀린 것입니까", "type": "text"},
+          {"q": "덧붙일 것이 있습니까", "type": "text"}]
+
+    def _submit(self):
+        self.gil("init", "--name", "clew")
+        r = self.gil("intake", "sd", "--ask", "-",
+                     input=json.dumps(self.QS, ensure_ascii=False))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        call = self._app()
+        out, err = call("gil_interview_submit", {
+            "repo": self.repo, "chain": "sd",
+            "answers": json.dumps({"q1": "2번 해보자.", "q2": "런타임까지 돌려서 지표측정",
+                                   "q3": ""}, ensure_ascii=False)})
+        self.assertEqual(err, "", f"카드 제출이 막혔다:\n{err}")
+        return out
+
+    def test_the_long_questions_tail_is_not_the_humans_answer(self):
+        """사람은 "2번 해보자." 한 줄을 적었다 — 고르지 **않은** 후보가 목적에 박히면 안 된다."""
+        self._submit()
+        r = self.gil("chain", "sd-chain", "--from-intake", "sd",
+                     "--purpose-from", "1", "--criterion-from", "2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        purpose = self.trailer("sd-chain", "Gil-Chain-Purpose")
+        self.assertEqual(purpose, "2번 해보자.",
+                         "질문의 2행 이후가 사람의 답으로 섞였다: " + purpose)
+        for cand in ("다중 모델 검증", "문법 표면적", "이 셋 밖의 것도"):
+            self.assertNotIn(cand, purpose, f"고르지 않은 후보 '{cand}' 가 목적에 박혔다")
+
+    def test_an_empty_answer_is_empty_not_a_placeholder(self):
+        """빈 답은 **빈 것**이지 "(답 없음)" 이라는 답이 아니다 — 거절해야 한다."""
+        self._submit()
+        r = self.gil("chain", "sd2", "--from-intake", "sd",
+                     "--purpose-from", "1", "--criterion-from", "3")
+        both = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0,
+                            "빈 답이 성패 기준으로 확정됐다 — 그 뒤 판정은 빈 자를 대고 재는 일이 된다:\n" + both)
+        self.assertIn("비었다", both, "왜 거절인지 말하지 않았다:\n" + both)
+        self.assertNotIn("답 없음", self.trailer("sd2", "Gil-Chain-Criterion"),
+                         "자리표시자가 기준으로 기록됐다")
+
+    def test_both_writers_produce_the_same_shape(self):
+        """**규칙이 한 벌인지 문서로 확인한다** — 카드가 쓴 것을 파서가 읽어 답만 남는다."""
+        self._submit()
+        shown = self.gil("intake", "sd", "--status", "--show").stdout
+        self.assertIn("> ① 다중 모델 검증", shown,
+                      "여러 줄 질문이 인용으로 접히지 않았다 — 파서가 답과 구분하지 못한다")
+        self.assertIn("_(답 없음)_", shown,
+                      "빈 답이 파서가 아는 표기로 적히지 않았다")
+
+
 class TestCompetingSiblings(GilFixture):
     """경합 중인 형제 가설을 1급 상태로 (이슈 #106 · #107, 상현님).
 
@@ -14959,6 +15075,180 @@ class TestTheAnswerComesBackFromTheCard(GilFixture):
                                   ensure_ascii=False)})
         self.assertNotIn('data-act="interview-submit"', out,
                          "확정했는데 폼이 그대로 남았다")
+
+
+class TestTheButtonSendsWhatTheSchemaDemands(GilFixture):
+    """**버튼이 보내는 그 인자 모양 그대로** 프로토콜로 친다 (상현님 실사용 조사, 2026-08-10).
+
+    카드의 승인·기각 버튼은 `arguments:{}` 를 보냈는데 스키마는 `target` 을 필수로 광고했다.
+    그래서 호출은 gil 이 돌기도 **전에** 검증에서 죽었고, 사람 화면에 도착한 문장은
+    `거부됐다 — validating "arguments": … missing properties: ["target"]` 이었다.
+    비개발자가 pending 을 푸는 유일한 문이 그것이었다.
+
+    **이건 어느 쪽을 읽어서도 안 보인다.** 툴 목록은 스키마가 옳다고 말하고, 카드 HTML 은
+    버튼이 있다고 말하고, `gil approve` 는 CLI 에서 잘 돈다 — 셋 다 참인데 사람은 못 누른다.
+    셋을 잇는 자리(버튼의 data-* → tools/call 인자)를 실제로 밟아야 드러난다.
+    gil_chain 의 purpose 가 이미 같은 값을 치렀다: **스키마와 호출을 두 자리에 따로 적으면
+    한쪽만 낡는다.**"""
+
+    def _app(self):
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1", "GIL_NO_VERSION_CHECK": "1"})
+        self.addCleanup(p.terminate)
+        state = {"id": 0}
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "unsupported"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        state["id"] += 1
+        send({"jsonrpc": "2.0", "id": state["id"], "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "app", "version": "0"}}})
+        pump(state["id"])
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        def call(name, args):
+            state["id"] += 1
+            send({"jsonrpc": "2.0", "id": state["id"], "method": "tools/call",
+                  "params": {"name": name, "arguments": args}})
+            r = pump(state["id"])
+            if r is None:
+                return "", "(응답 없음)"
+            if "error" in r:
+                return "", r["error"].get("message", "")
+            res = r["result"]
+            txt = "".join(c.get("text", "") for c in res.get("content", []))
+            return ("", txt) if res.get("isError") else (txt, "")
+        return call
+
+    def _pending_repo(self):
+        """사람을 기다리는 스텝이 실제로 선 저장소 — 카드에 승인·기각 버튼이 뜨는 상태."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "ap", "--purpose", "버튼을 밟는다", "--reference", "-",
+                 "--criterion", "사람이 누를 수 있으면 된 것이다", input="기준")
+        self.gil("open", "ap/c1", "--purpose", "사이클", "--author", "clew")
+        r = self.gil("step", "ap/c1", "--kind", "pending",
+                     "--title", "이건 사람이 정해야 한다")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def _buttons(self, html):
+        """카드에서 `data-tool` 을 단 버튼을 뽑아, **껍데기 JS 가 하는 그대로** 인자를 만든다.
+
+        runAct 의 툴 갈래와 같은 규칙이어야 한다 — 여기서 다르게 만들면 시험은 초록인데
+        사람은 못 누르는 상태가 그대로 남는다(그게 이 결함의 모양이었다)."""
+        out = []
+        for tag in re.findall(r"<button\b[^>]*>", html):
+            tool = re.search(r'data-tool="([^"]*)"', tag)
+            if not tool:
+                continue
+            args = {}
+            tgt = re.search(r'data-target="([^"]*)"', tag)
+            if tgt:
+                args["target"] = tgt.group(1)
+            to = re.search(r'data-to="([^"]*)"', tag)
+            if to:
+                args["to"] = to.group(1)
+            args["repo"] = self.repo          # learnRepo 가 주워 싣는 값
+            out.append((tool.group(1), args))
+        return out
+
+    def test_the_pending_buttons_actually_run(self):
+        """승인 버튼이 보내는 인자로 실제로 승인이 된다 — 문법이 거절하지 않는다."""
+        self._pending_repo()
+        call = self._app()
+        card, err = call("gil_status_card", {"repo": self.repo})
+        self.assertEqual(err, "", f"카드를 못 받았다:\n{err}")
+        btns = self._buttons(card)
+        self.assertTrue(btns, "pending 인데 명령을 도는 버튼이 하나도 없다:\n" + card[:2000])
+        approve = [(t, a) for t, a in btns if t == "gil_approve"]
+        self.assertTrue(approve, "승인 버튼이 없다")
+        tool, args = approve[0]
+        out, err = call(tool, args)
+        self.assertEqual(err, "", f"승인 버튼이 보내는 인자가 거부됐다 — 사람이 여기서 막힌다.\n"
+                                  f"보낸 것: {args}\n돌아온 것: {err}")
+        self.assertIn("approve", out, out)
+
+    def test_every_command_button_carries_its_target(self):
+        """**규칙으로 센다.** 명령을 도는 버튼은 스키마가 필수라 한 것을 빠짐없이 싣는다.
+
+        낱낱이 열거하면 다음에 버튼이 늘 때 또 샌다 — 카드가 내는 모든 data-tool 버튼을
+        세고, 그 툴의 스키마가 required 라 한 필드가 인자에 있는지 본다."""
+        self._pending_repo()
+        call = self._app()
+        card, _ = call("gil_status_card", {"repo": self.repo})
+        btns = self._buttons(card)
+        self.assertTrue(btns, "명령을 도는 버튼이 없다")
+
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1", "GIL_NO_VERSION_CHECK": "1"})
+        self.addCleanup(p.terminate)
+        p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                  "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                             "clientInfo": {"name": "t", "version": "0"}}}) + "\n")
+        p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+        p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list",
+                                  "params": {}}) + "\n")
+        p.stdin.flush()
+        schemas = {}
+        while True:
+            ln = p.stdout.readline()
+            if not ln:
+                break
+            try:
+                m = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            if m.get("id") == 2:
+                for t in m["result"]["tools"]:
+                    schemas[t["name"]] = t.get("inputSchema", {})
+                break
+
+        for tool, args in btns:
+            req = schemas.get(tool, {}).get("required", [])
+            missing = [k for k in req if k not in args]
+            self.assertEqual(missing, [],
+                             f"{tool} 버튼이 스키마 필수 필드를 안 싣는다: {missing}\n"
+                             f"버튼이 보내는 것: {sorted(args)}\n"
+                             f"스키마가 요구하는 것: {req}\n"
+                             "→ 호출이 gil 에 닿기 전에 검증에서 죽고, 사람은 "
+                             '\'validating "arguments"…\' 를 본다.')
+
+    def test_reject_offers_no_dead_button(self):
+        """되돌아갈 자리가 없으면 **기각 버튼을 세우지 않는다** — 눌러도 안 열리는 칸을
+        가리키면 사람은 화면이 고장 났다고 읽는다. 없으면 없다고 적는다."""
+        self._pending_repo()
+        call = self._app()
+        card, _ = call("gil_status_card", {"repo": self.repo})
+        if 'data-open="gil-back"' in card:
+            self.assertIn('id="gil-back"', card,
+                          "기각 버튼이 없는 칸을 가리킨다 — 눌러도 아무 일도 안 일어난다")
+        else:
+            self.assertIn("되돌아갈", card, "기각할 수 없는 이유를 화면이 말하지 않는다")
 
 
 class TestAskingOpensTheScreen(GilFixture):

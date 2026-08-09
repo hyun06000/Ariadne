@@ -119,6 +119,65 @@ func intakeAnswerN(slug string, n int) string {
 
 type intakeSec struct{ q, answer string }
 
+// ── 기준 문서를 쓰는 자리 — **한 벌이다** (2026-08-10) ────────────────────────────
+//
+// 사람의 답을 마크다운으로 옮기는 규칙이 두 벌이었다(뷰어 폼 · 카드 폼). 그리고 **한쪽만
+// #109 를 배웠다.** 카드 쪽이 빠뜨린 둘은 둘 다 조용히 틀리는 종류다:
+//
+//	① 여러 줄 질문을 `> ` 로 안 접으면, 2행 이후가 아래 파서에게 **사람의 답으로** 보인다.
+//	   긴 질문의 후보 목록이 그대로 체인 목적에 박혔다(--purpose-from 이 그것을 집는다).
+//	② 빈 답을 `_(답 없음)_` 이 아닌 문자열로 적으면 파서가 못 걸러낸다. 그러면 체인의
+//	   목적·성패 기준이 **문자 그대로 "(답 없음)"** 으로 확정되고, 그 뒤 판정은 빈 자를
+//	   대고 재는 일이 된다. 카드의 빈-제출 가드는 "한 칸이라도 채워졌나"만 보므로
+//	   나머지 칸이 비어 있으면 실제로 통과한다.
+//
+// 그래서 쓰는 규칙을 여기 한 곳에 두고, 파서가 **같은 상수**를 읽는다. 두 자리에 같은 것을
+// 적으면 한쪽만 낡는다 — 이 결함 자체가 그 증거다.
+const (
+	refNoAnswer = "_(답 없음)_"
+	refNoChoice = "_(선택 없음)_"
+)
+
+// refSection — 기준 문서의 한 칸. 답은 목록(체크박스)이거나 한 덩이(text·radio)다.
+type refSection struct {
+	Q     string   // 질문 원문 — 여러 줄일 수 있다
+	Items []string // 목록형 답 (List 일 때만 본다)
+	Text  string   // 한 덩이 답
+	List  bool
+}
+
+// writeRefSections — 기준 문서의 본문. **머리글은 부르는 쪽이 붙인다** — 어디서 확정했는지는
+// 통로마다 다른 사실이라 통일하지 않는다. 통일해야 하는 것은 파서와 짝을 이루는 이 규칙뿐이다.
+func writeRefSections(b *strings.Builder, secs []refSection) {
+	for i, s := range secs {
+		// 질문이 여러 줄이면 **첫 줄만 제목**이고 나머지는 인용(`> `)으로 접는다(#109).
+		qLines := strings.Split(strings.TrimSpace(s.Q), "\n")
+		b.WriteString("## " + itoa(i+1) + ". " + strings.TrimSpace(qLines[0]) + "\n\n")
+		for _, ql := range qLines[1:] {
+			b.WriteString("> " + strings.TrimSpace(ql) + "\n")
+		}
+		if len(qLines) > 1 {
+			b.WriteString("\n")
+		}
+		if s.List {
+			if len(s.Items) == 0 {
+				b.WriteString(refNoChoice + "\n\n")
+				continue
+			}
+			for _, v := range s.Items {
+				b.WriteString("- " + strings.TrimSpace(v) + "\n")
+			}
+			b.WriteString("\n")
+			continue
+		}
+		if strings.TrimSpace(s.Text) == "" {
+			b.WriteString(refNoAnswer + "\n\n")
+			continue
+		}
+		b.WriteString(strings.TrimSpace(s.Text) + "\n\n")
+	}
+}
+
 // intakeSections — 누적 문서를 (질문, 답) 목록으로. 트레일러·구분선은 걷어낸다.
 func intakeSections(slug string) []intakeSec {
 	body := stripTrailers(intakeAnswers(slug))
@@ -132,11 +191,15 @@ func intakeSections(slug string) []intakeSec {
 		var parts []string
 		for _, ln := range buf {
 			t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ln), "- "))
-			if t == "" || t == "_(답 없음)_" || t == "---" || strings.HasPrefix(t, "\u2500\u2500 ") {
+			// 빈 답 표기는 **쓰는 쪽의 상수를 그대로 읽는다**(위 refNoAnswer·refNoChoice).
+			// 여기에 문자열을 다시 적으면 쓰는 쪽이 바뀔 때 이쪽만 낡고, 그 순간 빈 답이
+			// 사람의 답으로 파싱되어 체인 목적에 문자 그대로 박힌다.
+			if t == "" || t == refNoAnswer || t == refNoChoice || t == "---" ||
+				strings.HasPrefix(t, "── ") {
 				continue
 			}
-			// \uc778\uc6a9(`> `)\uc740 **\uc9c8\ubb38\uc758 \uc774\uc5b4\uc9c0\ub294 \uc904**\uc774\uc9c0 \uc0ac\ub78c\uc758 \ub2f5\uc774 \uc544\ub2c8\ub2e4(\uc774\uc288 #109). \uae34 \uc9c8\ubb38\uc758
-			// \ud6c4\ubcf4 \ubaa9\ub85d\uc774 \ub2f5\uc73c\ub85c \uc11e\uc5ec \ub4e4\uc5b4\uac00 \uccb4\uc778 \ubaa9\uc801\uc5d0 \ud1b5\uc9f8\ub85c \ubc15\ud788\ub358 \uc790\ub9ac\ub2e4.
+			// 인용(`> `)은 **질문의 이어지는 줄**이지 사람의 답이 아니다(이슈 #109). 긴 질문의
+			// 후보 목록이 답으로 섞여 들어가 체인 목적에 통째로 박히던 자리다.
 			if strings.HasPrefix(t, ">") {
 				continue
 			}

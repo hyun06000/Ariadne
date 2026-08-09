@@ -823,36 +823,30 @@ func elicitSchema(qs []interviewQ) []byte {
 // assembleReference — 사람의 답을 그대로 기준 문서로 옮긴다. LLM 의 요약·윤색을 끼우지 않는다
 // (윤색이 들어가는 순간 "사람의 답이 기준"이라는 성질이 깨진다).
 func mcpAssembleReference(chain string, qs []interviewQ, ans map[string]any) string {
+	// 옮겨 적는 규칙은 **한 벌이다**(intake.go 의 writeRefSections). 전에는 여기가 제 규칙을
+	// 따로 갖고 있었고, 그래서 #109 를 안 배운 채였다 — 여러 줄 질문을 접지 않아 2행 이후가
+	// 사람의 답으로 파싱됐고, 빈 답을 파서가 못 걸러 체인 목적이 문자 그대로 "(답 없음)" 으로
+	// 확정됐다. 이 함수가 하는 일은 이제 폼의 키(q1 · q1_o2)를 답으로 푸는 것뿐이다.
+	secs := make([]refSection, 0, len(qs))
+	for i, q := range qs {
+		base := "q" + strconv.Itoa(i+1)
+		s := refSection{Q: q.Q}
+		if q.Type == "checkbox" {
+			s.List = true
+			for j, o := range q.Options {
+				if v, ok := ans[base+"_o"+strconv.Itoa(j+1)].(bool); ok && v {
+					s.Items = append(s.Items, o)
+				}
+			}
+		} else {
+			s.Text, _ = ans[base].(string)
+		}
+		secs = append(secs, s)
+	}
 	var b strings.Builder
 	b.WriteString("# 기준 문서 — " + chain + "\n\n")
 	b.WriteString("사람과의 인터뷰(호스트 네이티브 폼)로 확정했다. 이후 사이클의 성패는 이 기준에 비추어 판정한다.\n\n")
-	for i, q := range qs {
-		base := "q" + strconv.Itoa(i+1)
-		b.WriteString("## " + strconv.Itoa(i+1) + ". " + q.Q + "\n\n")
-		switch q.Type {
-		case "checkbox":
-			var picked []string
-			for j, o := range q.Options {
-				if v, ok := ans[base+"_o"+strconv.Itoa(j+1)].(bool); ok && v {
-					picked = append(picked, o)
-				}
-			}
-			if len(picked) == 0 {
-				b.WriteString("(선택 없음)\n\n")
-			} else {
-				for _, p := range picked {
-					b.WriteString("- " + p + "\n")
-				}
-				b.WriteString("\n")
-			}
-		default:
-			s, _ := ans[base].(string)
-			if strings.TrimSpace(s) == "" {
-				s = "(답 없음)"
-			}
-			b.WriteString(s + "\n\n")
-		}
-	}
+	writeRefSections(&b, secs)
 	return b.String()
 }
 

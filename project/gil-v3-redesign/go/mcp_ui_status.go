@@ -269,7 +269,14 @@ func statusCardShellHTML() string {
     }
     if(tool){
       // 진짜 명령이 돈다(pending 의 승인·기각). 결과는 사람에게 한 줄로 알린다.
-      var args={}; if(to) args.to=to;
+      // **대상과 저장소를 함께 싣는다.** target 은 스키마가 필수로 광고하므로 빼면 호출이
+      // gil 에 닿기 전에 검증에서 죽고, repo 를 빼면 서버가 선 자리(cwd)에 기댄다 — 앱의
+      // 조회에 인자가 없어서 거부됐던 그 자리다(위 learnRepo 주석, 실측 isError 13회).
+      // 인터뷰 제출은 처음부터 둘 다 실었는데 이 갈래만 안 실었다.
+      var args={};
+      var tgt=b.getAttribute("data-target"); if(tgt) args.target=tgt;
+      if(to) args.to=to;
+      if(repo) args.repo=repo;
       var i=++id;
       pending[i]=function(res,err){
         if(err){ say("돌지 않았다: "+String((err&&(err.message||err.code))||err)); return; }
@@ -390,7 +397,7 @@ func statusActionsHTML(st statusOut) string {
 	}
 	ref := st.Chain.Name + "/" + st.Cycle.Name + "/" + st.Step.ID
 	if st.Waiting != nil && st.Waiting.Kind == "approval" {
-		return pendingActionsHTML(st, ref)
+		return pendingActionsHTML(st)
 	}
 	// 사람의 판정을 대화에 넣는다. 문장은 **에이전트가 다음에 할 일**까지 말한다 — "승인함"
 	// 한 줄만 던지면 그 뒤가 세션마다 갈린다.
@@ -428,15 +435,29 @@ func statusActionsHTML(st statusOut) string {
 // 기각은 되돌아갈 자리를 요구한다(gil reject --to). 그 문자열을 비개발자가 알 방법은 없으므로
 // (그래프를 읽고 스텝을 세어야 나온다) 후보를 **무엇을 잃는가와 함께** 버튼으로 세운다 —
 // 사람이 고르는 근거는 "s4"가 아니라 "s5~s7 이 버려진다"다.
-func pendingActionsHTML(st statusOut, ref string) string {
+func pendingActionsHTML(st statusOut) string {
+	// **대상을 버튼이 싣는다.** `gil approve`·`gil reject` 는 `<chain>/<cycle>` 을 위치인자로
+	// 받고 스키마도 그것을 필수로 광고한다(mcp.go 의 inApprove.Target·inReject.Target).
+	// 안 실으면 호출이 gil 에 닿기도 **전에** 검증에서 죽고, 사람 화면에는 runAct 가 받은
+	// 첫 줄이 그대로 찍힌다 — `거부됐다 — validating "arguments"… missing properties: ["target"]`.
+	// 비개발자에게 도착하는 문장이 그것이었다. 카드는 이 값을 이미 알고 있었다(바로 아래
+	// 두 줄이 그것이다) — 넘기지 않고 있었을 뿐이다. gil_chain 의 purpose 가 이미 값을
+	// 치른 병이고, 스키마와 호출을 **두 자리에 따로 적으면 한쪽만 낡는다**.
+	target := st.Chain.Name + "/" + st.Cycle.Name
 	var b strings.Builder
 	b.WriteString(`<div class="acts">` +
-		`<button class="btn primary" data-act="approve" data-tool="gil_approve">승인</button>` +
-		`<button class="btn" data-act="reject" data-open="gil-back">기각 — 되돌아갈 단계를 고른다</button>` +
-		`</div>`)
+		`<button class="btn primary" data-act="approve" data-tool="gil_approve" data-target="` +
+		esc(target) + `">승인</button>`)
+	// **되돌아갈 자리가 없으면 그 버튼을 세우지 않는다.** data-open 이 가리키는 칸이 없으면
+	// 눌러도 아무 일도 안 일어나고(핸들러가 box==null 에서 조용히 끝난다), 사람은 화면이
+	// 고장 났다고 읽는다. 없는 것과 안 도는 것은 다르다 — 없으면 없다고 적는다.
 	if len(st.Rollback) == 0 {
+		b.WriteString(`</div><div class="none">기각하려면 되돌아갈 define 단계가 있어야 한다 — ` +
+			`이 사이클엔 아직 없다.</div>`)
 		return b.String()
 	}
+	b.WriteString(`<button class="btn" data-act="reject" data-open="gil-back">기각 — 되돌아갈 단계를 고른다</button>` +
+		`</div>`)
 	b.WriteString(`<div id="gil-back" class="panel" hidden>` +
 		`<div class="lbl">어느 단계로 되돌아가나 — 고르면 그 뒤 단계가 버려진다</div>`)
 	for _, c := range st.Rollback {
@@ -445,7 +466,8 @@ func pendingActionsHTML(st statusOut, ref string) string {
 			lose = "버려진다: " + foldRanges(c.Discards)
 		}
 		b.WriteString(`<div class="backrow">` +
-			`<button class="btn" data-act="reject" data-tool="gil_reject" data-to="` + esc(c.ID) + `">` +
+			`<button class="btn" data-act="reject" data-tool="gil_reject" data-target="` + esc(target) +
+			`" data-to="` + esc(c.ID) + `">` +
 			esc(c.ID) + `</button>` +
 			`<span class="backlab">` + esc(clip(c.Label, 70)) + `</span>` +
 			`<span class="backlose">` + esc(lose) + `</span></div>`)
