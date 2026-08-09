@@ -80,6 +80,18 @@ var terminalOnly = map[string]string{
 	"help":           "표면의 목록 — MCP 에서는 툴 목록이 그 일을 한다.",
 }
 
+// appOnlyTools — **화면이 부르는 통로**. 모델의 목록에는 안 뜨고(visibility: app), 응답은
+// 사람이 보는 카드 HTML 이다.
+//
+// 왜 표로 두나. 세션 앞머리(도착 고지·버전 문의)는 **에이전트에게 하는 말**이라, 카드로 가는
+// 응답에 붙이면 사람 화면 한복판에 그 문장이 앉는다. 그래서 앞머리 미들웨어가 이 표를 보고
+// 비켜선다. 등록 자리에 흩어 두면 한쪽만 낡으므로 표면을 아는 다른 두 표 옆에 둔다 —
+// **시험이 소스의 visibility:["app"] 등록을 세어 이 표와 대조한다.**
+var appOnlyTools = map[string]string{
+	"gil_interview_submit": "사람이 카드 폼에 적은 답이 돌아오는 통로.",
+	"gil_status_card":      "화면이 제 내용을 가져오는 통로.",
+}
+
 // surfaceCmd — 이 명령을 **지금 표면의 문법으로** 부른다.
 //
 // CLI 에서는 `gil intake`, MCP 에서는 `gil_intake 툴`. 새로 쓰는 안내는 이걸 쓴다 —

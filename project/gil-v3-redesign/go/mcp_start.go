@@ -78,7 +78,7 @@ func registerStartTools(s *mcp.Server) {
 		if extra := startElicitIntake(ctx, req); extra != "" {
 			out += extra
 		}
-		return text(versionAskBanner() + out), nil, nil
+		return text(out), nil, nil // 앞머리는 installLeadMiddleware 가 붙인다(두 번 붙지 않게)
 	})
 
 	registerEntryTools(s)

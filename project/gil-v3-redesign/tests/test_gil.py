@@ -14877,6 +14877,167 @@ class TestTheWorldStandsOnlyWhereSomeoneChose(GilFixture):
         self.assertIn("gil init 완료", out)
 
 
+class TestArrivalsReachTheMCPSession(GilFixture):
+    """**도착 고지가 MCP 세션에도 선다** (뷰어 제거 조사, 2026-08-10).
+
+    사람이 자기 몫을 다했는데 그 사실이 에이전트에게 안 닿으면, 사람이 다시 말을 걸어야
+    한다 — 그걸 막으려고 이슈 #77 이 세운 기구다(⚡ 인터뷰 답·승인·기각·삭제).
+
+    그런데 그 기구의 **유일한 호출자가 main.go 의 부팅 자리**였고, MCP 툴 호출은
+    toolUI→runGil 로 cmd* 를 직접 부르므로 그 자리를 지나지 않는다. 즉 MCP 로 도는 세션은
+    이 고지를 **한 번도** 못 받았다. 카드에서 답을 제출해도, 승인을 눌러도.
+
+    이건 새로 발견한 병이 아니다 — 같은 자리에서 versionAskBanner 가 이미 같은 이유로
+    따로 붙어 있었고(mcp.go 의 주석이 그 이유를 적어 뒀다), **그 옆줄에서 이 기구가 빠진
+    것을 아무도 안 봤다.** 한쪽을 고치고 그 짝을 안 본 자리가 하나 더 있었던 것이다."""
+
+    def _app(self):
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1", "GIL_NO_VERSION_CHECK": "1"})
+        self.addCleanup(p.terminate)
+        state = {"id": 0}
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                try:
+                    m = json.loads(ln.strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "x"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        state["id"] += 1
+        send({"jsonrpc": "2.0", "id": state["id"], "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "app", "version": "0"}}})
+        pump(state["id"])
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        def call(name, args):
+            state["id"] += 1
+            send({"jsonrpc": "2.0", "id": state["id"], "method": "tools/call",
+                  "params": {"name": name, "arguments": args}})
+            r = pump(state["id"])
+            if r is None:
+                return "(응답 없음)"
+            if "error" in r:
+                return r["error"].get("message", "")
+            return "".join(c.get("text", "") for c in r["result"].get("content", []))
+        return call
+
+    def _human_answered(self):
+        """사람이 카드 폼에 답을 제출한 상태까지 — 그 다음 에이전트가 알아야 한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("intake", "sd", "--ask", "-",
+                 input=json.dumps([{"q": "무엇을 하려 하십니까", "type": "text"}],
+                                  ensure_ascii=False))
+        call = self._app()
+        out = call("gil_interview_submit", {
+            "repo": self.repo, "chain": "sd",
+            "answers": json.dumps({"q1": "사내 규정을 쉽게 찾게 하고 싶다."}, ensure_ascii=False)})
+        self.assertNotIn("확정하지 못했다", out, out)
+
+    def test_the_agent_learns_the_human_answered(self):
+        """제출은 됐는데 에이전트가 모르면, 사람이 다시 말을 걸어야 한다."""
+        self._human_answered()
+        out = self._app()("gil_status", {"repo": self.repo})
+        self.assertIn("⚡", out,
+                      "사람이 답했는데 MCP 세션이 그 사실을 못 받았다:\n" + out[:1200])
+        self.assertIn("sd", out, "어느 인터뷰가 도착했는지 안 말한다")
+
+    def test_the_notice_does_not_point_at_a_tool_that_is_not_here(self):
+        """prune 은 이 표면에 툴이 없다 — 날것으로 적으면 없는 gil_prune 을 파생한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+        self.gil("chain-close", "a", "--verdict", "supported", "--retro", "-", input="회고")
+        self.gil("prune", "a", "--request", "--reason", "이주 완료")
+        # 사람이 뷰어/카드가 아니라 CLI 로 승인했더라도 --by 가 붙으면 사람의 손이다.
+        r = self.gil("prune-approve", "a", "--by", "card")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = self._app()("gil_status", {"repo": self.repo})
+        self.assertIn("삭제를 **승인했다**", out, "삭제 승인이 MCP 세션에 안 닿았다:\n" + out[:1200])
+        self.assertIn("이 표면엔 툴이 없다", out,
+                      "터미널 전용 명령을 이 표면의 툴인 것처럼 가리킨다:\n" + out[:1200])
+
+    def test_the_lead_stands_on_every_registration_path(self):
+        """**등록 자리를 열거하지 않는다** — 앞머리는 미들웨어 하나가 붙인다.
+
+        이 병의 모양이 그거였다: 툴을 등록하는 자리가 여섯인데 앞머리를 둘에만 붙여 놨고,
+        그래서 gil_status·gil_graph 로만 도는 세션은 통째로 비껴갔다. 붙이는 자리를 세지
+        말고, **붙는 자리가 하나임**을 센다."""
+        go = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "go")
+        src = ""
+        for fn in sorted(os.listdir(go)):
+            if fn.endswith(".go"):
+                with open(os.path.join(go, fn), encoding="utf-8") as f:
+                    src += f"\n// ===== {fn} =====\n" + f.read()
+        # 배너를 **부를 자격이 있는 파일**은 셋뿐이다: 각자를 정의한 자리(그 안에서 CLI
+        # 부팅용 print 가 자기를 부른다)와, MCP 앞머리를 붙이는 한 자리.
+        allowed = {"version.go", "interview_notice.go", "mcp_lead.go"}
+        stray = []
+        for fn in sorted(os.listdir(go)):
+            if not fn.endswith(".go") or fn in allowed:
+                continue
+            with open(os.path.join(go, fn), encoding="utf-8") as f:
+                body = f.read()
+            for banner in ("versionAskBanner()", "arrivalBanner()"):
+                # 주석에서 이름을 말하는 것은 사실이다 — 호출만 센다.
+                for ln in body.split("\n"):
+                    t = ln.strip()
+                    if banner in t and not t.startswith("//"):
+                        stray.append(f"{fn}: {t[:90]}")
+        self.assertEqual(stray, [],
+                         "등록 자리에서 앞머리를 직접 붙인다 — 그러면 붙이는 자리를 열거하게 "
+                         "되고, 등록 자리가 하나 늘 때 또 샌다(이 병의 모양이 그것이었다):\n  "
+                         + "\n  ".join(stray))
+        del src
+
+    def test_app_only_tools_are_declared(self):
+        """**화면이 부르는 통로는 선언돼 있어야 한다** — 앞머리가 그 표를 보고 비켜선다.
+
+        선언을 빠뜨리면 에이전트에게 하는 말(⚡ 도착 고지·버전 문의)이 사람이 보는 카드
+        한복판에 앉는다. 표를 손으로 맞추지 말고, 소스의 실제 등록을 세어 대조한다."""
+        go = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "go")
+        declared, registered = set(), set()
+        for fn in sorted(os.listdir(go)):
+            if not fn.endswith(".go"):
+                continue
+            with open(os.path.join(go, fn), encoding="utf-8") as f:
+                src = f.read()
+            if fn == "surface.go":
+                blk = src[src.index("var appOnlyTools"):]
+                blk = blk[:blk.index("\n}")]
+                declared |= set(re.findall(r'"(gil_[a-z_]+)"\s*:', blk))
+            for m in re.finditer(r'\[\]string\{"app"\}', src):
+                head = src[:m.start()]
+                names = re.findall(r'Name:\s*"(gil_[a-z_]+)"', head)
+                if not names:
+                    continue
+                # visibility 에 model 이 함께 있으면 앱 전용이 아니다(모델도 부른다).
+                line_start = src.rfind("\n", 0, m.start())
+                if '"model"' in src[line_start:m.end()]:
+                    continue
+                registered.add(names[-1])
+        self.assertEqual(registered, declared,
+                         f"소스의 앱 전용 등록과 surface.go 의 표가 어긋난다.\n"
+                         f"  등록: {sorted(registered)}\n  선언: {sorted(declared)}")
+
+
 class TestTheCardKeepsUpAndKeepsWhatWasWritten(GilFixture):
     """**화면이 스스로 따라가고, 따라가면서 사람이 쓰던 것을 잃지 않는다** (2026-08-10).
 

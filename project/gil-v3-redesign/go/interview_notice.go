@@ -223,13 +223,15 @@ func markAllPruneActsSeen() {
 
 // noticeArrivedInterviews — 어떤 명령을 부르든 맨 앞에 한 줄. 이게 이 이슈의 핵심이다:
 // 통지가 아니라 **다음 접촉 때의 강제 고지**.
-func noticeArrivedInterviews() {
+func arrivalBanner() string {
+	var out strings.Builder
+	emit := func(s string) { out.WriteString(s + "\n") }
 	// 저장소 밖에서는 고지할 것이 없다 — 그리고 **죽으면 안 된다**. 이 고지는 친절이지
 	// 관문이 아닌데, git 저장소가 아닌 폴더에서 gil init 을 부르면 여기서 먼저 죽어
 	// "gil init 이 git init 을 안 해준다"로 보였다(상현님 실사용). init 은 무에서 세우는
 	// 명령이다 — 그 앞에 저장소를 요구하는 것이 서 있으면 안 된다.
 	if !gitOK("rev-parse", "--git-dir") {
-		return
+		return ""
 	}
 	// 사람의 판정(승인/기각)도 같은 자리에서 알린다 — 사람이 자기 몫을 다했는데 그 사실이
 	// 닿지 않으면 사람이 다시 말을 걸어야 한다(상현님 실사용).
@@ -240,25 +242,30 @@ func noticeArrivedInterviews() {
 			what, next = "기각했다", "되돌아간 자리에서 새 가지를 파라: gil step "+j.chain+"/"+j.cycle+
 				" --kind hypothesis --to <조상 define|analyze> --inherit <이 기각에서 배운 것>"
 		}
-		stderr("⚡ 사람의 판정이 도착했다 — " + j.chain + "/" + j.cycle + " 의 pending 을 사람이 **" + what + "**(" + j.step + ").")
-		stderr("   " + next)
+		emit("⚡ 사람의 판정이 도착했다 — " + j.chain + "/" + j.cycle + " 의 pending 을 사람이 **" + what + "**(" + j.step + ").")
+		emit("   " + next)
 	}
 	for _, a := range arrivedPruneActs() {
+		// **prune 은 이 표면에 툴이 없다**(terminalOnly). 날것으로 `gil prune …` 이라 적으면
+		// 규칙(`gil x` → `gil_x` 툴)에 따라 에이전트가 없는 `gil_prune` 을 파생해 부른다 —
+		// 안내가 없는 곳을 가리키는 그 병이다. surfaceCall 이 표면마다 사실을 말한다.
 		if a.kind == "prune-approve" {
-			stderr("⚡ 사람이 삭제를 **승인했다** — " + a.target + ". 승인만으로는 아무것도 안 지워졌다.")
-			stderr("   실행하려면 확인 문구까지: gil prune " + a.target + " --confirm " + a.target + " --reason <왜>")
-			stderr("   (정말 지울 것인지 한 번 더 판단하라 — 되돌릴 수 없다. 폐기로 충분하면 chain-retire.)")
+			emit("⚡ 사람이 삭제를 **승인했다** — " + a.target + ". 승인만으로는 아무것도 안 지워졌다.")
+			emit("   실행하려면 확인 문구까지: " +
+				surfaceCall("prune", a.target+" --confirm "+a.target+" --reason <왜>", ""))
+			emit("   (정말 지울 것인지 한 번 더 판단하라 — 되돌릴 수 없다. 폐기로 충분하면 chain-retire.)")
 		} else {
-			stderr("⚡ 사람이 삭제 요청을 **거뒀다** — " + a.target + ". 지우지 마라.")
-			stderr("   다시 필요해지면 처음부터: gil prune " + a.target + " --request --reason <왜>")
+			emit("⚡ 사람이 삭제 요청을 **거뒀다** — " + a.target + ". 지우지 마라.")
+			emit("   다시 필요해지면 처음부터: " +
+				surfaceCall("prune", a.target+" --request --reason <왜>", ""))
 		}
 	}
 	chains := arrivedInterviews()
 	if len(chains) == 0 {
 		if len(arrivedJudgments()) > 0 || len(arrivedPruneActs()) > 0 {
-			stderr("")
+			emit("")
 		}
-		return
+		return out.String()
 	}
 	for _, c := range chains {
 		// 개시 인터뷰(gil intake)는 체인이 아니다 — "체인 X" 라고 부르고 gil interview 로
@@ -267,10 +274,22 @@ func noticeArrivedInterviews() {
 		if chainPurpose(c, "--branches") == "" && intakeState(c) != "" {
 			cmd, what = "intake", "개시 인터뷰 "+c+" 에 사람이 답했다"
 		}
-		stderr("⚡ 인터뷰 답이 도착해 있다 — " + what + "(아직 안 읽었다).")
-		stderr("   읽어라: gil " + cmd + " " + c + " --status   (읽으면 이 고지는 사라진다)")
+		emit("⚡ 인터뷰 답이 도착해 있다 — " + what + "(아직 안 읽었다).")
+		emit("   읽어라: " + surfaceCall(cmd, c+" --status", "name=\""+c+"\", status=true") +
+			"   (읽으면 이 고지는 사라진다)")
 	}
-	stderr("")
+	emit("")
+	return out.String()
+}
+
+// noticeArrivedInterviews — CLI 부팅 자리. 위 배너를 그대로 낸다.
+//
+// **두 벌이 아니다.** 배너를 만드는 규칙은 arrivalBanner 하나이고, 여기와 MCP 미들웨어가
+// 같은 것을 읽는다 — 버전 문의가 versionAskPrint/versionAskBanner 로 이미 낸 길이다.
+func noticeArrivedInterviews() {
+	if s := strings.TrimRight(arrivalBanner(), "\n"); s != "" {
+		stderr(s)
+	}
 }
 
 // interviewWaitingLines — handoff 최상단 '사람 답 대기' 종합 절에 실을 인터뷰 대기(이슈 #77).

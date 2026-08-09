@@ -155,6 +155,9 @@ func cmdMCP(args []string) {
 	// roots 훅은 툴 등록보다 **먼저** 선다 — 어느 툴이든 실제 일을 하기 전에 저장소가 정해져
 	// 있어야 한다. 뒤에 걸면 등록 순서에 따라 어떤 툴은 저장소 없이 들어간다.
 	installRootsMiddleware(s)
+	// 세션 앞머리(버전 문의 · ⚡ 도착 고지)를 **모든 툴 응답**에 세운다. 등록 자리마다
+	// 붙이면 하나 늘 때 또 샌다 — 실제로 그렇게 샜다(installLeadMiddleware 주석).
+	installLeadMiddleware(s)
 	registerGilTools(s)
 	registerStartTools(s) // 진입점(gil_start)과 표면의 빈 칸들 — mcp_start.go
 	registerGilUI(s)
@@ -275,13 +278,8 @@ func toolUI[In any](s *mcp.Server, name, desc string, meta mcp.Meta, argv func(I
 			if name == "gil_log" || name == "gil_handoff" || name == "gil_fsck" {
 				out = repoBanner() + out
 			}
-			// 버전 문의는 **어느 툴을 부르든** 맨 앞에 선다. MCP 는 cmd* 를 직접 부르므로
-			// main 의 부팅 자리(versionAskPrint)를 지나지 않는다 — 그래서 MCP 호스트로 도는
-			// 세션만 낡은 gil 을 쥔 줄 끝까지 몰랐다(실사용: 최신이 나왔는데 구버전으로 계속 돎).
-			// 6시간 규칙이 같이 서니 세션당 한 번이고, handoff 는 제 현행성 배너가 이미 묻는다.
-			if name != "gil_handoff" {
-				out = versionAskBanner() + out
-			}
+			// 세션 앞머리(버전 문의·도착 고지)는 여기가 아니라 **미들웨어**가 붙인다 —
+			// 등록 자리가 여섯이라 여기에만 붙이면 나머지 다섯이 샌다(installLeadMiddleware).
 			return text(out), nil, nil
 		})
 }
