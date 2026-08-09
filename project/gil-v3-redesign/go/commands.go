@@ -15,9 +15,10 @@ import (
 )
 
 // 브랜치 네이밍 (D/F 충돌 회피: 슬래시 대신 하이픈). 위상은 git 브랜치, 의미는 트레일러.
-//   체인       = <chain>
-//   사이클     = <chain>-<cycle>
-//   스텝 가지  = <chain>-<cycle>-<to>b<n>  (형제/backtrack 분기 시에만)
+//
+//	체인       = <chain>
+//	사이클     = <chain>-<cycle>
+//	스텝 가지  = <chain>-<cycle>-<to>b<n>  (형제/backtrack 분기 시에만)
 func cycleBranch(chain, cycle string) string { return chain + "-" + cycle }
 func stepBranch(chain, cycle, to string, n int) string {
 	return chain + "-" + cycle + "-" + to + "b" + strconv.Itoa(n)
@@ -115,9 +116,11 @@ func guideNext(kind string) {
 }
 
 // commitOn — 지정한 브랜치 위에 커밋한다. 분기는 진짜 git 브랜치로(상현님, SPEC 원칙 3).
-//   branch=="" : 현재 HEAD 에 커밋(브랜치 이동 없음).
-//   createFrom!="" : createFrom 커밋/브랜치에서 새 브랜치 branch 를 파고(checkout -b) 커밋.
-//   createFrom=="" && branch!="" : 기존 브랜치 branch 로 checkout 후 커밋(이어가기).
+//
+//	branch=="" : 현재 HEAD 에 커밋(브랜치 이동 없음).
+//	createFrom!="" : createFrom 커밋/브랜치에서 새 브랜치 branch 를 파고(checkout -b) 커밋.
+//	createFrom=="" && branch!="" : 기존 브랜치 branch 로 checkout 후 커밋(이어가기).
+//
 // git 브랜치가 위상의 진실원, Gil-* 트레일러가 의미의 진실원 — 한 커밋에 둘 다 실린다.
 func commitOn(branch, createFrom, subject, body string, trailers [][2]string, allowEmpty bool) {
 	if branch != "" {
@@ -135,7 +138,7 @@ func commitOn(branch, createFrom, subject, body string, trailers [][2]string, al
 			git("checkout", "-q", branch)
 		}
 	}
-	defer anchorHead()            // 새긴 커밋을 브랜치 없는 자리에 두지 않는다(이슈 #83)
+	defer anchorHead()           // 새긴 커밋을 브랜치 없는 자리에 두지 않는다(이슈 #83)
 	defer invalidateGraphNodes() // 커밋했으니 읽어 둔 그래프는 낡았다(캐시 무효화)
 	msg := subject + "\n\n" + strings.TrimRight(body, "\n \t") + "\n\n"
 	var trs []string
@@ -480,7 +483,9 @@ func guideRefutes(targets []string) {
 // (AIL #1 제안 B). 후속 사이클/스텝이 앞서 닫힌 supported verify 판정을 뒤늦게 반증했음을
 // 계보에 forward-pointing 간선으로 남긴다 — verdict 를 뒤집지(supersede) 않고, 과거는
 // 불변 보존하되 새 간선으로 재조명한다("새 진실은 앞에 산다"). 대상은 반드시:
-//   (a) 실재하는 스텝, (b) 그 사이클이 close 로 봉인됨, (c) kind==verify, (d) verdict==supported.
+//
+//	(a) 실재하는 스텝, (b) 그 사이클이 close 로 봉인됨, (c) kind==verify, (d) verdict==supported.
+//
 // (fail/refuted 를 반증하는 건 무의미하므로 supported 만 대상.)
 func resolveRefutes(targets []string) {
 	if len(targets) == 0 {
@@ -1026,8 +1031,8 @@ func cmdStep(args []string) {
 	// 제안 2 (AIL #1): hypothesis 는 반증조건과 "반증 시 되돌아갈 조상 define"을 문법으로
 	// 요구한다. 반증 불가능한 가설엔 fail 이 생길 수 없어 체인이 일자로만 흐른다 —
 	// 반증조건을 필수 필드로 심으면 verify 실패가 자동으로 backtrack 경로를 갖는다.
-	falsify := fs.str("falsify", "")       // 반증조건: 무엇이 관측되면 이 가설은 거짓인가
-	falsifyTo := fs.str("falsify-to", "")  // 반증 시 되돌아갈 조상 define
+	falsify := fs.str("falsify", "")      // 반증조건: 무엇이 관측되면 이 가설은 거짓인가
+	falsifyTo := fs.str("falsify-to", "") // 반증 시 되돌아갈 조상 define
 	// 미종결 잎을 두고 새 가지로 떠나는 것을 막되, 벽이 되지 않게 탈출구(이슈 #78).
 	leaveOpen := fs.boolFlag("leave-open")
 	// --competing (이슈 #106·#107, 상현님: "세 축 다 병렬로 — 그러려고 gil 이 있는 거니까").
@@ -1058,14 +1063,14 @@ func cmdStep(args []string) {
 	// 그래서 falsify 와 같은 자리에 둔다: 가설을 세우는 순간 "이번에 무엇을 몇 개 만들 것인가"를
 	// 못박게 하고, verify 가 그 설계가 유지됐는지(held) 깨졌는지(broke)를 문법으로 답하게 한다.
 	// 틀려도 손해가 아니다 — 깨진 설계는 되돌아갈 자리를 가리키는 가장 좋은 신호다(상현님).
-	plan := fs.str("plan", "")            // hypothesis 전용: 이번에 만들 것을 수로 고정
+	plan := fs.str("plan", "") // hypothesis 전용: 이번에 만들 것을 수로 고정
 	// 체인 목적을 매 스텝 각인한다(상현님, 2026-07-28). 사이클은 체인의 목적을 위해 존재하는데,
 	// 스텝을 밟다 보면 사이클 안의 국소적 성패만 남고 "그래서 체인 목적에 다가섰나"가 사라진다.
 	// 가설에서 **얼마나 다가설 것인가**를 선언하고, 종결에서 **얼마나 다가섰나 + 다음 설계는
 	// 무엇인가**로 회고한다. 그 둘이 계보를 타고 다음 세대로 전파된다(gil context).
-	advances := fs.str("advances", "")       // hypothesis 필수: 체인 목적에 어떻게·얼마나 다가서나
-	toward := fs.str("toward", "")           // success/fail 필수: 그래서 얼마나 가까워졌나(회고)
-	nextDesign := fs.str("next-design", "")  // success/fail 필수: 목적을 위한 다음 설계
+	advances := fs.str("advances", "")      // hypothesis 필수: 체인 목적에 어떻게·얼마나 다가서나
+	toward := fs.str("toward", "")          // success/fail 필수: 그래서 얼마나 가까워졌나(회고)
+	nextDesign := fs.str("next-design", "") // success/fail 필수: 목적을 위한 다음 설계
 	// verify 전용: **가설이 심어둔 반증조건에 답한다**(규칙 17, 상현님).
 	//
 	// 왜. 지금까지 verify 는 --verdict 만 받고 가설의 --falsify 와 **대조하지 않았다**.
@@ -1073,10 +1078,10 @@ func cmdStep(args []string) {
 	// 판정이 그 조건을 안 보면, supported/refuted 는 결국 자의적이다. 판정 축이 조용히
 	// 바뀌는 자리가 여기다 — --plan-held/--plan-broke 가 설계에 답하게 한 것과 같은 모양으로,
 	// 반증조건에도 답하게 한다.
-	falsifyMet := fs.str("falsify-met", "")   // 반증조건이 충족됐다(=가설이 틀렸다) + 무엇을 관측했나
+	falsifyMet := fs.str("falsify-met", "")     // 반증조건이 충족됐다(=가설이 틀렸다) + 무엇을 관측했나
 	falsifyUnmet := fs.str("falsify-unmet", "") // 충족되지 않았다 + 무엇을 관측했나
-	planHeld := fs.boolFlag("plan-held")  // verify 전용: 고정한 설계가 그대로 유지됐다
-	planBroke := fs.str("plan-broke", "") // verify 전용: 깨졌다 + 무엇이 달랐나
+	planHeld := fs.boolFlag("plan-held")        // verify 전용: 고정한 설계가 그대로 유지됐다
+	planBroke := fs.str("plan-broke", "")       // verify 전용: 깨졌다 + 무엇이 달랐나
 	// 제안 1 (AIL #1): verify 는 판정을 문법으로 요구한다. supported=가설 지지, refuted=반증.
 	verdict := fs.str("verdict", "") // verify 전용
 	// 제안 B (AIL #1): 소급 반증 간선 — 이 스텝이 앞서 닫힌 supported verify 판정을 뒤늦게
@@ -1803,7 +1808,7 @@ func cmdStep(args []string) {
 		{"Gil-Step", sid}, {"Gil-Kind", *kind}, {"Gil-Parent", parent},
 	}
 	if *kind == "hypothesis" {
-		tr = append(tr, [2]string{"Gil-Falsify", *falsify})       // 반증조건(벽의 지도의 씨앗)
+		tr = append(tr, [2]string{"Gil-Falsify", *falsify})      // 반증조건(벽의 지도의 씨앗)
 		tr = append(tr, [2]string{"Gil-Falsify-To", *falsifyTo}) // 반증 시 되돌아갈 define
 	}
 	// **함께 들어온 것은 이름을 남긴다**(이슈 #121 제안 2). --allow-dirty 로 담기로 했으면
@@ -1828,7 +1833,7 @@ func cmdStep(args []string) {
 		tr = append(tr, [2]string{"Gil-Advances", strings.TrimSpace(*advances)}) // 체인 목적에 다가서는 몫
 	}
 	if *kind == "success" || *kind == "fail" {
-		tr = append(tr, [2]string{"Gil-Toward", strings.TrimSpace(*toward)})           // 얼마나 가까워졌나(회고)
+		tr = append(tr, [2]string{"Gil-Toward", strings.TrimSpace(*toward)})          // 얼마나 가까워졌나(회고)
 		tr = append(tr, [2]string{"Gil-Next-Design", strings.TrimSpace(*nextDesign)}) // 다음 설계
 	}
 	if *kind == "verify" {
@@ -2471,14 +2476,14 @@ func mergeIntoChainHint(chain, cycle string) []string {
 		"  ⌂ 이 사이클의 산출물 " + itoa(len(files)) + "개가 **체인 트리에 없다** — 다음 사이클은 이 파일들을 못 본다:",
 	}
 	for _, f := range shown {
-		L = append(L, "      " + f)
+		L = append(L, "      "+f)
 	}
 	if more != "" {
-		L = append(L, "    " + more)
+		L = append(L, "    "+more)
 	}
 	return append(L,
 		"NEXT 산출물을 체인 층으로 합류시켜라 — 그래야 다음 사이클이 **이어받는다**:",
-		"      gil merge " + chain + "/" + cycle + " --into " + chain + " --reason <왜 이 산출물이 체인의 것인가>",
+		"      gil merge "+chain+"/"+cycle+" --into "+chain+" --reason <왜 이 산출물이 체인의 것인가>",
 		"    (여기서 안 하면 다음 사이클 한복판에서 파일이 없는 걸 발견하고 트리 복사로 때우게 된다 —",
 		"     내용은 옮겨지지만 합류 간선이 안 남아 그래프에서 승계가 사라진다.)")
 }
@@ -2861,7 +2866,6 @@ func cmdInterview(args []string) {
 	interviewAsk(chain, *ask, *title, nil)
 }
 
-
 // lastCycleTipOfChain — 이 체인에서 **가장 나중에 열린 사이클**의 팁 커밋. 새 사이클이
 // 갈라져 나올 자리다(선언한 --parent 가 없을 때). 사이클이 하나도 없으면 체인 루트,
 // 그것도 없으면 "".
@@ -3059,7 +3063,7 @@ func interviewPlanted(chain string, qs []interviewQ) {
 	if interviewPlantQuiet {
 		return
 	}
-	println2("  ▸ 뷰어에서 사람이 폼으로 답한다.")
+	println2("  ▸ " + askHumanHere() + "에서 사람이 답한다.")
 	interviewAskTail(chain, qs)
 }
 
@@ -3155,7 +3159,7 @@ func interviewWatchOpt(chain string, wait bool, timeoutS, then string, showFull 
 	if !wait {
 		if pending {
 			println2("interview: " + chain + " — pending (사람 답 대기 중)")
-			println2("▸ 사람에게 뷰어 폼 제출을 청하라. 답이 오면 이 명령이 done 으로 바뀐다.")
+			println2("▸ " + askHumanLine() + ". 답이 오면 이 명령이 done 으로 바뀐다.")
 			// 뷰어가 죽었으면 **사람이 답할 창구 자체가 없다**(이슈 #93). 기다리는 자리에서
 			// 그걸 모르면 에이전트도 사람도 "왜 아무 일이 없지"에서 멈춘다 — 실제로 그랬다.
 			for _, ln := range viewerDeadNotice() {
@@ -3187,7 +3191,7 @@ func interviewWatchOpt(chain string, wait bool, timeoutS, then string, showFull 
 		}
 		secs = n
 	}
-	println2("interview: " + chain + " — 사람 답을 기다린다(최대 " + strconv.Itoa(secs) + "초). 뷰어 폼 제출을 청하라.")
+	println2("interview: " + chain + " — 사람 답을 기다린다(최대 " + strconv.Itoa(secs) + "초). " + askHumanLine() + ".")
 	println2("  ▸ 뷰어가 이 대기를 사람에게 보여준다(\"에이전트가 이 답을 기다리는 중\") — 제출이 곧바로 이어진다는 걸 사람이 안다.")
 	// 기다리기 **전에** 창구가 있는지 확인한다(이슈 #93) — 없으면 몇 분이든 헛되이 기다린다.
 	for _, ln := range viewerDeadNotice() {
@@ -4103,7 +4107,6 @@ func cmdChainMerge(args []string) {
 	newHead := strings.TrimSpace(git("rev-parse", "HEAD"))
 	println2("chain-merge: " + name + " 개설 — " + strconv.Itoa(len(toMerge)) + "갈래 순차 병합 완료 (커밋 " + first9(newHead) + ")")
 }
-
 
 // rest2 — 충돌로 멈춘 자리에서 **아직 안 합친 끝단들**. 안내가 사람이 그대로 칠 수 있는
 // 줄이어야 한다 — "남은 끝단: a, b" 를 읽고 손으로 옮겨 적게 하면 거기서 한 번 더 틀린다.

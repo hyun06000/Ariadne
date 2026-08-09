@@ -781,9 +781,11 @@ func interviewFallback(chain, title string, askJSON []byte, why string) (*mcp.Ca
 	if ferr != nil {
 		return nil, nil, ferr
 	}
-	return text(out + "\n(" + why + " — 질문을 뷰어 폼으로 심었다. 사람은 아직 답하지 않았다.)\n" +
-		"▸ 다음 한 수: 사람에게 뷰어 폼(📋 인터뷰)에 답해 달라고 지금 말로 청하라. 답을 대신 지어내지 마라.\n" +
-		"▸ 제출됐는지는 gil_interview_status 로 확인한다(pending|done). 사람이 \"제출했어\"라고 하면 그때 부르면 된다."), nil, nil
+	// 질문은 심겼고, **이 호출이 카드를 함께 열었다**(uiStatusMeta) — 그 카드 안에 폼이 있다.
+	// 여기서 "뷰어 폼"을 가리키면 이 표면에서 못 여는 화면을 가리키는 것이다(2026-08-10 실측).
+	return text(out + "\n(" + why + " — 대신 **질문이 " + askHumanHere() + "에 서 있다**.)\n" +
+		"▸ 다음 한 수: " + askHumanLine() + ".\n" +
+		"▸ 제출됐는지는 gil_interview_status 로 확인한다(pending|done). 제출되면 다음 호출에서 ⚡ 로도 알려준다."), nil, nil
 }
 
 func askArgs(askJSON, title string) []string {

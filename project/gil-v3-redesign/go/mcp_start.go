@@ -250,9 +250,15 @@ func startElicitIntake(ctx context.Context, req *mcp.CallToolRequest) string {
 	})
 	if err != nil || res == nil || res.Action != "accept" {
 		// 폼이 안 섰다. 질문은 이미 심겨 있으니 뷰어 폼으로 답할 수 있다 — 그 길을 말한다.
-		return "\n\n(호스트 네이티브 폼이 서지 않았다 — 질문은 심겨 있다. 사람에게 뷰어 폼으로 " +
-			"답해 달라고 청하고, " + surfaceCall("intake", startSlug+" --wait", "chain: "+startSlug+", wait: true") +
-			" 로 기다려라. 답을 대신 쓰지 마라.)"
+		// **이 호출이 카드를 함께 열었다**(uiStatusMeta) — 질문은 그 카드 안에 폼으로 서 있다.
+		// 옛 문구는 여기서 "뷰어 폼"을 가리켰고, 뷰어는 이 표면에서 열 수 없어서 에이전트가
+		// 대화로 우회했다(상현님 실사용, 2026-08-10). 열어 놓은 화면을 가리켜야 한다.
+		return "\n\n(호스트 네이티브 폼은 서지 않았다. 대신 **질문이 " + askHumanHere() +
+			"에 서 있다** — 지금 사람 앞에 떠 있다.)\n" +
+			"▸ 사람에게 이렇게 청하라: \"카드의 질문에 답을 적고 [답을 제출한다] 를 눌러 주세요. " +
+			"적으신 문장이 그대로 이 일의 목적과 기준이 됩니다.\"\n" +
+			"▸ 답을 대신 쓰지 마라. 제출되면 다음 호출에서 gil 이 ⚡ 로 알려준다 — " +
+			surfaceCall("intake", startSlug+" --status", "chain: "+startSlug+", status: true") + " 로도 확인된다."
 	}
 	ref := mcpAssembleReference(startSlug, qs, res.Content)
 	tmp, terr := writeTemp("gil-intake-*.md", ref)

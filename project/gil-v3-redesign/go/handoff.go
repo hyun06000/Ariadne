@@ -482,7 +482,7 @@ func handoffReport() string {
 		if interviewState(cname) == "pending" {
 			// 확정 뒤의 **재**인터뷰도 여기 뜬다(이슈 #75) — 기준이 낡으면 갱신되어야 하고,
 			// 갱신 중이라는 사실이 부활 정보에 없으면 낡은 기준을 따라 일하게 된다.
-			L = append(L, "    ⏳ 인터뷰 답 대기 중 — 사람이 뷰어 폼(📋 인터뷰)에 제출해야 사이클을 열 수 있다.")
+			L = append(L, "    ⏳ 인터뷰 답 대기 중 — 사람이 "+askHumanHere()+"에 제출해야 사이클을 열 수 있다.")
 			if chainReferenceApproved(cname, "--branches") {
 				L = append(L, "        (이 체인엔 이미 확정된 기준이 있다 — 지금은 그 기준을 **개정하는 중**이다.)")
 			}

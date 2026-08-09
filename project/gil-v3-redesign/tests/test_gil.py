@@ -15042,3 +15042,119 @@ class TestAskingOpensTheScreen(GilFixture):
         # 안내다. 이 자리의 CLI 안내는 뷰어·상태를 말해야 한다.
         self.assertNotIn("위에 뜬 카드", out,
                          "CLI 에서 카드를 가리켰다 — 그 표면엔 카드가 없다")
+
+
+class TestItPointsAtTheScreenItOpened(GilFixture):
+    """**열어 놓은 화면을 가리켜야 한다** (상현님 실사용, 2026-08-10 — "이번엔 카드가 떴어").
+
+    앞 커밋이 "묻는 툴은 자기 화면을 함께 연다"를 세웠고, 카드는 실제로 떴다. 그런데 같은
+    호출의 마지막 줄이 이렇게 말했다:
+
+        (호스트 네이티브 폼이 서지 않았다 … 사람에게 **뷰어 폼**으로 답해 달라고 청하고 …)
+
+    뷰어는 이 표면에서 **열 수 없다**(터미널 전용으로 선언했다). 그러니 에이전트에게 남은
+    길은 대화뿐이었고, 실제로 이렇게 말했다 — *"뷰어 폼이 이 환경에선 안 떠서 여기서
+    여쭤봅니다."* 그리고 질문을 하나씩 말로 물었다. **카드는 바로 그 위에 떠 있었다.**
+
+    화면을 여는 것과 그 화면을 가리키는 것은 **다른 일**이다. 앞 커밋이 앞엣것을 했고,
+    이 시험이 뒤엣것을 지킨다."""
+
+    def _agent_sees(self):
+        """폼을 못 띄우는 호스트로 온보딩을 밟고, 에이전트가 받는 글을 모은다."""
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1"})
+        self.addCleanup(p.terminate)
+        st = {"id": 0}
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("method"):
+                    if "id" in m:      # 폼 요청 포함 — 이 호스트는 못 띄운다
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "no form"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        st["id"] += 1
+        send({"jsonrpc": "2.0", "id": st["id"], "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "formless", "version": "0"}}})
+        pump(st["id"])
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        def call(name, args):
+            st["id"] += 1
+            send({"jsonrpc": "2.0", "id": st["id"], "method": "tools/call",
+                  "params": {"name": name, "arguments": args}})
+            r = pump(st["id"])
+            if r is None:
+                return ""
+            if "error" in r:
+                return r["error"].get("message", "")
+            return "".join(c.get("text", "") for c in r["result"].get("content", []))
+
+        seen = [call("gil_start", {"repo": self.repo, "confirmed": True}),
+                call("gil_start", {"repo": self.repo, "name": "probe"}),
+                call("gil_start", {"repo": self.repo,
+                                   "identity": "# I\n\n시험.\n", "will": "# W\n\n확인.\n"}),
+                call("gil_handoff", {"repo": self.repo})]
+        return "\n".join(seen)
+
+    def test_it_never_sends_the_human_to_a_screen_this_surface_cannot_open(self):
+        """**이 표면에서 못 여는 화면으로 사람을 보내지 않는다.**
+
+        뷰어는 터미널 전용이다(surface.go 의 terminalOnly). 그런데도 "사람에게 뷰어 폼에
+        답해 달라 청하라"고 하면 에이전트는 그 화면을 못 띄우고 대화로 우회한다 — 그리고
+        대화로 물으면 사람의 문장이 에이전트를 한 번 거쳐 들어온다(옮겨쓰기)."""
+        bad = []
+        for line in self._agent_sees().split("\n"):
+            if "뷰어" not in line:
+                continue
+            # 사람에게 **청하라**고 시키는 줄만 잡는다 — 진단·설명은 뷰어를 말해도 된다.
+            if any(k in line for k in ["청하라", "답해 달라", "답해주", "제출을", "답하게"]):
+                bad.append(line.strip())
+        self.assertEqual(
+            bad, [],
+            "이 표면에서 열 수 없는 화면(뷰어)으로 사람을 보낸다:\n  " + "\n  ".join(bad) +
+            "\n  → askHumanHere()/askHumanLine() 를 써라(surface.go). 화면을 여는 것과 "
+            "그 화면을 가리키는 것은 다른 일이다.")
+
+    def test_it_names_the_card_that_is_actually_up(self):
+        """물음을 심은 그 출력이 **떠 있는 카드**를 이름으로 불러야 한다."""
+        seen = self._agent_sees()
+        self.assertIn("카드", seen, "카드를 열어 놓고 카드를 한 번도 안 가리켰다")
+        self.assertIn("[답을 제출한다]", seen, "사람이 눌러야 할 것을 이름으로 말하지 않았다")
+
+    def test_it_does_not_promise_an_answer_it_may_not_get(self):
+        """'답이 아래에 이어진다'는 폼이 설 때만 참이다 — 모르는 것을 약속하지 않는다."""
+        self.assertNotIn("답이 아래에 이어진다", self._agent_sees(),
+                         "폼이 안 서는 호스트에서도 답이 이어진다고 단언했다")
+
+    def test_the_cli_still_points_at_the_viewer(self):
+        """CLI 에서는 뷰어가 **열리는 화면**이다 — 거기서까지 카드를 가리키면 그게 거짓이다."""
+        self.gil("start")
+        self.gil("start", "--name", "probe")
+        for n, b in (("i.md", "# I\n\n시험.\n"), ("w.md", "# W\n\n확인.\n")):
+            with open(os.path.join(self.repo, n), "w", encoding="utf-8") as f:
+                f.write(b)
+        out = self.gil("start", "--identity", os.path.join(self.repo, "i.md"),
+                       "--will", os.path.join(self.repo, "w.md")).stdout
+        self.assertIn("관전 창", out, "CLI 에서 사람이 답할 자리를 안 가리켰다")
+        self.assertNotIn("위에 뜬 카드", out, "CLI 엔 카드가 없는데 카드를 가리켰다")
