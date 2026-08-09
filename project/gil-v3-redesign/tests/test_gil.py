@@ -14877,6 +14877,89 @@ class TestTheWorldStandsOnlyWhereSomeoneChose(GilFixture):
         self.assertIn("gil init 완료", out)
 
 
+class TestTheFormStandsWhereverTheQuestionIs(GilFixture):
+    """**폼은 HEAD 가 아니라 질문이 있는 곳에 선다** (뷰어 제거 조사, 2026-08-10).
+
+    뷰어는 처음부터 `--branches` 를 훑어 기다리는 인터뷰를 **전부** 띄웠다. 카드는 HEAD 가
+    선 체인 **하나**만 봤다(gatherStatus → headChainCycle → `git log -1 HEAD` 의 트레일러).
+    그 차이가 지금까지는 안 아팠다 — 못 뜨면 뷰어에서 답하면 됐으니까. 뷰어를 지우면
+    그 자리에서 사람이 답할 길이 **0** 이 된다.
+
+    구체적으로 두 가지가 조용히 일어난다:
+
+      ① **체인 밖에 서 있으면 폼이 아예 안 뜬다.** gatherStatus 는 chain 이 비면 조기
+         반환하고, 카드의 폼은 `st.Chain != nil` 분기 **안에만** 있었다. 그런데 개시 인터뷰를
+         심어 놓고 사람을 기다리는 자리가 바로 층(dev·main) 위다.
+      ② **질문이 둘이면 하나만 보인다.** 사람은 HEAD 가 선 쪽에만 답할 수 있고 나머지는
+         화면에서 사라진다. 질문은 저장소에 그대로 살아 있는데.
+
+    둘 다 오류를 안 낸다 — 화면이 조용히 좁아질 뿐이다."""
+
+    def _ask(self, slug, *qs):
+        r = self.gil("intake", slug, "--ask", "-",
+                     input=json.dumps([{"q": q, "type": "text"} for q in qs],
+                                      ensure_ascii=False))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def _card(self):
+        r = self.gil("status", "--card")
+        return r.stdout + r.stderr
+
+    def _status(self):
+        r = self.gil("status", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return json.loads(r.stdout)
+
+    def test_two_waiting_interviews_both_get_a_form(self):
+        """질문이 둘이면 폼도 둘이다 — 사람이 고를 수 없는 것을 화면이 고르지 않는다."""
+        self.gil("init", "--name", "clew")
+        self._ask("alpha", "알파에서 무엇을 하려 하십니까")
+        self._ask("beta", "베타에서 무엇을 하려 하십니까")
+        card = self._card()
+        self.assertIn('data-iv="alpha"', card, "먼저 심은 인터뷰의 폼이 사라졌다:\n" + card[:1500])
+        self.assertIn('data-iv="beta"', card, "나중 인터뷰의 폼이 없다")
+        self.assertEqual(card.count('data-act="interview-submit"'), 2,
+                         "제출 버튼이 질문지 수만큼 서지 않았다")
+
+    def test_the_form_survives_standing_outside_a_chain(self):
+        """층(dev·main) 위에 서 있어도 답할 자리가 있어야 한다 — 거기가 시작하는 자리다."""
+        self.gil("init", "--name", "clew")
+        self._ask("sd", "무엇을 하려 하십니까")
+        self._git("checkout", "-q", "main")
+        st = self._status()
+        self.assertIsNone(st["chain"], "이 시험은 체인 밖에 서야 뜻이 있다")
+        card = self._card()
+        self.assertIn('data-iv="sd"', card,
+                      "체인 밖에 서니 폼이 통째로 사라졌다 — 질문은 저장소에 살아 있는데:\n"
+                      + card[:1500])
+
+    def test_status_names_every_open_interview(self):
+        """에이전트도 같은 사실을 읽는다 — 화면만 알고 데이터가 모르면 둘이 갈린다."""
+        self.gil("init", "--name", "clew")
+        self._ask("alpha", "하나", "둘")
+        self._ask("beta", "셋")
+        self._git("checkout", "-q", "main")
+        st = self._status()
+        got = {i["chain"]: i["questions"] for i in st["open_interviews"]}
+        self.assertEqual(got, {"alpha": 2, "beta": 1},
+                         "기다리는 인터뷰를 데이터가 다 말하지 않는다: " + repr(got))
+
+    def test_the_answered_one_drops_off(self):
+        """확정된 것은 목록에서 빠진다 — 최신 마커가 상태를 정한다(#75)."""
+        self.gil("init", "--name", "clew")
+        self._ask("alpha", "하나")
+        self._ask("beta", "둘")
+        p = os.path.join(self.repo, "ans.md")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("# 기준 문서\n\n## 1. 하나\n\n알파의 답이다.\n")
+        self.gil("intake", "alpha", "--resolve", "ans.md")
+        os.remove(p)
+        st = self._status()
+        names = [i["chain"] for i in st["open_interviews"]]
+        self.assertEqual(names, ["beta"], "확정된 인터뷰가 아직 기다린다고 나온다: " + repr(names))
+        self.assertNotIn('data-iv="alpha"', self._card(), "확정됐는데 폼이 남았다")
+
+
 class TestTheInterviewStandsInTheCard(GilFixture):
     """**인터뷰가 카드 안에 선다** (상현님, 2026-08-10).
 

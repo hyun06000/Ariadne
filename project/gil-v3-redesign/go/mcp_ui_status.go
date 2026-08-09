@@ -742,6 +742,21 @@ func statusCardBodyHTML(st statusOut) string {
 	var b strings.Builder
 	b.WriteString(`<div class="card">`)
 
+	// **기다리는 인터뷰는 HEAD 와 무관하게, 전부, 맨 위에 선다.**
+	//
+	// 전에는 폼이 st.Chain != nil 분기 **안에서만** 그려졌고 그 조건은 HEAD 커밋의 트레일러가
+	// 정했다. 그래서 두 가지가 조용히 일어났다: ① 체인 밖(dev·main)에 서 있으면 폼이 아예
+	// 안 떴다 — 질문을 심어 놓고 사람을 기다리는 자리가 바로 거기다 ② 질문이 두 체인에 떠
+	// 있으면 사람은 HEAD 가 선 쪽에만 답할 수 있었다. 뷰어는 처음부터 전부 띄웠고, 카드가
+	// 그 자리를 대신하려면 같은 것을 보여야 한다.
+	drawn := map[string]bool{}
+	for _, iv := range st.OpenInterviews {
+		if f := interviewCardHTML(iv.Chain); f != "" {
+			b.WriteString(f)
+			drawn[iv.Chain] = true
+		}
+	}
+
 	if st.Chain == nil {
 		b.WriteString(`<div class="crumb">체인 밖</div><div class="repo">` + esc(st.Repo) + `</div>`)
 		b.WriteString(`<div class="row"><div class="val">아직 연 체인이 없거나 층(dev·main) 위에 서 있다.</div></div>`)
@@ -754,18 +769,16 @@ func statusCardBodyHTML(st statusOut) string {
 		// 화면에서 가장 눈에 띄는 자리를 차지했고, `<조상 define>` 같은 자리표시자는
 		// 비개발자에게는 답이 아니라 새 물음이다. 그 문자열은 데이터에 그대로 있다 —
 		// 그건 에이전트가 읽고 치는 값이다.
-		if st.Waiting != nil {
-			// **인터뷰는 글이 아니라 폼이다.** 옛 카드는 "에이전트가 여는 인터뷰 창구에
-			// 적으면"이라고 말했는데, 이 표면에는 그 창구가 없었다(뷰어는 청해야 뜨고
-			// 시작하는 사람에겐 창이 없다, Elicitation 은 Desktop 이 못 띄운다). 가리키는
-			// 것이 실재하지 않는 안내였다 — 그래서 **카드가 그 창구가 된다**.
-			if form := interviewFaceHTML(st.Waiting); form != "" {
-				b.WriteString(form)
-			} else {
-				b.WriteString(`<div class="box wait"><div class="t">⏳ 사람의 판단이 필요하다</div><div>` +
-					esc(st.Waiting.What) + `</div><div style="margin-top:6px">` +
-					esc(waitHumanLine(st.Waiting)) + `</div></div>`)
-			}
+		// **인터뷰는 글이 아니라 폼이다.** 옛 카드는 "에이전트가 여는 인터뷰 창구에
+		// 적으면"이라고 말했는데, 이 표면에는 그 창구가 없었다(뷰어는 청해야 뜨고
+		// 시작하는 사람에겐 창이 없다, Elicitation 은 Desktop 이 못 띄운다). 가리키는
+		// 것이 실재하지 않는 안내였다 — 그래서 **카드가 그 창구가 된다**. 그 폼은 이제
+		// 이 분기 **바깥**에서, HEAD 와 무관하게, 기다리는 것 전부가 그려진다(위).
+		// 그러니 여기서는 이미 폼으로 선 것을 **글로 또 말하지 않는다.**
+		if st.Waiting != nil && !(st.Waiting.Kind == "interview" && drawn[st.Waiting.Chain]) {
+			b.WriteString(`<div class="box wait"><div class="t">⏳ 사람의 판단이 필요하다</div><div>` +
+				esc(st.Waiting.What) + `</div><div style="margin-top:6px">` +
+				esc(waitHumanLine(st.Waiting)) + `</div></div>`)
 		}
 		// 머리글은 **체인 › 사이클 › 스텝** 셋을 다 부른다. 체인 이름이 빠지면 여러 체인을
 		// 오가는 사람이 지금 어느 계보 안에 있는지 모른다(#110 이 저장소 이름에서 겪은 병).
@@ -1194,7 +1207,13 @@ func waitHumanLine(w *statusWaiting) string {
 	case "approval":
 		return "아래 승인·기각 버튼이 그 판정을 그대로 옮긴다. 사람의 답 전엔 이 사이클을 못 이어간다."
 	case "interview":
-		return "체인의 기준 문서에 대한 답이다. 에이전트가 여는 인터뷰 창구에 적으면 그때부터 사이클을 열 수 있다."
+		// **여기로 오는 것은 폼이 안 선 경우뿐이다**(질문을 못 읽었거나 그사이 확정됐다).
+		// 폼이 서면 카드가 위에서 그리고 이 줄은 안 나온다. 그러니 이 문장은 "어디에 적어라"가
+		// 아니라 **왜 지금 적을 자리가 없는지**를 말해야 한다 — 옛 문장은 "에이전트가 여는
+		// 인터뷰 창구에 적으면"이었는데 이 표면에 그런 창구가 없다. 없는 것을 가리키는 안내가
+		// 이 저장소를 아홉 번 물게 한 그 병이다.
+		return "체인의 기준 문서에 대한 답이다. 답할 폼이 아직 안 섰으면 에이전트에게 " +
+			"gil_interview 를 다시 불러 달라고 하면 이 카드에 폼이 선다."
 	}
 	return ""
 }

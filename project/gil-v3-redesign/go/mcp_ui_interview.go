@@ -33,33 +33,66 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// pendingInterviewQuestions — 이 체인(또는 개시 인터뷰 슬러그)이 지금 기다리는 질문 JSON.
-// 없으면 "". **최신 마커가 상태를 정한다**(#75) — 확정 뒤의 재인터뷰를 못 보면 안 된다.
-func pendingInterviewQuestions(chain string) string {
+// pendingIV — 지금 사람의 답을 기다리는 인터뷰 하나.
+type pendingIV struct {
+	Chain     string // 체인 이름 또는 개시 인터뷰 슬러그
+	SHA       string
+	Questions string // 커밋 본문의 ```gil-interview 펜스 안 JSON
+}
+
+// pendingInterviewsAll — **기다리는 인터뷰 전부**를 한 번에 훑는다(--branches).
+//
+// 왜 전부인가. 카드는 지금까지 **HEAD 가 선 체인 하나**만 봤다(gatherStatus → headChainCycle).
+// 그런데 질문을 찾는 규칙은 처음부터 브랜치 전체였고, 세션은 goto·open·merge 로 HEAD 를
+// 옮긴다. 그러면 **질문은 저장소에 살아 있는데 답할 폼이 없어진다** — 그리고 체인 밖(dev·main)
+// 에 서 있으면 gatherStatus 가 조기 반환해 폼이 아예 안 뜬다. 요청을 올린 사람이 대개 서 있는
+// 자리가 바로 거기다.
+//
+// 뷰어는 처음부터 전부 띄웠다(pendingInterviews). 카드가 뷰어를 대신하려면 같은 것을 봐야 한다.
+// 그리고 **한 번만 훑는다** — 체인마다 부르면 같은 사실을 N 번 읽고, 그 N 개가 갈릴 자리가 된다.
+//
+// **최신 마커가 상태를 정한다**(#75) — 확정 뒤의 재인터뷰를 못 보면 안 된다.
+func pendingInterviewsAll() []pendingIV {
 	out := gitlog("--format="+trailer("Gil-Chain")+fsep+trailer("Gil-Intake")+fsep+
-		trailer("Gil-Interview")+fsep+"%B"+sep, "--branches", "--")
+		trailer("Gil-Interview")+fsep+"%H"+fsep+"%B"+sep, "--branches", "--")
+	settled := map[string]bool{} // 이 이름의 최신 마커를 이미 봤다
+	var open []pendingIV
 	for _, rec := range strings.Split(out, sep) {
 		rec = strings.Trim(rec, "\n")
 		if strings.TrimSpace(rec) == "" {
 			continue
 		}
-		f := strings.SplitN(rec, fsep, 4)
-		if len(f) < 4 {
+		f := strings.SplitN(rec, fsep, 5)
+		if len(f) < 5 {
 			continue
 		}
-		ch, intake, iv, body := strings.TrimSpace(f[0]), strings.TrimSpace(f[1]),
-			strings.TrimSpace(f[2]), f[3]
-		// 개시 인터뷰는 Gil-Intake 로 산다(체인이 아직 없다) — 둘 다 이 이름으로 찾는다.
-		if ch != chain && intake != chain {
+		ch, intake, iv, sha, body := strings.TrimSpace(f[0]), strings.TrimSpace(f[1]),
+			strings.TrimSpace(f[2]), strings.TrimSpace(f[3]), f[4]
+		// 개시 인터뷰는 Gil-Intake 로 산다(체인이 아직 없다). intake 커밋은 폼이 그려지도록
+		// Gil-Chain 도 같은 값으로 달므로 둘 중 있는 것을 쓰면 된다.
+		name := ch
+		if name == "" {
+			name = intake
+		}
+		if name == "" || iv == "" || settled[name] {
 			continue
 		}
-		if iv == "" {
-			continue
-		}
+		settled[name] = true // git log 는 새→옛 — 처음 만난 것이 최신이다
 		if iv == "done" {
-			return "" // 가장 최근 마커가 확정이다 — 기다리는 질문이 없다
+			continue
 		}
-		return extractInterviewJSON(body)
+		open = append(open, pendingIV{Chain: name, SHA: sha, Questions: extractInterviewJSON(body)})
+	}
+	return open
+}
+
+// pendingInterviewQuestions — 이 체인(또는 개시 인터뷰 슬러그)이 지금 기다리는 질문 JSON.
+// 없으면 "". 판정은 위 pendingInterviewsAll 하나가 진다 — 두 벌이면 한쪽만 낡는다.
+func pendingInterviewQuestions(chain string) string {
+	for _, iv := range pendingInterviewsAll() {
+		if iv.Chain == chain {
+			return iv.Questions
+		}
 	}
 	return ""
 }
@@ -238,10 +271,6 @@ func firstLine(s string) string {
 	return s
 }
 
-// interviewFaceHTML — 기다리는 것이 인터뷰면 그 폼을, 아니면 "". 카드가 이 자리에서 갈린다.
-func interviewFaceHTML(w *statusWaiting) string {
-	if w == nil || w.Kind != "interview" || strings.TrimSpace(w.Chain) == "" {
-		return ""
-	}
-	return interviewCardHTML(w.Chain)
-}
+// (interviewFaceHTML 은 은퇴했다 — 폼을 고르는 자리가 statusOut.Waiting 이었고, 그 값은
+// HEAD 커밋의 트레일러가 정한다. 이제 카드는 statusOut.OpenInterviews 를 돌며 **기다리는
+// 것 전부**를 그린다. 하나만 고르는 함수가 남아 있으면 다음에 누군가 그걸 다시 쓴다.)

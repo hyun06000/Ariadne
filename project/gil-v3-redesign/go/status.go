@@ -230,16 +230,29 @@ type statusWaiting struct {
 	Answer string `json:"how_to_answer"` // 사람이 답하면 무엇이 풀리나 / 에이전트가 칠 한 수
 }
 
+// statusInterview — 사람의 답을 기다리는 인터뷰 하나. **HEAD 와 무관하다.**
+//
+// Waiting 은 "지금 선 자리에서 무엇을 기다리나"를 말하고, 이 목록은 "저장소 어딘가에서
+// 사람의 답을 기다리는 것이 무엇무엇인가"를 말한다. 둘은 다른 물음이다 — 세션이 goto·open·
+// merge 로 자리를 옮기면 Waiting 은 사라지지만 질문은 그대로 살아 있다.
+type statusInterview struct {
+	Chain     string `json:"chain"`
+	SHA       string `json:"sha"`
+	Questions int    `json:"questions"`
+}
+
 type statusOut struct {
-	Repo        string           `json:"repo"`
-	Branch      string           `json:"branch,omitempty"`
-	Chain       *statusChain     `json:"chain"`
-	Cycle       *statusCycle     `json:"cycle"`
-	Step        *statusStep      `json:"step"`
-	Waiting     *statusWaiting   `json:"waiting_for_human"`
-	LastVerdict *statusVerdict   `json:"last_verdict"`
-	Rollback    []statusRollback `json:"rollback_candidates"`
-	Next        []string         `json:"next"`
+	Repo    string         `json:"repo"`
+	Branch  string         `json:"branch,omitempty"`
+	Chain   *statusChain   `json:"chain"`
+	Cycle   *statusCycle   `json:"cycle"`
+	Step    *statusStep    `json:"step"`
+	Waiting *statusWaiting `json:"waiting_for_human"`
+	// OpenInterviews — 기다리는 인터뷰 **전부**. 층(dev·main) 위에 서 있어도 채워진다.
+	OpenInterviews []statusInterview `json:"open_interviews"`
+	LastVerdict    *statusVerdict    `json:"last_verdict"`
+	Rollback       []statusRollback  `json:"rollback_candidates"`
+	Next           []string          `json:"next"`
 	// RenderGuide — **이 데이터를 사람에게 보여주는 규칙이 어디 있나.**
 	//
 	// 왜 데이터에 문서 경로를 싣나. 규칙을 문서에만 두면 "에이전트가 알아서 읽기"가 되고,
@@ -281,8 +294,26 @@ func cmdStatus(args []string) {
 func gatherStatus() statusOut {
 	wd, _ := os.Getwd()
 	st := statusOut{Repo: wd, Branch: currentBranch(), Next: []string{}, Warnings: []string{},
-		Rollback:    []statusRollback{},
-		RenderGuide: "docs/gil/status-card.md — 이 데이터를 사람에게 어떻게 보여줄지. 통째로 붙여넣지 마라."}
+		Rollback:       []statusRollback{},
+		OpenInterviews: []statusInterview{},
+		RenderGuide:    "docs/gil/status-card.md — 이 데이터를 사람에게 어떻게 보여줄지. 통째로 붙여넣지 마라."}
+
+	// **기다리는 인터뷰는 아래 조기 반환보다 먼저 채운다.** 층(dev·main) 위에 서 있으면 이
+	// 함수는 곧 "체인 밖"으로 되돌아가는데, 인터뷰를 심어 놓고 사람을 기다리는 자리가 바로
+	// 거기다 — 뒤에 두면 답할 폼이 통째로 사라진다(카드가 그 목록으로 폼을 그린다).
+	for _, iv := range pendingInterviewsAll() {
+		n := 0
+		var qs []interviewQ
+		if json.Unmarshal([]byte(iv.Questions), &qs) == nil {
+			n = len(qs)
+		}
+		sha := iv.SHA
+		if len(sha) > 9 {
+			sha = sha[:9]
+		}
+		st.OpenInterviews = append(st.OpenInterviews,
+			statusInterview{Chain: iv.Chain, SHA: sha, Questions: n})
+	}
 
 	chain, cycle := headChainCycle()
 	// 팁이 gil 커밋이 아니면 **거슬러 올라가 가장 가까운 gil 커밋**을 쓴다.
