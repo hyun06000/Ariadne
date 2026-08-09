@@ -14759,3 +14759,203 @@ class TestTheWorldStandsOnlyWhereSomeoneChose(GilFixture):
         out = r.stdout + r.stderr
         self.assertNotIn("프로젝트가 아니라", out, "사람이 직접 친 자리를 되물었다")
         self.assertIn("gil init 완료", out)
+
+
+class TestTheInterviewStandsInTheCard(GilFixture):
+    """**인터뷰가 카드 안에 선다** (상현님, 2026-08-10).
+
+    사람에게 묻는 통로가 이 표면에서 계속 없어졌다: 뷰어 폼은 창을 청해야 뜨는데 시작하는
+    사람에겐 창이 없고, 호스트 네이티브 폼은 Claude Desktop 이 못 띄운다(2026-08-09 실측
+    두 판). 그래서 남은 것이 대화였다 — 에이전트가 질문을 하나씩 말로 물었다.
+
+    그게 왜 나쁜가. 질문지는 **한 벌**인데 대화는 한 줄씩 흐른다. 사람은 앞 질문을 다시 볼 수
+    없고 몇 개 남았는지 모른다. 무엇보다 **에이전트가 사람의 말을 옮겨 적는 단계가 끼어든다** —
+    gil 이 문법으로 지켜 온 단 하나("기준은 사람의 문장 그 자체다")가 거기서 옮겨쓰기가 된다.
+
+    카드는 이 표면에서 **실제로 서는 화면**이고, 그 안 버튼이 진짜 명령을 도는 통로도 이미
+    있다(승인·기각). 인터뷰는 그 통로에 정확히 맞는 일이다."""
+
+    def _pending_intake(self):
+        """개시 인터뷰가 사람 답을 기다리는 상태까지 레일을 밟는다(체인은 아직 없다)."""
+        self.gil("start")
+        self.gil("start", "--name", "probe")
+        idf = os.path.join(self.repo, "i.md")
+        wf = os.path.join(self.repo, "w.md")
+        with open(idf, "w", encoding="utf-8") as f:
+            f.write("# Identity — probe\n\n시험용 존재다.\n")
+        with open(wf, "w", encoding="utf-8") as f:
+            f.write("# Will\n\n확인한다.\n")
+        self.gil("start", "--identity", idf, "--will", wf)
+
+    def _card(self):
+        r = self.gil("status", "--card")
+        return r.stdout + r.stderr
+
+    def test_the_card_asks_instead_of_pointing_elsewhere(self):
+        """옛 카드는 "에이전트가 여는 인터뷰 창구에 적으면"이라고 했다 — 그 창구가 없었다."""
+        self._pending_intake()
+        card = self._card()
+        self.assertIn('data-act="interview-submit"', card, "카드에 제출 버튼이 없다")
+        self.assertEqual(card.count('class="ivin"'), 2, "질문 두 개가 칸으로 서지 않았다")
+        self.assertNotIn("인터뷰 창구에 적으면", card,
+                         "없는 창구를 여전히 가리킨다 — 카드가 그 창구인데도")
+
+    def test_it_does_not_prefill_the_answers(self):
+        """**답을 미리 채우지 않는다.** 채우는 순간 기준이 사람의 문장이 아니게 된다(#90)."""
+        self._pending_intake()
+        card = self._card()
+        self.assertIn('<textarea class="ivin" data-q="q1" rows="3"></textarea>', card,
+                      "빈 칸이 아니다 — 기본값이나 예시가 들어갔다")
+
+    def test_it_shows_how_many_are_left(self):
+        """대화로 물을 때 사라졌던 것 — 몇 개 중 몇 번째인지."""
+        self._pending_intake()
+        card = self._card()
+        self.assertIn("1/2.", card)
+        self.assertIn("2/2.", card)
+
+    def test_every_question_type_becomes_a_control(self):
+        """text·radio·checkbox 가 각각 제 입력으로 선다 — 하나라도 빠지면 그 질문은 못 답한다."""
+        self.gil("chain", "c", "--purpose", "p", "--reference", CRIT_FILE,
+                 "--criterion", "무엇이 관측되면 풀린 것인가")
+        qs = json.dumps([
+            {"q": "무엇을 풀려는가", "type": "text"},
+            {"q": "어느 쪽인가", "type": "radio", "options": ["빠르게", "정확하게"]},
+            {"q": "무엇을 재나", "type": "checkbox", "options": ["속도", "정확도"]},
+        ], ensure_ascii=False)
+        qf = os.path.join(self.repo, "q.json")
+        with open(qf, "w", encoding="utf-8") as f:
+            f.write(qs)
+        r = self.gil("interview", "c", "--ask", qf)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        card = self._card()
+        self.assertIn('class="ivin" data-q="q1"', card, "열린 질문이 칸으로 안 섰다")
+        self.assertIn('type="radio"', card, "radio 가 안 섰다")
+        self.assertIn('type="checkbox"', card, "checkbox 가 안 섰다")
+
+    def test_a_settled_interview_shows_no_form(self):
+        """확정된 뒤에도 폼이 남으면 사람이 같은 답을 두 번 낸다."""
+        self._pending_intake()
+        ref = os.path.join(self.repo, "ref.md")
+        with open(ref, "w", encoding="utf-8") as f:
+            f.write("# 기준\n\n사람이 답했다.\n")
+        self.gil("intake", "start", "--resolve", ref)
+        self.assertNotIn('data-act="interview-submit"', self._card(),
+                         "확정된 인터뷰의 폼이 카드에 남아 있다")
+
+
+class TestTheAnswerComesBackFromTheCard(GilFixture):
+    """**폼에 적은 것이 그대로 기준이 된다** — 카드에서 gil 까지, 프로토콜로 밟는다.
+
+    소스로는 "폼이 있다"까지만 확인된다. 답이 실제로 돌아와 확정되는지는 **앱이 하는 그대로**
+    (tools/call) 쳐 봐야 안다 — 이 세션이 두 번 값을 치르고 배운 것이다."""
+
+    def _app(self):
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1"})
+        self.addCleanup(p.terminate)
+        state = {"id": 0}
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "unsupported"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        state["id"] += 1
+        send({"jsonrpc": "2.0", "id": state["id"], "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "app", "version": "0"}}})
+        pump(state["id"])
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        def call(name, args):
+            state["id"] += 1
+            send({"jsonrpc": "2.0", "id": state["id"], "method": "tools/call",
+                  "params": {"name": name, "arguments": args}})
+            r = pump(state["id"])
+            if r is None:
+                return "", "(응답 없음)"
+            if "error" in r:
+                return "", r["error"].get("message", "")
+            res = r["result"]
+            txt = "".join(c.get("text", "") for c in res.get("content", []))
+            return ("", txt) if res.get("isError") else (txt, "")
+        return call
+
+    def _pending_intake(self):
+        self.gil("start")
+        self.gil("start", "--name", "probe")
+        for name, body in (("i.md", "# Identity — probe\n\n시험용.\n"), ("w.md", "# Will\n\n확인.\n")):
+            with open(os.path.join(self.repo, name), "w", encoding="utf-8") as f:
+                f.write(body)
+        self.gil("start", "--identity", os.path.join(self.repo, "i.md"),
+                 "--will", os.path.join(self.repo, "w.md"))
+
+    def test_the_humans_sentence_is_what_gets_recorded(self):
+        """**요약도 정제도 없이** 사람이 친 문장 그대로여야 한다 — 그게 이 폼의 존재 이유다."""
+        self._pending_intake()
+        call = self._app()
+        mine = "사내 규정을 쉽게 찾게 하고 싶다."
+        crit = "직원 10명이 1분 안에 답을 얻으면 된 것이다."
+        out, err = call("gil_interview_submit", {
+            "repo": self.repo, "chain": "start",
+            "answers": json.dumps({"q1": mine, "q2": crit}, ensure_ascii=False)})
+        self.assertEqual(err, "", f"제출이 막혔다:\n{err}")
+        shown = self.gil("intake", "start", "--status", "--show").stdout
+        self.assertIn(mine, shown, "사람의 문장이 그대로 남지 않았다")
+        self.assertIn(crit, shown, "성패 기준이 그대로 남지 않았다")
+
+    def test_an_empty_submit_is_refused(self):
+        """빈 기준으로 확정되면 그 뒤 판정이 전부 빈 자를 대고 재는 일이 된다(형해화)."""
+        self._pending_intake()
+        call = self._app()
+        out, _ = call("gil_interview_submit",
+                      {"repo": self.repo, "chain": "start", "answers": "{}"})
+        self.assertIn("아직 아무것도", out, "빈 제출이 확정됐다")
+        self.assertIn("pending", self.gil("intake", "start", "--status").stdout,
+                      "빈 제출로 인터뷰가 닫혔다")
+
+    def test_submitting_twice_does_not_break(self):
+        """사람은 두 번 누른다. 두 번째는 사실을 말하면 된다 — 오류가 아니다."""
+        self._pending_intake()
+        call = self._app()
+        args = {"repo": self.repo, "chain": "start",
+                "answers": json.dumps({"q1": "한 번만 적는다.", "q2": "되면 된 것이다."},
+                                      ensure_ascii=False)}
+        _, err = call("gil_interview_submit", args)
+        self.assertEqual(err, "", err)
+        out, err2 = call("gil_interview_submit", args)
+        self.assertEqual(err2, "", "두 번째 제출이 오류로 터졌다")
+        self.assertIn("기다리는 질문이 없다", out, "두 번째 제출이 무슨 일인지 말하지 않았다")
+
+    def test_the_card_then_shows_what_is_next(self):
+        """제출 뒤 사람이 보는 것은 "됐다"가 아니라 **다음이 무엇인지**여야 한다."""
+        self._pending_intake()
+        call = self._app()
+        out, _ = call("gil_interview_submit", {
+            "repo": self.repo, "chain": "start",
+            "answers": json.dumps({"q1": "무엇을 한다.", "q2": "이러면 된 것이다."},
+                                  ensure_ascii=False)})
+        self.assertNotIn('data-act="interview-submit"', out,
+                         "확정했는데 폼이 그대로 남았다")

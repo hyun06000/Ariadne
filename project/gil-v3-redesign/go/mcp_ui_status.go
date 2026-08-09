@@ -228,6 +228,33 @@ func statusCardShellHTML() string {
 
   function runAct(b){
     var tool=b.getAttribute("data-tool"), msg=b.getAttribute("data-msg"), to=b.getAttribute("data-to");
+    // **인터뷰 제출.** 사람이 폼에 적은 것을 그대로 모아 보낸다 — 화면은 답을 고치지도,
+    // 채우지도 않는다(그 순간 기준이 사람의 문장이 아니게 된다).
+    if(b.getAttribute("data-act")==="interview-submit"){
+      var box=b.closest("[data-iv]"); if(!box) return;
+      var ans={}, filled=false;
+      var els=box.querySelectorAll("[data-q]");
+      for(var k=0;k<els.length;k++){
+        var el=els[k], key=el.getAttribute("data-q");
+        if(el.type==="checkbox"){ if(el.checked){ ans[key]=true; filled=true; } }
+        else if(el.type==="radio"){ if(el.checked){ ans[key]=el.value; filled=true; } }
+        else { var v=(el.value||"").trim(); if(v){ ans[key]=v; filled=true; } }
+      }
+      // 빈 제출은 보내지 않는다 — 빈 기준으로 확정되면 그 뒤 판정이 전부 형해화된다.
+      if(!filled){ say("아직 아무것도 적히지 않았다 — 한 칸이라도 채워야 보낼 수 있다."); return; }
+      var j=++id;
+      pending[j]=function(res,err){
+        if(err){ say("보내지 못했다: "+String((err&&(err.message||err.code))||err)); return; }
+        var h=cardOf(res);
+        if(h){ var s2=slot(); if(s2){ s2.innerHTML=h; drawn=true; reportSize(); } return; }
+        say("보냈다. 화면을 다시 가져온다."); drawn=false; fetches=0; fetchCard();
+      };
+      send({id:j,method:"tools/call",params:{name:"gil_interview_submit",arguments:{
+        chain:b.getAttribute("data-chain")||"", answers:JSON.stringify(ans),
+        repo:repo||undefined}}});
+      say("보내는 중…");
+      return;
+    }
     if(tool){
       // 진짜 명령이 돈다(pending 의 승인·기각). 결과는 사람에게 한 줄로 알린다.
       var args={}; if(to) args.to=to;
@@ -672,6 +699,7 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .md .mdnote{display:block;margin:.5em 0;font-size:12px;color:var(--warn-fg);
  background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px}
 .md a{color:inherit}
+` + interviewCardCSS + `
 </style>`
 }
 
@@ -693,9 +721,17 @@ func statusCardBodyHTML(st statusOut) string {
 		// 비개발자에게는 답이 아니라 새 물음이다. 그 문자열은 데이터에 그대로 있다 —
 		// 그건 에이전트가 읽고 치는 값이다.
 		if st.Waiting != nil {
-			b.WriteString(`<div class="box wait"><div class="t">⏳ 사람의 판단이 필요하다</div><div>` +
-				esc(st.Waiting.What) + `</div><div style="margin-top:6px">` +
-				esc(waitHumanLine(st.Waiting)) + `</div></div>`)
+			// **인터뷰는 글이 아니라 폼이다.** 옛 카드는 "에이전트가 여는 인터뷰 창구에
+			// 적으면"이라고 말했는데, 이 표면에는 그 창구가 없었다(뷰어는 청해야 뜨고
+			// 시작하는 사람에겐 창이 없다, Elicitation 은 Desktop 이 못 띄운다). 가리키는
+			// 것이 실재하지 않는 안내였다 — 그래서 **카드가 그 창구가 된다**.
+			if form := interviewFaceHTML(st.Waiting); form != "" {
+				b.WriteString(form)
+			} else {
+				b.WriteString(`<div class="box wait"><div class="t">⏳ 사람의 판단이 필요하다</div><div>` +
+					esc(st.Waiting.What) + `</div><div style="margin-top:6px">` +
+					esc(waitHumanLine(st.Waiting)) + `</div></div>`)
+			}
 		}
 		// 머리글은 **체인 › 사이클 › 스텝** 셋을 다 부른다. 체인 이름이 빠지면 여러 체인을
 		// 오가는 사람이 지금 어느 계보 안에 있는지 모른다(#110 이 저장소 이름에서 겪은 병).
