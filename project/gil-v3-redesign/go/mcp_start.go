@@ -49,7 +49,10 @@ func registerStartTools(s *mcp.Server) {
 		Description: "**새 프로젝트를 시작할 때 부르는 첫 툴이다.** 사람이 \"gil 프로젝트 시작하자\"고 " +
 			"하면 이걸 불러라. 온보딩의 다음 한 칸을 실제로 밟는다 — 저장소·존재·기억을 세우고, " +
 			"네가 스스로 이름을 짓게 하고, 사람에게 **무엇을 하려는지 먼저 묻는다**(체인보다 앞이다). " +
+			"묻는 칸에서는 질문이 **카드 폼으로 사람 화면에 선다**. " +
 			"끝날 때까지 반복해서 불러라. 판단이 필요한 칸(이름·정체성)에서는 멈추고 무엇이 비었는지 말한다.",
+		// **묻는 자리가 곧 화면이 서는 자리다**(mcp_ui_status.go 의 uiStatusMeta).
+		Meta: uiStatusMeta(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inStart) (*mcp.CallToolResult, any, error) {
 		// 저장소 자리를 먼저 정한다. **gil_init 과 같은 예외**로, 아직 저장소가 아니어도 선다 —
 		// 시작하는 자리에서 "저장소가 아니다"로 죽으면 시작할 방법이 없다(그게 닫힌 고리였다).
@@ -323,9 +326,13 @@ type inContext struct {
 func registerEntryTools(s *mcp.Server) {
 	// gil_intake — **체인보다 먼저** 사람에게 묻는 자리(#90). 이게 없어서 MCP 세션은 문서가
 	// 가르치는 첫 수를 칠 수 없었고, 남는 길이 "기준을 스스로 쓰는 것"뿐이었다.
-	tool(s, "gil_intake",
-		"체인을 열기 **전에** 사람에게 묻는다(개시 인터뷰). 목적과 성패 기준은 사람의 답에서 "+
-			"그대로 인용된다 — 요약도 정제도 창작이다. 답이 오면 gil_chain 의 from_intake 로 잇는다.",
+	// **묻는 자리가 곧 화면이 서는 자리다**(상현님 실사용, 2026-08-10). 인터뷰 카드를 세워
+	// 놓고도 그 화면을 여는 것이 gil_status 뿐이라, 질문을 심어도 사람 앞엔 아무것도 안 떴다.
+	toolUI[inIntake](s, "gil_intake",
+		"체인을 열기 **전에** 사람에게 묻는다(개시 인터뷰) — 질문이 **카드 폼으로 사람 화면에 선다**. "+
+			"목적과 성패 기준은 사람의 답에서 그대로 인용된다(요약도 정제도 창작이다). "+
+			"답이 오면 gil_chain 의 from_intake 로 잇는다.",
+		uiStatusMeta(),
 		func(in inIntake) []string {
 			a := []string{in.Slug}
 			switch {

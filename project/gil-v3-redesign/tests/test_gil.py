@@ -14959,3 +14959,86 @@ class TestTheAnswerComesBackFromTheCard(GilFixture):
                                   ensure_ascii=False)})
         self.assertNotIn('data-act="interview-submit"', out,
                          "확정했는데 폼이 그대로 남았다")
+
+
+class TestAskingOpensTheScreen(GilFixture):
+    """**묻는 자리가 곧 화면이 서는 자리다** (상현님 실사용, 2026-08-10 — "뷰어폼이 안뜨네").
+
+    인터뷰 카드를 세워 놓고, 인터뷰를 심는 자리의 안내에 "사람에게 **화면의 인터뷰 폼**에
+    답해 달라고 청하라"고 적었다. 그런데 그 화면을 여는 것은 `gil_status` 뿐이었고, 인터뷰를
+    심는 툴은 **아무 화면도 열지 않았다.** 뷰어로 가는 길도 이 표면엔 없다(터미널 전용으로
+    선언했다). 그래서 사람 앞에는 **아무것도 뜨지 않았다.**
+
+    카드도 옳았고 뷰어 폼도 옳았다(둘 다 실제로 그려지는 것을 확인했다). 틀린 것은 **아무도
+    그것을 열지 않는다**는 사실이었다 — 사흘째 같은 병(가리키는 것이 실재하지 않는다), 이번엔
+    내가 만든 자리에서.
+
+    사람에게 물어 놓고 물음을 어디에도 안 띄우면, 그 물음은 대화로 새거나(옮겨쓰기) 사라진다."""
+
+    def _tools(self):
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1"})
+        self.addCleanup(p.terminate)
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "unsupported"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "probe", "version": "0"}}})
+        pump(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        return {t["name"]: t for t in pump(2)["result"]["tools"]}
+
+    def test_every_asking_tool_opens_a_screen(self):
+        """사람에게 묻는 툴은 **자기 화면을 함께 연다** — 안 그러면 물음이 어디에도 안 뜬다."""
+        tools = self._tools()
+        asking = ["gil_start", "gil_intake", "gil_interview"]
+        missing = []
+        for name in asking:
+            self.assertIn(name, tools, f"{name} 이 표면에 없다")
+            ui = (tools[name].get("_meta") or {}).get("ui") or {}
+            if not ui.get("resourceUri"):
+                missing.append(name)
+        self.assertEqual(
+            missing, [],
+            "사람에게 묻는데 화면을 안 여는 툴: " + ", ".join(missing) +
+            "\n  물어 놓고 물음을 어디에도 안 띄우면 그 물음은 대화로 새거나 사라진다.")
+
+    def test_the_guidance_points_at_a_screen_that_opens(self):
+        """안내가 "화면의 폼"을 말하려면 그 화면이 **그 호출로** 떠야 한다."""
+        self.gil("start")
+        self.gil("start", "--name", "probe")
+        for n, b in (("i.md", "# I\n\n시험용.\n"), ("w.md", "# W\n\n확인.\n")):
+            with open(os.path.join(self.repo, n), "w", encoding="utf-8") as f:
+                f.write(b)
+        out = self.gil("start", "--identity", os.path.join(self.repo, "i.md"),
+                       "--will", os.path.join(self.repo, "w.md")).stdout
+        # CLI 는 카드를 안 띄운다 — 여기서 "카드에 적어라"라고 하면 그게 또 없는 것을 가리키는
+        # 안내다. 이 자리의 CLI 안내는 뷰어·상태를 말해야 한다.
+        self.assertNotIn("위에 뜬 카드", out,
+                         "CLI 에서 카드를 가리켰다 — 그 표면엔 카드가 없다")

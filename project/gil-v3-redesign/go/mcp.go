@@ -249,7 +249,20 @@ func requireRepoHere() {
 
 // tool — cmd* 를 부르는 표준 핸들러를 만든다. 입력 구조체 → CLI 인자 조립은 호출부가 준다.
 func tool[In any](s *mcp.Server, name, desc string, argv func(In) []string, run func([]string)) {
-	mcp.AddTool(s, &mcp.Tool{Name: name, Description: desc},
+	toolUI[In](s, name, desc, nil, argv, run)
+}
+
+// toolUI — tool 과 같되 **자기 화면을 함께 연다**(_meta.ui.resourceUri).
+//
+// 왜 필요한가(상현님 실사용, 2026-08-10). 인터뷰 카드를 세워 놓고, 인터뷰를 심는 자리의
+// 안내에 "사람에게 **화면의 인터뷰 폼**에 답해 달라고 청하라"고 적었다. 그런데 그 화면을
+// 여는 것은 gil_status 뿐이고, 인터뷰를 심는 툴은 아무 화면도 열지 않는다 — 그러니 사람
+// 앞에는 **아무것도 뜨지 않았다.** 뷰어로 가는 길도 이 표면엔 없다(터미널 전용으로 선언했다).
+//
+// **묻는 자리가 곧 화면이 서는 자리여야 한다.** 사람에게 물어 놓고 물음을 어디에도 안
+// 띄우면, 그 물음은 대화로 새거나(옮겨쓰기) 그냥 사라진다.
+func toolUI[In any](s *mcp.Server, name, desc string, meta mcp.Meta, argv func(In) []string, run func([]string)) {
+	mcp.AddTool(s, &mcp.Tool{Name: name, Description: desc, Meta: meta},
 		func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 			// 호출이 저장소를 실어 왔으면 거기로 옮긴다 — roots 를 안 주는 호스트의 유일한 길.
 			// 본문을 파일로 나르느라 만든 임시 파일은 이 호출이 끝날 때 지운다(mcp_start.go) —
@@ -704,8 +717,11 @@ type interviewQMCP struct {
 func registerInterviewTool(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "gil_interview",
-		Description: "체인의 기준 문서(레퍼런스 트루스)를 사람에게 물어 만든다. 체인을 연 직후 반드시 한 번 " +
-			"불러야 하며, 이걸 통과해야 사이클을 열 수 있다. 사람의 답이 기준이다 — 답을 대신 지어내지 마라.",
+		Description: "체인의 기준 문서(레퍼런스 트루스)를 사람에게 물어 만든다 — 호스트가 네이티브 폼을 " +
+			"못 띄우면 질문이 **카드 폼으로 사람 화면에 선다**. 이걸 통과해야 사이클을 열 수 있다. " +
+			"사람의 답이 기준이다 — 답을 대신 지어내지 마라.",
+		// 묻는 자리가 곧 화면이 서는 자리다 — 폴백으로 심은 질문도 그 자리에서 사람에게 보여야 한다.
+		Meta: uiStatusMeta(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inInterview) (*mcp.CallToolResult, any, error) {
 		qs := make([]interviewQ, 0, len(in.Questions))
 		for _, q := range in.Questions {

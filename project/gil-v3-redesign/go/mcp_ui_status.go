@@ -23,6 +23,18 @@ import (
 
 const uiStatusURI = "ui://gil/status"
 
+// uiStatusMeta — **이 툴은 상태 카드를 함께 연다**는 선언.
+//
+// 화면을 여는 툴이 gil_status 하나뿐이던 동안, 사람에게 묻는 자리(인터뷰를 심는 툴)는
+// 물어 놓고 아무것도 안 띄웠다 — 그래서 안내가 "화면의 폼에 답해 달라고 청하라"고 말해도
+// 사람 앞에는 화면이 없었다(상현님 실사용, 2026-08-10). **묻는 자리가 곧 화면이 서는 자리다.**
+func uiStatusMeta() mcp.Meta {
+	return mcp.Meta{"ui": map[string]any{
+		"resourceUri": uiStatusURI,
+		"visibility":  []string{"model", "app"},
+	}}
+}
+
 func registerGilStatusUI(s *mcp.Server) {
 	read := func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		uri := uiStatusURI
