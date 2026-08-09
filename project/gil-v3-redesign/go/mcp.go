@@ -136,11 +136,21 @@ func cmdMCP(args []string) {
 		Name:    "gil",
 		Title:   "gil — 사고 역사를 git 커밋 그래프 위에",
 		Version: gilVersion,
-	}, &mcp.ServerOptions{Capabilities: uiCapabilities()})
+	}, &mcp.ServerOptions{
+		Capabilities: uiCapabilities(),
+		// **호스트가 초기화에서 받는 유일한 글**(surface.go 의 mcpInstructions).
+		//
+		// 여기가 비어 있었다(실측 2026-08-09: instructions=None). 그래서 "gil 프로젝트
+		// 시작하자"는 말에 무엇을 먼저 불러야 하는지 아무도 말해 주지 않았다. 순서를 가르치는
+		// 문서는 저장소 안에 있는데, 저장소를 아직 안 세운 자리에서는 그 문서를 읽을 수 없다 —
+		// 순환이다. 이 자리가 그 순환을 끊는 유일한 지점이다.
+		Instructions: mcpInstructions(),
+	})
 	// roots 훅은 툴 등록보다 **먼저** 선다 — 어느 툴이든 실제 일을 하기 전에 저장소가 정해져
 	// 있어야 한다. 뒤에 걸면 등록 순서에 따라 어떤 툴은 저장소 없이 들어간다.
 	installRootsMiddleware(s)
 	registerGilTools(s)
+	registerStartTools(s) // 진입점(gil_start)과 표면의 빈 칸들 — mcp_start.go
 	registerGilUI(s)
 	registerGilStatusUI(s) // 가벼운 기본 화면 — 무거운 전체맵은 gil_graph 쪽에 남는다
 	registerGilCardTool(s) // 앱 전용 — 화면이 자기 내용을 가져오는 통로(mcp_ui_card.go)
@@ -235,6 +245,9 @@ func tool[In any](s *mcp.Server, name, desc string, argv func(In) []string, run 
 	mcp.AddTool(s, &mcp.Tool{Name: name, Description: desc},
 		func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 			// 호출이 저장소를 실어 왔으면 거기로 옮긴다 — roots 를 안 주는 호스트의 유일한 길.
+			// 본문을 파일로 나르느라 만든 임시 파일은 이 호출이 끝날 때 지운다(mcp_start.go) —
+			// 거기엔 존재의 정체성·기억 본문이 실린다.
+			defer dropTempFiles()
 			out, err := runGil(func() { adoptCallRepo(in); requireReady(); run(argv(in)) })
 			if err != nil {
 				return nil, nil, err
@@ -280,7 +293,7 @@ func repoBanner() string {
 type inChain struct {
 	inRepo
 	Name          string `json:"name" jsonschema:"체인 이름(소문자·숫자·하이픈)"`
-	Purpose       string `json:"purpose" jsonschema:"이 체인이 무엇을 풀려는지 자연어로"`
+	Purpose       string `json:"purpose,omitempty" jsonschema:"이 체인이 무엇을 풀려는지 자연어로. **from_intake 로 열 때는 주지 마라** — 그때 목적은 사람의 답에서 인용된다(둘을 함께 주면 gil 이 거부한다)"`
 	Inherit       string `json:"inherit,omitempty" jsonschema:"앞 체인에서 물려받은 전제·교훈"`
 	Reference     string `json:"reference,omitempty" jsonschema:"사람이 준 기준 문서 파일 경로. criterion 과 짝이다 — 보통은 비워 두고 gil_intake 로 체인보다 먼저 사람에게 물어 그 답을 인용한다"`
 	Criterion     string `json:"criterion,omitempty" jsonschema:"무엇이 관측되면 이 체인이 풀린 것인가 — 판정 문장. 기준 없이는 체인이 만들어지지 않는다(목적과 기준은 쌍)"`
@@ -298,7 +311,7 @@ type inOpen struct {
 	Fits    string   `json:"fits,omitempty" jsonschema:"이 사이클이 체인 목적에 어떻게 기여하는가 — 필수. 여는 자리에서 체인 목적과 대면한다"`
 	Misfit  string   `json:"misfit,omitempty" jsonschema:"이 체인의 것이 아니라고 판단했으면 그 이유. 열지 않고 기억에 남긴다"`
 	Author  string   `json:"author" jsonschema:"이 사이클을 여는 존재의 이름"`
-	Purpose string   `json:"purpose" jsonschema:"이 사이클이 풀려는 문제"`
+	Purpose string   `json:"purpose,omitempty" jsonschema:"이 사이클이 풀려는 문제. from_plan 으로 열 때는 주지 마라 — 그때 목적은 사람이 나눈 문제에서 인용된다"`
 	Inherit string   `json:"inherit,omitempty" jsonschema:"앞 사이클에서 물려받은 지식·전제·교훈"`
 	Parent  []string `json:"parent,omitempty" jsonschema:"계보 부모 사이클들"`
 	Refutes []string `json:"refutes,omitempty" jsonschema:"이 사이클이 뒤집는 앞 verify 스텝(chain/cycle/step)"`
@@ -388,9 +401,14 @@ type inGoto struct {
 
 type inEmpty struct{ inRepo }
 
+type inHandoff struct {
+	inRepo
+	End bool `json:"end,omitempty" jsonschema:"세션정리 — 기억 매듭 지시·미커밋 고지·이 저장소의 뷰어 끄기. 한 국면이 끝났거나 맥락이 길어졌을 때"`
+}
+
 type inDeploy struct {
 	inRepo
-	At    string `json:"at" jsonschema:"chain/cycle/step — 무엇을 배포했나"`
+	At    string `json:"at,omitempty" jsonschema:"chain/cycle/step — 무엇을 배포했나. 모르면 비워 둬라: gil 이 부모를 훑어 귀속을 찾고, 못 찾으면 '귀속 스텝 미상'으로 그린다(없는 것과 못 찾은 것은 다르다)"`
 	Tag   string `json:"tag" jsonschema:"릴리스 태그(v0.2.0)"`
 	URL   string `json:"url,omitempty"`
 	Title string `json:"title,omitempty"`
@@ -400,7 +418,13 @@ type inDeploy struct {
 }
 
 func registerGilTools(s *mcp.Server) {
-	tool(s, "gil_chain", "새 체인을 연다. 닫힌 체인 끝에서만 열 수 있다. 체인을 연 뒤에는 gil_interview 로 사람에게 기준을 물어야 사이클을 열 수 있다.",
+	// 설명이 **거부되는 순서를 가르치고 있었다**(2026-08-09). 옛 문구는 "체인을 연 뒤에
+	// gil_interview 로 기준을 물어야"였는데, v3.37.0 이 집행을 사이클에서 **체인의 탄생**으로
+	// 올린 뒤로 기준 없는 체인은 아예 태어나지 못한다. 설명대로 따른 에이전트는 거부당하고,
+	// 그 자리에서 남는 길이 "기준을 스스로 쓰는 것"이었다 — 설명이 결함을 만든 셈이다.
+	tool(s, "gil_chain", "새 체인을 연다. **목적과 기준은 쌍으로만 태어난다** — 먼저 gil_intake 로 "+
+		"사람에게 묻고, 그 답을 from_intake·purpose_from·criterion_from 으로 **인용**해 열어라(권장). "+
+		"사람이 기준 문서를 이미 줬다면 purpose+reference+criterion 으로. 기준을 네가 창작해 넣지 마라.",
 		func(in inChain) []string {
 			a := []string{in.Name}
 			a = addFlag(a, "purpose", in.Purpose)
@@ -532,9 +556,18 @@ func registerGilTools(s *mcp.Server) {
 
 	// 세션을 이어받는 첫 관문. 관전 뷰어를 자동으로 띄우고 "인앱 브라우저로 열어라"를 규범으로
 	// 지시한다(이슈 #55) — cmdHandoff 안에서 처리하므로 CLI 와 MCP 가 같은 레일을 쓴다.
+	// `--end`(세션정리)를 인자로 연다. 옛 툴은 인자가 repo 하나뿐이라, **자기 출력이 가르치는
+	// 다음 수를 자기 표면에서 칠 수 없었다**("한 국면이 끝났으면 gil handoff --end") —
+	// 도구가 자기가 만든 상태에서 빠져나갈 길을 자기가 줘야 한다(v3.58.1 이 세운 규칙).
 	tool(s, "gil_handoff", "다음 세션에 넘길 상태를 보고한다. **세션을 이어받을 때 가장 먼저 부른다.** "+
-		"관전 뷰어를 자동으로 띄우고 그 주소를 준다 — 받은 주소는 네 인앱 브라우저 패널로 곧바로 열어라.",
-		func(in inEmpty) []string { return nil }, cmdHandoff)
+		"(새로 시작하는 것이면 gil_start 다.) 한 국면이 끝났으면 end 로 세션정리를 한다 — "+
+		"기억 매듭 지시·미커밋 고지·이 저장소의 뷰어 끄기.",
+		func(in inHandoff) []string {
+			if in.End {
+				return []string{"--end"}
+			}
+			return nil
+		}, cmdHandoff)
 
 	tool(s, "gil_deploy", "배포(공개) 지점을 그래프의 1급 시민으로 남긴다.",
 		func(in inDeploy) []string {
@@ -552,13 +585,29 @@ func registerGilTools(s *mcp.Server) {
 	// 세팅을 터미널로 내몰면 "프롬프트만으로 완주"가 깨진다(비개발자는 터미널을 안 쓴다).
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "gil_init",
-		Description: "이 폴더에 gil 세계를 세운다(저장소·대문·존재·기억). 다른 gil 툴이 " +
-			"'아직 gil 로 관리되지 않는다'고 거부하면 이걸 먼저 부른다. 이미 세워져 있으면 거부한다.",
+		Description: "이 폴더에 gil 세계를 세운다(저장소·대문·존재·기억). 이미 세워져 있으면 거부한다. " +
+			"**새 프로젝트를 시작하는 것이라면 gil_start 를 불러라** — 세계를 세우는 것에 더해 " +
+			"존재의 이름과 사람의 개시 인터뷰까지 끝까지 끌고 간다. 이 툴은 그 한 칸만 한다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inInit) (*mcp.CallToolResult, any, error) {
+		// **여기가 닫힌 고리였다**(2026-08-09 실측). 빈 폴더에 이 툴을 부르면 adoptCallRepo 가
+		// "git 저장소가 아니다 — 거기서 시작하는 것이라면 먼저 gil_init 을 불러라"로 거부했다.
+		// 방금 한 그 호출을 하라고 답한 것이다. 세계를 세우는 툴에 "이미 세계가 있을 것"을
+		// 요구했으니 빠져나갈 곳이 없었다(같은 CLI 는 빈 폴더에서 그냥 돈다).
+		if err := adoptCallRepoForCreate(in); err != nil {
+			return nil, nil, err
+		}
+		// 남의 디스크에 저장소를 세우는 일이라 사람의 승낙을 받는다(상현님 판단). 폼이 안 서는
+		// 호스트면 승낙으로 치지 않는다 — 사람에게 직접 묻고 다시 부르라고 넘긴다(#57).
+		if !gitOK("rev-parse", "--git-dir") {
+			if ok, _ := elicitWorldConfirm(ctx, req); !ok {
+				return nil, nil, errString("멈춤: 여기에 gil 세계를 세우는 것을 사람이 승낙하지 않았다.\n" +
+					"  이 자리가 맞는지 사람에게 확인하고, 맞으면 다시 불러라.")
+			}
+		}
 		// 관전 서버의 시스템 브라우저 자동 실행은 끈다 — 호스트 안에서 도는 에이전트에게는
 		// 밖으로 튀어나오는 창이 방해다(이슈 #48). 주소는 출력에 그대로 나온다.
 		a := []string{"--no-open"}
-		out, err := runGil(func() { adoptCallRepo(in); cmdInit(addFlag(a, "name", in.Name)) })
+		out, err := runGil(func() { cmdInit(addFlag(a, "name", in.Name)) })
 		if err != nil {
 			return nil, nil, err
 		}

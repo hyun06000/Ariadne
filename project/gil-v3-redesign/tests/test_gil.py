@@ -10,6 +10,7 @@ gil 명령을 subprocess로 돌리고 결과를 단언한다. 통제된 입력 �
 실행:  python3 -m unittest discover -s project/gil-v3-redesign/tests
    또는  python3 project/gil-v3-redesign/tests/test_gil.py
 """
+import glob
 import json
 import os
 import re
@@ -695,11 +696,19 @@ class TestInit(GilFixture):
         self.assertTrue(os.path.exists(os.path.join(self.repo, "CLAUDE.md")))
 
     def test_init_output_is_llm_prompt(self):
-        """출력에 STATE/NEXT + 다음 명령이 담긴다 — 인간 UX 아닌 LLM 프롬프트."""
+        """출력에 STATE/NEXT + 다음 명령이 담긴다 — 인간 UX 아닌 LLM 프롬프트.
+
+        **다음 명령이 무엇인지가 2026-08-09 에 바뀌었다.** 옛 NEXT 는 이름 짓기·방 채우기·
+        개시 인터뷰를 번호로 늘어놨는데, 그 줄들은 읽고 따르는 것이라 자기규율이었고
+        (#55·#45), MCP 표면에서는 대응 툴이 없어 **아예 칠 수 없는 줄**이었다. 이제 남은
+        칸은 `gil start` 가 실제로 밟는다 — init 은 자기가 무엇을 세웠는지만 말한다.
+        그러니 여기서 세는 것은 "사다리를 늘어놨나"가 아니라 **"다음 칸으로 가는 길을
+        가리키나"** 다."""
         out = self.gil("init", "--name", "aria").stdout
         self.assertIn("STATE", out)
         self.assertIn("NEXT", out)
-        self.assertIn("gil global read existence/aria/identity.md", out)
+        self.assertIn("gil start", out, "다음 칸을 밟을 명령을 안 가리킨다")
+        self.assertIn("gil handoff", out, "다음 세션의 복원 경로를 안 가리킨다")
 
     def test_init_warns_persistence_unconditionally(self):
         """init 은 존재 영속성 경고를 조건 없이 항상 낸다(상현님) — gil 은 환경을 감지·판정하지
@@ -14213,3 +14222,265 @@ class TestTheHypothesisStandsBeforeTheCode(GilFixture):
         body = self._git("log", "-1", "--format=%B", "c-cy").stdout
         self.assertIn("Gil-Tree-Changes: 2 files", body, "함께 들어온 것을 안 적었다")
         self.assertIn("f1.txt", body, "어떤 파일인지 안 적었다")
+
+
+class _MCPClient:
+    """gil mcp serve 를 stdio 로 몰아 **실제 프로토콜로** 부르는 최소 클라이언트.
+
+    왜 이걸 짓나. 이 표면의 결함은 소스를 읽어서는 안 보였다 — 툴이 등록돼 있고 함수가 옳아도,
+    **스키마가 필수라고 광고한 필드를 문법이 금지**하면 호출은 gil 이 돌기도 전에 죽는다
+    (실제로 gil_chain 이 그랬다: purpose 필수인데 권장 경로인 from_intake 가 purpose 를
+    금지한다). 그리고 인터뷰의 핵심인 Elicitation 은 **서버가 클라이언트에게 거는 요청**이라,
+    거기에 답하는 클라이언트가 없으면 그 경로는 밟히지 않는다. 그래서 답하는 쪽까지 짓는다.
+    """
+
+    def __init__(self, repo, answers):
+        self.p = subprocess.Popen(
+            GIL_CMD + ["mcp", "serve"], cwd=repo, text=True, bufsize=1,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env={**os.environ, "GIL_NO_VIEWER": "1"})
+        self.answers = list(answers)
+        self.forms = []          # 사람에게 실제로 뜬 폼들(무엇을 물었는지 검사할 수 있게)
+        self._id = 0
+        self.init = self._rpc("initialize", {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {"elicitation": {}},
+            "clientInfo": {"name": "gil-test", "version": "0"}})
+        self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    def _send(self, obj):
+        self.p.stdin.write(json.dumps(obj) + "\n")
+        self.p.stdin.flush()
+
+    def _rpc(self, method, params):
+        self._id += 1
+        want = self._id
+        self._send({"jsonrpc": "2.0", "id": want, "method": method, "params": params})
+        while True:
+            line = self.p.stdout.readline()
+            if not line:
+                raise AssertionError(f"서버가 응답 없이 끝났다: {self.p.stderr.read()[:2000]}")
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("method") == "elicitation/create":
+                self.forms.append(msg["params"].get("message", ""))
+                content = self.answers.pop(0) if self.answers else {}
+                self._send({"jsonrpc": "2.0", "id": msg["id"],
+                            "result": {"action": "accept", "content": content}})
+                continue
+            if msg.get("method"):
+                if "id" in msg:
+                    self._send({"jsonrpc": "2.0", "id": msg["id"],
+                                "error": {"code": -32601, "message": "unsupported"}})
+                continue
+            if msg.get("id") == want:
+                return msg
+
+    def tools(self):
+        return {t["name"]: t for t in self._rpc("tools/list", {})["result"]["tools"]}
+
+    def call(self, _tool, **args):
+        """툴 호출. (성공텍스트, 오류메시지) — 오류면 첫째가 ''.
+
+        첫 인자를 _tool 로 둔다: 툴 인자에도 name 이 있어서(gil_start 의 존재 이름,
+        gil_chain 의 체인 이름) 같은 이름이면 파이썬이 먼저 죽는다."""
+        r = self._rpc("tools/call", {"name": _tool, "arguments": args})
+        if "error" in r:
+            return "", r["error"].get("message", "")
+        res = r["result"]
+        out = "".join(c.get("text", "") for c in res.get("content", []))
+        return out, ("" if not res.get("isError") else out)
+
+    def close(self):
+        self.p.terminate()
+        try:
+            self.p.wait(timeout=5)
+        except Exception:
+            self.p.kill()
+
+
+class TestStartingIsOneMove(GilFixture):
+    """**"gil 프로젝트 시작하자" 한 마디로 온보딩이 끝까지 간다** (상현님, 2026-08-09).
+
+    이 시험이 생긴 이유는 실측이다. MCP 표면 — 비개발자가 쓰는 바로 그 표면 — 에서는
+    새 프로젝트를 시작할 수가 **없었다**:
+
+      · 빈 폴더에 gil_init(repo=…) 를 부르면 "거기서 시작하는 것이라면 먼저 gil_init 을 그
+        경로로 불러라"가 돌아왔다. 방금 한 그 호출이다 — 자기 자신을 가리키는 닫힌 고리.
+      · 체인 거부가 주는 권장 경로(`gil intake`)에 **대응 툴이 없었다.** 남는 길은 같은
+        메시지가 금지하는 것 하나뿐이었다("네가 기준을 창작해 넣지 마라").
+      · 존재를 각인하는 길(gil global)이 없어, init 이 준 첫 과제 자체가 불가능했다.
+      · 스키마가 gil_chain 의 purpose 를 **필수**로 광고했는데, 권장 경로인 from_intake 는
+        purpose 를 금지한다 — 호출이 gil 에 닿기도 전에 검증에서 죽었다.
+
+    전부 "툴 목록에 있나"로는 안 잡히고 **끝까지 밟아야** 잡힌다. 그래서 밟는다."""
+
+    def _client(self, repo=None, answers=None):
+        c = _MCPClient(repo or self.repo, answers or [])
+        self.addCleanup(c.close)
+        return c
+
+    ANSWERS = [
+        {"ok": True},
+        {"q1": "사내 문서를 검색해 답하는 도우미를 만들고 싶다.",
+         "q2": "직원 20명이 일주일 써서 답이 맞다고 한 비율이 80% 를 넘으면 된 것이다."},
+    ]
+
+    def test_the_server_says_where_to_begin(self):
+        """호스트가 initialize 에서 받는 글이 비어 있으면 시작점을 아무도 모른다."""
+        c = self._client()
+        ins = c.init["result"].get("instructions") or ""
+        self.assertTrue(ins.strip(), "MCP instructions 가 비었다 — 시작점을 말할 유일한 자리다")
+        self.assertIn("gil_start", ins, "시작할 때 무엇을 부르는지 안 적혀 있다")
+
+    def test_the_table_of_the_surface_does_not_lie(self):
+        """surface.go 의 표가 실재하지 않는 툴을 가리키면, 그 표가 곧 거짓 안내가 된다."""
+        c = self._client()
+        have = set(c.tools())
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "go", "surface.go"), encoding="utf-8").read()
+        claimed = set(re.findall(r'"(gil_[a-z_]+)"', src))
+        missing = sorted(claimed - have)
+        self.assertEqual(missing, [], f"표가 없는 툴을 가리킨다: {missing}")
+
+    def test_an_empty_folder_can_become_a_world(self):
+        """**닫힌 고리가 없어야 한다.** 빈 폴더에서 시작하는 길이 실제로 있어야 한다."""
+        empty = tempfile.mkdtemp(prefix="gil-empty-")
+        self.addCleanup(shutil.rmtree, empty, ignore_errors=True)
+        c = self._client(repo=empty, answers=[{"ok": True}])
+        out, err = c.call("gil_start")
+        self.assertEqual(err, "", f"빈 폴더에서 시작하지 못했다:\n{err}")
+        self.assertTrue(os.path.isdir(os.path.join(empty, ".git")), "저장소가 안 섰다")
+        self.assertIn("이름", out, "다음 칸(이름 짓기)을 안 말했다")
+        self.assertTrue(c.forms, "사람에게 묻지 않고 남의 디스크에 저장소를 세웠다")
+
+    def test_it_will_not_create_a_folder_that_does_not_exist(self):
+        """없는 경로에 디렉터리를 파지 않는다 — 어디에 만들지는 언제나 사람이 정한다."""
+        c = self._client()
+        gone = os.path.join(self.repo, "없는폴더", "더없는폴더")
+        _, err = c.call("gil_start", repo=gone)
+        self.assertIn("그런 폴더가 없다", err, f"없는 경로를 그냥 만들었거나 다른 이유로 죽었다: {err}")
+
+    def test_the_rail_runs_to_the_end(self):
+        """빈 폴더 → 세계 → 이름 → 정체성 → 사람의 답 → 체인. **한 자리도 못 밟으면 안 된다.**"""
+        c = self._client(answers=list(self.ANSWERS))
+        out, err = c.call("gil_start")
+        self.assertEqual(err, "", out + err)
+
+        out, err = c.call("gil_start", name="scout")
+        self.assertEqual(err, "", out + err)
+        self.assertIn("scout", out)
+
+        # 정체성을 채우면 그 자리에서 개시 인터뷰가 서고, 호스트 폼으로 사람에게 닿는다.
+        out, err = c.call("gil_start",
+                          identity="# Identity — scout\n\n문서에서 답을 찾아 오는 존재다.\n",
+                          will="# Will\n\n사람이 묻기 전에 근거를 갖춘다.\n")
+        self.assertEqual(err, "", out + err)
+        self.assertIn("사람의 답이 도착했다", out,
+                      "질문을 심어 놓고 끝냈다 — 그러면 아무 일도 안 일어난다(#82)")
+
+        # **권장 경로가 실제로 돌아야 한다.** 여기서 purpose 를 요구하면 인용이 불가능해진다.
+        out, err = c.call("gil_chain", name="docs-helper", from_intake="start",
+                          purpose_from="1", criterion_from="2")
+        self.assertEqual(err, "", f"gil 이 권장하는 인용 경로가 이 표면에서 막혔다:\n{err}")
+        self.assertIn("사내 문서를 검색해 답하는 도우미", out,
+                      "목적이 사람의 문장 그대로가 아니다")
+        self.assertIn("80%", out, "성패 기준이 사람의 문장 그대로가 아니다")
+
+        out, _ = c.call("gil_start", status=True)
+        self.assertIn("온보딩은 끝났다", out, f"끝났는데 안 끝났다고 말한다:\n{out}")
+
+    def test_the_existence_can_write_its_own_room(self):
+        """존재를 각인하는 손이 이 표면에 있어야 한다 — 없으면 첫 과제가 불가능하다."""
+        c = self._client(answers=list(self.ANSWERS))
+        c.call("gil_start")
+        c.call("gil_start", name="scout")
+        out, err = c.call("gil_global", action="read", path="existence/scout/identity.md")
+        self.assertEqual(err, "", err)
+        # 이름을 지으면 **방이 옮겨질 뿐** 본문은 씨앗 그대로다 — 자기 말로 쓰는 것은
+        # 존재가 할 일이지 도구가 대신할 일이 아니다(도구가 채우면 각인이 아니라 위조다).
+        self.assertIn("아직 이름이 없다", out, "옮겨진 방이 아니라 다른 것을 읽었다")
+        _, err = c.call("gil_global", action="write",
+                        path="existence/scout/identity.md",
+                        content="# Identity — scout\n\n내가 쓴 문서다.\n")
+        self.assertEqual(err, "", f"존재가 제 방을 쓰지 못한다: {err}")
+        out, _ = c.call("gil_global", action="read", path="existence/scout/identity.md")
+        self.assertIn("내가 쓴 문서다", out, "쓴 것이 안 남았다")
+
+    def test_the_memory_can_be_knotted(self):
+        """세션을 넘기는 유일한 통로 — 없으면 이 표면의 존재는 매번 죽는다."""
+        c = self._client(answers=list(self.ANSWERS))
+        c.call("gil_start")
+        c.call("gil_start", name="scout")
+        _, err = c.call("gil_memory", action="append", name="scout",
+                        knot="## 세션 매듭\n\n이번에 한 일과 다음 순서.\n")
+        self.assertEqual(err, "", f"기억을 못 남긴다: {err}")
+        out, _ = c.call("gil_memory", action="read", name="scout")
+        self.assertIn("이번에 한 일과 다음 순서", out, "남긴 매듭이 안 읽힌다")
+
+    def test_the_body_does_not_leak_to_disk(self):
+        """본문을 파일로 나르는 임시 파일은 **호출 하나**만 산다(정체성·기억이 실린다)."""
+        before = set(glob.glob(os.path.join(tempfile.gettempdir(), "gil-identity-*.md")))
+        c = self._client(answers=list(self.ANSWERS))
+        c.call("gil_start")
+        c.call("gil_start", name="scout")
+        c.call("gil_start", identity="# Identity — scout\n\n비밀은 아니지만 남을 것도 아니다.\n",
+               will="# Will\n\n무엇을 향해 가는가.\n")
+        after = set(glob.glob(os.path.join(tempfile.gettempdir(), "gil-identity-*.md")))
+        self.assertEqual(sorted(after - before), [], "임시 파일이 남았다")
+
+
+class TestGuidancePointsAtThisSurface(GilFixture):
+    """**안내가 가리키는 명령은 이 표면에 실재하거나, 없다고 말해야 한다.**
+
+    소스 전체에서 안내가 `gil <명령>` 을 가리키는 자리는 400곳이 넘는다. MCP 표면에 대응
+    툴이 없는 명령을 가리키면 그 줄은 **칠 수 없는 줄**이고, 실측에서 그런 자리가 통째로
+    막다른 골목이었다(gil_handoff 가 준 다음 수 12개 중 11개).
+
+    전부 고쳐 쓰는 대신 **가리키는 것을 실재하게** 만들었다(이름이 기계적으로 대응한다:
+    `gil x-y` → `gil_x_y`). 남은 것은 일부러 안 만든 것들이고, 그건 왜 없는지가 적혀 있어야
+    한다. 열거가 아니라 규칙으로 센다 — 열거는 늘 뒤늦기 때문이다."""
+
+    GO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go")
+
+    def test_every_command_it_names_is_placed_on_purpose(self):
+        """안내가 부르는 명령은 툴이 있거나, 터미널 전용이라고 선언돼 있어야 한다."""
+        src = open(os.path.join(self.GO, "main.go"), encoding="utf-8").read()
+        known = set(re.findall(r'^\tcase "([a-z][a-z-]*)":', src, re.M))
+        self.assertIn("start", known, "gil start 가 명령 표면에 없다")
+
+        # **어느 표에 있는지**로 가른다 — 값의 생김새로 가르면 안 된다.
+        # (처음엔 값이 "gil_" 로 시작하는지로 갈랐는데, terminalOnly 의 guard 는 값이
+        #  "git 훅과…" 로 시작해서 걸려 나왔다. 시험이 자기 정규식의 결함을 결함으로
+        #  보고한 것이다 — 갈림의 근거가 뜻이 아니라 철자면 언젠가 반드시 어긋난다.)
+        surf = open(os.path.join(self.GO, "surface.go"), encoding="utf-8").read()
+        _, _, rest = surf.partition("var mcpSurface = map[string]string{")
+        mcp_block, _, rest = rest.partition("}")
+        _, _, term_block = rest.partition("var terminalOnly = map[string]string{")
+        term_block = term_block.partition("}")[0]
+        on_mcp = set(re.findall(r'"([a-z][a-z-]*)":\s*"gil_[a-z_]+"', mcp_block))
+        terminal = set(re.findall(r'"([a-z][a-z-]*)":\s*"', term_block))
+        self.assertTrue(on_mcp and terminal, "surface.go 의 두 표를 못 읽었다 — 시험이 눈이 먼다")
+
+        named = set()
+        for f in sorted(glob.glob(os.path.join(self.GO, "*.go"))):
+            for ln in open(f, encoding="utf-8"):
+                if ln.lstrip().startswith("//"):
+                    continue      # 주석은 사람이 치는 표면이 아니다(v3.58.2 의 판정 규칙)
+                for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
+                    for cmd in re.findall(r"\bgil ([a-z][a-z-]+)", lit):
+                        if cmd in known:
+                            named.add(cmd)
+
+        unplaced = sorted(named - on_mcp - terminal)
+        self.assertEqual(
+            unplaced, [],
+            "안내가 부르는데 이 표면에서 어디에 있는지 아무도 안 정한 명령:\n  " +
+            ", ".join(unplaced) +
+            "\n  둘 중 하나를 해라 — 툴을 세우거나(mcpSurface), 왜 터미널 전용인지 적거나"
+            "(terminalOnly). 조용히 두는 선택지는 없다.")

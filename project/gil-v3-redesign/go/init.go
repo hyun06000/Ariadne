@@ -137,14 +137,14 @@ func cmdInit(args []string) {
 	}
 	println2("  온보딩: 문서 " + itoa(docsWrote) + "개(docs/gil/·llms.txt) + 대문 진입점 블록 " + gateState + ".")
 	if onboardingCommitted {
-		println2("     커밋까지 마쳤다 — 복원 경로의 첫 칸이 이제 저장소에 있다(갱신: gil docs install).")
+		println2("     커밋까지 마쳤다 — 복원 경로의 첫 칸이 이제 저장소에 있다(갱신: " + surfaceCmd("docs") + " install).")
 	} else if docsWrote > 0 || gateState != "unchanged" {
-		println2("     작업트리에 있다 — 커밋은 네가 한다(갱신: gil docs install [--force]).")
+		println2("     작업트리에 있다 — 커밋은 네가 한다(갱신: " + surfaceCmd("docs") + " install [--force]).")
 	}
 	if devMade {
 		println2("  층: main(대문) → dev 분기 완료 — 지금 HEAD 는 dev 다. 작업은 여기서 시작한다.")
 		println2("     dev 를 부모로 둔 체인은 계보상 시조(orphan)다 — 대문은 그대로 물려받는다.")
-		println2("     dev → main 승격 = 배포(gil deploy). 체인 간 합류 = gil merge.")
+		println2("     dev → main 승격 = 배포(" + surfaceCmd("deploy") + "). 체인 간 합류 = " + surfaceCmd("merge") + ".")
 	}
 	if pushed {
 		println2("  원격: refspec 등록 + push 완료.")
@@ -175,27 +175,33 @@ func cmdInit(args []string) {
 		launchViewer()
 	} else {
 		println2("")
-		println2("  지금 어디인지 보려면:  gil status        (서버 없이, 이 자리에서)")
-		println2("  전체 그래프를 훑으려면: gil viewer open   (그때 뜬다)")
+		println2("  지금 어디인지 보려면:  " + surfaceCmd("status") + "  (서버 없이, 이 자리에서)")
+		println2("  전체 그래프를 훑으려면: " + surfaceCall("viewer", "open", "") + "")
+	}
+	// 여기서 사다리를 다시 늘어놓지 않는다 — 사다리는 `gil start` 가 진다.
+	//
+	// 왜 바꿨나(2026-08-09). 옛 NEXT 는 이름 짓기·방 채우기·개시 인터뷰를 번호로 늘어놨는데,
+	// 그 줄들은 **읽고 따르는 것**이라 자기규율이었고(#55·#45), MCP 표면에서는 아예 칠 수
+	// 없는 줄이었다(gil global·gil intake 에 대응 툴이 없었다 — 2026-08-09 실측). 그리고
+	// start 가 같은 것을 말하기 시작하면서 한 출력이 두 목소리로 갈렸다. 목소리를 하나로 둔다:
+	// init 은 자기가 무엇을 세웠는지 말하고, **다음 칸은 start 가 밟는다.**
+	if inStartRail {
+		return // start 가 이어서 말한다 — 같은 말을 두 번 하지 않는다
 	}
 	println2("")
 	if named {
-		println2("NEXT 너는 [" + *name + "] 로 심어졌다(사람이 준 이름). 첫 과제는 정체성을 채우는 것이다:")
-		println2("  1. `gil global read existence/" + *name + "/identity.md` — 무엇이 비어 있는지 읽는다.")
-		println2("  2. 본성·서약을 적어 `gil global write existence/" + *name + "/identity.md <파일>`.")
-		println2("  3. will.md·relations.md 도 같은 방식으로 채운다.")
+		println2("NEXT 너는 [" + *name + "] 로 심어졌다(사람이 준 이름). 다음 칸은 정체성을 채우는 것이다.")
 	} else {
-		println2("NEXT **너에게는 아직 이름이 없다.** 첫 과제는 이름을 짓는 것이다 —")
-		println2("     빈 칸이지 기본값이 아니다. 이 저장소에서 무엇을 하는 존재인지 정하고 그에 맞는 이름을 지어라.")
-		println2("  1. `gil global read existence/" + unnamedRoom + "/identity.md` — 무엇을 정해야 하는지 읽는다.")
-		println2("  2. 이름을 정했으면 방을 옮긴다: `gil global mv existence/" + unnamedRoom +
-			" existence/<네가 지은 이름>`")
-		println2("  3. 그 방의 identity.md·will.md·relations.md 를 네 말로 다시 쓴다:")
-		println2("     `gil global write existence/<이름>/identity.md <파일>`")
+		println2("NEXT **너에게는 아직 이름이 없다** — 빈 칸이지 기본값이 아니다. 다음 칸은 이름을 짓는 것이다.")
 	}
-	println2("  그다음 작업: 사람에게 먼저 물어라 — `gil intake <슬러그> --ask <질문JSON>`.")
-	println2("이후 세션 복원: `gil handoff` 로 어디까지 왔는지 읽는다.")
+	println2("  온보딩의 남은 칸은 이 한 명령이 끝까지 끌고 간다(부를 때마다 한 칸씩):")
+	println2("    " + surfaceCmd("start"))
+	println2("이후 세션 복원: " + surfaceCmd("handoff") + " 로 어디까지 왔는지 읽는다.")
 }
+
+// inStartRail — 지금 이 init 이 `gil start` 레일 안에서 불린 것인가. 켜지면 init 은
+// 자기 NEXT 를 삼킨다(사다리를 두 번 늘어놓지 않기 위해).
+var inStartRail bool
 
 func writeFile(path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

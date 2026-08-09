@@ -3029,8 +3029,7 @@ func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored 
 	}
 	if intake {
 		commitOn(frontMatterBranch(), "", subject, b.String(), tr, true)
-		println2("interview: " + chain + " — 질문 " + strconv.Itoa(len(qs)) + "개 심음. 뷰어에서 사람이 폼으로 답한다.")
-		interviewAskTail(chain, qs)
+		interviewPlanted(chain, qs)
 		return
 	}
 	// 체인 브랜치 위에 심는다(레퍼런스가 그 체인에 커밋될 자리). HEAD 가 다른 데면 맞춘다.
@@ -3041,9 +3040,32 @@ func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored 
 		}
 	}
 	commit(subject, b.String(), tr, true)
-	println2("interview: " + chain + " — 질문 " + strconv.Itoa(len(qs)) + "개 심음. 뷰어에서 사람이 폼으로 답한다.")
+	interviewPlanted(chain, qs)
+}
+
+// interviewPlanted — 질문지를 심은 뒤의 한마디와 안내. **두 경로(개시 인터뷰·체인 인터뷰)가
+// 같은 말을 하도록** 한 자리에 둔다 — 갈라 두면 한쪽만 낡는다(실제로 이번에 그랬다: 꼬리를
+// 삼키는 조건을 한쪽에만 달아 놓고 고쳤다고 믿었다. 갈라진 자리는 고친 줄 알게 만든다).
+//
+// 심자마자 **그 자리에서** 물을 것이라면 기다리는 법을 가르치지 않는다(2026-08-09).
+func interviewPlanted(chain string, qs []interviewQ) {
+	println2("interview: " + chain + " — 질문 " + strconv.Itoa(len(qs)) + "개 심음.")
+	//
+	// gil_start 는 질문을 심고 곧바로 호스트 네이티브 폼으로 사람에게 묻는다 — 한 홉이다.
+	// 그런데 이 꼬리가 함께 나오면 한 출력이 두 말을 한다: "뷰어를 열고 기다려라"와 "답이
+	// 도착했다"가 나란히 선다. 게다가 앞엣말은 그 순간 **사실이 아니다**(기준은 비어 있지
+	// 않고, 뷰어는 필요 없었다). 두 말이 부딪히면 사람도 에이전트도 어느 쪽이 지금인지 모른다.
+	// 폼이 서지 않으면 그때 부르는 쪽이 기다리는 법을 말한다(startElicitIntake 의 폴백).
+	if interviewPlantQuiet {
+		return
+	}
+	println2("  ▸ 뷰어에서 사람이 폼으로 답한다.")
 	interviewAskTail(chain, qs)
 }
+
+// interviewPlantQuiet — 지금 심는 질문지를 **곧바로 그 자리에서** 물을 것인가.
+// 켜지면 "기다리는 법" 안내를 삼킨다(부르는 쪽이 책임지고 묻는다).
+var interviewPlantQuiet bool
 
 // interviewAskTail — 질문을 심은 뒤의 안내. 개시 인터뷰(dev 층)와 체인별 인터뷰가 **같은 말을
 // 하도록** 한 자리에 둔다 — 갈라 두면 한쪽만 낡는다.

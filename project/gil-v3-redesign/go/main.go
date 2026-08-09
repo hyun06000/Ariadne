@@ -78,8 +78,8 @@ func main() {
 	// 새 세션을 열면 init 도 handoff 도 안 부르는 경로가 흔하고, 그러면 그 세션 내내 뷰어가
 	// 없다). init·handoff 는 자기 자리에서 브라우저까지 여니 여기서 중복하지 않는다.
 	switch cmd {
-	case "help", "-h", "--help", "version", "init", "handoff", "viewer", "mcp", "status":
-		// 자기 자리에서 이미 묻거나(init·handoff), 물을 자리가 아니다(help·version·서버).
+	case "help", "-h", "--help", "version", "init", "start", "handoff", "viewer", "mcp", "status":
+		// 자기 자리에서 이미 묻거나(init·start·handoff), 물을 자리가 아니다(help·version·서버).
 		//
 		// status 가 여기 있는 이유는 다르다. status 는 **뷰어를 대신하려고 만든 명령**이다 —
 		// 그것을 부를 때마다 뷰어가 뜨면, 없애려던 창을 없애려는 명령이 띄우는 꼴이다
@@ -101,6 +101,9 @@ func main() {
 		cmdVersion(rest)
 	case "init":
 		cmdInit(rest)
+	case "start":
+		// "gil 프로젝트 시작하자" 의 착지점 — 온보딩의 다음 한 칸을 실제로 밟는다(start.go).
+		cmdStart(rest)
 	case "chain":
 		cmdChain(rest)
 	case "merge":
@@ -173,7 +176,7 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [init chain chain-close merge chain-merge open step close deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck global memory handoff migrate viewer mcp version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [start init intake chain chain-close merge chain-merge open step close adopt deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck guard global memory handoff migrate viewer mcp version]")
 	}
 }
 
@@ -182,7 +185,10 @@ func printUsage() {
 	println2(`gil — GIt for Language model. 사고 역사를 git 커밋 그래프 위에 남긴다.
 
 세팅·복원:
-  gil init [--name <이름>]        무에서 세팅 — refs/gil/global + 존재의 방 + 대문
+  gil start                       **여기서 시작한다** — 온보딩의 다음 한 칸을 실제로 밟는다.
+                                  세계 → 이름 → 정체성 → 사람에게 묻기 → 체인. 끝날 때까지
+                                  반복해서 부르면 된다 (--status: 어느 칸인지만 본다)
+  gil init [--name <이름>]        그중 첫 칸만 — refs/gil/global + 존재의 방 + 대문
   gil handoff                     세션 복원 — 열린 체인·사이클·다음 동작·pending
   gil global sync                 (새 머신 첫 1회) 원격 글로벌을 로컬로 + refspec 등록
 
