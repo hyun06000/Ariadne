@@ -14877,6 +14877,127 @@ class TestTheWorldStandsOnlyWhereSomeoneChose(GilFixture):
         self.assertIn("gil init 완료", out)
 
 
+class TestTheCardKeepsUpAndKeepsWhatWasWritten(GilFixture):
+    """**화면이 스스로 따라가고, 따라가면서 사람이 쓰던 것을 잃지 않는다** (2026-08-10).
+
+    카드는 한 번 그려지면 끝이었다: fetchCard 가 `drawn` 이면 즉시 되돌아가고, tool-result
+    알림은 **카드 HTML 을 실은 결과만** 다시 그렸다. 그런 결과를 내는 것은 앱 전용 툴 둘뿐이라,
+    모델이 gil_step·gil_close 를 아무리 불러도 사람이 보는 화면은 처음 상태 그대로였다.
+    뷰어에는 /poll 이 있었고 카드에는 대응하는 것이 없었다.
+
+    그런데 갱신만 세우면 **더 나쁜 것**이 생긴다 — 조각 교체는 innerHTML 이라 폼에 적던
+    문장이 함께 사라진다. 뷰어는 이걸 윈도우 필드테스트에서 값을 치르고 배웠다(초안 저장 +
+    쓰는 중 새로고침 보류). 그래서 둘은 **같은 커밋**이어야 한다.
+
+    ── 이 시험이 재는 것과 못 재는 것 ────────────────────────────────────────
+    껍데기 JS 는 샌드박스 iframe 안에서 호스트와 프레임을 주고받으며 돈다. 여기서 그걸
+    **실행해 볼 수단이 없다**(DOM 이 필요하고, 브라우저는 이 환경에서 안 뜬다 — 실제로
+    두 경로를 밟아 보고 막혔다). 그러니 이 시험이 재는 것은 **배선의 규칙**이다:
+    조각을 넣는 자리가 보존 경로를 지나는가, 갱신을 거는 자리가 있는가, 막다른 길이 없는가.
+    화면이 실제로 그렇게 도는지는 호스트에서 밟아야 한다 — 그건 이 시험이 못 하는 일이고,
+    못 하는 것은 못 한다고 적어 둔다."""
+
+    def shell(self):
+        """껍데기 HTML — 호스트가 resources/read 로 가져가는 그것."""
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1", "GIL_NO_VERSION_CHECK": "1"})
+        self.addCleanup(p.terminate)
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                try:
+                    m = json.loads(ln.strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "x"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "t", "version": "0"}}})
+        pump(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "resources/read",
+              "params": {"uri": "ui://gil/status"}})
+        r = pump(2)
+        self.assertIsNotNone(r, "껍데기를 못 받았다")
+        return r["result"]["contents"][0]["text"]
+
+    def test_every_card_swap_goes_through_the_preserving_path(self):
+        """**규칙으로 센다** — 조각을 넣는 자리는 빠짐없이 paint() 를 지난다.
+
+        열거하면 다음에 넣는 자리가 하나 늘 때 조용히 샌다. 그래서 innerHTML 대입을 전부
+        찾아, 카드 조각을 넣는 것이 paint() 밖에 있으면 실패한다."""
+        sh = self.shell()
+        self.assertIn("function paint(", sh, "보존 경로 자체가 없다")
+        for fn in ("harvest()", "restore()"):
+            self.assertIn(fn, sh, f"paint 가 {fn} 를 안 쓴다 — 보존이 이름뿐이다")
+        # **자리로 판정한다.** 낱말만 세면 paint() 안의 정당한 대입까지 빨개지고, 그러면
+        # 시험이 못 쓰게 된다(v3.58.2 가 이미 치른 값). 규칙은 이것이다 —
+        # 카드 조각을 innerHTML 로 꽂는 자리는 **하나뿐이고 그것이 paint() 안**이다.
+        swaps = [m.start() for m in re.finditer(r'innerHTML\s*=\s*(?:h2?|html)\b', sh)]
+        self.assertEqual(len(swaps), 1,
+                         f"카드 조각을 꽂는 자리가 {len(swaps)} 곳이다 — 하나여야 한다(paint). "
+                         "다른 자리에서 꽂으면 거기서 사람이 쓰던 답이 사라진다.")
+        body = sh[sh.index("function paint("):]
+        body = body[:body.index("\n  }")]
+        self.assertIn("innerHTML", body, "유일한 교체 자리가 paint() 밖에 있다")
+        self.assertLess(body.index("harvest()"), body.index("innerHTML"),
+                        "걷기(harvest)가 교체보다 뒤에 있다 — 이미 지워진 것을 걷는다")
+        self.assertGreater(body.index("restore()"), body.index("innerHTML"),
+                           "되심기(restore)가 교체보다 앞에 있다 — 새 DOM 에 안 심긴다")
+
+    def test_the_card_refetches_when_gil_did_something(self):
+        """카드를 안 실어 온 결과도 세계가 바뀌었다는 뜻이다 — 그때 다시 가져온다."""
+        sh = self.shell()
+        # **그 자리만 본다.** 첫 그리기 폴백(setTimeout ... if(!drawn) fetchCard())은 정당하다 —
+        # 아직 안 그려졌을 때 한 번 더 시도하는 것이고, 그걸 없애면 첫 화면이 안 뜬다.
+        # 고쳐야 했던 것은 **툴 결과 알림 갈래**다.
+        i = sh.index('m.method==="ui/notifications/tool-result"', sh.index("addEventListener(\"message\""))
+        branch = sh[i:i + 900]
+        self.assertIn("scheduleRefresh()", branch,
+                      "툴 결과가 와도 다시 안 가져온다 — 화면이 처음 상태로 멈춘다")
+        self.assertNotIn("if(!drawn) fetchCard()", branch,
+                         "이미 그려졌으면 영영 안 그리는 옛 규칙이 이 갈래에 남아 있다")
+        self.assertIn("lastInput", sh, "쓰는 중 보류가 없다 — 문장 한가운데서 화면이 갈린다")
+
+    def test_a_failed_fetch_is_not_a_dead_end(self):
+        """조회는 네 번에서 멈춘다 — 거기서 사람이 되살릴 길이 있어야 한다."""
+        sh = self.shell()
+        self.assertIn('data-act="refetch"', sh, "다시 가져오는 버튼이 없다")
+        self.assertIn("fetches>=4", sh, "상한 자체가 사라졌다면 이 시험을 고쳐야 한다")
+
+    def test_harmless_buttons_are_not_armed(self):
+        """아무것도 안 바꾸는 버튼까지 두 번 누르게 하면 그 관문이 무뎌진다."""
+        sh = self.shell()
+        self.assertIn("data-noarm", sh, "무장 면제 표식이 없다")
+        self.assertIn('data-arm', sh, "무장 문구를 버튼이 정하는 자리가 없다")
+
+    def test_the_submit_button_says_what_it_confirms(self):
+        """되묻는 값은 **무엇이 확정되는지**를 말할 때 나온다 — "정말?" 은 아무것도 안 알려준다."""
+        self.gil("init", "--name", "clew")
+        self.gil("intake", "sd", "--ask", "-",
+                 input=json.dumps([{"q": "무엇을 하려 하십니까", "type": "text"}],
+                                  ensure_ascii=False))
+        card = self.gil("status", "--card").stdout
+        self.assertIn('data-arm="이 문장이 기준이 된다', card,
+                      "제출 버튼이 공용 되묻기 문구를 쓴다 — 무엇이 확정되는지 안 말한다")
+
+
 class TestTheFormStandsWhereverTheQuestionIs(GilFixture):
     """**폼은 HEAD 가 아니라 질문이 있는 곳에 선다** (뷰어 제거 조사, 2026-08-10).
 

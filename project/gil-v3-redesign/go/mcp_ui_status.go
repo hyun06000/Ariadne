@@ -146,6 +146,10 @@ func statusCardShellHTML() string {
 <script>
 (function(){
   var host=window.parent, id=0, pending={}, fetching=false, fetches=0, drawn=false;
+  // drafts: 사람이 폼에 쓰던 것. **메모리에 둔다** — 샌드박스 iframe 의 localStorage 는
+  // 호스트마다 있고 없고가 다르고, 없으면 예외도 없이 그냥 안 된다(뷰어는 브라우저 위라
+  // 그걸 쓸 수 있었다). lastInput: 마지막 타건 시각 — 쓰는 중에는 다시 그리지 않는다.
+  var drafts={}, lastInput=0, holdTimer=null, refreshTimer=null;
   var VER=` + jsString(gilVersion) + `, seen=[], repo="", PROBE=` + probeJS + `;
   function slot(){ return document.getElementById("gil-card"); }
   function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
@@ -192,6 +196,67 @@ func statusCardShellHTML() string {
     return "";
   }
 
+  // ── 조각을 갈아끼울 때 **사람이 쓰던 것을 잃지 않는다** ────────────────────────
+  //
+  // 조각 교체는 innerHTML 이라 DOM 이 통째로 새것이 된다 — 폼에 적던 문장도 함께 사라진다.
+  // 뷰어는 이걸 윈도우 필드테스트에서 값을 치르고 배웠고(초안 저장 + 쓰는 중 새로고침 보류),
+  // 카드는 그걸 모른 채였다. 지금까지 안 아팠던 것은 **카드가 아예 다시 안 그려져서**다 —
+  // 아래 refresh 가 그걸 고치면 이 보존이 없을 때 비로소 답이 날아간다. 그래서 둘은 같은
+  // 커밋이어야 한다.
+  function harvest(){
+    var s=slot(); if(!s) return;
+    var boxes=s.querySelectorAll("[data-iv]");
+    for(var i=0;i<boxes.length;i++){
+      var iv=boxes[i].getAttribute("data-iv"), d=drafts[iv]||(drafts[iv]={});
+      var els=boxes[i].querySelectorAll("[data-q]");
+      for(var k=0;k<els.length;k++){
+        var el=els[k], key=el.getAttribute("data-q");
+        if(el.type==="checkbox") d[key]=el.checked;
+        else if(el.type==="radio"){ if(el.checked) d[key]=el.value; }
+        else if((el.value||"")!=="") d[key]=el.value;
+      }
+    }
+  }
+  function restore(){
+    var s=slot(); if(!s) return;
+    var boxes=s.querySelectorAll("[data-iv]");
+    for(var i=0;i<boxes.length;i++){
+      var d=drafts[boxes[i].getAttribute("data-iv")]; if(!d) continue;
+      var els=boxes[i].querySelectorAll("[data-q]");
+      for(var k=0;k<els.length;k++){
+        var el=els[k], v=d[el.getAttribute("data-q")];
+        if(v===undefined) continue;
+        if(el.type==="checkbox") el.checked=!!v;
+        else if(el.type==="radio") el.checked=(el.value===v);
+        else el.value=v;
+      }
+    }
+  }
+  function paint(html){
+    harvest();
+    var s=slot(); if(!s) return;
+    s.innerHTML=html; restore(); drawn=true; reportSize();
+  }
+
+  // ── 화면이 스스로 따라간다 ──────────────────────────────────────────────────
+  //
+  // 전에는 한 번 그려지면(drawn=true) 끝이었다 — fetchCard 가 즉시 되돌아가고, tool-result
+  // 알림은 **카드 HTML 을 실은 것만** 다시 그렸다. 그런 결과를 내는 것은 앱 전용 툴 둘뿐이라,
+  // 모델이 gil_step·gil_close 를 아무리 불러도 사람이 보는 화면은 처음 그대로였다. 뷰어에는
+  // /poll 이 있었고 카드에는 대응하는 것이 없었다 — "카드는 알림이 올 때 다시 가져온다"는
+  // 우리 쪽 오독이었다(실측으로 확인).
+  function refresh(){
+    // **쓰는 중에는 안 그린다.** 값은 위에서 보존되지만 커서와 스크롤은 못 지킨다 —
+    // 문장 한가운데서 화면이 갈리면 사람은 자기가 쓰던 것을 잃었다고 읽는다.
+    if(Date.now()-lastInput < 2500){
+      clearTimeout(holdTimer); holdTimer=setTimeout(refresh,2500); return;
+    }
+    drawn=false; fetches=0; fetchCard();
+  }
+  // 한 턴에 툴이 여러 번 돌면 알림도 여러 번 온다 — 마지막 것 하나로 접는다.
+  function scheduleRefresh(){ clearTimeout(refreshTimer); refreshTimer=setTimeout(refresh,350); }
+  document.addEventListener("input",function(){ lastInput=Date.now(); },true);
+
   function fetchCard(){
     if(fetching || drawn || fetches>=4) return;
     fetching=true; fetches++;
@@ -199,17 +264,25 @@ func statusCardShellHTML() string {
     pending[i]=function(res,err){
       fetching=false;
       var s=slot(); if(!s) return;
-      if(err){ s.innerHTML='<div class="lbl">gil</div><div class="none">가져오지 못했다: '+
-        String((err&&(err.message||err.code))||err)+'</div>'; reportSize(); return; }
+      if(err){ s.innerHTML=fail("가져오지 못했다: "+
+        String((err&&(err.message||err.code))||err)); reportSize(); return; }
       var html=cardOf(res);
       // 조각이 없으면 **그 사실을 화면에 적는다** — 빈 화면은 고장과 아직을 구별해 주지 않는다.
-      if(html){ s.innerHTML=html; drawn=true; }
-      else { s.innerHTML='<div class="lbl">gil</div><div class="none">응답에 카드가 없다: '+
-        String(res&&Object.keys(res).join(","))+'</div>'; }
+      if(html){ paint(html); return; }
+      s.innerHTML=fail("응답에 카드가 없다: "+String(res&&Object.keys(res).join(",")));
       reportSize();
     };
     send({id:i,method:"tools/call",params:{name:"gil_status_card",
       arguments: repo ? {repo:repo} : {}}});
+  }
+
+  // **실패는 막다른 길이 아니어야 한다.** 조회는 네 번에서 멈추는데(fetches>=4), 그 뒤 다시
+  // 조회를 거는 자리가 없었다 — 사람은 "가져오지 못했다" 한 줄 앞에서 끝이었다. 뷰어가 있는
+  // 동안은 브라우저 새로고침이 폴백이었다. 그 폴백이 사라지므로, 화면이 제 손으로 되살아날
+  // 길을 준다. 무장(두 번 클릭)은 면제한다 — 다시 읽는 것은 아무것도 안 바꾼다.
+  function fail(msg){
+    return '<div class="lbl">gil</div><div class="none">'+msg+'</div>'+
+      '<div class="acts"><button class="btn" data-act="refetch" data-noarm="1">다시 가져온다</button></div>';
   }
 
   // **호스트가 알려주는 저장소를 줍는다.** 앱의 조회에는 인자가 없어서 서버가 cwd 가 / 인 자리에서
@@ -240,6 +313,7 @@ func statusCardShellHTML() string {
 
   function runAct(b){
     var tool=b.getAttribute("data-tool"), msg=b.getAttribute("data-msg"), to=b.getAttribute("data-to");
+    if(b.getAttribute("data-act")==="refetch"){ drawn=false; fetches=0; fetchCard(); return; }
     // **인터뷰 제출.** 사람이 폼에 적은 것을 그대로 모아 보낸다 — 화면은 답을 고치지도,
     // 채우지도 않는다(그 순간 기준이 사람의 문장이 아니게 된다).
     if(b.getAttribute("data-act")==="interview-submit"){
@@ -257,8 +331,11 @@ func statusCardShellHTML() string {
       var j=++id;
       pending[j]=function(res,err){
         if(err){ say("보내지 못했다: "+String((err&&(err.message||err.code))||err)); return; }
+        // 확정됐으면 그 체인의 초안은 **비운다** — 안 비우면 다음 인터뷰 폼에 옛 답이
+        // 되심겨 사람이 안 쓴 문장이 화면에 앉는다(그 순간 기준이 사람의 것이 아니게 된다).
+        delete drafts[b.getAttribute("data-chain")||""];
         var h=cardOf(res);
-        if(h){ var s2=slot(); if(s2){ s2.innerHTML=h; drawn=true; reportSize(); } return; }
+        if(h){ paint(h); return; }
         say("보냈다. 화면을 다시 가져온다."); drawn=false; fetches=0; fetchCard();
       };
       send({id:j,method:"tools/call",params:{name:"gil_interview_submit",arguments:{
@@ -318,10 +395,14 @@ func statusCardShellHTML() string {
         b.parentNode.parentNode.insertBefore(ta,b.parentNode.nextSibling);
       }
     }
-    if(!b.hasAttribute("data-armed")){
+    // **무장 면제**(data-noarm) — 아무것도 안 바꾸는 버튼까지 두 번 누르게 하면, 두 번
+    // 누르는 일이 값싼 동작이 되어 정작 승인·삭제에서 그 관문이 무뎌진다.
+    // 그리고 무장 문구는 **버튼이 정한다**(data-arm). "정말? — 한 번 더" 는 무엇을 되묻는지
+    // 말하지 않는다 — 되묻는 값은 그 자리에서 무엇이 확정되는지를 말할 때 나온다.
+    if(!b.hasAttribute("data-armed") && !b.hasAttribute("data-noarm")){
       b.setAttribute("data-armed","1");
       b.dataset.label=b.textContent;
-      b.textContent="정말? — 한 번 더";
+      b.textContent=b.getAttribute("data-arm")||"정말? — 한 번 더";
       reportSize();
       setTimeout(function(){ if(b.hasAttribute("data-armed")){
         b.removeAttribute("data-armed"); b.textContent=b.dataset.label||b.textContent; reportSize(); } },4000);
@@ -341,8 +422,11 @@ func statusCardShellHTML() string {
     if(m.method==="ui/notifications/tool-result"){
       res=(m.params&&(m.params.result||m.params))||null;
       var h2=cardOf(res);
-      if(h2){ var s=slot(); if(s){ s.innerHTML=h2; drawn=true; reportSize(); } return; }
-      if(!drawn) fetchCard();
+      if(h2){ paint(h2); return; }
+      // **카드를 안 실어 온 결과도 세계가 바뀌었다는 뜻이다.** 전에는 여기서 if(!drawn)
+      // 이라 이미 그려진 화면은 영영 그대로였다 — 모델이 gil_step 을 불러 스텝이 늘어도
+      // 사람 앞의 카드는 처음 상태였다. 다시 가져온다(쓰는 중이면 refresh 가 미룬다).
+      scheduleRefresh();
     }
   });
 

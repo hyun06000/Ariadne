@@ -141,9 +141,12 @@ func interviewCardHTML(chain string) string {
 		}
 		b.WriteString(`</div>`)
 	}
+	// 제출도 두 번 눌러야 돈다(껍데기의 무장 규칙). **그 되묻는 문구가 무엇을 확정하는지
+	// 말하게 한다** — 공용 문구 "정말? — 한 번 더" 는 되묻기만 하고 아무것도 안 알려 준다.
+	// 여기서 확정되는 것은 이 체인의 기준이고, 그건 되묻을 값이 있는 일이다.
 	b.WriteString(`<div class="acts">` +
 		`<button class="btn primary" data-act="interview-submit" data-chain="` + esc(chain) +
-		`">답을 제출한다</button></div>`)
+		`" data-arm="이 문장이 기준이 된다 — 한 번 더">답을 제출한다</button></div>`)
 	b.WriteString(`<div class="ivnote">제출하면 이 답이 기록에 남고, 그때부터 다음 칸으로 간다. ` +
 		`아직 생각 중이면 그냥 두면 된다 — 창을 닫아도 질문은 사라지지 않는다.</div>`)
 	b.WriteString(`</div>`)
