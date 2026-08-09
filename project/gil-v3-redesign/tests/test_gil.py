@@ -15158,3 +15158,61 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
                        "--will", os.path.join(self.repo, "w.md")).stdout
         self.assertIn("관전 창", out, "CLI 에서 사람이 답할 자리를 안 가리켰다")
         self.assertNotIn("위에 뜬 카드", out, "CLI 엔 카드가 없는데 카드를 가리켰다")
+
+
+class TestOnboardingDoesNotAskTwiceForOneJudgment(GilFixture):
+    """**나눌 이유가 없으면 나누지 않는다** (상현님 관찰, 2026-08-10 — "gil start 를 세 번
+    호출하는데 정상적인건가?").
+
+    세 번은 설계가 아니라 **안내가 만든 것**이었다: 1회차가 이름만 요구하고, 그 다음에 정체성을
+    요구했다. 그런데 **이름을 정한 존재는 자기가 무엇인지도 그 순간 안다** — 두 판단이 하나다.
+    도구는 이미 한 호출에 둘 다 받을 수 있었는데(startArgs), 안내가 한 칸씩만 물었다.
+
+    그리고 사람이 "정상인가?" 하고 물었다는 것 자체가 신호다 — **왜 여러 번인지 도구가 말하지
+    않았다.** 반복이 설계일 때는 그 이유가 그 자리에 있어야 한다. 없으면 사람은 고장으로 읽는다.
+
+    멈추는 자리는 남는다(이름·정체성은 도구가 채우면 위조다). 줄이는 것은 **한 판단을 두 번
+    묻는 것**이지 판단 자체가 아니다."""
+
+    def _bodies(self):
+        idf = os.path.join(self.repo, "i.md")
+        wf = os.path.join(self.repo, "w.md")
+        with open(idf, "w", encoding="utf-8") as f:
+            f.write("# Identity — probe\n\n확인하는 존재다.\n")
+        with open(wf, "w", encoding="utf-8") as f:
+            f.write("# Will\n\n확인한다.\n")
+        return idf, wf
+
+    def test_two_calls_reach_the_interview(self):
+        """① 세계 ② 이름+정체성 — 그 두 번이면 사람이 답할 차례가 온다."""
+        first = self.gil("start")
+        self.assertIn("이름", first.stdout, "첫 호출이 이름을 요구하지 않았다")
+        idf, wf = self._bodies()
+        second = self.gil("start", "--name", "probe", "--identity", idf, "--will", wf)
+        out = second.stdout + second.stderr
+        self.assertIn("사람에게 먼저 묻는다", out,
+                      "두 번째 호출로 인터뷰까지 못 갔다 — 한 판단을 두 번 묻고 있다")
+        self.assertIn("pending", self.gil("intake", "start", "--status").stdout,
+                      "질문이 심기지 않았다")
+
+    def test_the_first_call_teaches_the_one_shot_path(self):
+        """**도구가 그 길을 말해야 한다.** 안 말하면 에이전트는 한 칸씩 부른다(실제로 그랬다)."""
+        out = self.gil("start").stdout
+        self.assertIn("한 번에 끝난다", out, "한 번에 가는 길을 안 가르쳤다")
+        self.assertIn("--identity", out, "그 호출에 무엇을 실으면 되는지 안 말했다")
+
+    def test_it_says_why_it_stops(self):
+        """반복이 설계일 때는 **왜 멈추는지**가 그 자리에 있어야 한다 — 없으면 고장으로 읽힌다."""
+        self.gil("start")
+        out = self.gil("start", "--name", "probe").stdout
+        self.assertIn("네가 써야 하는 것", out,
+                      "왜 여기서 멈추는지 말하지 않았다(사람이 '정상인가?'를 묻게 된다)")
+
+    def test_stopping_places_are_still_the_humans_to_fill(self):
+        """줄인 것은 **묻는 횟수**지 판단이 아니다 — 이름 없이는 여전히 못 넘어간다."""
+        self.gil("start")
+        idf, wf = self._bodies()
+        # 이름 없이 정체성만 주면 설 자리가 없다(방이 아직 unnamed 다).
+        r = self.gil("start", "--identity", idf, "--will", wf)
+        out = r.stdout + r.stderr
+        self.assertIn("이름", out, "이름 없이 정체성이 심겼다 — 도구가 판단을 대신했다")
