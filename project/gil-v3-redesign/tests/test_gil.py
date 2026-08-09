@@ -15216,3 +15216,58 @@ class TestOnboardingDoesNotAskTwiceForOneJudgment(GilFixture):
         r = self.gil("start", "--identity", idf, "--will", wf)
         out = r.stdout + r.stderr
         self.assertIn("이름", out, "이름 없이 정체성이 심겼다 — 도구가 판단을 대신했다")
+
+
+class TestWillIsNotTheProjectsPurpose(GilFixture):
+    """**will 은 존재의 지향이지 프로젝트의 목적이 아니다** (상현님 실사용, 2026-08-10).
+
+    will 씨앗이 이렇게 물었다: *"(스스로 세운다. **이 저장소에서 무엇을 이루려 하는가?**)"*
+    세션이 그걸 **프로젝트 목표**로 읽고 사람에게 대화로 물었다:
+
+        "이 프로젝트로 무엇을 만들려고 하시나요? 한두 문장으로 목표만 알려주시면,
+         그에 맞게 will을 제 말로 써서 방을 완성하고 첫 작업 체인을 열겠습니다."
+
+    그 순간 **목적이 인터뷰가 아니라 대화로 들어온다.** gil 이 문법으로 지켜 온 단 하나
+    ("기준은 사람의 문장 그 자체다")가 옮겨쓰기로 바뀌고, 개시 인터뷰(카드 폼)는 통째로
+    건너뛰어진다 — 세션이 stageIdentity 에서 멈춘 채 대화로 새기 때문이다.
+
+    **세션이 순서를 뒤집은 게 아니라, 문서가 뒤집도록 유도했다.** 두 개가 같은 말로
+    불리고 있었고, 충돌하면 더 구체적인 쪽이 이긴다."""
+
+    def _seed_will(self):
+        self.gil("start")
+        self.gil("start", "--name", "gaon")
+        return self.gil("global", "read", "existence/gaon/will.md").stdout
+
+    def test_the_seed_does_not_ask_for_the_project_goal(self):
+        """씨앗이 프로젝트 목표를 물으면 세션은 사람에게 묻는다 — 실제로 그랬다."""
+        will = self._seed_will()
+        self.assertNotIn("이 저장소에서 무엇을 이루려 하는가", will,
+                         "will 씨앗이 여전히 프로젝트 목표를 묻는다")
+        self.assertIn("프로젝트의 목적을 적는 자리가 아니다", will,
+                      "will 이 무엇이 아닌지를 그 자리에서 말하지 않는다")
+
+    def test_the_seed_says_where_the_purpose_actually_comes_from(self):
+        """아니라고만 하면 벽이다 — **어디서 오는지**까지 말해야 순서가 선다."""
+        will = self._seed_will()
+        self.assertIn("개시 인터뷰", will, "목적이 어디서 오는지 안 말했다")
+
+    def test_the_guidance_forbids_asking_the_human_here(self):
+        """이 칸에서 사람에게 목적을 물으면 인터뷰가 통째로 건너뛰어진다."""
+        self.gil("start")
+        out = self.gil("start", "--name", "gaon").stdout
+        self.assertIn("묻지 마라", out, "여기서 사람에게 묻지 말라고 말하지 않았다")
+        self.assertIn("다음 칸", out, "그럼 언제 묻는지를 말하지 않았다")
+
+    def test_the_seed_marker_still_matches_the_seed(self):
+        """**두 자리에 같은 것을 적으면 한쪽만 낡는다.**
+
+        씨앗 문구를 고치면서 '씨앗 그대로인가'를 판정하는 표식(seedWillMark)을 안 고치면,
+        새 저장소에서 will 이 비었는데도 '채워졌다'고 판정한다 — 그러면 온보딩이 그 칸을
+        말없이 건너뛴다. 이 시험이 그 어긋남을 잡는다."""
+        self.gil("start")
+        self.gil("start", "--name", "gaon")
+        r = self.gil("start", "--status")
+        self.assertIn("identity", r.stdout,
+                      "씨앗 그대로인데 '정체성 미기입' 칸으로 안 잡혔다 — "
+                      "seedWillMark 가 씨앗과 어긋났을 수 있다(init.go 의 tmplWill 과 대조)")
