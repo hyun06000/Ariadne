@@ -650,9 +650,9 @@ func registerGilTools(s *mcp.Server) {
 	// 사람 제출을 에이전트가 확인할 수단(이슈 #58). MCP 툴은 스스로 깨어나지 못하니 블로킹 대기
 	// 대신 "물어보면 정직하게 답하는 한 줄"을 준다 — 사람이 "제출했어"라고 말할 때 부르면 된다.
 	tool(s, "gil_interview_status",
-		"인터뷰가 사람 답을 받았는지 확인한다(pending|done). 뷰어 폼으로 넘어간 인터뷰는 사람이 "+
-			"제출해도 자동 통지가 없다 — 사람이 제출했다고 하면 이걸로 확인하고, 확인 전에는 기준을 "+
-			"대신 쓰지 마라.",
+		"인터뷰가 사람 답을 받았는지 확인한다(pending|done). 질문은 **카드 폼으로 사람 화면에 "+
+			"선다** — 사람이 제출하면 다음 호출에서 gil 이 ⚡ 로 알려주고, 이걸로도 확인된다. "+
+			"확인 전에는 기준을 대신 쓰지 마라.",
 		func(in inInterviewStatus) []string { return []string{in.Chain, "--status"} },
 		cmdInterview)
 

@@ -3006,7 +3006,7 @@ func interviewAskCore(chain, raw, title string, extra [][2]string, toolAuthored 
 	subject := "gil " + chain + " interview: " + stTitle
 	// 본문: 사람이 읽을 질문 목록 + 뷰어가 파싱할 JSON 펜스. 뷰어가 없어도 사람이 읽을 수 있게.
 	var b strings.Builder
-	b.WriteString("이 체인의 레퍼런스 트루스(기준 문서)를 만들기 위한 인터뷰다. 뷰어에서 폼으로 답하고\n")
+	b.WriteString("이 체인의 레퍼런스 트루스(기준 문서)를 만들기 위한 인터뷰다. 사람이 폼에 답하고\n")
 	b.WriteString("제출하면 답변이 reference-" + chain + ".md 로 저장되고 이 체인에 레퍼런스로 심긴다.\n\n")
 	b.WriteString("── 질문 ──\n")
 	for i, q := range qs {
@@ -3063,7 +3063,6 @@ func interviewPlanted(chain string, qs []interviewQ) {
 	if interviewPlantQuiet {
 		return
 	}
-	println2("  ▸ " + askHumanHere() + "에서 사람이 답한다.")
 	interviewAskTail(chain, qs)
 }
 
@@ -3074,8 +3073,18 @@ var interviewPlantQuiet bool
 // interviewAskTail — 질문을 심은 뒤의 안내. 개시 인터뷰(dev 층)와 체인별 인터뷰가 **같은 말을
 // 하도록** 한 자리에 둔다 — 갈라 두면 한쪽만 낡는다.
 func interviewAskTail(chain string, qs []interviewQ) {
-	println2("  ▸ 뷰어를 열어라(gil viewer serve / VS Code 패널). 사람이 제출하면 reference-" + chain +
-		".md 로 저장되고 레퍼런스가 커밋된다 — 폴링이 곧 반영한다.")
+	// **어디서 답하나 — 표면마다 다르다.** MCP 에서는 이 호출이 카드를 함께 열고(uiStatusMeta)
+	// 질문이 그 안에 폼으로 선다. 옛 문구는 어느 표면에서든 "뷰어를 열어라(gil viewer serve)"
+	// 라고 했고, 그건 MCP 에서 **칠 수 없는 명령**이라 세션이 Bash 로 gil 을 찾다 실패하고
+	// 대화로 질문을 옮겨 적었다(상현님 실사용, 2026-08-10 — `gil: command not found`).
+	if mcpMode {
+		println2("  ▸ 질문이 " + askHumanHere() + "에 서 있다 — 사람에게 거기 답해 달라고 " +
+			"지금 말로 청하라(답을 대신 지어내지 마라).")
+	} else {
+		println2("  ▸ " + askHumanHere() + "에서 답한다(창이 없으면: " +
+			surfaceCall("viewer", "open", "") + "). 사람이 제출하면 reference-" + chain +
+			".md 로 저장되고 레퍼런스가 커밋된다 — 폴링이 곧 반영한다.")
+	}
 	println2("  ▸ 사람 답 전엔 이 기준이 비어 있다 — 답을 기다려라(pending 처럼).")
 	// "기다려라"만 말하고 기다릴 수단을 안 주면 바쁜대기 아니면 우회로 민다(이슈 #58). 그리고
 	// 수단을 둘 다 나란히 놓으면 싼 쪽(--status 한 번)을 고른다 — 어느 것이 기본인지 못박는다(#77).

@@ -15136,6 +15136,64 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
             "\n  → askHumanHere()/askHumanLine() 를 써라(surface.go). 화면을 여는 것과 "
             "그 화면을 가리키는 것은 다른 일이다.")
 
+    def test_the_tool_descriptions_do_not_send_them_to_the_viewer_either(self):
+        """**에이전트가 읽는 글은 툴 응답만이 아니다 — 툴 목록도 읽는다.**
+
+        실측(상현님, 2026-08-10): 응답 쪽을 다 고쳤는데도 세션이 "답변 창구(뷰어)가 아직 떠
+        있지 않아"로 시작해 Bash 로 gil 을 찾다 실패하고(`gil: command not found`) 질문을
+        대화로 옮겨 적었다. 남은 자리 하나가 **`gil_interview_status` 의 툴 설명**이었다 —
+        거기에 "뷰어 폼으로 넘어간 인터뷰는…"이 있었다.
+
+        앞 시험은 툴 **응답**만 봤다. 목록은 안 봤다. 에이전트는 둘 다 읽는다."""
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1"})
+        self.addCleanup(p.terminate)
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "x"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "probe", "version": "0"}}})
+        pump(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        tools = pump(2)["result"]["tools"]
+        # instructions 도 에이전트가 읽는 글이다 — 함께 센다.
+        # **판정은 응답 검사와 같은 기준이다** — 사람을 그 화면으로 **보내는** 말만 잡는다.
+        # "뷰어를 끈다"(gil_handoff --end)는 실제 동작 설명이지 사람을 보내는 것이 아니다.
+        # 낱말만 세면 사실을 말하는 줄까지 빨개지고, 그러면 시험이 못 쓰게 된다(v3.58.2 의 교훈).
+        send_words = ("답", "제출", "청하", "폼")
+        bad = [f"{n}: {d}" for n, d in ((t["name"], t.get("description", "")) for t in tools)
+               if "뷰어" in d and any(w in d for w in send_words)]
+        self.assertEqual(
+            bad, [],
+            "툴 설명이 이 표면에서 못 여는 화면(뷰어)을 가르친다:\n  " + "\n  ".join(bad) +
+            "\n  에이전트는 응답만이 아니라 **툴 목록도** 읽는다.")
+
     def test_it_names_the_card_that_is_actually_up(self):
         """물음을 심은 그 출력이 **떠 있는 카드**를 이름으로 불러야 한다."""
         seen = self._agent_sees()
