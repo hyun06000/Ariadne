@@ -92,7 +92,6 @@ func registerStartTools(s *mcp.Server) {
 					"  사람이 거기서 이름을 적고 [여기에 시작한다] 를 누르면 그때 세워진다.\n" +
 					"  아직 안 눌렀으면 재촉하지 말고 기다려라 — 이건 사람이 정하는 칸이다."), nil, nil
 			}
-			startScreenOpen = true
 			// **결과에 `_meta.ui` 를 실어야 카드가 열린다.** 툴 수준의 Meta 는 목록용이고,
 			// 이 호출로 화면을 여는 것은 **결과**에 실린 resourceUri 다(gil_status 가 그렇게
 			// 한다). 안 실으면 "화면을 열었다"고 말해 놓고 아무것도 안 여는 거짓말이 된다.

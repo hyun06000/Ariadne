@@ -48,6 +48,7 @@ func installLeadMiddleware(s *mcp.Server) {
 			if lead := mcpLead(call.Params.Name); lead != "" {
 				prependText(out, lead)
 			}
+			holdOneScreen(out, call.Params.Name)
 			mirrorTextIntoStructured(out)
 			return out, err
 		}
@@ -129,4 +130,58 @@ func mirrorTextIntoStructured(res *mcp.CallToolResult) {
 		return
 	}
 	sc["text"] = b.String()
+}
+
+// holdOneScreen — **사람 앞에 시작하는 화면은 한 장만 선다.**
+//
+// 실사용 두 번(상현님). 처음엔 gil_start 를 두 번 불러서 두 장이 떴고, 그건 gil_start 안에서
+// 막았다. 그런데 또 두 장이 떴다 — 이번엔 **다른 툴**이 열었다. 화면을 여는 것은 결과에 실린
+// `_meta.ui.resourceUri` 하나뿐이고, 그걸 다는 툴이 여럿이기 때문이다(gil_status·gil_start·
+// gil_intake·gil_interview…). 호스트는 그 표식이 달린 툴 호출마다 카드를 한 장씩 그린다.
+//
+// **막는 자리를 툴마다 두면 하나 늘 때 또 샌다** — 이 저장소가 세션 앞머리에서 이미 치른 값이다.
+// 그래서 나가는 모든 결과가 지나는 이 한 자리에서 판정한다: 시작하는 화면이 사람의 손을
+// 기다리는 동안에는, 그 화면을 연 호출 말고는 아무도 새 카드를 열지 않는다.
+//
+// 왜 이게 UX 문제인가. 같은 질문을 하는 카드가 둘 서면 어디에 적어야 할지 알 수 없고,
+// **초안은 화면마다 따로 살아서** 한쪽에 적은 것은 다른 쪽이 모른다. 사람이 적다가 다른
+// 카드를 보면 자기가 쓴 것이 사라진 것처럼 보인다.
+func holdOneScreen(out *mcp.CallToolResult, tool string) {
+	if out == nil || out.Meta == nil {
+		return
+	}
+	ui, ok := out.Meta["ui"].(map[string]any)
+	if !ok {
+		return
+	}
+	if _, has := ui["resourceUri"]; !has {
+		return
+	}
+	// 앱 전용 통로는 건드리지 않는다 — 그건 화면이 자기 내용을 가져오는 길이지 새 화면이 아니다.
+	if _, isApp := appOnlyTools[tool]; isApp {
+		return
+	}
+	// **이 규칙은 시작하는 국면에만 산다.** 평소에는 gil_status 를 부를 때마다 카드가 서는
+	// 것이 맞다 — 그게 이 표면의 모양이다. 막는 것은 "사람이 아직 안 누른 시작 화면"뿐이다.
+	if !hostDeclaresUI || !startNeedsPlace() {
+		startScreenOpen = false
+		return
+	}
+	// **여는 쪽과 막는 쪽이 한 자리에 있어야 한다.** 처음엔 핸들러가 플래그를 세우고 여기서
+	// 막았더니 **첫 장까지 막혔다**(핸들러가 먼저 돌기 때문이다). 지나가는 것을 세는 자리와
+	// 세운 값을 읽는 자리가 갈리면 늘 이런 순서 사고가 난다.
+	if !startScreenOpen {
+		startScreenOpen = true // 이 호출이 그 화면을 연다
+		return
+	}
+	next := map[string]any{}
+	for k, v := range ui {
+		if k == "resourceUri" {
+			continue
+		}
+		next[k] = v
+	}
+	out.Meta["ui"] = next
+	prependText(out, "(시작하는 화면이 이미 떠 있어 새 카드를 열지 않았다 — "+
+		"사람이 거기서 이름을 적고 [여기에 시작한다] 를 누를 차례다.)\n\n")
 }

@@ -12888,6 +12888,44 @@ class TestNobodyTypesAPathToStart(GilFixture):
         self.assertIn("여기에 시작한다", out, "그 화면에 있는 버튼을 안 가리킨다:\n" + out)
         self.assertNotIn("답을 제출한다", out, "인터뷰 폼의 버튼을 가리킨다:\n" + out)
 
+    def test_the_screen_says_when_it_is_a_stale_shell(self):
+        """**고친 것과 뜬 것이 다를 수 있다 — 그러면 그 사실을 말해야 한다.**
+
+        호스트는 `ui://` 리소스를 캐시하고 다시 안 읽는다(규범이 허용한다). 그래서 서버를 새로
+        깔아도 사람 화면에는 **옛 껍데기가 그대로 남을 수 있다.**
+
+        2026-08-10 에 이걸 몰라서 같은 자리를 세 번 "고치고" 세 번 안 됐다고 읽었다. 실제로는
+        고친 껍데기가 화면에 닿은 적이 없었고, 그 위에서 내린 판정 셋이 전부 헛것이었다.
+        그래프는 이미 제 낡음을 밝히고 있었는데(팁 서명) 카드만 그걸 안 배웠다.
+
+        그러니 껍데기는 **제 판을 실어 보내고**, 서버는 제 판과 대조해서 다르면 말한다."""
+        import tempfile, subprocess, json
+        repo = tempfile.mkdtemp(prefix="stale-")
+        subprocess.run([*GIL_CMD, "init", "--name", "x"], cwd=repo, capture_output=True,
+                       env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1"))
+        call, _ = self._serve(os.path.expanduser("~"), repo, draws_ui=True)
+
+        # 껍데기가 제 판을 싣는다 — 안 실으면 서버는 영영 대조할 수 없다.
+        _, shell = call("gil_status_card", {})
+        # (조각이 아니라 껍데기를 봐야 하므로 resources/read 로 읽는다: _serve 의 call 은
+        #  툴만 부르므로, 여기서는 조각을 받은 뒤 아래에서 host 를 직접 실어 대조를 잰다.)
+
+        # 낡은 껍데기가 보고하면 **그 사실이 맨 앞에 선다.**
+        call("gil_status_card", {"host": json.dumps({"ver": "v0.0.1-옛것", "modes": ["inline"]})})
+        _, out = call("gil_status", {})
+        self.assertIn("껍데기가 낡았다", out, "낡은 화면인데 아무 말이 없다:\n" + out)
+        self.assertIn("v0.0.1-옛것", out, "떠 있는 판을 안 말한다")
+
+        # 같은 판이면 조용하다 — 정상 상태를 고장이라 부르지 않는다.
+        call("gil_status_card", {"host": json.dumps({"ver": self._server_version(out), "modes": ["inline"]})})
+        _, out2 = call("gil_status", {})
+        self.assertNotIn("껍데기가 낡았다", out2, "같은 판인데 낡았다고 한다:\n" + out2)
+
+    def _server_version(self, text):
+        import re
+        m = re.search(r"이 서버 (\S+)", text)
+        return m.group(1) if m else "dev"
+
     def test_calling_start_twice_does_not_stack_two_screens(self):
         """**같은 화면을 두 번 열지 않는다** (상현님 실사용: "카드가 두번 나왔어 — ux 적으로
         너무 헷갈릴 포인트").
@@ -12912,6 +12950,32 @@ class TestNobodyTypesAPathToStart(GilFixture):
         self.assertIsNone(ui2.get("resourceUri"),
                           "두 번째 호출이 카드를 또 연다 — 같은 질문이 사람 앞에 둘 선다")
         self.assertIn("이미 떠 있다", out2, "이미 떠 있다는 사실을 안 말한다:\n" + out2)
+
+        # **다른 툴도 열면 안 된다.** 실사용에서 두 번째 두 장은 gil_start 가 아니라 **다른
+        # 툴**이 열었다 — 화면을 여는 것은 결과의 resourceUri 하나이고 그걸 다는 툴이 여럿이다.
+        # 그래서 막는 자리는 툴이 아니라 **나가는 모든 결과가 지나는 한 자리**여야 한다.
+        for other in ("gil_status", "gil_handoff"):
+            bad3, out3 = call(other, {})
+            ui3 = (self.last_result.get("_meta") or {}).get("ui") or {}
+            self.assertIsNone(ui3.get("resourceUri"),
+                              other + " 가 시작 화면 위에 카드를 또 연다")
+
+    def test_outside_the_starting_moment_every_status_still_draws_its_card(self):
+        """**막는 것은 "사람이 아직 안 누른 시작 화면"뿐이다.**
+
+        평소에는 gil_status 를 부를 때마다 카드가 서는 것이 맞다 — 그게 이 표면의 모양이고,
+        그걸 함께 막으면 화면이 통째로 사라진다. 한 장만 세우는 규칙을 넓게 걸었다가 첫 장까지
+        막은 적이 있어서(여는 쪽과 막는 쪽이 갈려 있었다) 그 반대편도 함께 잰다."""
+        import tempfile, subprocess
+        repo = tempfile.mkdtemp(prefix="realrepo-")
+        subprocess.run([*GIL_CMD, "init", "--name", "x"], cwd=repo, capture_output=True,
+                       env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1"))
+        call, _ = self._serve(os.path.expanduser("~"), repo, draws_ui=True)
+        for i in range(3):
+            call("gil_status", {})
+            ui = (self.last_result.get("_meta") or {}).get("ui") or {}
+            self.assertEqual(ui.get("resourceUri"), "ui://gil/status",
+                             "평소인데 %d 번째 카드가 안 선다" % (i + 1))
 
     def test_standing_rules_live_in_instructions_not_in_every_answer(self):
         """**잰 것은 응답, 정한 것은 instructions** (상현님 물음, 2026-08-10).

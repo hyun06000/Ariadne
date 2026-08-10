@@ -77,7 +77,25 @@ var mcpUIHost struct {
 	FSGrant string `json:"fsGrant"`
 	FSErr   string `json:"fsErr"`
 	FSWhy   string `json:"fsWhy"`
-	known   bool
+	// Ver — **화면에 떠 있는 껍데기의 판.** 호스트가 ui:// 리소스를 캐시하고 다시 안 읽으므로
+	// (규범 허용), 서버를 새로 깔아도 사람 화면에는 옛 껍데기가 남을 수 있다.
+	Ver   string `json:"ver"`
+	known bool
+}
+
+// uiShellStale — 화면의 껍데기가 이 서버의 판과 다른가("" = 같거나 모른다).
+//
+// 왜 이 한 줄이 값을 하나. 2026-08-10 에 같은 자리를 세 번 고치고 세 번 "안 된다"고 읽었다 —
+// 실제로는 고친 껍데기가 **화면에 닿은 적이 없었다.** 고친 것과 뜬 것이 다른데 구별할 방법이
+// 없으면, 그 뒤의 판정이 전부 헛것 위에 선다. 그래프는 이미 제 낡음을 밝히고 있었고
+// (mcp_ui.go 의 팁 서명), 카드만 그걸 안 배웠다.
+func uiShellStale() string {
+	if !mcpUIHost.known || mcpUIHost.Ver == "" || mcpUIHost.Ver == gilVersion {
+		return ""
+	}
+	return "⚠ 화면의 껍데기가 낡았다: 떠 있는 것 " + mcpUIHost.Ver + " · 이 서버 " + gilVersion +
+		" — 호스트가 옛 화면을 캐시하고 있다. **껍데기를 고쳤다면 그 수정은 아직 화면에 없다.** " +
+		"확장을 다시 설치하거나 대화를 새로 열어야 새 껍데기를 읽는다."
 }
 
 // uiHostLine — 이 표면에 대해 **아는 것만** 한 줄로. 모르면 빈 값(모르는 것은 말하지 않는다).
@@ -102,6 +120,11 @@ func uiHostLine() string {
 		return ""
 	}
 	s := "화면: 카드가 떠 있다"
+	if st := uiShellStale(); st != "" {
+		// **낡음을 먼저 말한다.** 아래 줄들은 그 낡은 화면이 보고한 것이라, 낡았다는 사실을
+		// 모르고 읽으면 지금 서버의 사실로 오해한다.
+		s = st + "\n" + s
+	}
 	if mcpUIHost.Mode != "" {
 		s += "(" + mcpUIHost.Mode + ")"
 	}

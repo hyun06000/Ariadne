@@ -307,9 +307,25 @@ func statusCardShellHTML() string {
     var els=sb.querySelectorAll("[data-start-name],[data-start-place]");
     for(var i=0;i<els.length;i++){
       var el=els[i];
-      el.oninput=el.onkeyup=el.onchange=function(){ syncStartPreview(sb); };
+      el.oninput=el.onkeyup=el.onchange=function(){ startBeat("event"); syncStartPreview(sb); };
     }
+    startBeat("bind:"+els.length);
     syncStartPreview(sb);
+  }
+  // **계기.** 미리보기가 실제 호스트에서만 안 따라왔고 세 번 추측해서 세 번 틀렸다.
+  // 추측을 그만두려면 그 안에서 무슨 일이 나는지 봐야 한다 — 화면이 자기 상태를 서버로
+  // 실어 보내고, 서버가 그것을 stderr 로 적는다(호스트 로그에 남는다).
+  // 기본은 꺼져 있다: GIL_UI_PROBE=1 일 때만.
+  function startBeat(what){
+    if(!PROBE) return;
+    try{
+      var s=slot(), sb=s&&s.querySelector("[data-start]");
+      var nm=sb&&sb.querySelector("[data-start-name]");
+      var out=sb&&sb.querySelector("[data-start-preview]");
+      report("start:"+what+" box="+(sb?"1":"0")+" name="+(nm?"1":"0")+
+             " out="+(out?"1":"0")+" val="+((nm&&nm.value)||"")+
+             " shown="+((out&&out.textContent)||""));
+    }catch(e){ report("start:"+what+" throw="+String(e&&e.message||e)); }
   }
   // 이름 → 만들 자리. 화면은 미리 보여주기만 하고 **판정은 서버가 다시 한다**(placeSlug).
   function syncStartPreview(box){
@@ -489,6 +505,7 @@ func statusCardShellHTML() string {
   document.addEventListener("input",function(ev){
     var el=ev.target;
     if(!el || !(el.hasAttribute&&(el.hasAttribute("data-start-name")||el.hasAttribute("data-start-place")))) return;
+    startBeat("delegate");
     syncStartPreview(el.closest("[data-start]"));
   },true);
 
@@ -512,7 +529,12 @@ func statusCardShellHTML() string {
     // **이 화면이 선 표면을 서버에 알린다.** iframe↔호스트 프레임은 서버에 오지 않으니,
     // 호스트가 무엇을 지원한다고 답했는지는 화면이 적어 보내야만 알 수 있다. 그걸 알아야
     // 도구가 사람에게 "곁에 띄울 수 있다"를 말할 수 있고, 없으면 조용히 인라인으로 남는다.
-    a.host=JSON.stringify({modes:HOST.modes,mode:HOST.mode,vars:HOST.vars,caps:HOST.caps,
+    // **이 껍데기가 몇 판인지 함께 싣는다.** 호스트는 ui:// 리소스를 캐시하고 다시 안 읽는다
+    // (규범이 허용한다). 그래서 서버를 새로 깔아도 **사람 화면에는 옛 껍데기가 그대로 남을 수
+    // 있다** — 2026-08-10 에 이걸 몰라서 같은 자리를 세 번 "고치고" 세 번 안 됐다고 읽었다.
+    // 고친 것과 뜬 것이 다른데 그걸 구별할 방법이 없으면, 그 뒤 판정은 전부 헛것 위에 선다.
+    // 서버가 제 판과 대조해서 다르면 그 사실을 말한다(uiHostLine).
+    a.host=JSON.stringify({ver:VER,modes:HOST.modes,mode:HOST.mode,vars:HOST.vars,caps:HOST.caps,
       asked:HOST.asked,grant:HOST.grant,err:HOST.err,why:HOST.why,ua:HOST.ua,plat:HOST.plat,
       fsAsked:HOST.fsAsked,fsGrant:HOST.fsGrant,fsErr:HOST.fsErr,fsWhy:HOST.fsWhy});
     send({id:i,method:"tools/call",params:{name:"gil_status_card",arguments:a}});
