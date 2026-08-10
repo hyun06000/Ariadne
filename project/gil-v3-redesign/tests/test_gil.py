@@ -12535,13 +12535,30 @@ class TestTheScreenAsksForTheRoomItNeeds(GilFixture):
             self.assertIn("return", fn,
                           f"{name}: 목록에 없을 때 되돌아가지 않는다 — 추측으로 청한다")
 
-    def test_the_status_card_only_asks_when_a_human_is_needed(self):
-        """사람이 안 시켰는데 화면이 옆으로 튀어나가면 그건 도움이 아니라 방해다."""
+    def test_asking_to_sit_aside_is_the_default_but_never_a_fight(self):
+        """**곁에 서는 것이 기본이다**(상현님) — 상태 카드는 원래 곁에 두고 일하는 화면이다.
+
+        처음엔 "답할 것이 있을 때만" 청했는데, 그건 이 화면의 성격을 잘못 읽은 것이었다.
+        다만 **한 번만** 청한다: 사람이 도로 인라인으로 돌려놨는데 우리가 다시 밀면 싸움이다."""
         sh = self.shell()["status"]
         body = sh.partition("function maybeAside(")[2].partition("\n  }")[0]
         self.assertTrue(body.strip(), "maybeAside 를 못 읽었다 — 이 시험이 눈이 먼다")
-        self.assertIn("data-needs-human", body, "답할 것이 있는지 안 보고 청한다")
         self.assertIn("askedAside", body, "한 번만 청한다는 규칙이 없다 — 사람과 싸운다")
+
+    def test_it_tells_apart_not_supported_from_not_declared(self):
+        """**없는 것과 못 찾은 것은 다르다** — 이 저장소가 여러 번 배운 것.
+
+          · 목록을 줬는데 pip 이 없다 → 지원 안 한다. 청하지 않는다(규범이 금한다).
+          · 목록을 아예 안 줬다      → 모르는 것이다. 청해 보고 답을 받는 수밖에 없다
+            (roots 에서 이미 겪었다 — 선언과 구현이 갈리는 호스트는 실재한다).
+
+        이 구분이 없으면 둘 중 하나를 잃는다: 규범을 어기거나, 열 수 있는 자리를 안 열거나."""
+        sh = self.shell()["status"]
+        body = sh.partition("function maybeAside(")[2].partition("\n  }")[0]
+        self.assertIn("HOST.modes.length", body,
+                      "목록이 비었는지(=안 밝혔는지)를 안 본다 — 밝히지 않은 호스트에서 "
+                      "열 수 있는 자리를 스스로 닫는다")
+        self.assertIn('indexOf("pip")', body, "목록에 있는지 안 본다")
 
     def test_the_card_marks_when_it_needs_a_human(self):
         """껍데기는 카드 내용을 모른다(레이아웃은 Go 에만 있다) — 그래서 카드가 표시한다."""

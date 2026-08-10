@@ -261,29 +261,34 @@ func statusCardShellHTML() string {
     maybeAside();
   }
 
-  // ── 답할 것이 있으면 곁에 선다 ────────────────────────────────────────────
+  // ── 곁에 서는 것이 기본이다 (상현님, 2026-08-10) ──────────────────────────
   //
-  // 인라인 카드는 **대화와 함께 스크롤돼 올라간다.** 사람이 3번 문항을 쓰다가 1번을 다시
+  // 인라인 카드는 **대화와 함께 스크롤돼 올라간다.** 사람이 3번 문항을 쓰다 1번을 다시
   // 보려면 위로 올려야 하고, 승인 버튼은 대화가 길어지면 화면 밖으로 나간다. 브라우저
-  // 뷰어가 주던 값 하나가 정확히 "창이 계속 거기 있다"였고, 그건 그림이 아니라 **자리**였다.
+  // 뷰어가 주던 값 하나가 정확히 "창이 계속 거기 있다"였고 — 그건 그림이 아니라 자리였다.
   //
-  // 지키는 것 셋:
-  //   ① **호스트가 목록에 넣은 모드만 청한다**(규범: 지원 안 하는 모드를 청하면 안 된다).
-  //      목록이 비면 아무것도 안 한다 — 추측으로 켜면 없는 화면을 가리키는 그 병이 된다.
-  //   ② **답할 것이 있을 때만.** 사람이 안 시켰는데 화면이 옆으로 튀어나가면 그건 방해다.
-  //   ③ **한 번만.** 사람이 도로 인라인으로 돌려놨는데 우리가 다시 밀면 그건 싸움이다.
+  // 처음엔 "답할 것이 있을 때만" 청했다. 상현님 판단으로 **기본으로 올린다**: 상태 카드는
+  // 원래 곁에 두고 일하는 화면이지, 답할 것이 생길 때만 꺼내 보는 화면이 아니다.
+  //
+  // **다만 이 구분은 지킨다 — 지원 안 한다고 밝힌 것과 아예 안 밝힌 것은 다르다.**
+  //   · 목록을 줬는데 pip 이 없다  → 지원 안 한다. 청하지 않는다(규범이 금한다).
+  //   · 목록을 아예 안 줬다        → **모르는 것이다.** 청해 보고 답을 받는 수밖에 없다.
+  //     거절되면 그대로 인라인이다 — 잃는 것이 없다.
+  // 이 저장소가 여러 번 배운 것과 같은 모양이다: 없는 것과 못 찾은 것은 다르다. 그리고
+  // roots 에서 이미 겪었다 — 선언과 구현이 갈리는 호스트는 실재한다.
+  //
+  // **한 번만 청한다.** 사람이 도로 인라인으로 돌려놨는데 우리가 다시 밀면 그건 싸움이다.
   var askedAside=false;
   function maybeAside(){
     if(askedAside) return;
-    var s=slot(); if(!s) return;
-    if(!s.querySelector('[data-needs-human]')) return;
-    if(HOST.modes.indexOf("pip")<0) return;      // 이 호스트는 곁에 못 띄운다 — 조용히 인라인
-    if(HOST.mode==="pip"||HOST.mode==="fullscreen") return;
+    if(HOST.mode==="pip"||HOST.mode==="fullscreen") return;   // 이미 제 자리에 있다
+    if(HOST.modes.length && HOST.modes.indexOf("pip")<0) return; // 안 한다고 밝혔다
     askedAside=true;
     var i=++id;
     pending[i]=function(res,err){
-      // **돌아온 값을 믿는다** — 청한 것과 다를 수 있다(규범).
-      if(!err&&res&&res.mode){ HOST.mode=res.mode; applyContainer(); reportSize(); }
+      // **돌아온 값을 믿는다** — 청한 것과 다를 수 있다(규범). 거절이면 인라인 그대로다.
+      if(!err&&res&&res.mode){ HOST.mode=res.mode; applyContainer(); }
+      reportSize();
     };
     send({id:i,method:"ui/request-display-mode",params:{mode:"pip"}});
   }
@@ -569,7 +574,9 @@ func statusCardShellHTML() string {
 
   var hs=++id;
   pending[hs]=function(res,err){
-    if(!err){ learnHost(res); applyTheme(res); notify("ui/notifications/initialized",{}); }
+    if(!err){ learnHost(res); applyTheme(res); notify("ui/notifications/initialized",{});
+      // **가능한 한 일찍 청한다** — 내용을 그린 뒤에 옮기면 사람 눈앞에서 화면이 한 번 뛴다.
+      maybeAside(); }
     reportSize(); fetchCard();
   };
   send({id:hs,method:"ui/initialize",params:{
