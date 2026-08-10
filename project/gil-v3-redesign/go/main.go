@@ -176,6 +176,12 @@ func main() {
 	case "viewer":
 		cmdViewer(rest)
 	default:
+		// **은퇴한 명령은 "없다"가 아니라 "어디로 갔다"고 답한다.** 옛 문서·옛 습관으로 그
+		// 이름을 치는 사람에게 "알 수 없는 명령"만 주면, 도구가 자기가 만든 상태에서 빠져나올
+		// 길을 안 주는 것이다(v3.58.1 이 chain-merge --resume 에서 세운 규칙).
+		if where, ok := retiredCmds[cmd]; ok {
+			die("gil: \"" + cmd + "\" 은 은퇴했다 — " + where)
+		}
 		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [start init intake chain chain-close merge chain-merge open step close adopt deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck guard global memory handoff migrate viewer mcp version]")
 	}
 }

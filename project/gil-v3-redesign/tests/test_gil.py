@@ -13913,6 +13913,101 @@ class TestWhatTheHelpPointsAtExists(GilFixture):
         self.assertEqual(bad, [], "없는 명령을 치라고 한다:\n" + "\n".join(sorted(set(bad))))
 
 
+class TestRetiringACommandLeavesNoDanglingGuidance(GilFixture):
+    """**명령을 지우면 그 이름을 가리키던 안내가 전부 없는 곳을 가리킨다** (2026-08-10).
+
+    이 저장소가 뷰어를 버리기로 한 근거가 정확히 그 병이었다 — 낡은 통로가 안내에 남아
+    있는 한, 그걸 읽은 세션이 매번 우회했다. 그러니 지우는 일에는 **지운 뒤를 세는 시험**이
+    함께 있어야 한다.
+
+    그런데 기존 시험(`test_it_does_not_tell_you_to_type_a_command_that_is_not_there`)은
+    이걸 못 잡는다. 그 시험은 `gil x -플래그` · `gil x <인자>` · 줄 끝 세 꼴만 "칠 수 있는
+    줄"로 인정한다 — 영어 산문에서 낱말을 세면 "gil records …" 같은 문장이 명령으로 잡혀
+    시험이 못 쓰게 되므로 일부러 좁힌 것이다(v3.58.2 의 값). 그 대가로 **서브명령이 붙은
+    꼴**(`gil viewer open`)은 산문으로 보아 그냥 지나간다. 실측: 그 꼴로 남은 안내가 31곳 중
+    29곳이었다.
+
+    그래서 **은퇴를 선언하게** 한다(surface.go 의 retiredCmds). 선언된 이름은 꼴과 무관하게
+    잡힌다. 열거가 아니라 규칙이다 — 다음에 무엇을 지우든 이름 한 줄만 더하면 된다."""
+
+    GO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go")
+
+    def _retired(self):
+        surf = open(os.path.join(self.GO, "surface.go"), encoding="utf-8").read()
+        blk = surf.partition("var retiredCmds = map[string]string{")[2].partition("}")[0]
+        return dict(re.findall(r'"([a-z0-9-]+)":\s*"((?:[^"\\]|\\.)*)"', blk))
+
+    @staticmethod
+    def _mentions(text, name):
+        """**꼴을 안 가린다.** 은퇴한 이름은 어떤 모양으로 나오든 없는 것을 가리킨다."""
+        return re.search(r"\bgil " + re.escape(name) + r"\b", text) is not None
+
+    def test_the_detector_actually_detects(self):
+        """**공회전하지 않는다는 것을 먼저 보인다.**
+
+        은퇴 목록이 비어 있으면 아래 시험은 언제나 통과한다 — 안 깨지지만 아무것도 안 잰다.
+        그래서 판정기 자체를 합성 입력으로 밟아 둔다. 이게 초록이면, 아래가 통과하는 것은
+        '잴 것이 없어서'지 '못 재서'가 아니다."""
+        self.assertTrue(self._mentions('"이제 gil viewer open 을 쳐라"', "viewer"),
+                        "서브명령이 붙은 꼴을 못 잡는다 — 바로 그 꼴로 29곳이 샜다")
+        self.assertTrue(self._mentions('"gil viewer"', "viewer"), "맨 꼴을 못 잡는다")
+        self.assertFalse(self._mentions('"gil viewers 는 없다"', "viewer"),
+                         "다른 낱말의 앞부분을 잡는다 — 그러면 시험이 못 쓰게 된다")
+
+    def test_no_guidance_names_a_retired_command(self):
+        """선언된 은퇴 명령은 소스의 어떤 안내에도 안 나온다(주석은 사실을 말해도 된다)."""
+        retired = self._retired()
+        if not retired:
+            self.skipTest("아직 은퇴한 명령이 없다 — 위 판정기 시험이 이 자리를 지킨다")
+        bad = []
+        for f in sorted(glob.glob(os.path.join(self.GO, "*.go"))):
+            for i, ln in enumerate(open(f, encoding="utf-8"), 1):
+                if ln.lstrip().startswith("//"):
+                    continue
+                for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
+                    for name in retired:
+                        if self._mentions(lit, name):
+                            bad.append(f"{os.path.basename(f)}:{i} → gil {name}")
+        self.assertEqual(bad, [], "은퇴한 명령을 아직 가리킨다:\n  " + "\n  ".join(sorted(set(bad))))
+
+    def test_a_retired_command_says_where_it_went(self):
+        """"알 수 없는 명령"만 주면 옛 습관으로 친 사람이 거기서 막힌다."""
+        retired = self._retired()
+        if not retired:
+            self.skipTest("아직 은퇴한 명령이 없다")
+        name = sorted(retired)[0]
+        r = self.gil(name)
+        out = r.stdout + r.stderr
+        self.assertIn("은퇴했다", out, f"gil {name} 이 어디로 갔는지 안 말한다:\n{out}")
+        self.assertNotIn("알 수 없는 명령", out, "은퇴한 것을 없는 것이라 말한다")
+        h = self.gil("help", name)
+        self.assertIn("은퇴했다", h.stdout + h.stderr, "도움말이 은퇴를 모른다")
+
+    def test_help_has_no_topic_for_a_command_that_is_gone(self):
+        """**역방향도 센다.** 기존 시험은 `명령 − 도움말` 만 봤다 — 도움말에 남은 옛 항목은
+        아무도 안 잡았고, 그러면 사람은 없는 명령의 사용법을 읽는다."""
+        h = open(os.path.join(self.GO, "usage_help.go"), encoding="utf-8").read()
+        topics = set(re.findall(r'^\t"([a-z0-9-]+)": \{', h, re.M))
+        self.assertTrue(topics, "도움말 항목을 못 읽었다 — 이 시험이 공회전한다")
+        main = open(os.path.join(self.GO, "main.go"), encoding="utf-8").read()
+        cmds = set()
+        for m in re.finditer(r'case ((?:"[a-z0-9-]+"(?:, )?)+):', main):
+            cmds |= set(re.findall(r'"([a-z0-9-]+)"', m.group(1)))
+        self.assertIn("chain-merge", cmds, "명령 목록을 못 읽었다 — 이 시험이 공회전한다")
+        # 개념 항목은 명령이 아니다 — **선언된 것만** 봐준다(usage_help.go 의 conceptTopics).
+        # 이 예외가 없으면 정당한 항목이 결함으로 잡히고, 있으면서 선언을 안 읽으면
+        # 이 시험은 통째로 무뎌진다. 선언을 읽어서, 선언 밖의 고아만 잡는다.
+        concept = set(re.findall(r'"([a-z0-9-]+)":\s*"',
+                                 h.partition("var conceptTopics = map[string]string{")[2]
+                                  .partition("}")[0]))
+        self.assertIn("close-vocabulary", concept,
+                      "개념 항목 선언을 못 읽었다 — 이 시험이 눈이 먼다")
+        orphan = sorted(topics - cmds - concept - {"help", "h"})
+        self.assertEqual(orphan, [],
+                         "없는 명령의 도움말이 남아 있다: " + ", ".join(orphan) +
+                         "\n  개념 항목이면 usage_help.go 의 conceptTopics 에 왜 그런지 적어라.")
+
+
 class TestConflictHasAWayOut(GilFixture):
     """**도구가 자기가 만든 상태에서 빠져나올 길을 자기가 줘야 한다.**
 

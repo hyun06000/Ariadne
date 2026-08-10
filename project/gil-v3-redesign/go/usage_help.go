@@ -14,6 +14,16 @@ type helpEntry struct {
 	wiki  string // docs/gil/<page>.md — 능동적으로 더 읽을 페이지
 }
 
+// conceptTopics — 명령이 아니라 **개념**을 설명하는 도움말 항목.
+//
+// 왜 선언하나. "도움말에 있는데 명령이 없다"는 보통 결함이다 — 지워진 명령의 사용법이
+// 남아 있으면 사람은 없는 것의 사용법을 읽는다. 그래서 그걸 세는 시험을 세웠더니, 그 시험이
+// 개념 항목까지 결함으로 잡았다(실측: close-vocabulary). **규칙이 예쁘다고 옳은 것은
+// 아니다** — 정당한 것을 함께 베지 않으려면 다른 것을 다르다고 적어야 한다.
+var conceptTopics = map[string]string{
+	"close-vocabulary": "종결의 어휘 — 한 명령이 아니라 close·approve·chain-close 에 걸친 규칙이다.",
+}
+
 var helpTable = map[string]helpEntry{
 	"start": {
 		"gil start [--name <이름>] [--identity <파일>] [--will <파일>] [--relations <파일>] [--status]\n" +
@@ -609,6 +619,10 @@ func cmdHelp(args []string) {
 	name := args[0]
 	e, ok := helpTable[name]
 	if !ok {
+		if where, ok := retiredCmds[name]; ok {
+			println2("gil help: \"" + name + "\" 은 은퇴했다 — " + where)
+			return
+		}
 		println2("gil help: 알 수 없는 명령 \"" + name + "\". `gil help` 로 전체 표면을 본다.")
 		return
 	}
