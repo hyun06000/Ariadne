@@ -1,0 +1,17 @@
+{
+  "name": "ariadne",
+  "description": "gil — 사고의 역사를 git 커밋 그래프 위에. 비개발자가 문서와 대화를 버저닝하며 LLM을 쓰게 하는 도구.",
+  "owner": {
+    "name": "Sang-hyun Park",
+    "url": "https://github.com/hyun06000"
+  },
+  "plugins": [
+    {
+      "name": "gil",
+      "source": "./gil",
+      "description": "git을 특정 패턴으로 쓰게 하는 얇은 래퍼. 정적 단일 바이너리를 그대로 실어 나른다 — 사용자 머신에 런타임 의존이 없다.",
+      "category": "productivity",
+      "tags": ["git", "versioning", "mcp-app"]
+    }
+  ]
+}

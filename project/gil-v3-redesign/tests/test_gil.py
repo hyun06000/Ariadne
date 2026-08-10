@@ -5897,6 +5897,51 @@ class TestMCPApps(GilFixture):
         self.assertIn(self.UI_EXT, ext)
         self.assertEqual(ext[self.UI_EXT]["mimeTypes"], [self.UI_MIME])
 
+    def test_status_says_the_same_thing_in_both_result_channels(self):
+        """**어느 칸이 모델에게 갈지는 호스트가 정한다 — 우리는 못 고른다.**
+
+        실측(2026-08-10, Claude Code Desktop): 이 호스트는 structuredContent 가 있으면
+        **그것만** 모델에게 주고 Content 를 버린다. gil_status 를 부른 에이전트가 받은 것은
+        `{"tipSignature":"…"}` 한 줄이 전부였다 — 상태 줄도, 표면을 말하는 줄(uiHostLine)도
+        **한 글자도** 닿지 않았다. 오류는 없었다. 조용히 그랬다.
+
+        같은 세션의 gil_log 는 본문이 그대로 왔다(그쪽엔 structuredContent 가 없다). 그러니
+        빈 것이 아니라 **가려진** 것이다.
+
+        고침은 "어느 칸이 옳은가"를 고르는 것이 아니다 — 고를 수 없으니 **둘 다 사실이게**
+        한다. cardOf 가 통로 둘을 다 보는 것과 같은 이유고, 통로가 하나뿐이라 가정할 때마다
+        이 저장소는 조용히 빈 화면을 얻었다."""
+        self.gil("init", "--name", "clew")
+        def go(send, read, init):
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": "gil_status", "arguments": {}}})
+            return read()["result"]
+        r = self._session(go)
+        self.assertFalse(r.get("isError"), r)
+        text = "".join(c.get("text", "") for c in r.get("content", [])
+                       if c.get("type") == "text")
+        self.assertTrue(text.strip(), "content 가 비었다")
+        sc = r.get("structuredContent") or {}
+        self.assertIn("text", sc,
+                      "structuredContent 만 모델에게 주는 호스트에서는 상태가 한 글자도 안 간다")
+        self.assertEqual(sc["text"], text, "두 칸이 서로 다른 말을 한다")
+        # 지문은 그대로 있어야 한다 — 화면이 낡음을 판정하는 값이다.
+        self.assertTrue((sc.get("tipSignature") or "").strip())
+
+        # **그리고 이건 규칙이지 이 툴의 사정이 아니다.** 다른 툴도 아무것도 안 배우고 같아야
+        # 한다 — 툴마다 손으로 실으면 다음에 생기는 툴이 또 샌다(열거는 늘 뒤늦다).
+        def go2(send, read, init):
+            send({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                  "params": {"name": "gil_graph", "arguments": {}}})
+            return read()["result"]
+        g = self._session(go2)
+        gtext = "".join(c.get("text", "") for c in g.get("content", [])
+                        if c.get("type") == "text")
+        gsc = g.get("structuredContent") or {}
+        if gtext.strip():
+            self.assertEqual(gsc.get("text"), gtext,
+                             "gil_graph 는 같은 규칙을 안 받는다 — 자리를 열거하고 있다")
+
     def test_ui_resource_is_declared(self):
         """ui:// 스킴과 mcp-app 프로파일 mimeType — 규범 문자 그대로."""
         def go(send, read, init):
@@ -12560,6 +12605,38 @@ class TestTheScreenAsksForTheRoomItNeeds(GilFixture):
                       "열 수 있는 자리를 스스로 닫는다")
         self.assertIn('indexOf("pip")', body, "목록에 있는지 안 본다")
 
+    def test_it_records_what_the_host_answered_not_only_what_it_asked(self):
+        """**"청했다"까지만 알면 왜 인라인인지 아무도 답할 수 없다.**
+
+        실측(상현님, 2026-08-10): 곁에 서기를 기본으로 올린 뒤에도 카드가 인라인으로 떴다.
+        그런데 코드에는 청하는 자리만 있고 **답을 적는 자리가 없어서**, 그것이
+          ㄱ) 호스트가 거절한 것인지
+          ㄴ) 이 호스트가 그 요청 자체를 안 받는 것인지(무응답)
+          ㄷ) 애초에 우리가 안 청한 것인지
+        구별할 수 없었다. 셋은 화면 밖에서 전부 똑같이 "인라인 카드"로 보인다 — 그래서
+        다음 수가 통째로 추측이 됐다.
+
+        추측하지 않으려면 계기가 있어야 한다. 이 저장소가 여러 번 값을 치르고 적은 그대로다."""
+        sh = self.shell()["status"]
+        body = sh.partition("function maybeAside(")[2].partition("\n  }")[0]
+        self.assertTrue(body.strip(), "maybeAside 를 못 읽었다 — 이 시험이 눈이 먼다")
+        for k in ("HOST.asked", "HOST.grant", "HOST.err"):
+            self.assertIn(k, body, f"{k} 를 안 적는다 — 청한 결과가 어디에도 안 남는다")
+        # **무응답을 판정한다.** 답이 없는 것도 답이다(이 호스트가 그 요청을 안 받는다는 뜻).
+        # 안 재면 거절과 무응답이 같은 침묵으로 보인다.
+        self.assertIn("setTimeout", body,
+                      "답이 안 올 때를 판정하지 않는다 — 무응답과 거절이 구별되지 않는다")
+        # 안 청하기로 한 두 갈래도 **왜**인지를 남긴다(=ㄷ 을 ㄱ·ㄴ 과 가른다).
+        self.assertGreaterEqual(body.count("HOST.why="), 2,
+                                "안 청한 갈래 중 이유를 안 남기는 것이 있다")
+        # 그리고 그 사실이 **서버까지 간다** — iframe↔호스트 프레임은 서버에 오지 않으니
+        # 화면이 실어 보내는 길 말고는 도구가 알 방법이 없다.
+        for k in ("asked:HOST.asked", "grant:HOST.grant", "err:HOST.err", "why:HOST.why"):
+            self.assertIn(k, sh, f"{k} 가 서버로 안 간다 — 도구가 영영 결과를 모른다")
+        # 첫 조회가 그 결과를 실어 가려면 **자리가 정해진 뒤에** 나가야 한다.
+        self.assertIn("function asideDone(", sh,
+                      "답을 기다렸다 첫 조각을 가져오는 자리가 없다 — 서버는 늘 한 발 늦는다")
+
     def test_the_card_marks_when_it_needs_a_human(self):
         """껍데기는 카드 내용을 모른다(레이아웃은 Go 에만 있다) — 그래서 카드가 표시한다."""
         self.gil("init", "--name", "clew")
@@ -14756,8 +14833,11 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
     화면을 여는 것과 그 화면을 가리키는 것은 **다른 일**이다. 앞 커밋이 앞엣것을 했고,
     이 시험이 뒤엣것을 지킨다."""
 
-    def _agent_sees(self):
-        """폼을 못 띄우는 호스트로 온보딩을 밟고, 에이전트가 받는 글을 모은다."""
+    def _agent_sees(self, declare_ui=False):
+        """폼을 못 띄우는 호스트로 온보딩을 밟고, 에이전트가 받는 글을 모은다.
+
+        declare_ui: MCP Apps 확장을 **선언하는** 호스트로 붙는다(= 카드가 뜨는 자리).
+        기본은 선언 안 함 — 실사용에서 카드를 안 그리는 표면이 실재한다(Cowork)."""
         p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE,
@@ -14790,8 +14870,12 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
                     return m
 
         st["id"] += 1
+        caps = {}
+        if declare_ui:
+            caps = {"extensions": {"io.modelcontextprotocol/ui": {
+                "mimeTypes": ["text/html;profile=mcp-app"]}}}
         send({"jsonrpc": "2.0", "id": st["id"], "method": "initialize",
-              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+              "params": {"protocolVersion": "2025-06-18", "capabilities": caps,
                          "clientInfo": {"name": "formless", "version": "0"}}})
         pump(st["id"])
         send({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -14832,6 +14916,36 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
             "이 표면에서 열 수 없는 화면(뷰어)으로 사람을 보낸다:\n  " + "\n  ".join(bad) +
             "\n  → askHumanHere()/askHumanLine() 를 써라(surface.go). 화면을 여는 것과 "
             "그 화면을 가리키는 것은 다른 일이다.")
+
+    def test_it_does_not_point_at_a_card_on_a_host_that_draws_none(self):
+        """**MCP 라는 이유만으로 "위에 뜬 카드"를 가리키면 안 된다** (상현님 실사용, Cowork).
+
+        플러그인으로 붙인 gil 이 잘 돌았다 — 저장소도 보이고 툴도 다 먹었다. 그런데 **카드는
+        끝내 안 떴다.** 상태를 두 번 물어도 화면 보고가 한 줄도 없었다. 그 표면은 MCP Apps 를
+        그리지 않는다.
+
+        그런데 안내는 여전히 "사람에게 **위에 뜬 카드**의 인터뷰 폼에 답해 달라 청하라"고
+        말한다. 없는 곳을 가리키는 것이고, 그러면 세션은 질문을 대화로 옮겨 적는다 — gil 이
+        문법으로 지켜 온 단 하나("기준은 사람의 문장 그 자체다")가 그 자리에서 무너진다.
+
+        다섯 번은 뷰어를, 한 번은 아무도 안 여는 것을, 한 번은 열어 놓고 다른 것을 가리켰다.
+        이번엔 **못 그리는 호스트에서 카드를** 가리켰다 — 같은 병의 여섯 번째 얼굴이다.
+
+        갈라야 하는 것은 "MCP 인가"가 아니라 **"이 호스트가 화면을 선언했나"** 다. 그건 카드가
+        보고해 주기를 기다릴 필요도 없다 — initialize 의 capabilities.extensions 에 이미 와
+        있다. 이 시험의 호스트는 `capabilities: {}` 로 붙는다(= 선언 안 함)."""
+        seen = self._agent_sees()
+        bad = [ln.strip() for ln in seen.split("\n")
+               if "카드" in ln and any(k in ln for k in ["청하라", "답해 달라", "답하면", "답할 때까지"])]
+        self.assertEqual(
+            bad, [],
+            "화면을 선언하지 않은 호스트인데 카드로 사람을 보낸다:\n  " + "\n  ".join(bad) +
+            "\n  → askHumanHere() 가 hostDeclaresUI 를 봐야 한다(surface.go).")
+        # 그리고 **없다는 사실과 그때 지킬 것**을 말해야 한다. 침묵하면 세션은 "카드가 왜
+        # 안 뜨지"를 추측하고, 추측 위에서 사람의 문장을 옮겨 적기 시작한다.
+        self.assertIn("그대로", seen,
+                      "폼이 없는 자리에서 '사람이 쓴 문장을 그대로 실어라'를 안 말한다 — "
+                      "문법이 못 지키는 것은 말로라도 지켜야 한다")
 
     def test_the_tool_descriptions_do_not_send_them_to_the_viewer_either(self):
         """**에이전트가 읽는 글은 툴 응답만이 아니다 — 툴 목록도 읽는다.**
@@ -14892,8 +15006,16 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
             "\n  에이전트는 응답만이 아니라 **툴 목록도** 읽는다.")
 
     def test_it_names_the_card_that_is_actually_up(self):
-        """물음을 심은 그 출력이 **떠 있는 카드**를 이름으로 불러야 한다."""
-        seen = self._agent_sees()
+        """물음을 심은 그 출력이 **떠 있는 카드**를 이름으로 불러야 한다.
+
+        **이 시험의 전제가 틀려 있었다**(2026-08-10, 상현님 Cowork 실측으로 드러남): 이 클래스의
+        기본 호스트는 `capabilities: {}` 로 붙는다 — MCP Apps 확장을 **선언하지 않는다**. 그런
+        호스트에서는 카드가 아예 안 뜬다. 그러니 옛 단언("카드를 열어 놓고")은 열지도 않은 카드를
+        가리키라고 강제하고 있었다 — 고치려던 병을 시험이 요구한 셈이다.
+
+        그래서 **카드를 실제로 그리는 호스트로** 밟는다. 그래야 이 시험이 원래 지키려던 것,
+        곧 "열어 놓은 화면을 이름으로 부른다"를 지킨다."""
+        seen = self._agent_sees(declare_ui=True)
         self.assertIn("카드", seen, "카드를 열어 놓고 카드를 한 번도 안 가리켰다")
         self.assertIn("[답을 제출한다]", seen, "사람이 눌러야 할 것을 이름으로 말하지 않았다")
 
@@ -14902,8 +15024,16 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
         self.assertNotIn("답이 아래에 이어진다", self._agent_sees(),
                          "폼이 안 서는 호스트에서도 답이 이어진다고 단언했다")
 
-    def test_the_cli_still_points_at_the_viewer(self):
-        """CLI 에서는 뷰어가 **열리는 화면**이다 — 거기서까지 카드를 가리키면 그게 거짓이다."""
+    def test_the_cli_does_not_point_at_the_retired_viewer(self):
+        """**시험이 은퇴한 명령을 가리키라고 강제하고 있었다.**
+
+        옛 이름은 `test_the_cli_still_points_at_the_viewer` 였고 CLI 출력에 "관전 창"이 있기를
+        요구했다. 그 전제("CLI 에서는 뷰어가 열리는 화면이다")는 뷰어를 지우기 전의 사실이다 —
+        지금 `gil viewer` 는 *"은퇴했다"* 로 답한다. 즉 이 시험은 **없는 곳을 가리키는 안내**를
+        요구하고 있었다. 이 저장소가 싸우는 바로 그 병을, 시험이 지키고 있었던 것이다.
+
+        고치는 방향은 "카드를 가리켜라"가 아니다 — CLI 엔 카드도 없다. **없다고 말하는 것**이
+        답이다(상현님, 2026-08-10: 터미널의 공백은 인정한다)."""
         self.gil("start")
         self.gil("start", "--name", "probe")
         for n, b in (("i.md", "# I\n\n시험.\n"), ("w.md", "# W\n\n확인.\n")):
@@ -14911,8 +15041,12 @@ class TestItPointsAtTheScreenItOpened(GilFixture):
                 f.write(b)
         out = self.gil("start", "--identity", os.path.join(self.repo, "i.md"),
                        "--will", os.path.join(self.repo, "w.md")).stdout
-        self.assertIn("관전 창", out, "CLI 에서 사람이 답할 자리를 안 가리켰다")
+        self.assertNotIn("관전 창", out, "은퇴한 뷰어로 사람을 보낸다")
         self.assertNotIn("위에 뜬 카드", out, "CLI 엔 카드가 없는데 카드를 가리켰다")
+        self.assertIn("터미널엔", out,
+                      "CLI 엔 답할 자리가 없다는 사실을 안 말한다 — 없는 것을 있는 척하는 것보다 "
+                      "없다고 말하고 지킬 것을 적는 편이 낫다")
+        self.assertIn("그대로", out, "옮겨 적을 때 지킬 것(사람의 문장 그대로)을 안 말한다")
 
 
 class TestOnboardingDoesNotAskTwiceForOneJudgment(GilFixture):

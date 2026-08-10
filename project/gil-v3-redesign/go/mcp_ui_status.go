@@ -85,6 +85,10 @@ func registerGilStatusUI(s *mcp.Server) {
 		if ln := uiHostLine(); ln != "" {
 			lines = append(lines, ln)
 		}
+		// 이 줄들이 structuredContent 에도 실린다 — **여기서가 아니라** 미들웨어에서
+		// (mcp_lead.go 의 mirrorTextIntoStructured). 이 호스트는 structuredContent 가 있으면
+		// 그것만 모델에게 주고 Content 를 버려서, 지금까지 이 줄들이 한 글자도 안 닿았다.
+		// 툴마다 손으로 실으면 다음에 생기는 툴이 또 샌다 — 열거는 늘 뒤늦다.
 		res := &mcp.CallToolResult{
 			Content:           []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}},
 			StructuredContent: map[string]any{"tipSignature": tipSignatureDigest()},
@@ -160,7 +164,17 @@ func statusCardShellHTML() string {
   // HOST: 호스트가 핸드셰이크에서 밝힌 것. 지금까지 theme 한 칸만 읽고 나머지를 **버렸다** —
   // 그래서 이 화면이 풀스크린으로 설 수 있는지, 곁에 띄울 수 있는지(pip), 호스트가 제 색을
   // 알려주는지를 우리가 몰랐다. 모르면 짓지 못한다: 먼저 받아 두고, 받은 것 안에서만 청한다.
-  var HOST={modes:[],mode:"",dims:null,vars:0,caps:[]};
+  // asked/grant/err/why — **청한 것과 받은 것을 갈라 적는다.** 지금까지 이 칸이 없어서,
+  // 카드가 인라인으로 남았을 때 그것이 ㄱ) 호스트가 거절한 것인지 ㄴ) 이 호스트가 그
+  // 요청 자체를 안 받는 것인지 ㄷ) 우리가 아예 안 청한 것인지 **아무도 구별할 수 없었다.**
+  // 이 저장소가 여러 번 적은 그대로다: 추측하지 않으려면 계기가 있어야 한다.
+  //
+  // ua/plat — **이 화면이 어느 호스트에 떠 있나.** 규범이 hostContext.userAgent(호스트
+  // 애플리케이션 식별자)·platform(web·desktop·mobile)으로 주는데 지금까지 버렸다. 그래서
+  // 표시모드를 읽고도 **그 값이 어느 표면의 것인지 알 수 없었다** — 한 gil 서버를 여러
+  // 표면이 나눠 쓰고, 보고는 전역 한 칸에 덮어쓰이기 때문이다(실측 2026-08-10). 재는 값에
+  // 출처가 없으면 그건 잰 것이 아니다.
+  var HOST={modes:[],mode:"",dims:null,vars:0,caps:[],asked:"",grant:"",err:"",why:"",ua:"",plat:""};
   var VER=` + jsString(gilVersion) + `, seen=[], repo="", PROBE=` + probeJS + `;
   function slot(){ return document.getElementById("gil-card"); }
   function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
@@ -278,19 +292,45 @@ func statusCardShellHTML() string {
   // roots 에서 이미 겪었다 — 선언과 구현이 갈리는 호스트는 실재한다.
   //
   // **한 번만 청한다.** 사람이 도로 인라인으로 돌려놨는데 우리가 다시 밀면 그건 싸움이다.
-  var askedAside=false;
+  //
+  // **그리고 청한 결과를 적는다.** 안 적으면 위의 세 갈래가 화면 밖에서 전부 똑같이
+  // "인라인 카드"로 보인다 — 실제로 그래서 한 세션을 통째로 추측에 썼다.
+  var askedAside=false, asideSettled=false, hsOK=false;
   function maybeAside(){
     if(askedAside) return;
-    if(HOST.mode==="pip"||HOST.mode==="fullscreen") return;   // 이미 제 자리에 있다
-    if(HOST.modes.length && HOST.modes.indexOf("pip")<0) return; // 안 한다고 밝혔다
-    askedAside=true;
+    // **관문 전에는 청하지 않는다.** 규범은 initialized 를 보내기 전의 앱에게 호스트가
+    // 아무것도 보내지 않게 한다 — 핸드셰이크가 깨진 자리에서 청하면 그 침묵을 "거절"로
+    // 잘못 적게 된다. paint() 도 이 함수를 부르므로 여기서 막아야 한다.
+    if(!hsOK){ HOST.why="핸드셰이크가 안 됐다 — 관문(initialized) 전에는 청하지 않는다"; return; }
+    if(HOST.mode==="pip"||HOST.mode==="fullscreen"){ HOST.why="이미 제 자리에 서 있다"; return; }
+    if(HOST.modes.length && HOST.modes.indexOf("pip")<0){ // 안 한다고 밝혔다
+      HOST.why="호스트가 여는 모드 목록에 pip 이 없다"; return; }
+    askedAside=true; HOST.asked="pip";
     var i=++id;
     pending[i]=function(res,err){
       // **돌아온 값을 믿는다** — 청한 것과 다를 수 있다(규범). 거절이면 인라인 그대로다.
-      if(!err&&res&&res.mode){ HOST.mode=res.mode; applyContainer(); }
-      reportSize();
+      if(err) HOST.err=String((err&&(err.message||err.code))||err);
+      else if(res&&res.mode){ HOST.err=""; HOST.grant=res.mode; HOST.mode=res.mode; applyContainer(); }
+      else HOST.grant="(응답에 mode 가 없다)";
+      // **늦게 온 답도 기록을 고친다.** 타임아웃을 찍고 나서 지워 버리면 호스트가 늦게
+      // 열어 준 자리를 놓치고, 그냥 두면 "답이 없다"가 사실이 아닌 채 서버에 남는다.
+      if(asideSettled){ reportSize(); refresh(); return; }
+      asideDone();
     };
     send({id:i,method:"ui/request-display-mode",params:{mode:"pip"}});
+    // **답이 없는 것도 답이다** — 이 호스트가 이 요청을 아예 안 받는다는 뜻이다. 그걸
+    // 침묵으로 남기면 "청했다"까지만 알고 결과는 영영 모른다(거절과 구별이 안 된다).
+    setTimeout(function(){ if(!asideSettled){ HOST.err="답이 없다(700ms)"; asideDone(); } },700);
+  }
+  // **자리가 정해진 뒤에 첫 조각을 가져온다.** 첫 조회가 그 결과를 서버로 실어 가야
+  // 도구가 사람에게 사실대로 말할 수 있다 — 조회가 먼저 나가면 서버는 늘 한 발 늦는다.
+  // 이미 그려진 뒤에 답이 정해졌으면 **다시 가져온다** — 안 그러면 그 결과가 서버에
+  // 영영 안 가고, 도구는 "청했고 아직 답을 못 받았다"에서 멈춘 채 늙는다. 조각은 같으니
+  // 화면은 안 바뀌고, 쓰던 답은 refresh 가 지킨다.
+  function asideDone(){
+    if(asideSettled) return;
+    asideSettled=true; reportSize();
+    if(drawn) refresh(); else fetchCard();
   }
 
   // ── 화면이 스스로 따라간다 ──────────────────────────────────────────────────
@@ -332,7 +372,8 @@ func statusCardShellHTML() string {
     // **이 화면이 선 표면을 서버에 알린다.** iframe↔호스트 프레임은 서버에 오지 않으니,
     // 호스트가 무엇을 지원한다고 답했는지는 화면이 적어 보내야만 알 수 있다. 그걸 알아야
     // 도구가 사람에게 "곁에 띄울 수 있다"를 말할 수 있고, 없으면 조용히 인라인으로 남는다.
-    a.host=JSON.stringify({modes:HOST.modes,mode:HOST.mode,vars:HOST.vars,caps:HOST.caps});
+    a.host=JSON.stringify({modes:HOST.modes,mode:HOST.mode,vars:HOST.vars,caps:HOST.caps,
+      asked:HOST.asked,grant:HOST.grant,err:HOST.err,why:HOST.why,ua:HOST.ua,plat:HOST.plat});
     send({id:i,method:"tools/call",params:{name:"gil_status_card",arguments:a}});
   }
 
@@ -483,6 +524,8 @@ func statusCardShellHTML() string {
       if(hc.styles) applyHostStyles(hc);
       if(hc.availableDisplayModes) HOST.modes=hc.availableDisplayModes;
       if(hc.displayMode) HOST.mode=hc.displayMode;
+      if(hc.userAgent) HOST.ua=String(hc.userAgent);
+      if(hc.platform) HOST.plat=String(hc.platform);
       if(hc.containerDimensions){ HOST.dims=hc.containerDimensions; applyContainer(); }
       reportSize();
       return;
@@ -540,7 +583,8 @@ func statusCardShellHTML() string {
   }
 
   // **호스트가 밝힌 것을 기억한다.** 지원 안 하는 모드를 청하면 안 된다는 것이 규범이라,
-  // 청하기 전에 이 목록을 본다. 목록이 비면 아무것도 안 청한다(추측으로 켜지 않는다).
+  // 청하기 전에 이 목록을 본다. 목록이 **비어 있는 것**은 "안 한다"가 아니라 "안 밝혔다"라,
+  // 그때는 청해 보고 답을 받는다 — 판정은 maybeAside 에 있다(b83a94dd).
   function learnHost(res){
     try{
       var hc=(res&&res.hostContext)||{}, hcap=(res&&res.hostCapabilities)||{};
@@ -548,6 +592,10 @@ func statusCardShellHTML() string {
       HOST.mode=hc.displayMode||"";
       HOST.dims=hc.containerDimensions||null;
       HOST.caps=Object.keys(hcap);
+      // **호스트가 자기 이름을 말해 준다** — 규범의 userAgent·platform. 이게 없으면 잰 값에
+      // 출처가 없다(hostInfo 로 오는 호스트도 있어 두 자리를 본다).
+      HOST.ua=String(hc.userAgent||(res&&res.hostInfo&&(res.hostInfo.name||""))||"");
+      HOST.plat=String(hc.platform||"");
       applyContainer();
     }catch(_){}
   }
@@ -575,9 +623,12 @@ func statusCardShellHTML() string {
   var hs=++id;
   pending[hs]=function(res,err){
     if(!err){ learnHost(res); applyTheme(res); notify("ui/notifications/initialized",{});
+      hsOK=true;
       // **가능한 한 일찍 청한다** — 내용을 그린 뒤에 옮기면 사람 눈앞에서 화면이 한 번 뛴다.
       maybeAside(); }
-    reportSize(); fetchCard();
+    reportSize();
+    // 청했으면 답(또는 무응답 판정)을 기다렸다가 asideDone 이 가져온다. 안 청했으면 지금.
+    if(!askedAside) fetchCard();
   };
   send({id:hs,method:"ui/initialize",params:{
     protocolVersion:"2026-01-26",

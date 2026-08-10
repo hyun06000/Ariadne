@@ -226,13 +226,18 @@ func injectUIBridge(html, sig string) string {
   // 226KB 짜리 그림이라, 인라인 칸에 눌러 넣으면 사람은 스크롤로 그것을 더듬게 된다.
   //
   // **호스트가 목록에 넣은 모드만 청한다**(규범: 지원 안 하는 모드를 청하면 안 된다).
-  // 목록이 비면 아무것도 안 한다 — 추측으로 켜면 없는 화면을 가리키는 그 병이 된다.
   // 그리고 돌아온 값을 믿는다: 청한 것과 다를 수 있다.
+  //
+  // **다만 없는 것과 안 밝힌 것은 다르다**(b83a94dd 가 상태 카드에서 값을 치른 구분 —
+  // 그때 이 자리는 안 배웠다). 목록을 줬는데 fullscreen 이 없으면 안 청한다. 목록을 아예
+  // 안 줬으면 그건 "지원 안 한다"가 아니라 **모르는 것**이라, 청해 보고 답을 받는다.
+  // 거절되면 인라인 그대로다 — 잃는 것이 없다. roots 에서 이미 겪었다: 선언과 구현이
+  // 갈리는 호스트는 실재한다.
   function askBig(res){
     try{
       var hc=(res&&res.hostContext)||{};
       var modes=hc.availableDisplayModes||[];
-      if(modes.indexOf("fullscreen")<0) return;
+      if(modes.length && modes.indexOf("fullscreen")<0) return;
       if(hc.displayMode==="fullscreen") return;
       var i=++id;
       send({id:i,method:"ui/request-display-mode",params:{mode:"fullscreen"}});

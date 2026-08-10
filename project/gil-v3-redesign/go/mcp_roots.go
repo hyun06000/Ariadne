@@ -101,8 +101,17 @@ const (
 	repoSourceEnv      = "호스트가 준 CLAUDE_PROJECT_DIR"
 )
 
+
 // mcpClient — 초기화 때 호스트가 밝힌 자기 이름. 어느 호스트에서 어긋났는지가 곧 단서다.
 var mcpClient string
+
+// hostDeclaresUI — 이 호스트가 MCP Apps 확장을 선언했나(= 카드를 그릴 수 있나).
+// hostCapsKnown — 핸드셰이크를 아직 못 봤으면 둘 다 거짓이라, "모른다"와 "안 한다"를 가른다.
+var (
+	hostDeclaresUI     bool
+	hostDeclaresElicit bool
+	hostCapsKnown      bool
+)
 
 // installRootsMiddleware — 모든 수신 요청 앞에 선다. 툴이든 리소스 읽기든, 실제 일을
 // 하기 전에 저장소가 정해져 있게 한다. 핸들러마다 훅을 심으면 새 툴이 늘 때 빠뜨린다 —
@@ -136,6 +145,29 @@ func adoptHostRoot(ctx context.Context, ss *mcp.ServerSession) {
 	if ip.ClientInfo != nil {
 		mcpClient = strings.TrimSpace(ip.ClientInfo.Name + " " + ip.ClientInfo.Version)
 	}
+	// **이 호스트가 화면을 그릴 수 있다고 선언했나.** MCP Apps 는 옵트인 확장이라, 호스트가
+	// initialize 에서 `io.modelcontextprotocol/ui` 를 선언하지 않으면 우리가 아무리 카드를
+	// 내도 **그려지지 않는다.**
+	//
+	// 왜 이 한 줄이 중요한가(실측 2026-08-10, 상현님 Cowork): 플러그인으로 붙인 gil 이 잘
+	// 돌았는데 카드는 끝내 안 떴다. 그런데 안내는 여전히 "사람에게 **위에 뜬 카드**의 인터뷰
+	// 폼에 답해 달라 청하라"고 말했다 — **없는 화면을 가리킨 것**이고, 그러면 세션은 질문을
+	// 대화로 옮겨 적는다. gil 이 문법으로 지켜 온 단 하나("기준은 사람의 문장 그 자체다")가
+	// 바로 거기서 무너진다. 이 저장소가 다섯 번 값을 치른 병의 여섯 번째 얼굴이다.
+	//
+	// 카드가 보고해 주기를 기다릴 필요가 없다 — **선언은 핸드셰이크에 이미 와 있다.**
+	//
+	// **Elicitation 도 같은 자리에서 읽는다.** 카드가 없는 호스트에서 사람에게 물을 남은
+	// 표준 통로가 그것이다(MCP 의 elicitation/create — 호스트가 제 네이티브 폼을 띄운다).
+	// 있는지 없는지를 모르면 우리는 "대화로 물어라"밖에 말할 수 없고, 그건 옮겨쓰기를
+	// 부른다. 있으면 그 길을 가리켜야 하고, 없으면 없다고 말해야 한다.
+	if ip.Capabilities != nil {
+		if _, ok := ip.Capabilities.Extensions[uiExtension]; ok {
+			hostDeclaresUI = true
+		}
+		hostDeclaresElicit = ip.Capabilities.Elicitation != nil
+	}
+	hostCapsKnown = true
 	// 클라이언트가 roots 를 **선언하지 않았으면 묻지 않는다.** 물으면 답할 의무가 없는 쪽에
 	// 요청을 보내는 것이고, 안 오는 답을 기다리다 세션이 통째로 멈춘다(전체 시험이 10분을
 	// 넘겨 서는 것으로 실측했다 — 옛 MCP 시험의 클라이언트는 roots/list 에 답하지 않는다).

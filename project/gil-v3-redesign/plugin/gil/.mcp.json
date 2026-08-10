@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gil": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/servers/gil",
+      "args": ["mcp", "serve"]
+    }
+  }
+}

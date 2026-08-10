@@ -720,7 +720,7 @@ func cmdOpen(args []string) {
 			"   걸렸다면 그건 도구의 결함이다 — 그 커밋의 트레일러 블록을 그대로 붙여 이슈로 올려라.)\n" +
 			"  지금 채우려면:\n" +
 			"    1) 인터뷰 질문을 짜서 심어라: gil interview " + chain + " --ask <질문JSON|->\n" +
-			"    2) 사람이 뷰어 폼으로 답하고 제출하면 기준이 확정된다.\n" +
+			"    2) 사람이 " + askHumanHere() + "에 답하고 제출하면 기준이 확정된다.\n" +
 			"    3) 그제서야 gil open " + ref + " 로 작업 사이클을 연다.")
 	}
 	// ── 이 체인에 열 사이클이 맞나 (상현님) ─────────────────────────────────────
@@ -2860,7 +2860,7 @@ func cmdInterview(args []string) {
 	// pending 인데 뷰어는 뷰어대로 pending 이고 LLM 은 또 질문지 만듦 — 두 대기가 따로 놀던 문제).
 	if chainInterviewPending(chain, "--branches") {
 		die("거부: \"" + chain + "\" 에 사람 답 대기 중인 인터뷰가 이미 있다 — 새 질문지를 또 만들지 마라.\n" +
-			"  사람이 뷰어 폼으로 답할 때까지 기다려라(인터뷰=pending 잠금). 답이 오면 기준이 확정되고\n" +
+			"  사람이 "+askHumanHere()+"에 답할 때까지 기다려라(인터뷰=pending 잠금). 답이 오면 기준이 확정되고\n" +
 			"  그제서야 다음으로 넘어간다. 스스로 더 생각해 진행하지 마라 — 사람의 답이 기준이다.")
 	}
 	interviewAsk(chain, *ask, *title, nil)

@@ -48,6 +48,7 @@ func installLeadMiddleware(s *mcp.Server) {
 			if lead := mcpLead(call.Params.Name); lead != "" {
 				prependText(out, lead)
 			}
+			mirrorTextIntoStructured(out)
 			return out, err
 		}
 	})
@@ -73,6 +74,7 @@ func mcpLead(tool string) string {
 	return b.String()
 }
 
+
 // prependText — 결과의 **첫 텍스트 칸** 앞에 글을 얹는다. 텍스트 칸이 없으면 하나 만든다.
 //
 // 카드(HTML)를 담은 칸에는 안 얹는다 — 위에서 앱 전용 툴을 걸렀지만, 평범한 툴이 카드를
@@ -87,4 +89,44 @@ func prependText(res *mcp.CallToolResult, lead string) {
 		return
 	}
 	res.Content = append([]mcp.Content{&mcp.TextContent{Text: lead}}, res.Content...)
+}
+
+// mirrorTextIntoStructured — 모델에게 가는 글을 structuredContent 에도 실어 둔다.
+//
+// **어느 칸이 모델에게 갈지는 호스트가 정한다 — 우리는 못 고른다.** 실측(2026-08-10,
+// Claude Code Desktop): 이 호스트는 structuredContent 가 있으면 **그것만** 모델에게 주고
+// Content 를 버린다. gil_status 를 부른 에이전트가 받은 것은 `{"tipSignature":"…"}` 한 줄이
+// 전부였고, 상태 줄도·표면을 말하는 줄도·바로 위에서 얹은 ⚡ 도착 고지도 버전 문의도 그
+// 자리에서 통째로 사라졌다. **이 미들웨어가 존재하는 이유가 그 호스트에서 무효였다.**
+// 오류는 없었다 — 같은 세션의 gil_log 는 본문이 그대로 왔다(그쪽엔 이 칸이 없다). 그러니
+// 빈 것이 아니라 **가려진** 것이고, 가려진 것은 아무도 못 본다.
+//
+// 그래서 하나를 고르지 않는다: 둘 다 사실이게 한다. 그리고 **붙이는 자리를 열거하지
+// 않는다** — 이 미들웨어가 모든 tools/call 을 지나므로 툴이 늘어도 안 샌다(v3.58.3 이
+// 값을 치른 규칙).
+//
+// 지키는 것 둘:
+//   - **없던 칸은 만들지 않는다.** structuredContent 가 없는 결과에 이 칸을 새로 달면 그
+//     순간 이 호스트가 Content 를 버리기 시작한다 — 고치려던 병을 우리가 만든다.
+//   - **카드(HTML)는 안 싣는다.** 그건 화면의 몸이지 모델에게 하는 말이 아니다.
+func mirrorTextIntoStructured(res *mcp.CallToolResult) {
+	sc, ok := res.StructuredContent.(map[string]any)
+	if !ok || sc == nil {
+		return
+	}
+	var b strings.Builder
+	for _, c := range res.Content {
+		t, ok := c.(*mcp.TextContent)
+		if !ok || strings.HasPrefix(strings.TrimSpace(t.Text), "<div") {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(t.Text)
+	}
+	if b.Len() == 0 {
+		return
+	}
+	sc["text"] = b.String()
 }

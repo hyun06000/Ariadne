@@ -59,11 +59,39 @@ var mcpUIHost struct {
 	Mode  string   `json:"mode"`
 	Vars  int      `json:"vars"`
 	Caps  []string `json:"caps"`
+	// 곁에 세우기를 청한 결과. **청한 것(Asked)과 받은 것(Grant/Err)을 가른다** — 안 가르면
+	// 거절·무응답·안 청함이 화면 밖에서 전부 똑같이 "인라인 카드"로 보인다.
+	Asked string `json:"asked"`
+	Grant string `json:"grant"`
+	Err   string `json:"err"`
+	Why   string `json:"why"`
+	// **어느 표면에서 온 보고인가.** 규범의 hostContext.userAgent·platform.
+	// 이 칸이 없던 동안, 한 서버를 여러 표면(Code·Cowork·채팅)이 나눠 쓰는 바람에 읽은
+	// 표시모드가 **어느 표면의 것인지 알 수 없었다** — 마지막에 보고한 화면이 앞의 값을
+	// 덮으니까. 출처 없는 값은 잰 것이 아니다.
+	UA    string `json:"ua"`
+	Plat  string `json:"plat"`
 	known bool
 }
 
 // uiHostLine — 이 표면에 대해 **아는 것만** 한 줄로. 모르면 빈 값(모르는 것은 말하지 않는다).
 func uiHostLine() string {
+	// **카드가 안 떴어도 말할 수 있는 것이 하나 있다.** 호스트가 MCP Apps 확장을 선언하지
+	// 않았다면 카드는 영영 안 뜬다 — 그건 핸드셰이크에 이미 와 있는 사실이라, 화면의 보고를
+	// 기다릴 이유가 없다. 침묵하면 그 자리의 세션은 "왜 카드가 없지"를 추측하게 되고,
+	// 안내가 카드를 가리키면 없는 곳을 가리키게 된다(실측: Cowork).
+	if hostCapsKnown && !hostDeclaresUI {
+		s := "화면: 이 호스트는 MCP Apps 를 선언하지 않았다 — 카드·인터뷰 폼이 뜨지 않는다."
+		// **남은 통로가 있는지까지 말한다.** 없다는 말만 하면 그 자리의 세션은 대화로 가고,
+		// 대화로 가면 옮겨쓰기가 낀다. 호스트 네이티브 폼(elicitation)이 있으면 그걸 가리킨다.
+		if hostDeclaresElicit {
+			s += " 다만 호스트 네이티브 폼(elicitation)은 선언했다 — 사람에게 묻는 것은 그 길로 간다."
+		} else {
+			s += " 호스트 네이티브 폼(elicitation)도 없다 — 물을 곳은 이 대화뿐이다. " +
+				"사람이 쓴 문장을 그대로 실어라(요약도 정제도 창작이다)."
+		}
+		return s
+	}
 	if !mcpUIHost.known {
 		return ""
 	}
@@ -71,10 +99,36 @@ func uiHostLine() string {
 	if mcpUIHost.Mode != "" {
 		s += "(" + mcpUIHost.Mode + ")"
 	}
+	// **이 보고가 어느 표면에서 왔는지 먼저 말한다.** 한 서버를 여러 표면이 나눠 쓰므로,
+	// 출처를 안 적으면 아래 모드 목록이 어느 화면의 사실인지 아무도 모른다.
+	if who := strings.TrimSpace(mcpUIHost.UA + " " + mcpUIHost.Plat); who != "" {
+		s += " · 그 화면이 선 곳: " + who
+	} else {
+		s += " · 그 화면은 자기가 어디인지 안 밝혔다"
+	}
 	if len(mcpUIHost.Modes) > 0 {
 		s += " · 이 호스트가 여는 모드: " + strings.Join(mcpUIHost.Modes, "·")
 	} else {
 		s += " · 표시 모드는 호스트가 안 밝혔다"
+	}
+	// **호스트가 할 수 있다고 밝힌 것.** 규범의 hostCapabilities — openLinks·downloadFile·
+	// serverTools·serverResources·logging·sandbox·updateModelContext·message·sampling.
+	// 화면은 이미 이 키들을 실어 보내고 있었는데 아무 데도 안 보여줬다. 모아 놓고 안 보면
+	// 없는 것과 같다 — 그리고 그 침묵 위에서 "이건 되나?"를 매번 추측하게 된다.
+	if len(mcpUIHost.Caps) > 0 {
+		s += " · 호스트가 할 수 있다는 것: " + strings.Join(mcpUIHost.Caps, "·")
+	}
+	// **왜 인라인인지를 말한다.** 이 줄이 없으면 사람도 에이전트도 "곁에 안 뜨네"까지만 알고
+	// 그 앞의 갈래(거절/무응답/애초에 안 청함)를 구별할 수 없다 — 그러면 다음 수가 추측이 된다.
+	switch {
+	case mcpUIHost.Why != "":
+		s += " · 곁에 세우기: 안 청했다(" + mcpUIHost.Why + ")"
+	case mcpUIHost.Err != "":
+		s += " · 곁에 세우기(pip) 청함 → " + mcpUIHost.Err + " · 인라인으로 남는다"
+	case mcpUIHost.Grant != "":
+		s += " · 곁에 세우기(pip) 청함 → 호스트가 준 자리: " + mcpUIHost.Grant
+	case mcpUIHost.Asked != "":
+		s += " · 곁에 세우기(pip) 청함 → 아직 답을 못 받았다"
 	}
 	return s
 }

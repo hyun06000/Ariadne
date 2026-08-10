@@ -460,7 +460,7 @@ func handoffReport() string {
 		// 침묵하면 이어받은 세션이 그 자리에서 "왜 안 되지"로 헤맨다(이슈 #109 결함 2).
 		if interviewState(cname) == "none" {
 			L = append(L, "    ⚠ 이 체인엔 사람이 승인한 기준 문서가 없다 — 이대로는 사이클을 못 연다.")
-			L = append(L, "        조치: gil interview "+cname+" --ask <질문JSON>  → 사람이 뷰어 폼으로 답하면 열린다.")
+			L = append(L, "        조치: "+surfaceCall("interview "+cname, "--ask <질문JSON>", "chain: "+cname+", ask: <질문JSON>")+"  → 사람이 "+askHumanHere()+"에 답하면 열린다.")
 		}
 		// 세션이 끊겼다 이어질 때의 복구 지점(이슈 #58): 이 체인이 사람 답을 기다리는 중이면
 		// 그것이 지금 유일하게 할 일이다. 안 적으면 이어받은 세션이 "왜 open 이 거부되지"로 헤맨다.

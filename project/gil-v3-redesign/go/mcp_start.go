@@ -255,8 +255,7 @@ func startElicitIntake(ctx context.Context, req *mcp.CallToolRequest) string {
 		// 대화로 우회했다(상현님 실사용, 2026-08-10). 열어 놓은 화면을 가리켜야 한다.
 		return "\n\n(호스트 네이티브 폼은 서지 않았다. 대신 **질문이 " + askHumanHere() +
 			"에 서 있다** — 지금 사람 앞에 떠 있다.)\n" +
-			"▸ 사람에게 이렇게 청하라: \"카드의 질문에 답을 적고 [답을 제출한다] 를 눌러 주세요. " +
-			"적으신 문장이 그대로 이 일의 목적과 기준이 됩니다.\"\n" +
+			"▸ 사람에게 이렇게 청하라: " + askHumanSentence() + "\n" +
 			"▸ 답을 대신 쓰지 마라. 제출되면 다음 호출에서 gil 이 ⚡ 로 알려준다 — " +
 			surfaceCall("intake", startSlug+" --status", "chain: "+startSlug+", status: true") + " 로도 확인된다."
 	}
