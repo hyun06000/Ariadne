@@ -12425,6 +12425,44 @@ class TestTheGraphHasItsOwnDoor(GilFixture):
         self.assertIn("체인", r.stdout, "아무것도 안 그렸다:\n" + r.stdout[:400])
 
 
+class TestTheRetirementCleansUpAfterItself(GilFixture):
+    """**은퇴한 것이 남긴 자리를 은퇴시킨 쪽이 치운다** (2026-08-10).
+
+    브라우저 관전 서버는 setsid/DETACHED 로 떠서 gil 이 죽어도 살았다. 그리고 끄는 유일한
+    수단(`gil viewer stop`)이 뷰어와 **함께** 사라졌다 — 그러면 이 릴리스로 올린 사람의
+    머신에는 포트를 쥔 채 낡은 그래프를 보여주는 서버가 남고, 바탕화면 런처는 은퇴 문구만
+    받는다. 도구가 자기가 만든 상태에서 빠져나올 길을 자기가 줘야 한다."""
+
+    def test_the_cleanup_runs_and_says_what_it_found(self):
+        """치울 것이 없어도 **없다고 말한다** — 침묵은 '했다'와 '못 했다'를 구별해 주지 않는다."""
+        self.gil("init", "--name", "clew")
+        r = self.gil("viewer-cleanup", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("떠 있는 옛 뷰어", out, "무엇을 봤는지 말하지 않는다")
+        self.assertIn("런처", out, "런처를 봤는지 말하지 않는다")
+        self.assertIn("gil graph", out, "그림을 어디서 보는지 안 알려준다")
+
+    def test_the_retirement_notice_points_at_it(self):
+        """은퇴 문구가 회수 명령을 가리키고, **그 명령이 실재한다.**"""
+        self.gil("init", "--name", "clew")
+        r = self.gil("viewer")
+        out = r.stdout + r.stderr
+        self.assertIn("은퇴했다", out)
+        self.assertIn("viewer-cleanup", out, "치우는 길을 안 알려준다")
+        # 가리킨 것이 실제로 돈다(v3.58.1·2 가 값을 치른 규칙).
+        self.assertEqual(self.gil("viewer-cleanup", "--dry-run").returncode, 0,
+                         "은퇴 문구가 가리킨 명령이 안 돈다")
+
+    def test_it_does_not_claim_to_have_cleaned_what_it_cannot_see(self):
+        """옛 명령은 `--out` 으로 아무 데나 런처를 만들 수 있었고 gil 은 그 목록이 없다 —
+        '다 지웠다'고 말하면 거짓이다."""
+        self.gil("init", "--name", "clew")
+        out = self.gil("viewer-cleanup", "--dry-run").stdout
+        self.assertNotIn("다 지웠다", out)
+        self.assertNotIn("모두 정리", out)
+
+
 class TestRetiringACommandLeavesNoDanglingGuidance(GilFixture):
     """**명령을 지우면 그 이름을 가리키던 안내가 전부 없는 곳을 가리킨다** (2026-08-10).
 
@@ -12452,7 +12490,10 @@ class TestRetiringACommandLeavesNoDanglingGuidance(GilFixture):
     @staticmethod
     def _mentions(text, name):
         """**꼴을 안 가린다.** 은퇴한 이름은 어떤 모양으로 나오든 없는 것을 가리킨다."""
-        return re.search(r"\bgil " + re.escape(name) + r"\b", text) is not None
+        # 경계는 **명령 이름 문자**로 잡는다. `\b` 만 쓰면 하이픈이 경계라서
+        # `gil viewer-cleanup` 이 `gil viewer` 로 잡힌다 — 회수 명령을 가리키는 정당한
+        # 줄이 결함으로 뜬다(실제로 그렇게 잡혔다). 낱말만 세면 사실을 말하는 줄까지 빨개진다.
+        return re.search(r"\bgil " + re.escape(name) + r"(?![a-z0-9-])", text) is not None
 
     def test_the_detector_actually_detects(self):
         """**공회전하지 않는다는 것을 먼저 보인다.**
@@ -12465,6 +12506,9 @@ class TestRetiringACommandLeavesNoDanglingGuidance(GilFixture):
         self.assertTrue(self._mentions('"gil viewer"', "viewer"), "맨 꼴을 못 잡는다")
         self.assertFalse(self._mentions('"gil viewers 는 없다"', "viewer"),
                          "다른 낱말의 앞부분을 잡는다 — 그러면 시험이 못 쓰게 된다")
+        self.assertFalse(self._mentions('"치우려면 gil viewer-cleanup"', "viewer"),
+                         "하이픈으로 이어진 **다른 명령**을 잡는다 — 회수 명령을 가리키는 "
+                         "정당한 줄이 결함으로 뜬다")
 
     def test_no_guidance_names_a_retired_command(self):
         """선언된 은퇴 명령은 소스의 어떤 안내에도 안 나온다(주석은 사실을 말해도 된다)."""

@@ -71,6 +71,7 @@ var terminalOnly = map[string]string{
 	"chain-unretire": "접은 체인을 되살린다 — 위와 같은 자리.",
 	"guard":          "git 훅과 로컬 설정을 건드린다 — 클론마다 사람이 한 번 건다.",
 	"docs":           "온보딩 문서를 저장소에 심는다 — 설치의 일이다.",
+	"viewer-cleanup": "은퇴한 관전 창이 남긴 프로세스·런처를 치운다 — 사람 머신을 건드리는 일이다.",
 	"version":        "버전 확인은 묻지 않아도 배너가 먼저 한다.",
 	"drift":          "바이너리 드리프트 점검 — 설치 진단이라 터미널에서.",
 	"reconcile":      "드리프트 정정 — 위와 같은 자리.",
@@ -108,7 +109,8 @@ var appOnlyTools = map[string]string{
 var retiredCmds = map[string]string{
 	"viewer": "브라우저 관전 창은 은퇴했다(2026-08-10). 그림은 `gil graph`(터미널) 또는 " +
 		"`gil graph --html --out <파일>`(자기완결 HTML 한 장), 그리고 MCP 호스트에서는 " +
-		"gil_graph·gil_status 가 화면으로 띄운다. 만들어 둔 런처(.app/.cmd/.desktop)는 지워도 된다.",
+		"gil_graph·gil_status 가 화면으로 띄운다. 아직 떠 있는 옛 관전 서버와 만들어 둔 " +
+		"런처는 `gil viewer-cleanup` 이 치운다.",
 }
 
 // humanOnly — 이 표면에서 **사람이 화면에서 누르는** 명령. 툴은 있지만 에이전트의 것이 아니다.

@@ -490,6 +490,15 @@ var helpTable = map[string]helpEntry{
 			"  --to·--falsify-to 가 산 가지의 스텝을 '조상이 아니다'로 거부한다(이슈 #67).",
 		"docs/gil/lifecycle.md",
 	},
+	"viewer-cleanup": {
+		"gil viewer-cleanup [--dry-run]\n" +
+			"  은퇴한 브라우저 관전 창이 남긴 것을 치운다: 아직 떠 있는 옛 서버(포트를 쥔 채\n" +
+			"  낡은 그래프를 보여준다)와 만들어 둔 런처(.app/.cmd/.desktop).\n" +
+			"  **한 릴리스용 유물이다** — 뷰어를 쓰던 머신에서 한 번만 부르면 된다.\n" +
+			"  남의 것은 안 건드린다: /whoami 로 gil 뷰어임이 확인된 프로세스만 끈다.\n" +
+			"  `--out` 으로 다른 자리에 만든 런처는 gil 이 모른다 — 그건 직접 지워라.",
+		"docs/gil/commands.md",
+	},
 	"graph": {
 		"gil graph                                   (터미널 그림 — 층·체인·사이클·스텝)\n" +
 			"gil graph --html --out <파일> [--repo <경로>] [--lang <언어>]\n" +
