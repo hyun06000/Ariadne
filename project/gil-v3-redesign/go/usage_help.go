@@ -490,6 +490,14 @@ var helpTable = map[string]helpEntry{
 			"  --to·--falsify-to 가 산 가지의 스텝을 '조상이 아니다'로 거부한다(이슈 #67).",
 		"docs/gil/lifecycle.md",
 	},
+	"graph": {
+		"gil graph                                   (터미널 그림 — 층·체인·사이클·스텝)\n" +
+			"gil graph --html --out <파일> [--repo <경로>] [--lang <언어>]\n" +
+			"  사고 그래프를 그림으로 낸다. --html 은 **자기완결 HTML 한 장**이라 서버도\n" +
+			"  브라우저도 필요 없다 — 그대로 열거나 정적 호스팅에 올리면 된다.\n" +
+			"  --repo 로 저장소 밖에서 다른 저장소의 그림을 굽는다.",
+		"docs/gil/lifecycle.md",
+	},
 	"log": {
 		"gil log [<chain>] [--all]\n" +
 			"  스텝 노드를 오래된→새 순으로(부모 ←). --all: 죽은 가지까지 모두(벽의 지도).",

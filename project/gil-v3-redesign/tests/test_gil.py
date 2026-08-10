@@ -13913,6 +13913,64 @@ class TestWhatTheHelpPointsAtExists(GilFixture):
         self.assertEqual(bad, [], "없는 명령을 치라고 한다:\n" + "\n".join(sorted(set(bad))))
 
 
+class TestTheGraphHasItsOwnDoor(GilFixture):
+    """**그림을 내는 문이 죽는 매체의 이름을 달고 있었다** (뷰어 제거 준비, 2026-08-10).
+
+    정적 HTML 을 굽는 진입점은 `gil viewer build` 였다. 그런데 뷰어(브라우저 서버)는
+    은퇴하고 **렌더러는 남는다** — MCP 표면의 그래프 화면이 같은 함수를 부른다. 진입점이
+    죽는 매체의 이름을 달고 있으면, 매체를 지울 때 살아 있는 코드의 문이 함께 닫힌다.
+
+    그리고 이 문은 사용자 기능이자 **검증면**이다: 시험 40여 개가 이 HTML 을 파싱해
+    계승·발아·배포 귀속·경합·층 뿌리·형제 레인을 단언한다. 문을 닫으면 계속 살아서 MCP
+    화면을 그리는 코드의 시험만 사라진다."""
+
+    def _seed(self):
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+
+    def test_the_new_door_and_the_old_one_draw_the_same_thing(self):
+        """**두 벌로 갈라 두지 않는다** — 한쪽만 고쳐지면 시험이 재는 그림과 사람이 보는
+        그림이 달라진다."""
+        self._seed()
+        new = os.path.join(self.repo, "new.html")
+        old = os.path.join(self.repo, "old.html")
+        r = self.gil("graph", "--html", "--out", new)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.gil("viewer", "build", "--out", old)
+        with open(new, encoding="utf-8") as f1, open(old, encoding="utf-8") as f2:
+            self.assertEqual(f1.read(), f2.read(), "두 진입점이 다른 그림을 낸다")
+
+    def test_it_bakes_a_self_contained_page(self):
+        """서버도 브라우저도 없이 열린다 — 그게 이 문의 존재 이유다."""
+        self._seed()
+        p = os.path.join(self.repo, "g.html")
+        self.gil("graph", "--html", "--out", p)
+        with open(p, encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn("<!doctype html>", page.lower(), "HTML 문서가 아니다")
+        self.assertNotIn("/poll", page, "정적인데 서버 폴링이 실렸다")
+
+    def test_it_can_draw_another_repository(self):
+        """`--repo` 를 흘리면 저장소 밖에서 굽던 사용례가 조용히 사라진다."""
+        self._seed()
+        other = tempfile.mkdtemp(prefix="gil-graph-out-")
+        self.addCleanup(shutil.rmtree, other, True)
+        p = os.path.join(other, "g.html")
+        r = subprocess.run([*GIL_CMD, "graph", "--html", "--out", p, "--repo", self.repo],
+                           cwd=other, capture_output=True, text=True,
+                           env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(p), "다른 저장소의 그림을 못 구웠다")
+
+    def test_bare_graph_draws_something_instead_of_a_wall(self):
+        """`gil graph` 한 줄이 사용법만 뱉으면 그건 문이 아니라 벽이다."""
+        self._seed()
+        r = self.gil("graph")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("체인", r.stdout, "아무것도 안 그렸다:\n" + r.stdout[:400])
+
+
 class TestRetiringACommandLeavesNoDanglingGuidance(GilFixture):
     """**명령을 지우면 그 이름을 가리키던 안내가 전부 없는 곳을 가리킨다** (2026-08-10).
 

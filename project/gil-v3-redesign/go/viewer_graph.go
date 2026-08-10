@@ -4,9 +4,10 @@
 // 한다. git 명령은 -C <repo> 로 대상 레포에서 돈다 — 뷰어를 그 레포 안에 두지 않아 작업과
 // 충돌 없음. stdlib 만, 외부 의존 0.
 //
-//   gil viewer text                    텍스트 트리 1회 출력
-//   gil viewer serve [--port <포트>]   브라우저 관전 서버(자동 새로고침)
-//   gil viewer build --out <파일>      정적 자기완결 HTML
+//	gil viewer text                    텍스트 트리 1회 출력
+//	gil viewer serve [--port <포트>]   브라우저 관전 서버(자동 새로고침)
+//	gil viewer build --out <파일>      정적 자기완결 HTML
+//
 // (옛 별도 바이너리 gilviewer 는 폐지되고 gil 에 통합됐다.)
 package main
 
@@ -59,10 +60,10 @@ type viewerNode struct {
 	sha, full, subject       string
 	chain, cycle, step, kind string
 	outcome, verdict         string
-	advances, toward         string // 체인 목적에 다가서려는 몫 / 다가선 정도(회고)
-	nextDesign               string // 목적을 위한 다음 설계 — 다음 세대가 물려받는다
-	plan, planOutcome        string // 가설 전에 고정한 설계와 그 결과(held|broke) — 이슈 #76
-	planDiff                 string // 깨졌으면 무엇이 달랐나
+	advances, toward         string   // 체인 목적에 다가서려는 몫 / 다가선 정도(회고)
+	nextDesign               string   // 목적을 위한 다음 설계 — 다음 세대가 물려받는다
+	plan, planOutcome        string   // 가설 전에 고정한 설계와 그 결과(held|broke) — 이슈 #76
+	planDiff                 string   // 깨졌으면 무엇이 달랐나
 	parent, backtrack        string   // Gil-Parent(부모 스텝), Gil-Backtrack(되돌아간 목표)
 	falsify                  string   // Gil-Falsify: 이 가설이 심은 반증조건 — 형제 비교 카드의 축(이슈 #112)
 	competing                string   // Gil-Competing: 이 갈래가 겨루는 자리(경합의 뿌리 스텝, #106·#107)
@@ -160,10 +161,10 @@ func viewerCollectNodes() []viewerNode {
 			advances: tr["Gil-Advances"], toward: tr["Gil-Toward"], nextDesign: tr["Gil-Next-Design"],
 			parent: tr["Gil-Parent"], backtrack: tr["Gil-Backtrack"],
 			// 경합·지도(이슈 #112): 문법은 v3.53.0 에 섰고, 이제 화면이 그릴 것을 받는다.
-			falsify:    tr["Gil-Falsify"],
-			competing:  tr["Gil-Competing"],
-			lostTo:     tr["Gil-Lost-To"],
-			despiteMap: tr["Gil-Despite-Map"],
+			falsify:      tr["Gil-Falsify"],
+			competing:    tr["Gil-Competing"],
+			lostTo:       tr["Gil-Lost-To"],
+			despiteMap:   tr["Gil-Despite-Map"],
 			refutes:      trailerAll(parts[3], "Gil-Refutes"), // multi-value(map은 마지막만 남아 직접 파싱)
 			refines:      trailerAll(parts[3], "Gil-Refines"), // 정밀화 간선(이슈 #42)
 			cycleParents: trailerAll(parts[3], "Gil-Cycle-Parent"),
@@ -389,11 +390,11 @@ type graphView struct {
 	parents             map[string]string // 체인 계보 엣지: 자식→부모
 	allNodes            []viewerNode      // 전체 스텝 노드(진짜 커밋 DAG 그래프용)
 	nodeCount, tipCount int
-	work                workStatus       // 현재 HEAD 워킹트리의 미커밋 작업 상태(진행 라이브 표시)
-	anchor              workAnchorInfo   // 그 작업이 **어디서** 벌어지고 있나(#79 후속)
-	interviews          []interviewReq   // 아직 답 안 된 인터뷰 요구(사람 폼 대기, 이슈 #33)
-	references          []referenceCard  // 사람이 제출해 확정된 기준 문서들(상현님: 제출의 결과가 보여야 한다)
-	prunes              []pruneReq       // 사람의 승인을 기다리는 삭제 요청(상현님: 승인 없인 아무것도 안 지운다)
+	work                workStatus      // 현재 HEAD 워킹트리의 미커밋 작업 상태(진행 라이브 표시)
+	anchor              workAnchorInfo  // 그 작업이 **어디서** 벌어지고 있나(#79 후속)
+	interviews          []interviewReq  // 아직 답 안 된 인터뷰 요구(사람 폼 대기, 이슈 #33)
+	references          []referenceCard // 사람이 제출해 확정된 기준 문서들(상현님: 제출의 결과가 보여야 한다)
+	prunes              []pruneReq      // 사람의 승인을 기다리는 삭제 요청(상현님: 승인 없인 아무것도 안 지운다)
 }
 
 // interviewReq — 사람의 답을 기다리는 인터뷰 요구(gil interview 로 심긴 것). 뷰어가 이걸
@@ -553,10 +554,10 @@ func pendingInterviews() []interviewReq {
 	// **최신 마커가 상태를 정한다**(이슈 #75). 옛 코드는 done 이 하나라도 있으면 그 체인의
 	// pending 을 전부 걸러, 확정 뒤의 재인터뷰가 뷰어에서 통째로 사라졌다 — 커밋은 있는데
 	// 폼이 안 뜨고, 아무도 그 사실을 모른다. 체인별로 **처음 만난**(=가장 최신) 마커만 본다.
-	settled := map[string]bool{}      // 이 체인의 최신 마커를 이미 봤다
-	done := map[string]bool{}         // 최신 마커가 done 인 체인
-	var reqs []interviewReq           // pending 요구(최신 우선 — viewerLog 는 new→old)
-	seenChain := map[string]bool{}    // 체인당 최신 pending 하나만
+	settled := map[string]bool{}   // 이 체인의 최신 마커를 이미 봤다
+	done := map[string]bool{}      // 최신 마커가 done 인 체인
+	var reqs []interviewReq        // pending 요구(최신 우선 — viewerLog 는 new→old)
+	seenChain := map[string]bool{} // 체인당 최신 pending 하나만
 	for _, rec := range strings.Split(string(out), rs) {
 		rec = strings.TrimLeft(rec, "\n")
 		if strings.TrimSpace(rec) == "" {
@@ -622,11 +623,11 @@ type workAnchorInfo struct {
 }
 
 type workStatus struct {
-	dirty      bool     // 미커밋 변경이 있는가
-	files      int      // 변경된 경로 수(staged+unstaged+untracked, 중복 제거)
-	added      int      // git diff --shortstat insertions (staged+unstaged 합산)
-	deleted    int      // 〃 deletions
-	sample     []string // 변경 경로 샘플(최대 몇 개, 앞에 상태문자)
+	dirty   bool     // 미커밋 변경이 있는가
+	files   int      // 변경된 경로 수(staged+unstaged+untracked, 중복 제거)
+	added   int      // git diff --shortstat insertions (staged+unstaged 합산)
+	deleted int      // 〃 deletions
+	sample  []string // 변경 경로 샘플(최대 몇 개, 앞에 상태문자)
 }
 
 // summary — "N개 파일" 뒤에 라인 증감이 있을 때만 ", +A −D" 를 덧붙인다.
@@ -698,7 +699,7 @@ func workingStatus() workStatus {
 // diffLines — git diff --shortstat 의 insertions/deletions 합(staged+unstaged).
 func diffLines() (add, del int) {
 	for _, args := range [][]string{
-		{"diff", "--shortstat"},          // unstaged
+		{"diff", "--shortstat"},             // unstaged
 		{"diff", "--shortstat", "--cached"}, // staged
 	} {
 		out, err := viewerGit(args...)
@@ -810,7 +811,7 @@ func buildGraph() graphView {
 	// 표시하면 브랜치가 많을 때 여러 개 떠 혼란. HEAD 브랜치만 "현재위치"로 강조하고,
 	// 나머지 브랜치 팁은 그냥 가지 끝일 뿐이다. (여러 에이전트=여러 워킹트리면 각자 HEAD.)
 	head := currentBranch()
-	here := map[string]string{}   // "chain/cycle/step" → 현재 스텝 위치
+	here := map[string]string{}    // "chain/cycle/step" → 현재 스텝 위치
 	hereCyc := map[string]string{} // "chain/cycle" → HEAD 가 이 사이클에 있음(스텝 팁 아닐 때)
 	tipCount := 0
 	if sha, ok := tips[head]; ok {
@@ -976,14 +977,11 @@ func cmdViewer(args []string) {
 	}
 }
 
-// runViewerBuild — 정적 HTML 을 파일 하나로 굳힌다(서버 없이 자기완결). Pages 등 정적 호스팅용.
-func runViewerBuild(out string) {
-	html := renderHTML(buildGraph(), true)
-	if err := os.WriteFile(out, []byte(html), 0644); err != nil {
-		die("거부: 정적 HTML 쓰기 실패: " + err.Error())
-	}
-	println2("viewer build → " + out + " (정적 자기완결 HTML)")
-}
+// runViewerBuild — 옛 이름. 실물은 `gil graph --html --out`(graph_cmd.go)이다.
+//
+// **두 벌로 갈라 두지 않는다** — 한쪽만 고쳐지면 시험이 재는 그림과 사람이 보는 그림이
+// 달라진다. 이 자리는 뷰어가 은퇴할 때 함께 사라진다.
+func runViewerBuild(out string) { writeGraphHTML(out) }
 
 func renderText(g graphView) {
 	fmt.Println("═══ gil 그래프 뷰어 — 체인 > 사이클 > 스텝 ═══")

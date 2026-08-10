@@ -173,6 +173,8 @@ func main() {
 		cmdMigrate(rest)
 	case "mcp":
 		cmdMCP(rest)
+	case "graph":
+		cmdGraph(rest)
 	case "viewer":
 		cmdViewer(rest)
 	default:
@@ -182,7 +184,7 @@ func main() {
 		if where, ok := retiredCmds[cmd]; ok {
 			die("gil: \"" + cmd + "\" 은 은퇴했다 — " + where)
 		}
-		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [start init intake chain chain-close merge chain-merge open step close adopt deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck guard global memory handoff migrate viewer mcp version]")
+		die("gil: 알 수 없는 명령 \"" + cmd + "\" — [start init intake chain chain-close merge chain-merge open step close adopt deploy interview approve reject goto context drift reconcile chain-retire chain-unretire prune prune-approve docs log fsck guard global memory handoff migrate graph viewer mcp version]")
 	}
 }
 

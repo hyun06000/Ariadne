@@ -50,6 +50,7 @@ var mcpSurface = map[string]string{
 	"approve":     "gil_approve",
 	"reject":      "gil_reject",
 	"goto":        "gil_goto",
+	"graph":       "gil_graph",
 	"log":         "gil_log",
 	"fsck":        "gil_fsck",
 	"status":      "gil_status",
