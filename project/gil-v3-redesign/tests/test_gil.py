@@ -12784,7 +12784,7 @@ class TestNobodyTypesAPathToStart(GilFixture):
     그건 언제나 눈에 보인다.
     """
 
-    def _serve(self, home, cwd, full=False):
+    def _serve(self, home, cwd, full=False, draws_ui=False):
         import json, subprocess
         env = dict(os.environ, HOME=home, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1")
         env.pop("GIL_UI_PROBE", None)
@@ -12811,8 +12811,9 @@ class TestNobodyTypesAPathToStart(GilFixture):
                 if m.get("id") == want:
                     return m
 
+        caps = {"extensions": {"io.modelcontextprotocol/ui": {}}} if draws_ui else {}
         send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+              "params": {"protocolVersion": "2025-06-18", "capabilities": caps,
                          "clientInfo": {"name": "t", "version": "0"}}})
         pump(1)
         send({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -12827,6 +12828,7 @@ class TestNobodyTypesAPathToStart(GilFixture):
                 return True, r["error"].get("message", "")
             res = r["result"]
             txt = res["content"][0]["text"] if res.get("content") else ""
+            self.last_result = res
             return bool(res.get("isError")), txt
 
         def tools():
@@ -12852,6 +12854,85 @@ class TestNobodyTypesAPathToStart(GilFixture):
         # **자리를 제안한다.** 제안이 없으면 결국 사람이 경로를 치게 된다.
         self.assertIn("data-start-preview", card, "어디에 생기는지 안 보여준다")
         self.assertIn("~/", card, "기본 자리를 제안하지 않는다")
+
+    def test_on_a_screen_host_it_opens_the_screen_instead_of_asking_for_a_path(self):
+        """**화면을 지어 놓고도 대화로 경로를 물었다** (상현님 실사용, 2026-08-10).
+
+        첫 화면을 다 만든 그날, 일반 채팅의 세션이 이렇게 물었다 — *"저장소를 세울 폴더의
+        절대경로를 알려주세요"*. 우리가 없애려던 바로 그 질문이다. 원인은 둘:
+
+          ㄱ) 자리가 안 정해지면 `gil_start` 가 **die** 로 끝났다. 오류 결과에는 `_meta.ui`
+              가 실리지 않으니 **카드가 아예 안 열린다** — 지어 둔 화면이 뜰 기회가 없었다.
+          ㄴ) 그 오류 문구가 여전히 "절대경로를 repo 에 실어라"고 가르쳤다.
+
+        이 병의 아홉 번째 얼굴이다: 앞의 여덟 번은 **없는 화면**을 가리켰고, 이번엔 화면이
+        **있는데** 안내가 그리로 안 보냈다. 그래서 재는 것도 두 가지다 — 성공으로 답하는가
+        (=카드가 열리는가), 그리고 경로를 묻지 말라고 말하는가.
+
+        **앞 시험들이 이걸 못 잡은 이유**: 카드를 그리는 호스트로 한 번도 안 밟았다. 못 밟은
+        길은 못 잡는다 — 이 저장소가 폼 없는 호스트에서 이미 한 번 배운 것이다(#57)."""
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd, draws_ui=True)
+        bad, out = call("gil_start", {})
+        self.assertFalse(bad, "화면이 서는 호스트인데 오류로 끝났다 — 카드가 안 열린다:\n" + out)
+        self.assertIn("화면", out, "화면으로 보내지 않는다:\n" + out)
+        # 그리고 **절대경로를 요구하는 옛 문구가 남아 있으면 안 된다** — 남으면 세션이 그걸 읽는다.
+        self.assertNotIn("절대경로를 repo", out, "옛 안내가 아직 경로를 요구한다:\n" + out)
+        # **화면을 연다고 말했으면 실제로 열려야 한다.** 카드를 여는 것은 툴 수준 Meta 가
+        # 아니라 **결과에 실린** resourceUri 다 — 안 실으면 "열었다"가 거짓말이 된다.
+        ui = (self.last_result.get("_meta") or {}).get("ui") or {}
+        self.assertEqual(ui.get("resourceUri"), "ui://gil/status",
+                         "결과에 화면을 여는 표식이 없다 — '화면을 열었다'가 거짓말이 된다")
+        # **그 화면에 실제로 있는 버튼을 가리켜야 한다.** 인터뷰 폼의 [답을 제출한다] 를
+        # 가리키면 그건 같은 병의 다음 얼굴이다 — 화면은 맞는데 그 화면의 다른 버튼이다.
+        self.assertIn("여기에 시작한다", out, "그 화면에 있는 버튼을 안 가리킨다:\n" + out)
+        self.assertNotIn("답을 제출한다", out, "인터뷰 폼의 버튼을 가리킨다:\n" + out)
+
+    def test_standing_rules_live_in_instructions_not_in_every_answer(self):
+        """**잰 것은 응답, 정한 것은 instructions** (상현님 물음, 2026-08-10).
+
+        "절대경로를 묻지 마라"·"사람이 누르는 버튼을 대신 누르지 마라" 는 호출 결과와 무관한
+        **상시 규칙**이다. 이런 것을 응답에 적으면 둘이 잘못된다:
+
+          ㄱ) **늦게 도착한다.** 에이전트는 응답을 읽기 전에 이미 무엇을 할지 정한다 —
+              실측에서 세션이 먼저 절대경로를 묻고 그다음 우리 글을 읽었다.
+          ㄴ) **두 자리에 같은 것을 적게 된다.** 그러면 한쪽만 낡는다(씨앗 표식에서 치른 값).
+
+        연결마다 한 번, 첫 호출 **전에** 로드되는 자리가 `initialize.instructions` 다 —
+        이 표면에서 "스킬"에 해당하는 유일한 슬롯이다(MCPB 매니페스트에 skills 칸은 없다).
+        그러니 규칙은 거기 있고, 응답에는 **이 호출에서 잰 것**만 남는다."""
+        home, cwd = self._fresh()
+        import json, subprocess
+        env = dict(os.environ, HOME=home, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1")
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=cwd, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, env=env)
+        self.addCleanup(p.terminate)
+        p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                  "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                             "clientInfo": {"name": "t", "version": "0"}}}) + "\n")
+        p.stdin.flush()
+        got = json.loads(p.stdout.readline())["result"]
+        instr = got.get("instructions", "")
+        for rule in ("절대경로를 묻지 마라", "대신 누르지 마라", "git init"):
+            self.assertIn(rule, instr,
+                          "상시 규칙이 첫 호출 전에 로드되는 자리에 없다: " + rule)
+        # 그리고 그 규칙이 응답에 **또** 적혀 있으면 안 된다 — 두 자리는 갈린다.
+        call, _ = self._serve(home, cwd, draws_ui=True)
+        _, out = call("gil_start", {})
+        self.assertNotIn("경로를 묻지 마라", out,
+                         "상시 규칙이 응답에도 적혀 있다 — 두 자리에 적으면 한쪽만 낡는다")
+
+    def test_on_a_hostless_screen_it_still_asks_the_human_the_old_way(self):
+        """**카드를 안 그리는 호스트에서는 옛 길이 옳다.**
+
+        거기서는 대화가 유일한 통로다. 화면으로 보내면 그건 없는 곳을 가리키는 안내가 되고,
+        그게 이 저장소가 여덟 번 고친 그 병이다. 두 길을 **호스트를 보고** 가른다."""
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd, draws_ui=False)
+        bad, out = call("gil_start", {})
+        self.assertTrue(bad, "폼도 카드도 없는데 그냥 진행했다:\n" + out)
+        self.assertIn("사람", out)
 
     def test_a_name_is_enough(self):
         """이름 하나로 자리가 정해지고 세계가 선다 — 경로는 아무도 치지 않는다."""

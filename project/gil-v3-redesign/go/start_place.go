@@ -148,3 +148,43 @@ func safeToCreate(abs string) error {
 	}
 	return nil
 }
+
+// startNeedsPlace — 지금 세계를 세워야 하는데 **자리가 아직 안 정해졌나.**
+//
+// ① 아직 세계가 없다(stageNoWorld), 그리고 ② 둘 중 하나:
+//
+//	 · 지금 선 자리가 세울 자리가 아니다(`/`·홈 자신) — 성질로 거부되는 자리.
+//	 · **아무도 이 자리를 고르지 않았다**(repoSourceUnchosen). 프로세스가 어쩌다 뜬 곳이다.
+//
+// 두 번째가 처음에 빠져 있어서 시험이 빨갰다. `/` 만 보면 좁다 — 프로세스가 멀쩡한 임시
+// 폴더에서 떠도 그 자리를 **고른 사람은 없다.** 고르지 않은 자리에 남의 프로젝트를 세우는
+// 것은 `/` 에 세우는 것과 종류가 다를 뿐 같은 실수다.
+//
+// 사람이 repo 로 자리를 줬거나 호스트가 roots 로 알려줬으면 여기 해당하지 않는다 —
+// 그때는 자리가 이미 정해진 것이고 옛 길(승낙만 받는다)이 옳다.
+func startNeedsPlace() bool {
+	if startInspect().stage != stageNoWorld {
+		return false
+	}
+	return chosenPlaceErr() != nil || repoSource == repoSourceUnchosen
+}
+
+// startPlaceOnScreenText — 화면으로 보내는 말.
+//
+// **잰 것은 응답, 정한 것은 instructions**(상현님 물음, 2026-08-10). "절대경로를 묻지
+// 마라"·"git init 을 대신 치지 마라" 같은 **상시 규칙**은 호출 결과와 무관하니 연결마다
+// 한 번 로드되는 `initialize.instructions` 에 산다(surface.go 의 mcpInstructions). 응답에
+// 또 적으면 두 자리에 같은 것을 적는 것이고, 그러면 한쪽만 낡는다 — 이 저장소가 씨앗 표식
+// 에서 이미 치른 값이다.
+//
+// 그리고 규칙을 응답에만 두면 **늦게 도착한다**: 에이전트는 이 글을 읽기 **전에** 이미
+// 무엇을 할지 정했다(실측 — 세션이 먼저 경로를 묻고 그다음 이 글을 읽었다).
+//
+// 그래서 여기 남는 것은 **이 호출에서 잰 것**뿐이다: 화면이 떴다 · 사람에게 청할 문장 ·
+// 기본 자리 · 사람이 누른 뒤의 다음 한 수.
+func startPlaceOnScreenText() string {
+	return "시작하는 화면을 열었다 — 사람이 거기서 정한다.\n\n" +
+		"  \"위에 뜬 화면에서 이 기록에 붙일 이름을 적고 [여기에 시작한다] 를 눌러 주세요.\"\n" +
+		"  gil 이 그 폴더를 만들고 세계를 세운다(기본 자리: " + shortenHome(defaultPlaceRoot()) + "/<이름>).\n" +
+		"  사람이 누르고 나면 gil_start 를 다시 불러 다음 칸(이름·정체성)으로 간다."
+}
