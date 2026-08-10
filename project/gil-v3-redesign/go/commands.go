@@ -3081,9 +3081,13 @@ func interviewAskTail(chain string, qs []interviewQ) {
 		println2("  ▸ 질문이 " + askHumanHere() + "에 서 있다 — 사람에게 거기 답해 달라고 " +
 			"지금 말로 청하라(답을 대신 지어내지 마라).")
 	} else {
-		println2("  ▸ " + askHumanHere() + "에서 답한다(창이 없으면: " +
-			surfaceCall("viewer", "open", "") + "). 사람이 제출하면 reference-" + chain +
-			".md 로 저장되고 레퍼런스가 커밋된다 — 폴링이 곧 반영한다.")
+		// **한 줄만 고치면 그 옆줄이 여전히 없는 명령을 가르친다.** askHumanHere 를 고쳐
+		// 놓고 여기서 `gil viewer open` 을 이어 붙이면, 사람은 고친 문장과 안 고친 문장을
+		// 나란히 읽는다 — 앞 세션이 여섯 번 물린 자리가 정확히 이 모양이었다(짝을 함께 봐라).
+		println2("  ▸ 답은 " + askHumanHere() + "에서 받는다.")
+		println2("  ▸ 터미널만 쓰고 있다면 답을 받을 자리가 아직 없다 — 사람에게 물어야 하는 " +
+			"것을 네가 대신 쓰지 마라. 답이 준비되면 파일로 받아 확정할 수는 있다: " +
+			surfaceCall("interview", chain+" --resolve <파일>", "") + ".")
 	}
 	println2("  ▸ 사람 답 전엔 이 기준이 비어 있다 — 답을 기다려라(pending 처럼).")
 	// "기다려라"만 말하고 기다릴 수단을 안 주면 바쁜대기 아니면 우회로 민다(이슈 #58). 그리고

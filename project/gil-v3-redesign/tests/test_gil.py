@@ -34,6 +34,24 @@ if not os.path.exists(GIL_BIN):
         "먼저 빌드하라: (cd project/gil-v3-redesign/go && go build -o gil .)")
 GIL_CMD = [GIL_BIN]
 
+def renderer_src_path():
+    """렌더러 소스의 경로. **파일 이름을 박지 않는다.**
+
+    렌더러는 오래 `viewer_serve.go` 안에 살다가 `graph_render.go` 로 옮겨 왔다(뷰어는
+    은퇴하고 그림은 남는다). 이름을 박아 둔 시험 셋이 그 이동에 걸렸다 — 파일 이름을 적는
+    것도 **열거**고, 열거는 늘 뒤늦다. 렌더러는 `renderHTML` 을 정의한 파일이다.
+    """
+    go = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go")
+    for fn in sorted(os.listdir(go)):
+        if not fn.endswith(".go"):
+            continue
+        path = os.path.join(go, fn)
+        with open(path, encoding="utf-8") as f:
+            if "func renderHTML(" in f.read():
+                return path
+    raise AssertionError("렌더러(func renderHTML 을 정의한 파일)를 못 찾았다 — 이 시험이 눈이 먼다")
+
+
 # 테스트용 기준 문서(사람이 준 것으로 간주) — 목적과 기준은 쌍으로만 태어난다(상현님).
 # 파일명에 pid — 병렬 러너가 프로세스로 쪼개 돌리므로 공유 경로에 동시에 쓰면 서로를 자른다.
 CRIT_FILE = os.path.join(tempfile.gettempdir(), f"gil-test-criterion-{os.getpid()}.md")
@@ -11358,8 +11376,7 @@ class TestViewerLanguages(GilFixture):
         아무도 그걸 모른 채 영어 화면만 낡는다. 소스에서 직접 막는다 — 뷰어의 JS 가 화면에
         찍는 글은 T() 를 타야 한다(마크업의 한국어 원문은 data-i18n 이 짝이라 예외)."""
         import re
-        src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "..", "go", "viewer_serve.go")
+        src = renderer_src_path()
         with open(src, encoding="utf-8") as f:
             lines = f.readlines()
         bad = []
@@ -14156,8 +14173,7 @@ class TestTheScreenCountsOneThing(GilFixture):
         그래도 거는 이유: 앞 시험은 서버가 보낸 목록과 머리글만 봐서, 화면 쪽을 옛 코드로
         되돌려도 통과했다 — 정작 어긋났던 자리가 화면이었는데. 약한 판정이라도 그 자리를
         비워 두면, 다음에 같은 회귀가 아무 저항 없이 들어온다."""
-        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go",
-                                "viewer_serve.go"), encoding="utf-8").read()
+        src = open(renderer_src_path(), encoding="utf-8").read()
         self.assertIn("DECLARED", src, "선언된 체인 목록을 화면이 안 읽는다")
         self.assertRegex(src, r"const ALLCHAINS=\[\.\.\.new Set\(\[\.\.\.DRAWN,\.\.\.DECLARED\]\)\]",
                          "선택기가 그려진 노드에서만 체인을 모은다 — 머리글과 다른 것을 센다")
@@ -14171,8 +14187,7 @@ class TestTheScreenCountsOneThing(GilFixture):
 
         이 시험도 약한 판정이다(JS 런타임을 안 돌린다). 그래도 이 한 줄이면 같은 회귀는 막는다:
         선택기가 쓰는 것은 **인자로 받는다**."""
-        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go",
-                                "viewer_serve.go"), encoding="utf-8").read()
+        src = open(renderer_src_path(), encoding="utf-8").read()
         self.assertIn("function chainFilterBar(chains,drawn)", src,
                       "선택기가 쓰는 값을 인자로 안 받는다")
         body = src.split("function chainFilterBar(chains,drawn){", 1)[1].split("\nfunction ", 1)[0]
