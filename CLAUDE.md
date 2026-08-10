@@ -112,13 +112,20 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
   `gil deploy` 가 그걸 **직접 돌리고 종료코드로 판정**한다. 통과는 `Gil-Checked`, 건너뜀은
   `Gil-Check-Skipped`(--skip-reason 필수)로 커밋에 남는다. 선언 없으면 막지 않되 고지한다.
 - **검증**: example 873 테스트(`project/gil-v3-redesign/tests/`). 최신 릴리스 **v3.58.3**.
-  **미릴리스(main) 최신** = **표면을 재고, 배포 통로를 뚫고, 안내의 일곱 번째 얼굴을 잡았다**
-  (2026-08-10). ⭐ **표면을 Claude Code 하나로 좁힌다**(상현님) — MVP 를 거기서 먼저 만들고,
-  다음 목표는 **풀스크린 MCP App 을 한 번 띄우는 것**이다.
-  **표면 지도(실측)**: Claude Code(에이전트 모드)는 MCP Apps 를 선언하고 여는 모드가
-  **`["inline"]` 하나**다(fullscreen·pip 없음) · **Cowork 는 MCP Apps 를 아예 선언 안 한다 —
-  카드가 안 뜬다**(저장소는 VM 너머로 보인다) · Desktop 채팅 탭은 아직 안 쟀다. 규범상 모드는
-  `inline|fullscreen|pip` **셋으로 닫혀** 있어 "오른쪽 세로 패널"은 존재하지 않는다.
+  ⭐ **표면이 정해졌다 — Desktop 일반 채팅. 그리고 풀스크린이 떴다**(2026-08-10 저녁).
+  새 명세는 **`project/gil-app/SPEC.md`** 다(문법 명세는 그대로 — 바뀌는 것은 표면뿐).
+  **거짓 전제 하나가 표면 선택을 붙들고 있었다**(상현님): *"일반 채팅은 로컬 파일시스템에
+  접근할 수 없다"* — 틀렸다. `.mcpb` 확장으로 붙인 서버는 **맥에서 직접 돈다**(앱 로그:
+  `Using basic execution … server.type is "binary"`). 그래서 카드가 없는 표면에서 카드를
+  지으려 했고, 그 위에서 같은 병을 여덟 번 고쳤다.
+  **표면 지도(정정된 실측)**: **Desktop 일반 채팅**(`.mcpb` 확장 → 클라이언트 `claude-ai`)만
+  MCP Apps 를 선언하고 **`["inline","fullscreen"]`** 을 준다 — 카드가 뜨고 **사람이 눌러
+  풀스크린이 됐다** · Cowork·로컬 에이전트 모드는 렌더러에 `["inline"]` 이 박혀 있고
+  **확장을 아예 못 받는다**(플러그인 창이 `.zip`/`.plugin` 만 받고, 그 경로는 CLI 로 붙는다) ·
+  **Claude Code CLI 는 MCP Apps 구현이 0**(`io.modelcontextprotocol/ui` 0회) 이고
+  elicitation 은 **선언하고도 폼이 안 선다**. 표시모드 판정에 **제스처 검사는 없다** —
+  `availableDisplayModes.includes(mode)` 가 전부다.
+  (앞 매듭의 표면 표는 틀렸다. **기억에 적힌 실측도 낡는다** — 호스트가 갱신되는 값은 다시 잰다.)
   그리고 Claude 정본 패턴은 **앱이 자기 풀스크린 버튼을 달고 사람이 누르면 청하는 것**인데,
   우리는 버튼 없이 자동으로 청해 왔다 — **제스처 있는 요청은 아직 한 번도 안 해 봤다.**
   **배포**: 플러그인. `scripts/plugin-build.sh` 가 배포 저장소를 조립하고 `.zip`/`.plugin` 을
