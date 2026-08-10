@@ -55,6 +55,7 @@ func registerStartHereTool(s *mcp.Server) {
 		setRepoDir(abs)
 		repoSource = repoSourceArg
 		rememberUIRepo()
+		startScreenOpen = false // 사람이 눌렀다 — 시작하는 화면의 일은 여기서 끝난다
 
 		// **사람이 눌렀다는 사실을 그대로 싣는다.** startAdvance 가 이 문장을 기록에 적는다.
 		startConfirmWorld = func() (bool, string) { return true, "사람이 화면에서 눌렀다" }

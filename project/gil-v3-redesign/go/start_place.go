@@ -188,3 +188,9 @@ func startPlaceOnScreenText() string {
 		"  gil 이 그 폴더를 만들고 세계를 세운다(기본 자리: " + shortenHome(defaultPlaceRoot()) + "/<이름>).\n" +
 		"  사람이 누르고 나면 gil_start 를 다시 불러 다음 칸(이름·정체성)으로 간다."
 }
+
+// startScreenOpen — 시작하는 화면을 **이미 열었나.** 에이전트가 gil_start 를 두 번 부르는
+// 것은 정상이지만(레일이 반복해서 부르라고 가르친다) 그때마다 카드를 새로 열면 사람 앞에
+// 같은 질문이 둘 선다. 어디에 적어야 할지 알 수 없고, 한쪽에 적은 것은 다른 쪽이 모른다.
+// 세계가 서면 내린다 — 그 화면의 일이 끝났으니까.
+var startScreenOpen bool

@@ -77,6 +77,22 @@ func registerStartTools(s *mcp.Server) {
 		// 옛 길 그대로다 — 거기서는 대화가 유일한 통로라 그게 맞다.
 		if !in.Status && hostDeclaresUI && startNeedsPlace() {
 			rememberUIRepo()
+			// **같은 화면을 두 번 열지 않는다** (상현님 실사용: gil_start 를 두 번 부르니
+			// 카드가 두 장 떴다 — "ux 적으로 너무 헷갈릴 포인트").
+			//
+			// 에이전트가 이 툴을 두 번 부르는 것 자체는 정상이다(레일이 "끝날 때까지 반복해서
+			// 불러라"고 가르친다). 잘못은 **부를 때마다 화면을 새로 여는 것**이다: 사람 앞에
+			// 같은 질문을 하는 카드가 둘 서면 어디에 적어야 하는지 알 수 없고, 한쪽에 적은
+			// 것은 다른 쪽이 모른다.
+			//
+			// 그래서 두 번째부터는 **화면을 열지 않고 이미 떠 있다고 말한다.** 표식은 결과에
+			// 실린 resourceUri 하나뿐이니, 그것만 빼면 호스트는 새 카드를 그리지 않는다.
+			if startScreenOpen {
+				return text("시작하는 화면은 **이미 떠 있다** — 새로 열지 않았다.\n" +
+					"  사람이 거기서 이름을 적고 [여기에 시작한다] 를 누르면 그때 세워진다.\n" +
+					"  아직 안 눌렀으면 재촉하지 말고 기다려라 — 이건 사람이 정하는 칸이다."), nil, nil
+			}
+			startScreenOpen = true
 			// **결과에 `_meta.ui` 를 실어야 카드가 열린다.** 툴 수준의 Meta 는 목록용이고,
 			// 이 호출로 화면을 여는 것은 **결과**에 실린 resourceUri 다(gil_status 가 그렇게
 			// 한다). 안 실으면 "화면을 열었다"고 말해 놓고 아무것도 안 여는 거짓말이 된다.
@@ -98,6 +114,7 @@ func registerStartTools(s *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
+		startScreenOpen = false // 세계가 섰으면 그 화면의 일은 끝났다
 		// 질문지를 막 심은 자리라면, **그 자리에서 사람에게 묻는다.** 심어 놓고 턴을 끝내면
 		// 아무 일도 안 일어난다(#82) — MCP 는 그 한 홉을 없앨 수 있는 유일한 표면이다.
 		if extra := startElicitIntake(ctx, req); extra != "" {

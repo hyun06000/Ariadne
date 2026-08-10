@@ -293,10 +293,22 @@ func statusCardShellHTML() string {
   function restoreStart(){
     var s=slot(); if(!s) return;
     var sb=s.querySelector("[data-start]"); if(!sb) return;
-    var sd=drafts.__start; if(!sd) return;
-    var nm=sb.querySelector("[data-start-name]"), pl=sb.querySelector("[data-start-place]");
-    if(nm&&sd.name) nm.value=sd.name;
-    if(pl&&sd.place) pl.value=sd.place;
+    var sd=drafts.__start;
+    if(sd){
+      var nm=sb.querySelector("[data-start-name]"), pl=sb.querySelector("[data-start-place]");
+      if(nm&&sd.name) nm.value=sd.name;
+      if(pl&&sd.place) pl.value=sd.place;
+    }
+    // **위임에만 기대지 않는다.** document 위의 위임 하나로 충분해야 맞지만, 실사용에서
+    // 미리보기가 안 따라온 판이 있었다(상현님 — 가짜 호스트에서는 같은 코드가 따라왔다).
+    // 무엇이 막았는지 아직 못 갈랐으므로, **막힐 수 있는 자리를 줄인다**: 칸에 직접 걸고,
+    // 타건 신호도 셋으로 넓힌다(IME 조합 중에는 input 이 안 오는 구성이 있다).
+    // 재는 값이 없을 때 고르는 쪽은 "덜 영리한 쪽"이다.
+    var els=sb.querySelectorAll("[data-start-name],[data-start-place]");
+    for(var i=0;i<els.length;i++){
+      var el=els[i];
+      el.oninput=el.onkeyup=el.onchange=function(){ syncStartPreview(sb); };
+    }
     syncStartPreview(sb);
   }
   // 이름 → 만들 자리. 화면은 미리 보여주기만 하고 **판정은 서버가 다시 한다**(placeSlug).

@@ -253,15 +253,15 @@ func uiNoRepoCard(detail string) string {
 	return `<div class="card" data-start="1">` +
 		`<div class="crumb">새 프로젝트를 시작합니다</div>` +
 		`<div class="row"><div class="lbl">무엇에 대한 기록인가요</div>` +
-		`<input class="ivin" data-start-name placeholder="예: 타이타닉 생존자 분석" ` +
+		`<input class="ivin" data-start-name="1" placeholder="예: 타이타닉 생존자 분석" ` +
 		`data-root="` + esc(short) + `"></div>` +
 		`<div class="row"><div class="lbl">여기에 만듭니다</div>` +
-		`<div class="repo" data-start-preview>` + esc(short) + `/…</div></div>` +
+		`<div class="repo" data-start-preview="1">` + esc(short) + `/…</div></div>` +
 		`<div class="acts">` +
 		`<button class="btn primary" data-act="start-here" ` +
 		`data-arm="이 폴더를 만듭니다 — 한 번 더">여기에 시작한다</button></div>` +
 		`<details class="startmore"><summary>다른 자리에 만들기</summary>` +
-		`<input class="ivin" data-start-place value="` + esc(short) + `">` +
+		`<input class="ivin" data-start-place="1" value="` + esc(short) + `">` +
 		`<div class="none">폴더가 없으면 만들어집니다. 홈 폴더 안이어야 합니다 — ` +
 		`바깥에 만들려면 그 경로를 <code>repo</code> 인자에 실어 부릅니다.</div></details>` +
 		// 진단은 남긴다. 없애면 "왜 저장소를 못 찾았나"를 다시 추측하게 된다.

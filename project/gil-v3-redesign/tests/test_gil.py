@@ -12888,6 +12888,31 @@ class TestNobodyTypesAPathToStart(GilFixture):
         self.assertIn("여기에 시작한다", out, "그 화면에 있는 버튼을 안 가리킨다:\n" + out)
         self.assertNotIn("답을 제출한다", out, "인터뷰 폼의 버튼을 가리킨다:\n" + out)
 
+    def test_calling_start_twice_does_not_stack_two_screens(self):
+        """**같은 화면을 두 번 열지 않는다** (상현님 실사용: "카드가 두번 나왔어 — ux 적으로
+        너무 헷갈릴 포인트").
+
+        에이전트가 gil_start 를 두 번 부르는 것 자체는 정상이다 — 레일이 "끝날 때까지 반복해서
+        불러라"고 가르친다. 잘못은 **부를 때마다 화면을 새로 여는 것**이다: 사람 앞에 같은
+        질문을 하는 카드가 둘 서면 어디에 적어야 할지 알 수 없고, 한쪽에 적은 것은 다른 쪽이
+        모른다(초안은 화면마다 따로 산다).
+
+        화면을 여는 것은 **결과에 실린 resourceUri** 하나뿐이니, 두 번째부터 그것만 빼면
+        호스트는 새 카드를 그리지 않는다. 대신 이미 떠 있다고 말하고 기다리라고 한다."""
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd, draws_ui=True)
+        bad1, out1 = call("gil_start", {})
+        self.assertFalse(bad1, out1)
+        ui1 = (self.last_result.get("_meta") or {}).get("ui") or {}
+        self.assertEqual(ui1.get("resourceUri"), "ui://gil/status", "첫 호출이 화면을 안 연다")
+
+        bad2, out2 = call("gil_start", {})
+        self.assertFalse(bad2, out2)
+        ui2 = (self.last_result.get("_meta") or {}).get("ui") or {}
+        self.assertIsNone(ui2.get("resourceUri"),
+                          "두 번째 호출이 카드를 또 연다 — 같은 질문이 사람 앞에 둘 선다")
+        self.assertIn("이미 떠 있다", out2, "이미 떠 있다는 사실을 안 말한다:\n" + out2)
+
     def test_standing_rules_live_in_instructions_not_in_every_answer(self):
         """**잰 것은 응답, 정한 것은 instructions** (상현님 물음, 2026-08-10).
 
