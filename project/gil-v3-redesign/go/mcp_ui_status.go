@@ -261,6 +261,17 @@ func statusCardShellHTML() string {
         else if((el.value||"")!=="") d[key]=el.value;
       }
     }
+    // **시작 화면의 이름 칸도 사람이 쓰던 것이다.** 위 문단이 "둘은 같은 커밋이어야 한다"고
+    // 적어 둔 그 규칙을, 칸을 새로 만들면서 그대로 어겼다 — 카드가 다시 그려질 때마다 적던
+    // 이름이 사라지고 만들 자리 미리보기가 되돌아갔다(상현님 실사용). **보존은 새 입력 칸마다
+    // 다시 챙겨야 하는 것**이지, 한 번 세우면 따라오는 것이 아니다.
+    var sb=s.querySelector("[data-start]");
+    if(sb){
+      var sd=drafts.__start||(drafts.__start={});
+      var nm=sb.querySelector("[data-start-name]"), pl=sb.querySelector("[data-start-place]");
+      if(nm&&(nm.value||"")!=="") sd.name=nm.value;
+      if(pl&&(pl.value||"")!=="") sd.place=pl.value;
+    }
   }
   function restore(){
     var s=slot(); if(!s) return;
@@ -277,10 +288,31 @@ func statusCardShellHTML() string {
       }
     }
   }
+  // 되돌린 뒤에는 **미리보기도 같이 맞춘다** — 값만 되돌리고 그림을 안 맞추면 사람은 자기가
+  // 친 이름과 다른 자리를 보게 된다(그 둘이 갈리는 것이 이 화면에서 제일 나쁜 일이다).
+  function restoreStart(){
+    var s=slot(); if(!s) return;
+    var sb=s.querySelector("[data-start]"); if(!sb) return;
+    var sd=drafts.__start; if(!sd) return;
+    var nm=sb.querySelector("[data-start-name]"), pl=sb.querySelector("[data-start-place]");
+    if(nm&&sd.name) nm.value=sd.name;
+    if(pl&&sd.place) pl.value=sd.place;
+    syncStartPreview(sb);
+  }
+  // 이름 → 만들 자리. 화면은 미리 보여주기만 하고 **판정은 서버가 다시 한다**(placeSlug).
+  function syncStartPreview(box){
+    if(!box) return;
+    var nameEl=box.querySelector("[data-start-name]");
+    var placeEl=box.querySelector("[data-start-place]");
+    var out=box.querySelector("[data-start-preview]"); if(!out) return;
+    var root=(placeEl&&placeEl.value||"").trim() || (nameEl&&nameEl.getAttribute("data-root")) || "";
+    var slug=slugPreview(nameEl&&nameEl.value);
+    out.textContent=root.replace(/\/+$/,"")+"/"+(slug||"…");
+  }
   function paint(html){
     harvest();
     var s=slot(); if(!s) return;
-    s.innerHTML=html; restore(); drawn=true; reportSize();
+    s.innerHTML=html; restore(); restoreStart(); drawn=true; reportSize();
     maybeAside();
   }
 
@@ -445,13 +477,7 @@ func statusCardShellHTML() string {
   document.addEventListener("input",function(ev){
     var el=ev.target;
     if(!el || !(el.hasAttribute&&(el.hasAttribute("data-start-name")||el.hasAttribute("data-start-place")))) return;
-    var box=el.closest("[data-start]"); if(!box) return;
-    var nameEl=box.querySelector("[data-start-name]");
-    var placeEl=box.querySelector("[data-start-place]");
-    var out=box.querySelector("[data-start-preview]"); if(!out) return;
-    var root=(placeEl&&placeEl.value||"").trim() || (nameEl&&nameEl.getAttribute("data-root")) || "";
-    var slug=slugPreview(nameEl&&nameEl.value);
-    out.textContent=root.replace(/\/+$/,"")+"/"+(slug||"…");
+    syncStartPreview(el.closest("[data-start]"));
   },true);
 
   function fetchCard(){

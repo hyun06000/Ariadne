@@ -12990,6 +12990,54 @@ class TestNobodyTypesAPathToStart(GilFixture):
         self.assertIn("사람", desc, "설명이 '사람이 누르는 자리'라고 말하지 않는다")
         self.assertIn("gil_start", desc, "에이전트가 대신 갈 길(gil_start)을 안 가리킨다")
 
+    def test_the_name_being_typed_survives_the_card_redrawing_itself(self):
+        """**카드는 스스로 다시 그린다 — 그러면서 사람이 쓰던 것을 잃으면 안 된다.**
+
+        이 규칙은 이미 세워져 있었고(af4b667f), 그 자리 주석에 *"둘은 같은 커밋이어야 한다"*
+        고까지 적혀 있다. 그런데 시작 화면의 이름 칸을 **새로 만들면서 그 보존에 등록하지
+        않았다** — 그래서 카드가 다시 그려질 때마다 적던 이름이 사라지고 만들 자리 미리보기가
+        되돌아갔다(상현님 실사용: "치는 동안 따라오는 게 안 되네").
+
+        **보존은 새 입력 칸마다 다시 챙겨야 하는 것**이지, 한 번 세우면 따라오는 것이 아니다.
+        그러니 재는 것도 칸이 아니라 **규칙**이다: 화면의 입력 칸은 전부 harvest/restore 를
+        지나야 한다.
+        """
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd, draws_ui=True)
+        bad, shell = call("gil_status_card", {})
+        self.assertFalse(bad, shell)
+        # 껍데기(=보존 기계가 사는 곳)를 읽어 규칙을 센다.
+        import json, subprocess
+        env = dict(os.environ, HOME=home, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1")
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=cwd, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, env=env)
+        self.addCleanup(p.terminate)
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "t", "version": "0"}}})
+        p.stdout.readline()
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "resources/read",
+              "params": {"uri": "ui://gil/status"}})
+        while True:
+            m = json.loads(p.stdout.readline())
+            if m.get("id") == 2:
+                break
+        sh = m["result"]["contents"][0]["text"]
+
+        harvest = sh.partition("function harvest(")[2].partition("\n  }")[0]
+        self.assertTrue(harvest.strip(), "harvest 를 못 읽었다 — 이 시험이 눈이 먼다")
+        self.assertIn("data-start-name", harvest,
+                      "시작 화면의 이름 칸이 보존에 등록되지 않았다 — 다시 그리면 사라진다")
+        # 되돌린 뒤 **미리보기도 맞춘다**: 값만 되돌리고 그림을 안 맞추면 사람은 자기가 친
+        # 이름과 다른 자리를 보게 된다.
+        self.assertIn("restoreStart(", sh, "되돌리는 자리가 없다")
+        self.assertIn("syncStartPreview(", sh, "미리보기를 맞추는 자리가 없다")
+        redraw = sh.partition("function paint(")[2].partition("\n  }")[0]
+        self.assertIn("restoreStart()", redraw, "다시 그릴 때 되돌리지 않는다")
+
     def test_the_screen_and_the_server_fold_the_name_the_same_way(self):
         """화면이 미리 보여준 자리와 서버가 만드는 자리가 갈리면, 사람은 **자기가 본 것과
         다른 곳**에 폴더가 생긴 것을 나중에 알게 된다. 접는 규칙은 두 곳에 있지만 결과는
