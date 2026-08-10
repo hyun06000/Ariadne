@@ -241,6 +241,18 @@ type statusInterview struct {
 	Questions int    `json:"questions"`
 }
 
+// statusPrune — 사람의 승인을 기다리는 삭제 요청 하나.
+//
+// **지금까지 이 사실을 말하는 화면이 뷰어 창 하나뿐이었다** — gil status 도 gil handoff 도
+// prune 대기를 한 글자도 말하지 않았다(grep 0). 뷰어를 지우면 요청이 올라가 있어도 아무
+// 화면에도 안 뜬다. 삭제는 사람의 판단을 기다리는 일인데, 기다린다는 사실이 안 보이면
+// 그 요청은 영영 안 풀린다.
+type statusPrune struct {
+	Target string `json:"target"`
+	SHA    string `json:"sha"`
+	Why    string `json:"why"`
+}
+
 type statusOut struct {
 	Repo    string         `json:"repo"`
 	Branch  string         `json:"branch,omitempty"`
@@ -250,9 +262,12 @@ type statusOut struct {
 	Waiting *statusWaiting `json:"waiting_for_human"`
 	// OpenInterviews — 기다리는 인터뷰 **전부**. 층(dev·main) 위에 서 있어도 채워진다.
 	OpenInterviews []statusInterview `json:"open_interviews"`
-	LastVerdict    *statusVerdict    `json:"last_verdict"`
-	Rollback       []statusRollback  `json:"rollback_candidates"`
-	Next           []string          `json:"next"`
+	// PendingPrunes — 사람의 승인을 기다리는 삭제 요청. 이것도 층 위에서 채워진다 —
+	// 요청을 올린 사람이 대개 서 있는 자리가 거기다.
+	PendingPrunes []statusPrune    `json:"pending_prunes"`
+	LastVerdict   *statusVerdict   `json:"last_verdict"`
+	Rollback      []statusRollback `json:"rollback_candidates"`
+	Next          []string         `json:"next"`
 	// RenderGuide — **이 데이터를 사람에게 보여주는 규칙이 어디 있나.**
 	//
 	// 왜 데이터에 문서 경로를 싣나. 규칙을 문서에만 두면 "에이전트가 알아서 읽기"가 되고,
@@ -296,6 +311,7 @@ func gatherStatus() statusOut {
 	st := statusOut{Repo: wd, Branch: currentBranch(), Next: []string{}, Warnings: []string{},
 		Rollback:       []statusRollback{},
 		OpenInterviews: []statusInterview{},
+		PendingPrunes:  []statusPrune{},
 		RenderGuide:    "docs/gil/status-card.md — 이 데이터를 사람에게 어떻게 보여줄지. 통째로 붙여넣지 마라."}
 
 	// **기다리는 인터뷰는 아래 조기 반환보다 먼저 채운다.** 층(dev·main) 위에 서 있으면 이
@@ -313,6 +329,11 @@ func gatherStatus() statusOut {
 		}
 		st.OpenInterviews = append(st.OpenInterviews,
 			statusInterview{Chain: iv.Chain, SHA: sha, Questions: n})
+	}
+	// 삭제 대기도 조기 반환보다 먼저. 같은 이유다 — 요청은 층 위에서 올라간다.
+	for _, pr := range pendingPrunes() {
+		st.PendingPrunes = append(st.PendingPrunes,
+			statusPrune{Target: pr.target, SHA: pr.sha, Why: pr.body})
 	}
 
 	chain, cycle := headChainCycle()

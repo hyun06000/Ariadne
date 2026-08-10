@@ -523,49 +523,6 @@ func resolvedInterviews() []referenceCard {
 	return cards
 }
 
-// pruneReq — 사람의 승인을 기다리는 삭제 요청. 삭제는 비가역이라 **사람 손에서만** 눌린다.
-type pruneReq struct {
-	target string
-	sha    string
-	body   string
-}
-
-// pendingPrunes — prune-request 중 아직 승인·실행되지 않은 것들.
-func pendingPrunes() []pruneReq {
-	const rs = "\x1e"
-	const fs = "\x1f"
-	format := "%H" + fs + "%(trailers:key=Gil-Kind,valueonly)" + fs +
-		"%(trailers:key=Gil-Prune-Target,valueonly)" + fs + "%B" + rs
-	out, err := viewerLog("--format=" + format)
-	if err != nil {
-		return nil
-	}
-	// **대상마다 가장 최근의 사실 하나**로 판정한다(이슈 #91). 옛 코드는 "요청이 있고 승인/실행이
-	// 하나라도 있으면 끝난 것"으로 봤는데, 그러면 철회 뒤 **다시 올린 요청이 영영 안 뜬다** —
-	// 결말은 시간 축 위의 마지막 것이지 존재 여부가 아니다.
-	decided := map[string]bool{}
-	var open []pruneReq
-	for _, rec := range strings.Split(string(out), rs) { // new→old
-		parts := strings.SplitN(strings.TrimLeft(rec, "\n"), fs, 4)
-		if len(parts) < 4 {
-			continue
-		}
-		kind, target := strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
-		if target == "" || decided[target] {
-			continue
-		}
-		switch kind {
-		case "prune-approve", "prune", "prune-withdraw":
-			decided[target] = true // 승인·실행·철회 — 어느 쪽이든 이 요청은 끝났다
-		case "prune-request":
-			decided[target] = true
-			open = append(open, pruneReq{target: target, sha: parts[0][:9],
-				body: strings.TrimSpace(stripTrailers(parts[3]))})
-		}
-	}
-	return open
-}
-
 // viewerWaiterActive — 관전 중인 저장소에서 이 체인의 대기 표식이 살아있나(이슈 #82).
 // interviewWaiterActive 와 같은 판정이되 git-dir 을 관전 레포 기준으로 푼다 — 뷰어는 다른
 // 작업 디렉토리에서 도는 별도 프로세스다.
@@ -895,7 +852,14 @@ func buildGraph() graphView {
 			chainOrder = append(chainOrder, ch)
 		}
 	}
-	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), anchor: workAnchor(), interviews: pendingInterviews(), references: resolvedInterviews(), prunes: pendingPrunes()}
+	g := graphView{here: here, hereCyc: hereCyc, parents: chainParent, allNodes: nodes, nodeCount: len(nodes), tipCount: tipCount, work: workingStatus(), anchor: workAnchor(), interviews: pendingInterviews(), references: resolvedInterviews(), prunes: pendingPrunesFrom(func(f string) string {
+		// 뷰어는 -C 로 제 저장소를 짚는다(viewerLog 가 allRefs 를 이미 붙인다).
+		out, err := viewerLog("--format=" + f)
+		if err != nil {
+			return ""
+		}
+		return string(out)
+	})}
 	for _, ch := range chainOrder {
 		cv := chainView{name: ch}
 		cycOrder := []string{}

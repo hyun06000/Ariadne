@@ -716,10 +716,12 @@ func statusCardHTML(st statusOut) string {
 // 다른 화면을 본다. CSS 는 선언 블록을 재사용할 방법이 없으니 Go 에서 잇는다.
 const cardVarsLight = `--bg:#fff;--fg:#26262a;--dim:#6f6e69;--line:#dedcd4;--card:#f1efe8;` +
 	`--warn-bg:#fff6e5;--warn-fg:#7a4d00;--warn-line:#f0d9a8;` +
+	`--danger-bg:#fdf0ed;--danger-fg:#8c2f18;--danger-line:#e0574a;` +
 	`--wait-bg:#eaf2ff;--wait-fg:#12406b;--wait-line:#bcd6f5;--code:#f1efe8;--panel:#fff;--acc:#444441;--acc-fg:#fff`
 
 const cardVarsDark = `--bg:#17171a;--fg:#e9e7e1;--dim:#9b9992;--line:#3a3a3d;--card:#232326;` +
 	`--warn-bg:#3a2a12;--warn-fg:#ffd79a;--warn-line:#7a5a24;` +
+	`--danger-bg:#3a1d16;--danger-fg:#ffbfae;--danger-line:#e0574a;` +
 	`--wait-bg:#12283f;--wait-fg:#bcd9ff;--wait-line:#2a557f;--code:#2f2f33;--panel:#2e2e32;--acc:#d3d1c7;--acc-fg:#26262a`
 
 // statusCardDocHead — 문서 껍데기와 스타일. **카드 조각과 갈라 둔다** — 앱이 조각만 받아
@@ -817,7 +819,7 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .md .mdnote{display:block;margin:.5em 0;font-size:12px;color:var(--warn-fg);
  background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px}
 .md a{color:inherit}
-` + interviewCardCSS + `
+` + interviewCardCSS + pruneCardCSS + `
 </style>`
 }
 
@@ -840,6 +842,10 @@ func statusCardBodyHTML(st statusOut) string {
 			drawn[iv.Chain] = true
 		}
 	}
+	// 삭제 승인도 같은 자리다 — **요청을 올린 사람이 대개 서 있는 곳이 층(dev·main) 위**라,
+	// st.Chain 분기 안에 두면 정작 필요한 자리에서 안 보인다. 그리고 지금까지 이 사실을
+	// 보여 주는 화면은 뷰어 창 하나뿐이었다(status·handoff 는 prune 을 한 글자도 안 말했다).
+	b.WriteString(pruneCardHTML(st))
 
 	if st.Chain == nil {
 		b.WriteString(`<div class="crumb">체인 밖</div><div class="repo">` + esc(st.Repo) + `</div>`)

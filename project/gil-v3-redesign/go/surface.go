@@ -66,7 +66,6 @@ var mcpSurface = map[string]string{
 var terminalOnly = map[string]string{
 	"migrate":        "이력을 다시 그린다(모든 SHA 가 바뀐다) — 사람이 터미널에서, 되돌릴 곳을 보고.",
 	"prune":          "가지를 지운다 — 삭제는 사람의 손과 승인 화면을 지난다.",
-	"prune-approve":  "삭제 승인 — 사람이 직접 누른다.",
 	"chain-retire":   "체인을 접는다 — 되돌리기 어려운 정리라 터미널에서.",
 	"chain-unretire": "접은 체인을 되살린다 — 위와 같은 자리.",
 	"guard":          "git 훅과 로컬 설정을 건드린다 — 클론마다 사람이 한 번 건다.",
@@ -90,6 +89,23 @@ var terminalOnly = map[string]string{
 var appOnlyTools = map[string]string{
 	"gil_interview_submit": "사람이 카드 폼에 적은 답이 돌아오는 통로.",
 	"gil_status_card":      "화면이 제 내용을 가져오는 통로.",
+	"gil_prune_approve":    "사람이 카드에서 누른 삭제 승인.",
+	"gil_prune_withdraw":   "사람이 카드에서 삭제 요청을 거둔다.",
+}
+
+// humanOnly — 이 표면에서 **사람이 화면에서 누르는** 명령. 툴은 있지만 에이전트의 것이 아니다.
+//
+// 왜 세 번째 표가 필요한가. 두 표만 있을 때는 답이 둘뿐이었다 — "툴이 있다(에이전트가 쳐라)"
+// 또는 "툴이 없다(사람이 터미널에서)". 그런데 카드에 버튼을 세우면서 **둘 다 아닌 것**이
+// 생겼다: 툴은 실재하는데(카드가 부른다) 에이전트가 칠 것은 아니다.
+//
+//	· terminalOnly 에 두면 → "이 표면엔 툴이 없다" 가 **거짓말**이 된다.
+//	· mcpSurface 에 두면 → 안내가 툴 이름을 주고, 에이전트가 사람의 판단을 대신 누른다.
+//
+// 그래서 안내는 **어디를 누르면 되는지**를 말한다. 가리키는 것이 실재하고(카드의 그 버튼),
+// 에이전트에게 칠 것을 주지도 않는다.
+var humanOnly = map[string]string{
+	"prune-approve": "위에 뜬 카드의 [삭제를 승인한다] 버튼 — 사람이 누른다",
 }
 
 // surfaceCmd — 이 명령을 **지금 표면의 문법으로** 부른다.
@@ -102,6 +118,9 @@ func surfaceCmd(cmd string) string {
 	}
 	if t, ok := mcpSurface[cmd]; ok {
 		return t + " 툴"
+	}
+	if where, ok := humanOnly[cmd]; ok {
+		return where
 	}
 	if why, ok := terminalOnly[cmd]; ok {
 		return "`gil " + cmd + "` (이 표면엔 툴이 없다 — " + why + ")"
@@ -123,6 +142,9 @@ func surfaceCall(cmd, cliArgs, mcpArgs string) string {
 	// 툴이 없는 명령은 **CLI 문법 그대로** 준다 — 그게 사람이 터미널에서 칠 줄이기 때문이다.
 	// (여기서 툴 이름 흉내를 내면 인자가 통째로 사라진다: `gil viewer open` 이 `gil viewer`
 	//  가 되어, 사람이 그대로 쳐도 아무 일이 안 일어난다.)
+	if where, ok := humanOnly[cmd]; ok {
+		return where
+	}
 	tool, ok := mcpSurface[cmd]
 	if !ok {
 		why, known := terminalOnly[cmd]
@@ -180,6 +202,9 @@ func surfaceUnknownCmds(cmds []string) []string {
 			continue
 		}
 		if _, ok := terminalOnly[c]; ok {
+			continue
+		}
+		if _, ok := humanOnly[c]; ok {
 			continue
 		}
 		out = append(out, c)

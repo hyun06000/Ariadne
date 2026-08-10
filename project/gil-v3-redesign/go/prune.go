@@ -773,6 +773,63 @@ func tombstoneText(sc pruneScope, reason, bundle string) string {
 	return b.String()
 }
 
+// pruneReq — 사람의 승인을 기다리는 삭제 요청. 삭제는 비가역이라 **사람 손에서만** 눌린다.
+type pruneReq struct {
+	target string
+	sha    string
+	body   string
+}
+
+// pendingPrunes — prune-request 중 아직 승인·실행·철회되지 않은 것들.
+//
+// **여기 사는 이유.** 이 함수는 뷰어 파일에 세들어 있었고(viewerLog 를 쓰느라), 그래서 카드
+// 쪽에서 같은 사실이 필요해졌을 때 "새로 하나 쓰자"가 자연스러워 보였다. 그러면 같은 것을
+// 읽는 구현이 넷이 된다(pruneState · 이것 · arrivedPruneActs · 새것) — 그중 하나가 조용히
+// 다른 답을 내는 날이 온다. 범위만 인자로 받아 자리를 옮긴다.
+//
+// **읽는 통로를 인자로 받는다.** 뷰어는 다른 작업 디렉토리에서 도는 별도 프로세스라
+// `-C <repo>` 로 저장소를 짚는다 — 여기서 cwd 기준 gitlog 를 박아 두면 `viewer serve --repo X`
+// 가 조용히 **다른 저장소의** 삭제 요청을 읽는다(오류가 아니라 오답이라 아무도 못 알아챈다).
+func pendingPrunesFrom(logf func(format string) string) []pruneReq {
+	out := logf("%H" + fsep + trailer("Gil-Kind") + fsep +
+		trailer("Gil-Prune-Target") + fsep + "%B" + sep)
+	// **대상마다 가장 최근의 사실 하나**로 판정한다(이슈 #91). 옛 코드는 "요청이 있고 승인/실행이
+	// 하나라도 있으면 끝난 것"으로 봤는데, 그러면 철회 뒤 **다시 올린 요청이 영영 안 뜬다** —
+	// 결말은 시간 축 위의 마지막 것이지 존재 여부가 아니다.
+	decided := map[string]bool{}
+	var open []pruneReq
+	for _, rec := range strings.Split(out, sep) { // new→old
+		parts := strings.SplitN(strings.TrimLeft(rec, "\n"), fsep, 4)
+		if len(parts) < 4 {
+			continue
+		}
+		kind, target := strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
+		if target == "" || decided[target] {
+			continue
+		}
+		switch kind {
+		case "prune-approve", "prune", "prune-withdraw":
+			decided[target] = true // 승인·실행·철회 — 어느 쪽이든 이 요청은 끝났다
+		case "prune-request":
+			decided[target] = true
+			sha := strings.TrimSpace(parts[0])
+			if len(sha) > 9 {
+				sha = sha[:9]
+			}
+			open = append(open, pruneReq{target: target, sha: sha,
+				body: strings.TrimSpace(stripTrailers(parts[3]))})
+		}
+	}
+	return open
+}
+
+// pendingPrunes — 이 프로세스가 선 저장소에서. 범위는 로컬+원격(뷰어의 allRefs 와 같다).
+func pendingPrunes() []pruneReq {
+	return pendingPrunesFrom(func(f string) string {
+		return gitlog("--format="+f, "--branches", "--remotes")
+	})
+}
+
 func cmdPrune(args []string) {
 	fs := newFlags("gil prune")
 	dryRun := fs.boolFlag("dry-run")

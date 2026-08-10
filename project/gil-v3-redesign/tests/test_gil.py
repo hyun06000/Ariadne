@@ -14579,9 +14579,16 @@ class TestGuidancePointsAtThisSurface(GilFixture):
         mcp_block, _, rest = rest.partition("}")
         _, _, term_block = rest.partition("var terminalOnly = map[string]string{")
         term_block = term_block.partition("}")[0]
+        # 표는 **셋**이다. 세 번째(humanOnly)는 "툴은 실재하는데 에이전트의 것이 아니다" —
+        # 카드의 버튼이 부르는 자리다. 이 표를 안 읽으면, 자리를 옳게 정한 명령이
+        # "아무도 안 정했다"로 잡힌다(실제로 prune-approve 가 그렇게 잡혔다).
+        _, _, human_block = surf.partition("var humanOnly = map[string]string{")
+        human_block = human_block.partition("}")[0]
         on_mcp = set(re.findall(r'"([a-z][a-z-]*)":\s*"gil_[a-z_]+"', mcp_block))
         terminal = set(re.findall(r'"([a-z][a-z-]*)":\s*"', term_block))
-        self.assertTrue(on_mcp and terminal, "surface.go 의 두 표를 못 읽었다 — 시험이 눈이 먼다")
+        human = set(re.findall(r'"([a-z][a-z-]*)":\s*"', human_block))
+        self.assertTrue(on_mcp and terminal and human,
+                        "surface.go 의 세 표를 못 읽었다 — 시험이 눈이 먼다")
 
         named = set()
         for f in sorted(glob.glob(os.path.join(self.GO, "*.go"))):
@@ -14593,13 +14600,13 @@ class TestGuidancePointsAtThisSurface(GilFixture):
                         if cmd in known:
                             named.add(cmd)
 
-        unplaced = sorted(named - on_mcp - terminal)
+        unplaced = sorted(named - on_mcp - terminal - human)
         self.assertEqual(
             unplaced, [],
             "안내가 부르는데 이 표면에서 어디에 있는지 아무도 안 정한 명령:\n  " +
             ", ".join(unplaced) +
-            "\n  둘 중 하나를 해라 — 툴을 세우거나(mcpSurface), 왜 터미널 전용인지 적거나"
-            "(terminalOnly). 조용히 두는 선택지는 없다.")
+            "\n  셋 중 하나를 해라 — 툴을 세우거나(mcpSurface), 사람이 화면에서 누르는 것이라고"
+            " 적거나(humanOnly), 왜 터미널 전용인지 적거나(terminalOnly). 조용히 두는 선택지는 없다.")
 
 
 class TestGitFailuresSpeakGilsLanguage(GilFixture):
@@ -14875,6 +14882,152 @@ class TestTheWorldStandsOnlyWhereSomeoneChose(GilFixture):
         out = r.stdout + r.stderr
         self.assertNotIn("프로젝트가 아니라", out, "사람이 직접 친 자리를 되물었다")
         self.assertIn("gil init 완료", out)
+
+
+class TestDeletionCanBeDecidedWhereThePersonIs(GilFixture):
+    """**삭제 승인이 카드 안에 선다** (상현님 결정, 2026-08-10).
+
+    규범은 처음부터 "삭제는 사람의 판단을 지난다"였다. 그런데 그 판단을 **누를 자리**가
+    뷰어 창 하나뿐이었다 — 뷰어는 이 표면에서 열 수 없고 비개발자에게 터미널은 없다.
+    즉 규범은 사람이 승인한다고 말하는데 실제로는 **승인할 수 있는 사람이 없었다.**
+    요청은 쌓이고 아무도 못 푼다.
+
+    그리고 요청이 떠 있다는 사실을 보여 주는 화면도 뷰어뿐이었다 — status·handoff 는
+    prune 을 한 글자도 말하지 않았다(실측 grep 0).
+
+    맞바꾼 것: 통로를 세우면 에이전트도 이 툴을 부를 수 있게 된다(visibility:["app"] 은
+    벽이 아니라 힌트다). 도달가능성을 택했고, 방어는 두 겹으로 남는다 — Gil-By 가 누가
+    눌렀는지 적고, 승인만으로는 아무것도 안 지워진다(실행은 터미널의 확인 문구)."""
+
+    def _app(self):
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1", "GIL_NO_VERSION_CHECK": "1"})
+        self.addCleanup(p.terminate)
+        state = {"id": 0}
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                try:
+                    m = json.loads(ln.strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "x"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        state["id"] += 1
+        send({"jsonrpc": "2.0", "id": state["id"], "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "app", "version": "0"}}})
+        pump(state["id"])
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        def call(name, args):
+            state["id"] += 1
+            send({"jsonrpc": "2.0", "id": state["id"], "method": "tools/call",
+                  "params": {"name": name, "arguments": args}})
+            r = pump(state["id"])
+            if r is None:
+                return "", "(응답 없음)"
+            if "error" in r:
+                return "", r["error"].get("message", "")
+            res = r["result"]
+            txt = "".join(c.get("text", "") for c in res.get("content", []))
+            return ("", txt) if res.get("isError") else (txt, "")
+        return call
+
+    WHY = "이주가 끝나 옛 계보는 더 볼 이유가 없다."
+
+    def _requested(self):
+        """삭제 요청이 올라온 상태 — 그리고 HEAD 는 층 위에 선다(요청을 올린 사람의 자리)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "old", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+        self.gil("chain-close", "old", "--verdict", "supported", "--retro", "-", input="회고")
+        r = self.gil("prune", "old", "--request", "--reason", self.WHY)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self._git("checkout", "-q", "main")
+
+    def _card(self):
+        return self.gil("status", "--card").stdout
+
+    def test_the_request_is_visible_where_the_person_stands(self):
+        """층(dev·main) 위에서도 보여야 한다 — 요청을 올린 사람이 서 있는 자리가 거기다."""
+        self._requested()
+        card = self._card()
+        self.assertIn('data-prune="old"', card,
+                      "삭제 요청이 카드에 안 뜬다 — 뷰어 말고는 이 사실을 보여 주는 화면이 없다")
+        self.assertIn(self.WHY, card, "요청 이유가 없다 — 그것 말고 사람이 판단할 재료가 없다")
+        self.assertIn("지금 지워지지는 않는다", card,
+                      "승인이 무엇을 하는지 화면이 말하지 않는다")
+
+    def test_the_agent_reads_the_same_fact(self):
+        """화면만 알고 데이터가 모르면 둘이 갈린다."""
+        self._requested()
+        st = json.loads(self.gil("status", "--json").stdout)
+        got = [p["target"] for p in st["pending_prunes"]]
+        self.assertEqual(got, ["old"], "gil status 가 삭제 대기를 말하지 않는다: " + repr(got))
+
+    def test_the_button_actually_approves(self):
+        """**버튼이 보내는 그 인자 그대로** 승인이 돈다 — 그리고 Gil-By 에 자국이 남는다."""
+        self._requested()
+        card = self._card()
+        m = re.search(r'<button[^>]*data-tool="gil_prune_approve"[^>]*>', card)
+        self.assertIsNotNone(m, "승인 버튼이 없다")
+        tgt = re.search(r'data-target="([^"]*)"', m.group(0)).group(1)
+        out, err = self._app()("gil_prune_approve", {"repo": self.repo, "target": tgt})
+        self.assertEqual(err, "", f"승인 버튼이 보내는 인자가 거부됐다: {err}")
+        # 승인은 됐지만 **아무것도 안 지워졌다** — 문은 둘이다.
+        self.assertIn("old", self.branches(), "승인만으로 가지가 사라졌다 — 문이 하나로 줄었다")
+        by = self._git("log", "--branches", "-1", "--format=%(trailers:key=Gil-By,valueonly)",
+                       "--grep=prune-approve").stdout.strip()
+        self.assertEqual(by, "card", "누가 눌렀는지가 안 남았다 — ⚡ 고지가 생산자를 잃는다")
+
+    def test_withdrawing_takes_the_request_back(self):
+        """거두는 길이 없으면 그 문은 덫이다 — 그리고 거두는 데 관문을 세우지 않는다."""
+        self._requested()
+        out, err = self._app()("gil_prune_withdraw", {"repo": self.repo, "target": "old"})
+        self.assertEqual(err, "", f"철회가 거부됐다: {err}")
+        self.assertNotIn('data-prune="old"', self._card(), "거뒀는데 카드가 남았다")
+        card_btn = re.search(r'<button[^>]*data-tool="gil_prune_withdraw"[^>]*>',
+                             self.gil("status", "--card").stdout)
+        # (지금은 요청이 없어 버튼도 없다 — 있을 때 무장 면제였는지는 요청 상태에서 본다)
+        self.assertIsNone(card_btn, "요청을 거뒀는데 버튼이 남아 있다")
+
+    def test_withdraw_is_not_armed(self):
+        """아무것도 안 지우는 버튼에 두 번 클릭을 걸면 그 관문이 값싸진다."""
+        self._requested()
+        m = re.search(r'<button[^>]*data-tool="gil_prune_withdraw"[^>]*>', self._card())
+        self.assertIsNotNone(m, "철회 버튼이 없다")
+        self.assertIn("data-noarm", m.group(0), "철회에 두 번 클릭이 걸려 있다")
+        a = re.search(r'<button[^>]*data-tool="gil_prune_approve"[^>]*>', self._card())
+        self.assertIn("data-arm=", a.group(0), "승인이 무엇을 확정하는지 되묻지 않는다")
+
+    def test_the_guidance_points_at_the_button_not_at_a_missing_tool(self):
+        """**툴은 실재하는데 에이전트의 것이 아니다** — 그 셋째 자리를 안내가 말한다.
+
+        terminalOnly 에 두면 "이 표면엔 툴이 없다" 가 거짓이 되고, mcpSurface 에 두면
+        에이전트에게 사람의 판단을 누를 이름을 준다."""
+        self._requested()
+        out, _ = self._app()("gil_status", {"repo": self.repo})
+        self.assertNotIn("gil_prune_approve", out,
+                         "에이전트에게 삭제 승인 툴 이름을 줬다 — 사람의 판단이다")
+        self.gil("prune-approve", "old", "--by", "card")
+        out2, _ = self._app()("gil_status", {"repo": self.repo})
+        self.assertIn("승인했다", out2, "승인 도착이 에이전트에게 안 닿았다")
 
 
 class TestArrivalsReachTheMCPSession(GilFixture):

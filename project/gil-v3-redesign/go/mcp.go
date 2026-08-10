@@ -164,6 +164,7 @@ func cmdMCP(args []string) {
 	registerGilStatusUI(s)         // 가벼운 기본 화면 — 무거운 전체맵은 gil_graph 쪽에 남는다
 	registerInterviewSubmitTool(s) // 앱 전용 — 사람의 인터뷰 답이 돌아오는 통로(mcp_ui_interview.go)
 	registerGilCardTool(s)         // 앱 전용 — 화면이 자기 내용을 가져오는 통로(mcp_ui_card.go)
+	registerPruneCardTools(s)      // 앱 전용 — 삭제 승인·철회 버튼이 도는 통로(mcp_ui_prune.go)
 	// **프레임을 우리 쪽에도 남긴다**(GIL_MCP_LOG=<파일>).
 	//
 	// 왜 필요한가. Claude Desktop 의 로그는 method 와 id 만 남기고 params·result 를 안 남긴다 —
