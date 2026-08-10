@@ -757,25 +757,18 @@ class TestInit(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("뷰어", r.stdout)
 
-    def test_init_launches_integrated_viewer(self):
-        """뷰어가 gil 에 통합됐다 — init 은 gil 자기 자신을 뷰어로 띄우고(또는 이미 떠 있으면
-        그 URL 안내), 어느 경우든 깨지지 않는다. 별도 gilviewer 바이너리는 필요 없다."""
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)   # 억제 끄기 → 실제 기동 시도
-        env.pop("GIL_VIEWER", None)
-        r = subprocess.run([*GIL_CMD, "init", "--name", "aria"], cwd=self.repo,
-                           capture_output=True, text=True, env=env, timeout=15)
+    def test_init_points_at_the_two_screens(self):
+        """init 은 이제 서버를 안 띄운다 — 대신 **어디를 보면 되는지** 말한다.
+
+        옛 init 은 관전 서버를 자동 기동했다. 그러면 저장소를 만드는 것만으로 사람이 안 부른
+        서버가 하나 생긴다(상현님). 그 뒤 서버 자체가 은퇴했으니, 남는 값은 "지금 어디"와
+        "전체 그래프" 두 화면을 그 자리에서 알려 주는 것이다."""
+        r = self.gil("init", "--name", "aria")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("STATE", r.stdout)
-        # 뷰어는 gil 에 통합됐다(별도 바이너리 없음). 다만 이제 **자동으로 뜨지 않는다** —
-        # 저장소를 만드는 것만으로 사람이 안 부른 서버가 생기지 않게(상현님). 대신 여는
-        # 길을 그 자리에서 준다: 끄기만 하면 사람은 그래프가 사라졌다고 읽는다.
-        self.assertIn("gil viewer open", r.stdout)
-        self.assertIn("gil status", r.stdout)
-        self.assertNotIn("gilviewer", r.stdout)  # 옛 별도 바이너리 언급 없음(통합됨)
-        # init 이 띄운 뷰어 프로세스가 남았으면 정리(포트 8790).
-        subprocess.run(["pkill", "-f", "viewer serve --repo"],
-                       capture_output=True)
+        out = r.stdout + r.stderr
+        self.assertIn("gil status", out, "지금 어디인지 보는 길을 안 알려준다")
+        self.assertIn("gil graph", out, "전체 그래프를 보는 길을 안 알려준다")
+        self.assertNotIn("viewer", out, "은퇴한 명령을 아직 가리킨다")
 
     def test_no_args_prints_usage(self):
         """인자 없는 gil 은 침묵이 아니라 명령 표면(프롬프트)을 낸다."""
@@ -1190,31 +1183,17 @@ class TestReInterview(GilFixture):
         self.assertIn("[인터뷰] mr", out)
         self.assertIn("개정하는 중", out)   # 확정된 기준이 있는 채로 다시 묻는 중이다
 
-    def test_viewer_shows_the_new_form(self):
-        """뷰어에 폼이 뜬다 — 커밋은 있는데 아무에게도 도달하지 않던 자리."""
+    def test_the_card_shows_the_new_form(self):
+        """다시 물은 질문이 **사람 화면에 뜬다** — 커밋은 있는데 아무에게도 도달하지 않던 자리.
+
+        옛 시험은 뷰어 서버를 띄워 HTML 을 받아 봤다. 매체가 카드로 바뀌었을 뿐 재는 것은
+        같다: 확정된 기준이 있는 채로 **다시 물으면** 그 질문이 사람 앞에 서는가."""
         self._settled_chain()
         self._ask("mr", "전제가 반증됐다 — 범위는?")
-        import socket, time, urllib.request
-        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo, "--port", str(port)],
-                             env=dict(os.environ, GIL_NO_VIEWER="1"),
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            body = ""
-            for _ in range(200):  # 10초 — 2초는 워커 12에서 깜빡인다
-                try:
-                    body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read().decode()
-                    break
-                except Exception:
-                    time.sleep(0.05)
-            self.assertIn("📋 인터뷰", body)
-            self.assertIn("전제가 반증됐다", body)
-        finally:
-            p.terminate()
-            try:
-                p.wait(timeout=3)
-            except Exception:
-                p.kill()
+        card = self.gil("status", "--card").stdout
+        self.assertIn("📋", card, "다시 물은 질문이 화면에 안 뜬다")
+        self.assertIn("전제가 반증됐다", card, "질문 원문이 화면에 없다")
+        self.assertIn('data-iv="mr"', card, "어느 인터뷰의 폼인지 화면이 안 말한다")
 
     def test_revision_stacks_instead_of_overwriting(self):
         """기준은 사람의 답이라 지워지면 안 된다 — 차수로 쌓인다(append-only 의 정신)."""
@@ -1569,7 +1548,7 @@ class TestCycleForkIsDrawnAsAFork(GilFixture):
         """--parent 는 open 이 강제·검증하는 선언이다 — 위상보다 이쪽이 참이다."""
         self._forked_chain()
         out = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out)
+        self.gil("graph", "--html", "--out", out)
         with open(out, encoding="utf-8") as f:
             html = f.read()
         m = re.search(r'"cy3","steps":\d+,"status":"[^"]*","here":\w+,"parent":"([^"]*)"', html)
@@ -1595,7 +1574,7 @@ class TestCycleForkIsDrawnAsAFork(GilFixture):
         데이터를 심어 화면에서 그리므로 서버가 없어도 자기완결이다."""
         self._forked_chain()
         out = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out)
+        self.gil("graph", "--html", "--out", out)
         with open(out, encoding="utf-8") as f:
             html = f.read()
         self.assertIn("det-gitgraph", html)
@@ -1630,7 +1609,7 @@ class TestCycleForkIsDrawnAsAFork(GilFixture):
         """배치가 부모를 본다 — 같은 부모의 형제는 같은 열에서 세로로 갈린다."""
         self._forked_chain()
         out = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out)
+        self.gil("graph", "--html", "--out", out)
         with open(out, encoding="utf-8") as f:
             html = f.read()
         self.assertIn("parentOf", html)   # 계보로 col/row 를 잡는 배치가 들어 있다
@@ -1685,7 +1664,7 @@ class TestJudgmentArrival(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "c1", "--purpose", "정리 대상")
         self.gil("prune", "c1", "--request", "--reason", "실험이었다")
-        self.gil("prune-approve", "c1", "--by", "viewer")   # 뷰어가 부르는 형태
+        self.gil("prune-approve", "c1", "--by", "card")   # 카드가 부르는 형태
         out = self.gil("log").stdout + self.gil("log").stderr
         self.assertIn("사람이 삭제를 **승인했다**", out)
         self.assertIn("--confirm", out)   # 다음 수까지 준다
@@ -1703,7 +1682,7 @@ class TestJudgmentArrival(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "c1", "--purpose", "정리 대상")
         self.gil("prune", "c1", "--request", "--reason", "실험이었다")
-        self.gil("prune", "c1", "--withdraw", "--reason", "역시 두자", "--by", "viewer")
+        self.gil("prune", "c1", "--withdraw", "--reason", "역시 두자", "--by", "card")
         out = self.gil("log").stdout + self.gil("log").stderr
         self.assertIn("거뒀다", out)
         self.assertIn("지우지 마라", out)
@@ -1712,7 +1691,7 @@ class TestJudgmentArrival(GilFixture):
         self.gil("init", "--name", "clew")
         self.gil("chain", "c1", "--purpose", "정리 대상")
         self.gil("prune", "c1", "--request", "--reason", "실험이었다")
-        self.gil("prune-approve", "c1", "--by", "viewer")
+        self.gil("prune-approve", "c1", "--by", "card")
         self.assertIn("사람이 삭제", self.gil("log").stdout + self.gil("log").stderr)
         self.gil("prune", "c1")            # 승인 여부를 그 자리에서 읽는다
         again = self.gil("log").stdout + self.gil("log").stderr
@@ -1815,7 +1794,7 @@ class TestMarkdownTables(GilFixture):
             f.write(self.BODY)
         self.gil("open", "t/c1", "--author", "x", "--purpose", "p", "--body-file", "body.md")
         out = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out)
+        self.gil("graph", "--html", "--out", out)
         with open(out, encoding="utf-8") as f:
             return f.read()
 
@@ -1902,194 +1881,6 @@ class TestPruneWithdraw(GilFixture):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("이미 접혀 있다", r.stderr)
         self.assertIn("chain-unretire", r.stderr)
-
-
-class TestViewerLeavesATrace(GilFixture):
-    """뷰어가 죽으면 **왜 죽었는지 남아야 한다** (상현님 실사용).
-
-    "인터뷰 진행하다가 갑자기 서버가 죽었어" — 그런데 자동 기동된 뷰어는 stdout/stderr 를
-    통째로 /dev/null 로 버려서 한 글자도 안 남았다. 사후 진단이 원리적으로 불가능했다.
-    관전 도구의 침묵은 '이상 없음'과 구분되지 않는다(#84) — 그 규칙은 도구 자신에게도 선다."""
-
-    def _log_path(self):
-        return os.path.join(self.repo, ".git", "gil-viewer.log")
-
-    def _free_port(self):
-        """OS 에서 빈 포트를 받는다 — pid 로 계산하면 병렬 워커끼리 같은 포트를 골라 깜빡인다."""
-        import socket
-        s = socket.socket()
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-        s.close()
-        return str(port)
-
-    def test_serve_writes_start_and_stop_to_the_repo_log(self):
-        self.gil("init", "--name", "clew")
-        port = self._free_port()
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
-                             cwd=self.repo, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, env=env)
-        try:
-            for _ in range(50):
-                if os.path.exists(self._log_path()):
-                    break
-                time.sleep(0.1)
-            self.assertTrue(os.path.exists(self._log_path()), "뷰어 로그가 안 생겼다")
-            with open(self._log_path(), encoding="utf-8") as f:
-                started = f.read()
-            self.assertIn("기동", started)
-            self.assertIn("포트 " + port, started)
-            self.assertIn(self.repo.split(os.sep)[-1], started)  # 어느 저장소를 보는가
-        finally:
-            p.terminate()
-            p.wait(timeout=10)
-        for _ in range(30):
-            with open(self._log_path(), encoding="utf-8") as f:
-                out = f.read()
-            if "종료" in out:
-                break
-            time.sleep(0.1)
-        self.assertIn("종료", out, "죽은 이유가 안 남았다:\n" + out)
-
-    def _start(self, port, cwd=None):
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
-                             cwd=cwd or self.repo, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, env=env)
-        for _ in range(60):
-            try:
-                urllib.request.urlopen("http://127.0.0.1:" + port + "/", timeout=1).read()
-                return p
-            except Exception:
-                time.sleep(0.1)
-        p.terminate()
-        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
-
-    def test_a_broken_repo_does_not_kill_the_server(self):
-        """한 번의 거부가 관전 창 전체를 끊으면 안 된다 — die() 가 서버를 죽이지 않는다.
-
-        렌더 경로의 헬퍼 여럿이 하드 git() 을 부르는데, 그중 하나가 실패하면(index.lock 경합·
-        레포 이동·일시적 I/O) 옛 코드는 os.Exit 로 서버를 통째로 죽였다."""
-        self.gil("init", "--name", "clew")
-        port = self._free_port()
-        p = self._start(port)
-        try:
-            os.rename(os.path.join(self.repo, ".git"), os.path.join(self.repo, ".git-off"))
-            try:
-                try:
-                    urllib.request.urlopen("http://127.0.0.1:" + port + "/", timeout=5).read()
-                except Exception:
-                    pass  # 500 이어도 좋다 — 중요한 건 프로세스가 사는 것이다
-            finally:
-                os.rename(os.path.join(self.repo, ".git-off"), os.path.join(self.repo, ".git"))
-            self.assertIsNone(p.poll(), "레포가 깨졌다고 서버가 죽었다")
-            # 복구되면 다시 정상으로 응답한다.
-            body = urllib.request.urlopen("http://127.0.0.1:" + port + "/", timeout=5).read()
-            self.assertIn(b"gil", body)
-        finally:
-            p.terminate()
-            p.wait(timeout=10)
-
-    def test_viewer_retires_when_its_repo_disappears(self):
-        """관전 레포가 사라지면 스스로 물러난다 — 좀비가 기본 포트를 쥐면 사람이 남의 그래프를 본다."""
-        work = tempfile.mkdtemp(prefix="gil-zombie-")
-        subprocess.run(["git", "init", "-q", work], check=True)
-        for a in (["config", "user.email", "t@e.com"], ["config", "user.name", "t"],
-                  ["config", "commit.gpgsign", "false"]):
-            subprocess.run(["git", "-C", work, *a], check=True)
-        env = dict(os.environ, GIL_NO_VIEWER="1")
-        subprocess.run([*GIL_CMD, "init", "--name", "clew"], cwd=work, env=env,
-                       capture_output=True, text=True)
-        port = self._free_port()
-        p = self._start(port, cwd=work)
-        try:
-            shutil.rmtree(work, ignore_errors=True)
-            for _ in range(120):   # 감시 주기 5초 + 여유
-                if p.poll() is not None:
-                    break
-                time.sleep(0.25)
-            self.assertIsNotNone(p.poll(), "관전 레포가 사라졌는데 뷰어가 포트를 쥐고 남았다")
-        finally:
-            if p.poll() is None:
-                p.terminate()
-                p.wait(timeout=10)
-            shutil.rmtree(work, ignore_errors=True)
-
-    def test_wait_notices_and_revives_a_dead_viewer(self):
-        """기다리는 도중 창구가 사라지면 알아채고 다시 띄운다 (이슈 #93).
-
-        실사용에서 정확히 이 일이 났다 — `--wait` 은 멀쩡히 기다리는데 뷰어만 조용히 죽어
-        **사람이 답을 낼 창구가 사라졌다.** 둘 다 "왜 아무 일이 없지"에서 멈췄다."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "c", "--purpose", "P")
-        self.gil("interview", "c", "--ask", "-", input='[{"q":"무엇을","type":"text"}]')
-        port = self._free_port()
-        env = dict(os.environ, GIL_VIEWER_PORT=port)
-        env.pop("GIL_NO_VIEWER", None)
-        log = os.path.join(self.repo, "wait.out")
-        with open(log, "w") as lf:
-            w = subprocess.Popen([*GIL_CMD, "interview", "c", "--wait", "--timeout", "60"],
-                                 cwd=self.repo, stdout=lf, stderr=subprocess.STDOUT, env=env)
-        try:
-            def listener():
-                r = subprocess.run(["lsof", "-nP", "-iTCP:" + port, "-sTCP:LISTEN", "-t"],
-                                   capture_output=True, text=True)
-                return [int(x) for x in r.stdout.split()]
-            pids = []
-            for _ in range(80):
-                pids = listener()
-                if pids:
-                    break
-                time.sleep(0.25)
-            if not pids:
-                self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
-            os.kill(pids[0], 9)            # 창구만 죽인다 — 기다리는 쪽은 그대로
-            for _ in range(80):            # 다음 틱에 알아채고 되살린다
-                with open(log, encoding="utf-8") as f:
-                    out = f.read()
-                if "사라졌다" in out:
-                    break
-                time.sleep(0.25)
-            self.assertIn("사라졌다", out, "창구가 죽었는데 기다리는 쪽이 몰랐다:\n" + out)
-            self.assertIsNone(w.poll(), "뷰어가 죽었다고 기다리던 쪽까지 죽었다")
-        finally:
-            w.terminate()
-            w.wait(timeout=15)
-            for pid in (listener() if 'listener' in dir() else []):
-                try:
-                    os.kill(pid, 15)
-                except Exception:
-                    pass
-
-    def test_viewer_list_says_which_port_watches_which_repo(self):
-        """포트 폴백으로 뷰어가 겹겹이 쌓이는데 어느 것이 내 저장소인지 알 방법이 없었다."""
-        self.gil("init", "--name", "clew")
-        r = self.gil("viewer", "list")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue("뜬 뷰어 없음" in r.stdout or "127.0.0.1:" in r.stdout, r.stdout)
-
-    def test_log_lives_in_git_dir_not_the_worktree(self):
-        """로그가 작업트리를 더럽히면 '미커밋 작업'으로 잡혀 관전 화면을 오염시킨다."""
-        self.gil("init", "--name", "clew")
-        port = self._free_port()
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
-                             cwd=self.repo, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, env=env)
-        try:
-            for _ in range(50):
-                if os.path.exists(self._log_path()):
-                    break
-                time.sleep(0.1)
-            st = self._git("status", "--porcelain").stdout
-            self.assertNotIn("gil-viewer.log", st)
-        finally:
-            p.terminate()
-            p.wait(timeout=10)
 
 
 class TestRetireHidesNothingSilently(GilFixture):
@@ -2771,622 +2562,6 @@ class TestGitMissing(GilFixture):
         self.assertIn("gil", out.stdout)
 
 
-class TestViewer(GilFixture):
-    """gil viewer — 뷰어가 gil 에 통합됨(별도 gilviewer 폐지, 2026-07-25 상현님).
-
-    serve(관전 서버)·build(정적 자기완결 HTML)·text(트리) 세 서브명령. 격리 방식으로
-    통합돼 gil 본체는 안 건드린다. 여기선 build 자기완결성과 serve 기동을 검증."""
-
-    def _seed_graph(self):
-        """작은 데모 그래프 하나(체인·사이클·스텝·본문)를 만든다."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "demo", "--purpose", "뷰어 테스트")
-        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "합 100")
-        self.gil("step", "demo/c001", "--kind", "verify", "--verdict", "supported",
-                 "--body", "검증 보고서 본문. 40+60=100.", "--title", "검증")
-        self.gil("step", "demo/c001", "--kind", "success", "--title", "찾음")
-        self.gil("close", "demo/c001", "--verdict", "supported")
-
-    def test_viewer_build_is_self_contained(self):
-        self._seed_graph()
-        out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        with open(out_html, encoding="utf-8") as f:
-            html = f.read()
-        # 자기완결: 외부 http(s) 리소스 참조 없음(w3.org 네임스페이스·색상 힌트는 예외).
-        import re
-        externals = [u for u in re.findall(r'https?://[^\s"\'<>]+', html)
-                     if "w3.org" not in u]
-        self.assertEqual(externals, [], f"외부 참조 있음: {externals}")
-        # 정적: 폴링 비활성(서버 없음).
-        self.assertNotIn("/poll", html)
-        self.assertNotIn("setInterval(poll", html)
-        # 스텝 본문이 인라인 임베드됨(서버 페치 없이 보고서 렌더).
-        self.assertIn('"body":', html)
-        self.assertIn("demo", html)          # 데모 체인이 그래프에 들어감
-        self.assertIn("정적 스냅샷", html)   # live 대신 스냅샷 표시
-
-    def _exit_map(self):
-        """정적 빌드 HTML 에서 (사이클, 스텝) → exit 라벨을 뽑는다."""
-        import json, re
-        out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
-        with open(out_html, encoding="utf-8") as f:
-            html = f.read()
-        data = json.loads(re.search(r'id="cycledata"[^>]*>(.*?)</script>', html, re.S).group(1))
-        out = {}
-        for chain, v in data.items():
-            for cy in v["cycles"]:
-                for n in cy["nodes"]:
-                    if n.get("exit"):
-                        out[(cy["name"], n["id"])] = n["exit"]
-        return out
-
-    def test_exit_ghost_only_where_something_took_over(self):
-        """진출 경계는 추측이 아니라 사실이다 (이슈 #72).
-
-        옛 구현은 카드 안에서 자식 없는 잎을 전부 '나갔다'고 그렸다 — 아무도 이어받지 않은
-        잎에도, 잎 판정이 무너지면 모든 노드에도 붙었다. 이제 그 스텝을 진입 부모로 삼은
-        카드가 실재할 때만 나간 것이다."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "demo", "--purpose", "P")
-        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "demo/c001", "--kind", "success", "--title", "됨")
-        self.gil("close", "demo/c001", "--verdict", "supported")
-        # 아무도 이어받지 않은 사이클 — 진출 고스트가 붙으면 거짓이다.
-        self.assertEqual(self._exit_map(), {})
-        # c001 의 끝에서 실제로 새 사이클이 태어나면, 그 스텝에만 진출이 생긴다.
-        self.gil("open", "demo/c002", "--author", "clew", "--purpose", "이어받음",
-                 "--parent", "c001", "--inherit", "c001 교훈")
-        exits = self._exit_map()
-        self.assertEqual(len(exits), 1, exits)
-        (cycle, step), label = next(iter(exits.items()))
-        self.assertEqual(cycle, "c001")
-        self.assertIn("demo/c002", label)
-
-    def test_terminal_leaf_alone_does_not_exit(self):
-        """종결 잎은 원래 나가지 않는다 — 종결 뒤 부착이 문법으로 막혀 있으니(#60).
-
-        죽은 잎(fail)과 산 잎(success)이 함께 있는 사이클에서, 아무도 이어받지 않았다면
-        어느 쪽에도 진출이 붙지 않는다."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "demo", "--purpose", "P")
-        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "demo/c001", "--kind", "hypothesis", "--title", "H",
-                 "--falsify", "F", "--falsify-to", "s1")
-        self.gil("step", "demo/c001", "--kind", "fail", "--to", "s1", "--title", "벽")
-        self.gil("step", "demo/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2",
-                 "--falsify", "F", "--falsify-to", "s1")
-        self.gil("step", "demo/c001", "--kind", "success", "--title", "됨")
-        self.assertEqual(self._exit_map(), {})
-
-    def test_overview_map_uses_gil_rules_not_raw_commit_ancestry(self):
-        """전체맵의 선은 gil 룰로 그린다 (이슈 #70).
-
-        옛 전체맵은 커밋 조상관계를 날것으로 이어, 계보상 무관한 체인까지 한 줄로 길게
-        붙였다 — 아래 체인·사이클 패널은 gil 판정(#53)을 쓰는데 위아래가 다른 그림을 냈다.
-        선 계산이 조용히 옛 방식으로 돌아가지 않게 못박는다(그림 자체는 브라우저 실측)."""
-        self._seed_graph()
-        out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
-        with open(out_html, encoding="utf-8") as f:
-            html = f.read()
-        # 계보 부모(gilParents)로 depth·row·엣지를 모두 계산한다.
-        self.assertIn("gilParents", html)
-        self.assertIn("n.gparents", html)
-        # 범례가 성격을 바꿔 말한다 — "진짜 커밋 그래프"가 아니라 "gil 계보 그래프".
-        self.assertIn("gil 계보 그래프", html)
-        self.assertNotIn("진짜 커밋 그래프", html)
-
-    def test_layout_spacing_comes_from_label_size(self):
-        """간격은 그려질 글자 크기에서 나온다 (이슈 #71).
-
-        옛 상수(체인 rowH=90 · 사이클 gap=104)는 라벨을 셈에 넣지 않아, 이름이 길면 라벨이
-        아래 노드의 HEAD ▼ 와, 이웃 사이클 라벨과 겹쳤다(브라우저 실측: 체인 1건 · 사이클
-        7건). 상수로 되돌아가면 같은 겹침이 조용히 살아나므로 계산식의 존재를 못박는다."""
-        self._seed_graph()
-        out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
-        with open(out_html, encoding="utf-8") as f:
-            html = f.read()
-        self.assertIn("longestCy*8+20", html)      # 사이클 그래프 gap = 이름 길이에서
-        self.assertNotIn("const gap=104", html)    # 옛 고정 간격이 남아 있으면 안 된다
-        self.assertIn("rotate(-", html)            # 긴 라벨은 기울여 세운다(상현님 제안)
-
-    def test_map_has_chain_filter_and_minimap(self):
-        """26체인·381스텝이 되면 전체맵은 눈으로 따라갈 수 없다 (이슈 #79, 상현님 실사용).
-
-        뎁스 접기(AIL #6)는 '얼마나 자세히'를 줄이지만 '무엇을'은 못 줄인다 — 지금 보려는
-        체인만 남기는 축과, 확대했을 때 길을 잃지 않는 미니맵이 따로 필요하다."""
-        self._seed_graph()
-        out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
-        with open(out_html, encoding="utf-8") as f:
-            html = f.read()
-        self.assertIn("chainFilterBar", html)      # 체인 하나만 그리는 축
-        self.assertIn("gilMapChain", html)         # 고른 값은 리로드를 넘어 유지된다
-        self.assertIn("minimap", html)             # 확대 중 위치를 잃지 않게
-        self.assertIn("enableChainGraphZoom", html)  # 체인 그래프도 같은 엔진을 쓴다
-
-    def test_working_node_marks_where_uncommitted_work_is(self):
-        """미커밋 작업은 노드가 없어 '어디서 손대고 있는지'가 그래프에 없었다 (상현님).
-
-        가장 가까운 조상 스텝을 앵커로 '작업중' 유령 노드를 그린다. 커밋되면 그 자리에
-        진짜 스텝이 선다."""
-        self._seed_graph()
-        with open(os.path.join(self.repo, "wip.txt"), "w", encoding="utf-8") as f:
-            f.write("작업중\n")
-        import socket, time, urllib.request
-        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo, "--port", str(port)],
-                             env=dict(os.environ, GIL_NO_VIEWER="1"),
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            body = ""
-            for _ in range(200):  # 10초 — 2초는 워커 12에서 깜빡인다
-                try:
-                    body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).read().decode()
-                    break
-                except Exception:
-                    time.sleep(0.05)
-            self.assertIn('"dirty":true', body)          # 미커밋 상태가 실린다
-            self.assertIn('"step":"s', body)             # 앵커 스텝까지 — 어디서 작업 중인가
-            self.assertIn("dnode working", body)         # 유령 노드를 그리는 코드
-        finally:
-            p.terminate()
-            try:
-                p.wait(timeout=3)
-            except Exception:
-                p.kill()
-
-    def test_viewer_build_requires_out(self):
-        self._seed_graph()
-        r = self.gil("viewer", "build")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("--out", r.stderr)
-
-    def test_viewer_serve_responds(self):
-        self._seed_graph()
-        # 여유 포트로 격리 기동(병렬 테스트 안전).
-        import socket, time, urllib.request
-        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-        env = dict(os.environ, GIL_NO_VIEWER="1")
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo,
-                              "--port", str(port)], env=env,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            base = f"http://127.0.0.1:{port}"
-            ok = False
-            for _ in range(200):  # 최대 ~10s — 병렬 러너(워커 12)에서 2s 는 모자라 깜빡였다
-                try:
-                    body = urllib.request.urlopen(base + "/", timeout=1).read().decode()
-                    ok = True
-                    break
-                except Exception:
-                    time.sleep(0.05)
-            self.assertTrue(ok, "serve 가 뜨지 않음")
-            self.assertIn("gil 그래프 뷰어", body)
-            self.assertIn("/poll", body)  # serve HTML 엔 폴링이 있다(정적과 반대)
-            self.assertEqual(
-                urllib.request.urlopen(base + "/poll", timeout=1).getcode(), 200)
-        finally:
-            p.terminate()
-            try:
-                p.wait(timeout=3)
-            except Exception:
-                p.kill()
-
-    def test_viewer_approve_endpoint(self):
-        """serve 의 POST /approve 가 pending 을 승인 → 산 잎(상현님, 뷰어 인터랙션).
-
-        뷰어에서 사람이 pending 스텝의 승인 버튼을 누르면 서버가 gil approve 를 exec 한다.
-        모든 호스트(브라우저·확장)에서 도는 범용 경로. GET 은 거부(상태 변경이라 POST 만)."""
-        import socket, time, urllib.request, urllib.error
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "t", "--purpose", "승인")
-        self.gil("open", "t/c001", "--author", "clew", "--purpose", "p", "--body", "정의")
-        self._autofill_order("t/c001", "t", "pending", dict(os.environ, GIL_NO_VIEWER="1"))
-        self.gil("step", "t/c001", "--kind", "pending", "--title", "대기", "--body", "승인 요청")
-        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-        env = dict(os.environ, GIL_NO_VIEWER="1")
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", self.repo,
-                              "--port", str(port)], env=env,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            base = f"http://127.0.0.1:{port}"
-            for _ in range(200):  # 10초 — 2초는 워커 12에서 깜빡인다
-                try:
-                    urllib.request.urlopen(base + "/", timeout=1); break
-                except Exception:
-                    time.sleep(0.05)
-            # GET 은 405(POST only)
-            try:
-                urllib.request.urlopen(base + "/approve?chain=t&cycle=c001", timeout=1)
-                self.fail("GET /approve 가 허용됨 — POST 만 허용해야")
-            except urllib.error.HTTPError as e:
-                self.assertEqual(e.code, 405)
-            # POST 로 승인 → 산 잎
-            req = urllib.request.Request(base + "/approve?chain=t&cycle=c001", method="POST")
-            body = urllib.request.urlopen(req, timeout=3).read().decode()
-            self.assertIn("success", body)
-        finally:
-            p.terminate()
-            try:
-                p.wait(timeout=3)
-            except Exception:
-                p.kill()
-        # 승인 후 그래프에 success 산 잎이 생겼다.
-        self.assertIn("success", self.gil("viewer").stdout)
-
-    def test_viewer_text_output(self):
-        self._seed_graph()
-        r = self.gil("viewer")   # 서브명령 없으면 텍스트 트리
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("체인 demo", r.stdout)
-        self.assertIn("c001", r.stdout)
-
-    def test_viewer_text_shows_backtrack_parent(self):
-        """viewer text 는 분기(backtrack 형제 가지)의 부모를 ←s# 로 표기한다.
-
-        선형 진행은 부모 표기 없이 깔끔하고, 조상 define 으로 되돌아간
-        형제 가지만 드러나야 backtrack 이 텍스트 트리에서도 보인다.
-        """
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        # s1=define(open 자동). s2=가설, s3=검증 → s4=fail(죽은 잎, ←는 직전이라 표기 안 함).
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설 보고서", "--falsify", "F", "--falsify-to", "s1")
-        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서", "--verdict", "supported")
-        self.gil("step", "d/c001", "--kind", "fail", "--to", "s1", "--title", "기각", "--body", "벽 보고서")
-        # backtrack: 조상 define s1 에서 새 형제 가지.
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2 보고서", "--falsify", "F", "--falsify-to", "s1")
-        r = self.gil("viewer")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        # 형제 가지(s1 에서 되돌아간 가설)에 부모 표기가 있어야 한다.
-        self.assertIn("←s1", r.stdout, f"backtrack 부모 표기 없음:\n{r.stdout}")
-        # 선형 진행 스텝은 부모 표기로 어지럽히지 않는다(←s2/←s3 등 직전-부모 표기 없음).
-        self.assertNotIn("←s2", r.stdout)
-        self.assertNotIn("←s3", r.stdout)
-
-    def test_viewer_reads_remote_only_branches(self):
-        """뷰어는 원격 추적 브랜치(refs/remotes/*)의 gil 그래프도 읽는다.
-
-        결함(상현님): 신선한 clone 은 로컬에 기본 브랜치 하나뿐이고 gil 그래프는
-        refs/remotes/origin/* 에만 있다. 뷰어가 --branches(로컬)만 보면 그래프를
-        통째로 놓쳐 '스텝 0개'가 됐다. --remotes 까지 봐야 한다.
-        """
-        # 1) origin 역할의 bare 저장소에 gil 그래프를 만든다.
-        import tempfile as _tf
-        origin = _tf.mkdtemp(prefix="gil-origin-")
-        work = _tf.mkdtemp(prefix="gil-work-")
-        clone = _tf.mkdtemp(prefix="gil-clone-")
-        try:
-            subprocess.run(["git", "init", "-q", "--bare", origin], check=True)
-            # work 에서 그래프를 만들고 origin 으로 push.
-            for a in (["init", "-q"], ["config", "user.email", "t@e.com"],
-                      ["config", "user.name", "t"], ["config", "commit.gpgsign", "false"],
-                      ["remote", "add", "origin", origin]):
-                subprocess.run(["git", "-C", work, *a], check=True)
-            env = dict(os.environ, GIL_NO_VIEWER="1")
-            g = lambda *a: subprocess.run([*GIL_CMD, *a], cwd=work, env=env,
-                                          capture_output=True, text=True)
-            g("init", "--name", "clew")
-            g("chain", "demo", "--purpose", "P", "--reference", CRIT_FILE,
-              "--criterion", "무엇이 관측되면 풀린 것")
-            # #33: open 게이트(사람 승인 기준) 충족 — 인터뷰 심고 즉시 해소.
-            subprocess.run([*GIL_CMD, "interview", "demo", "--ask", "-"], cwd=work, env=env,
-                           capture_output=True, text=True, input='[{"q":"q","type":"text"}]')
-            with open(os.path.join(work, "reference-demo.md"), "w", encoding="utf-8") as f:
-                f.write("# 기준")
-            g("interview", "demo", "--resolve", "reference-demo.md")
-            os.remove(os.path.join(work, "reference-demo.md"))
-            g("open", "demo/c001", "--author", "clew", "--purpose", "Q", "--body", "문제 정의",
-              "--fits", "(테스트: 체인 목적에 기여)")
-            g("step", "demo/c001", "--kind", "hypothesis", "--title", "H", "--body", "b", "--falsify", "F", "--falsify-to", "s1")
-            subprocess.run(["git", "-C", work, "push", "-q", "--all", "origin"], check=True)
-            # 2) 신선한 clone — 로컬 브랜치는 기본 하나뿐, 그래프는 원격에만.
-            subprocess.run(["git", "clone", "-q", origin, clone], check=True)
-            local_branches = subprocess.run(
-                ["git", "-C", clone, "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
-                capture_output=True, text=True).stdout.split()
-            self.assertLessEqual(len(local_branches), 1, f"신선한 클론에 로컬 브랜치 여럿: {local_branches}")
-            # 3) 뷰어가 원격 브랜치의 그래프를 본다.
-            r = subprocess.run([*GIL_CMD, "viewer", "text", "--repo", clone],
-                               capture_output=True, text=True, env=env)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertNotIn("스텝 노드 0개", r.stdout, f"원격 그래프를 놓침:\n{r.stdout}")
-            self.assertIn("체인 demo", r.stdout, f"원격 그래프 미표시:\n{r.stdout}")
-        finally:
-            for d in (origin, work, clone):
-                shutil.rmtree(d, ignore_errors=True)
-
-    def test_step_rejects_second_define(self):
-        """define 은 사이클의 뿌리 하나(open 이 만드는 s1)뿐 — step --kind define 은 거부된다.
-
-        첫 정의가 못 다룬 부분은 새 define 이 아니라 다른 kind(hypothesis 등)나
-        새 사이클로 이어간다(상현님). 그래야 "사이클 = 하나의 문제 정의에서 뻗은
-        사고 나무" 불변식이 서고, 뷰어에 define 이 둘씩 떠 혼란을 주지 않는다.
-        """
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        r = self.gil("step", "d/c001", "--kind", "define", "--title", "재정의", "--body", "b")
-        self.assertNotEqual(r.returncode, 0, "두 번째 define 이 거부되지 않았다")
-        self.assertIn("define 은 사이클의 뿌리 하나", r.stderr + r.stdout)
-        # 다른 kind 는 여전히 허용.
-        r2 = self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "b", "--falsify", "F", "--falsify-to", "s1")
-        self.assertEqual(r2.returncode, 0, r2.stderr)
-
-    def test_fsck_flags_multiple_defines_in_cycle(self):
-        """fsck 는 한 사이클에 define 이 여럿인 (옛) 그래프를 위반으로 잡는다.
-
-        step 단계에서 신규 생성은 막지만, 규칙 도입 전 데이터엔 여러 define 이
-        있을 수 있다(공식 example 이 그랬다). fsck 가 이를 드러내야 정리 대상이 된다.
-        같은 사이클은 한 번만 보고한다.
-        """
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        # step 이 막으므로, 옛 데이터를 흉내내 두 번째 define 커밋을 손으로 심는다.
-        self._git("commit", "--allow-empty", "-q", "-m",
-                  "gil d/c001/s2 define: 재정의\n\n"
-                  "Gil-Chain: d\nGil-Cycle: c001\nGil-Step: s2\nGil-Kind: define\nGil-Parent: s1")
-        r = self.gil("fsck")
-        out = r.stdout + r.stderr
-        self.assertIn("define 이 2개", out, f"fsck 가 define 중복을 못 잡음:\n{out}")
-        # 한 사이클은 한 번만 보고(s1·s2 각각 두 번 아님).
-        self.assertEqual(out.count("define 이 2개"), 1, f"사이클 중복 보고:\n{out}")
-
-    def test_viewer_no_duplicate_define_across_sibling_branches(self):
-        """조상 define 에서 형제 가지를 분기해도 define 노드가 두 번 뜨지 않는다.
-
-        결함(상현님): backtrack/새 가지는 조상 define 커밋에서 진짜 git 브랜치를
-        분기하므로 그 define 이 여러 브랜치 공통조상이 된다. 뷰어가 SHA dedup 을
-        안 하면 스택·사이클 뷰에 define 이 두 번 그려진다. viewerCollectNodes 가
-        커밋 하나=노드 하나로 접어야 한다.
-        """
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H1", "--body", "가설1", "--falsify", "F", "--falsify-to", "s1")
-        # 조상 define(s1)으로 되돌아가 형제 가지 분기 → s1 이 두 브랜치 공통조상.
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--to", "s1", "--title", "H2", "--body", "가설2", "--falsify", "F", "--falsify-to", "s1")
-        r = self.gil("viewer")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        # s1 define 라인이 정확히 한 번만 나와야 한다.
-        n = sum(1 for ln in r.stdout.splitlines() if "s1 [define]" in ln)
-        self.assertEqual(n, 1, f"define 노드가 {n}번 뜸(중복):\n{r.stdout}")
-
-    def test_viewer_shows_uncommitted_work_overlay(self):
-        """미커밋 작업이 있으면 현재위치 스텝 아래에 '작업중' 오버레이가 뜬다.
-
-        결함(상현님): 뷰어가 커밋만 보여줘 마지막 커밋 이후 작업이 살아있어도
-        '멈춘 듯' 보였다. 스텝 모델은 그대로 두고(커밋=완결 사고단위 불변식),
-        뷰어가 워킹트리 상태를 오버레이로만 그린다.
-        """
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "d/c001", "--kind", "hypothesis", "--title", "H", "--body", "가설", "--falsify", "F", "--falsify-to", "s1")
-        # 클린: 오버레이 없음.
-        r = self.gil("viewer")
-        self.assertIn("작업 없음(클린)", r.stdout, r.stdout)
-        self.assertNotIn("작업중", r.stdout)
-        # 미커밋 변경 발생 → 오버레이 등장.
-        with open(os.path.join(self.repo, "wip.txt"), "w") as f:
-            f.write("in progress\n")
-        r = self.gil("viewer")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("작업중", r.stdout, f"미커밋 오버레이 없음:\n{r.stdout}")
-        self.assertIn("wip.txt", r.stdout, "변경 파일 샘플 표시 없음")
-
-    def test_thin_body_warns_append_only(self):
-        """--body 를 빠뜨린 얇은 스텝엔, 본문은 나중에 못 고친다(append-only)고 경고한다."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        r = self.gil("step", "d/c001", "--kind", "verify", "--title", "얇음", "--verdict", "supported")  # --body 없음
-        self.assertEqual(r.returncode, 0, r.stderr)
-        msg = r.stderr + r.stdout
-        self.assertIn("얇다", msg)
-        self.assertIn("append-only", msg, "본문 불변성(나중에 못 고침) 안내가 없다")
-
-    def test_cycle_status_success_on_new_model(self):
-        """success 종결 스텝(새 모델)이 있으면 사이클 status 가 success — open 으로 남지 않는다.
-
-        결함: status() 가 옛 모델(analyze --outcome)만 봐서, kind=success 스텝을
-        만들어도 사이클이 계속 '열림'으로 보였다.
-        """
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "d/c001", "--kind", "verify", "--title", "V", "--body", "검증 보고서", "--verdict", "supported")
-        self.gil("step", "d/c001", "--kind", "success", "--title", "됨", "--body", "종합 보고서")
-        out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        with open(out_html, encoding="utf-8") as f:
-            html = f.read()
-        self.assertIn('"status":"success"', html)
-        self.assertNotIn('"status":"open"', html, "종결됐는데 사이클이 open 으로 남음")
-
-    def test_viewer_build_has_dag_and_lineage(self):
-        """build HTML 에 진짜 커밋 DAG(전체 스텝맵)·지식전파 계보 렌더 코드와
-        DAG 데이터(커밋 부모)가 임베드된다."""
-        self._seed_graph()
-        out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        with open(out_html, encoding="utf-8") as f:
-            html = f.read()
-        # 전체 스텝맵·DAG 렌더 함수(탭 없이 항상 렌더).
-        self.assertIn("buildStepMap", html)
-        self.assertIn("view-map", html)
-        self.assertIn("전체 스텝맵", html)
-        # 탭은 제거됐다 — 세로 스택 pane 구조.
-        self.assertNotIn('id="tab-map"', html)
-        self.assertIn("panehead", html)
-        self.assertIn("pane-report", html)
-        # DAG 데이터(커밋 부모로 이어진 노드 리스트) 임베드.
-        self.assertIn("dagdata", html)
-        self.assertIn('"parents":', html)
-        # 전체맵: 체인 이름을 사이클 박스 위 라벨로, 사이클=박스.
-        self.assertIn("chlabel", html)
-        self.assertIn("cycbox", html)
-        # 지식 전파 계보 함수.
-        self.assertIn("function lineage", html)
-        # 맵/DAG JS 는 Go 의 esc() 가 아니라 JS mdEsc 를 써야 한다(esc 미정의 회귀 방지).
-        self.assertNotIn("esc(chain)", html)
-
-    def test_head_arrow_on_all_graphs(self):
-        """현재위치(HEAD)를 모든 그래프의 팁 노드 위에 ▼(headarrow)로 표시한다."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "a", "--purpose", "P")
-        self.gil("open", "a/c001", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "a/c001", "--kind", "verify", "--title", "V", "--body", "b", "--verdict", "supported")
-        # 닫지 않음 → HEAD 가 이 스텝 팁. 체인 그래프 노드에 headarrow(정적 렌더)가 있어야.
-        out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
-        html = open(out_html, encoding="utf-8").read()
-        # 체인 노드(here)에 headarrow SVG 가 인라인된다.
-        self.assertIn("headarrow", html)
-        self.assertIn("현재위치 1개", html)  # 헤더에 현재위치 카운트
-
-    def test_open_body_file_stdin_fills_define(self):
-        """gil open --body-file - 가 s1 define 본문을 여는 순간 채운다(이슈 #31) —
-        raw amend 로 내려가 trailer 를 날리는 함정 제거. step 과 대칭."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        r = self.gil("open", "d/c1", "--author", "clew", "--purpose", "Q",
-                     "--body-file", "-",
-                     input="# 문제 정의\n\n무엇을 푸는가: 예제 문제를 정의한다.\n\n"
-                           "- 입력: 관측 데이터 파일\n- 출력: 판정 보고서\n- 평가 지표: 정확도와 재현율\n"
-                           "- 제약: 외부 의존 없이 표준 라이브러리만 사용한다\n\n"
-                           "이 사이클은 위 지표로 성공/실패를 가른다.\n")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        show = self._git("show", "-s", "--format=%B", "HEAD").stdout
-        self.assertIn("# 문제 정의", show)
-        self.assertIn("Gil-Kind: define", show, "trailer 소실")
-        # 본문이 채워졌으니 '얇다' 경고가 없어야 한다.
-        self.assertNotIn("본문이 얇다", r.stdout + r.stderr)
-
-    def test_version_command(self):
-        """gil version 은 git 없이도 현재 버전을 낸다(이슈 #22). 소스 빌드는 dev."""
-        r = self.gil("version")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("gil ", r.stdout)
-
-    def test_handoff_reports_viewer_liveness(self):
-        """gil handoff 가 뷰어를 **살아 있을 때** 보고한다 (이슈 #30 의 갱신).
-
-        옛 규범은 죽어 있을 때도 "죽어있음 — 되살리기: …"를 냈다. 그때는 뷰어가 자동으로
-        떴으니 안 떠 있는 것이 실제로 이상 신호였다. 자동 기동을 끈 뒤로는 **안 떠 있는 것이
-        기본**이고, 정상 상태를 고장으로 적으면 읽는 쪽이 그것을 고치려 든다(실측: 대화창의
-        세션이 "뷰어 죽어있음 — 그래서 그래프가 안 떴을 수도" 라며 없는 인과를 만들었다).
-
-        그래서 판정을 둘로 가른다: 살아 있으면 주소를 말하고, 없으면 **여는 길만** 준다.
-        """
-        self.gil("init", "--name", "clew")
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        env["GIL_AUTO_VIEWER"] = "1"     # 옛 경로 — 떠 있을 때의 보고를 시험한다
-        r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
-                           capture_output=True, text=True, env=env)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("뷰어:", r.stdout)
-        subprocess.run([*GIL_CMD, "viewer", "stop"], cwd=self.repo,
-                       capture_output=True, text=True, env=env)
-
-        # 그리고 기본값(자동 기동 없음)에서는 고장을 만들지 않는다.
-        r2 = self.gil("handoff")
-        self.assertNotIn("뷰어: 죽어있음", r2.stdout)
-        self.assertIn("gil viewer open", r2.stdout)
-
-    def test_chain_lineage_skips_plain_commits(self):
-        """체인을 닫고 평범 커밋(gil 트레일러 없음)을 쌓은 뒤 다음 체인을 열어도
-        체인 계보(부모→자식)가 이어진다 — 첫 부모 한 칸만 보면 계보가 끊겨
-        체인 그래프가 전체맵(비-gil 을 건너뛰는 DAG)과 안 맞았다(AIL 실사용 결함)."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "devchain", "--purpose", "P")
-        self.gil("open", "devchain/c1", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "devchain/c1", "--kind", "success", "--title", "됨", "--body", "종합")
-        self.gil("close", "devchain/c1", "--verdict", "supported")
-        self.gil("chain-close", "devchain", "--verdict", "supported")
-        # 평범 개발 커밋 두 개 — 실사용 레포에선 체인 사이에 흔히 낀다.
-        for i in (1, 2):
-            with open(os.path.join(self.repo, f"plain{i}.txt"), "w") as f:
-                f.write("x\n")
-            self._git("add", "-A")
-            self._git("commit", "-m", f"plain dev commit {i}")
-        self.gil("chain", "stg", "--purpose", "P2", "--from", "devchain")
-        out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        import json, re
-        html = open(out_html, encoding="utf-8").read()
-        parents = json.loads(re.search(r'"parentdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
-        self.assertEqual(parents.get("stg"), "devchain",
-                         f"평범 커밋을 건너 조상 체인을 못 찾음 — 계보 끊김: {parents}")
-
-    def test_stepmap_zoom_pan_and_cycle_labels(self):
-        """전체 스텝맵에 줌/팬 컨트롤(dagbar·enableZoomPan)과 사이클 라벨(cyclabel)이 들어간다 —
-        대형 그래프(수백 스텝) 항해용."""
-        self._seed_graph()
-        out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        html = open(out_html, encoding="utf-8").read()
-        # 줌/팬: 컨트롤 바 + viewBox 조작 함수 + 휠·드래그 안내.
-        self.assertIn("enableZoomPan", html)
-        self.assertIn("dagbar", html)
-        self.assertIn("Ctrl+휠", html)
-        # 사이클 라벨: 박스 위 작은 글씨(툴팁만으론 훑기 어려움).
-        self.assertIn("cyclabel", html)
-
-    def test_dag_connects_cycles_across_chain_boundary(self):
-        """DAG 는 사이클·체인 경계를 넘는 지식 전수를 진짜 엣지로 잇는다 —
-        자식 체인의 첫 스텝이 부모 체인의 종결 스텝(산 잎)을 부모로 갖는다.
-
-        비-gil 커밋(chain/close/chain-close)을 건너뛰어 조상 스텝을 찾는 게 핵심.
-        """
-        self.gil("init", "--name", "clew")
-        # dev 체인: verify → success → close → chain-close.
-        self.gil("chain", "devchain", "--purpose", "P")
-        self.gil("open", "devchain/c1", "--author", "clew", "--purpose", "Q")
-        self.gil("step", "devchain/c1", "--kind", "verify", "--title", "V", "--body", "검증", "--verdict", "supported")
-        self.gil("step", "devchain/c1", "--kind", "success", "--title", "됨", "--body", "종합")
-        self.gil("close", "devchain/c1", "--verdict", "supported")
-        self.gil("chain-close", "devchain", "--verdict", "supported")
-        # staging 체인: 닫힌 dev 끝에서 열린다.
-        self.gil("chain", "stg", "--purpose", "P2", "--from", "devchain")
-        self.gil("open", "stg/c1", "--author", "clew", "--purpose", "Q2")
-        out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
-        import json, re
-        html = open(out_html, encoding="utf-8").read()
-        dag = json.loads(re.search(r'"dagdata"[^>]*>(\[.*?\])</script>', html).group(1))
-        by = {(d["chain"], d["step"]): d for d in dag}
-        dev_success = next(d for d in dag if d["chain"] == "devchain" and d["kind"] == "success")
-        stg_s1 = by[("stg", "s1")]
-        self.assertIn(dev_success["sha"], stg_s1["parents"],
-                      "staging 첫 스텝이 dev 종결 스텝을 부모로 갖지 않음 — 경계 넘는 전수 끊김")
-
-    def test_body_file_dash_reads_stdin(self):
-        """--body-file - 는 stdin 에서 본문을 읽는다 — 임시 .md 파일 없이 잉여 방지."""
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "d", "--purpose", "P")
-        self.gil("open", "d/c001", "--author", "clew", "--purpose", "Q")
-        body = "# 검증 보고서\n\nstdin 으로 넘긴 본문 마커 XYZZY.\n"
-        r = self.gil("step", "d/c001", "--kind", "verify", "--title", "V",
-                     "--verdict", "supported", "--body-file", "-", input=body)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        # 커밋 본문에 stdin 내용이 들어갔는지 확인.
-        show = subprocess.run(["git", "-C", self.repo, "log", "--branches", "--format=%B"],
-                              capture_output=True, text=True)
-        self.assertIn("XYZZY", show.stdout, "stdin 본문이 커밋에 안 들어감")
-
-
 class TestBranchingEnforcement(GilFixture):
     """AIL #1 — 체인이 일자로만 가던 결함. 분기를 문법으로 강제한다(HEAAL).
     제안 2: hypothesis 반증조건 필수. 제안 1: verify verdict + refuted면 success 거부.
@@ -3737,12 +2912,12 @@ class TestLateRefutation(GilFixture):
         r = self.gil("fsck")
         self.assertEqual(r.returncode, 0, f"정상 refutes 그래프가 fsck 위반:\n{r.stdout}")
 
-    def test_viewer_shows_refuted_by(self):
-        """뷰어 텍스트가 반증된 판정에 ⚠refuted-by, 반증한 쪽에 ⟵refutes 를 표시한다."""
+    def test_the_graph_shows_refuted_by(self):
+        """터미널 그림이 반증된 판정에 ⚠refuted-by, 반증한 쪽에 ⟵refutes 를 표시한다."""
         self._refutes("net/design/s3")
         self.gil("step", "net/harden", "--kind", "success", "--title", "됨")
         self.gil("close", "net/harden")
-        r = self.gil("viewer")
+        r = self.gil("graph")
         out = r.stdout
         self.assertIn("refuted-by", out, f"반증 배지 없음:\n{out}")
         self.assertIn("refutes", out)
@@ -4283,7 +3458,7 @@ class TestIntakeBeforeChain(GilFixture):
         유일한 수단이 사라진 것이다. 브라우저로 실제 확인하다 발견했다(이슈 #90 검증)."""
         self._ask()
         out = os.path.join(self.repo, "v.html")
-        r = self.gil("viewer", "build", "--out", out)
+        r = self.gil("graph", "--html", "--out", out)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding="utf-8") as f:
             html = f.read()
@@ -5272,72 +4447,6 @@ class TestMCPServe(GilFixture):
         ])
         self.assertFalse(r[1][0], r[1][1])
         self.assertEqual(self.trailer("HEAD", "Gil-Interview"), "pending")
-
-
-class TestViewerIsOptIn(GilFixture):
-    """뷰어는 **청할 때** 뜬다 — 저장소를 만드는 것만으로 서버가 생기지 않는다 (상현님).
-
-    옛 기본값에는 이유가 있었다: 그래프를 안 보고 시작하면 이미 있는 가지를 못 보고 새로
-    판다는 걱정은 실재했고, "에이전트가 알아서 열기"는 자기규율이라 불충분했다(#55).
-    그런데 그 처방의 값이 실사용에서 뒤집혔다 — 사람이 청하지도 않은 서버가 저장소마다
-    뜨고, 포트는 저장소마다 다르고, 죽으면 되살리는 일이 사람 몫이 되고, 창을 두 개 봐야
-    한다. 그리고 정작 작업 중에 필요한 것은 그래프가 아니라 "지금 어디, 개입할 때인가"
-    세 줄이었다 — 그건 이제 gil status 가 답한다.
-
-    **규범을 버린 게 아니라 매체를 바꾼 것이다.** 그래서 이 시험은 두 가지를 함께 센다:
-    자동으로 안 뜨는가, 그리고 **여는 길을 그 자리에서 알려주는가**.
-    """
-
-    def _run(self, *args, auto=False):
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)     # 억제를 풀고 실제 경로를 밟는다
-        if auto:
-            env["GIL_AUTO_VIEWER"] = "1"
-        return subprocess.run([*GIL_CMD, *args], cwd=self.repo,
-                              capture_output=True, text=True, env=env)
-
-    def test_init_does_not_start_a_server(self):
-        r = self._run("init")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        out = r.stdout + r.stderr
-        self.assertNotIn("127.0.0.1", out, "청하지도 않은 서버가 떴다")
-
-    def test_init_says_how_to_open_it(self):
-        """끄기만 하면 사람은 여는 길을 잃는다 — 없앤 자리에 길을 놓는다."""
-        r = self._run("init")
-        out = r.stdout + r.stderr
-        self.assertIn("gil status", out)
-        self.assertIn("gil viewer open", out)
-
-    def test_opt_in_brings_it_back(self):
-        """켜는 길은 남긴다 — 강제는 벽이 아니라 선택이어야 한다(#116 과 같은 태도)."""
-        self.gil("init")
-        r = self._run("handoff", auto=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("127.0.0.1", r.stdout + r.stderr)
-        # 남긴 서버를 치운다 — 시험이 프로세스를 흘리면 다음 시험이 포트를 물려받는다.
-        self._run("viewer", "stop")
-
-    def test_it_does_not_report_a_normal_state_as_broken(self):
-        """안 떠 있는 것이 기본이다 — 그걸 "죽어있음"이라 적으면 읽는 쪽이 고치려 든다.
-
-        실측(대화창): 이 한 줄을 본 세션이 "뷰어 죽어있음 — 그래서 아까 그래프가 화면에 안
-        떴을 수도 있어. 띄워줄까?"라고 답했다. 뷰어가 꺼진 것과 위젯이 안 뜬 것은 아무 상관이
-        없는데, 도구가 죽었다고 말하니 **없는 인과까지 만들어졌다.**
-        """
-        self.gil("init")
-        r = self._run("handoff")
-        out = r.stdout + r.stderr
-        self.assertNotIn("뷰어: 죽어있음", out)
-        self.assertIn("gil viewer open", out)   # 여는 길은 그대로 있다
-
-    def test_off_wins_over_on(self):
-        """끄는 쪽이 언제나 이긴다 — 두 스위치가 다투면 조용한 쪽이 안전하다."""
-        self.gil("init")
-        env = dict(os.environ, GIL_AUTO_VIEWER="1", GIL_NO_VIEWER="1")
-        r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
-                           capture_output=True, text=True, env=env)
-        self.assertNotIn("127.0.0.1", r.stdout + r.stderr)
 
 
 class TestStatusJSON(GilFixture):
@@ -6939,50 +6048,6 @@ class TestChainRetro(GilFixture):
         self.assertIn("쌍으로만", r.stderr)
 
 
-class TestQuietByDefault(GilFixture):
-    """브라우저는 **기본으로 열지 않는다** (이슈 #48).
-
-    자동으로 튀어나오는 창은 도움보다 방해였다: 에이전트가 인앱 패널에 띄우려는데 밖에 창이
-    하나 더 뜨고, 테스트·반복 실행마다 브라우저가 쌓인다. 주소는 언제나 출력에 나오므로
-    사람도 에이전트도 여는 데 지장이 없다. 여는 건 명시적 --open 일 때만.
-    """
-
-    def test_init_still_accepts_no_open(self):
-        """--no-open 은 이제 기본이라 no-op — 이미 쓰인 문서·스크립트가 깨지지 않게 계속 받는다."""
-        r = self.gil("init", "--no-open")
-        self.assertEqual(r.returncode, 0, r.stderr)
-
-    def test_viewer_help_documents_open(self):
-        """표면에 안 보이면 없는 기능이다."""
-        r = self.gil("help", "viewer")
-        self.assertIn("--open", r.stdout + r.stderr)
-
-    def test_browser_not_opened_by_default(self):
-        """아무 플래그도 없이 serve 해도 '브라우저로 열었다' 가 나오지 않는다."""
-        self.gil("init")
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        env.pop("GIL_NO_BROWSER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--port", "8796"],
-                             cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             text=True, env=env)
-        try:
-            deadline = 0
-            out = ""
-            # 서버가 떴다는 첫 줄(주소)만 읽고 끊는다 — 브라우저를 열었다면 그 다음 줄에 나온다.
-            while deadline < 40:
-                import time as _t
-                _t.sleep(0.1)
-                deadline += 1
-                if p.poll() is not None:
-                    break
-        finally:
-            p.terminate()
-            out, err = p.communicate(timeout=10)
-        self.assertIn("뷰어 서버가 떴다", out, out + err)   # 주소는 나온다
-        self.assertNotIn("브라우저로 열었다", out)           # 창은 안 뜬다
-
-
 class TestMigrateBodyTransport(GilFixture):
     """이주가 v2 **본문**을 실제로 옮긴다 (이슈 #87, 실사용 보고).
 
@@ -7458,7 +6523,7 @@ class TestStepMapLabelAssignment(GilFixture):
         self._git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "v2")
         r = self.gil("migrate", "--from", "HEAD")
         self.assertEqual(r.returncode, 0, r.stderr)
-        r = self.gil("viewer", "build", "--out", "g.html")
+        r = self.gil("graph", "--html", "--out", "g.html")
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(os.path.join(self.repo, "g.html"), encoding="utf-8") as f:
             return f.read()
@@ -7502,7 +6567,7 @@ class TestStepMapLabels(GilFixture):
         self.gil("step", "alpha/c001", "--kind", "success", "--title", "S", "--body", "B")
         self.gil("close", "alpha/c001")
         out = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", "g.html")
+        r = self.gil("graph", "--html", "--out", "g.html")
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding="utf-8") as f:
             return f.read()
@@ -7648,54 +6713,6 @@ class TestRepoResolutionIsHonest(GilFixture):
         self.assertEqual(r.returncode, 0)
 
 
-class TestHandoffOpensViewer(GilFixture):
-    """세션을 이어받는 자리에서 **무엇으로 상황을 잡게 하는가** (이슈 #55 의 갱신).
-
-    옛 규범은 "이 주소를 인앱 브라우저로 지금 열어라 — 선택이 아니다"였다. 근거는 옳았다:
-    handoff 는 새 세션이 정신모델을 세우는 첫 관문이고, 여기서 그래프를 안 보면 그 세션 내내
-    안 본다. 그리고 "에이전트가 알아서 열기"는 자기규율이라 원리적으로 불충분하다(#45·#33).
-
-    바뀐 것은 근거가 아니라 **수단**이다. 이어받는 자리에서 실제로 필요한 것은 "지금 어디,
-    무엇을 재는 중, 사람이 나설 자리인가"이고, 그건 창을 새로 열지 않고 gil status 가 답한다.
-    그래프는 전체를 훑을 때 쓰는 물건이라 그때 청해서 연다.
-
-    그리고 이제 서버가 자동으로 안 뜬다 — 안 띄우면서 "지금 열어라"라고 말하면 안내가 사람을
-    **없는 문 앞에** 세운다(v3.58.1·v3.58.2 가 반복해서 고친 병). 그래서 규범은 남기고
-    가리키는 곳만 옮긴다. 이 시험이 그 이동을 못박는다.
-    """
-
-    def test_handoff_points_at_status_first(self):
-        """이어받는 자리의 첫 한 수는 gil status 다 — 창을 열지 않고 상황이 잡힌다."""
-        self.gil("init")
-        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
-        self.assertIn("gil status", out)
-
-    def test_handoff_still_points_at_the_graph_for_the_whole_survey(self):
-        """뷰어를 부정하지 않는다 — 전체를 훑는 일은 여전히 그래프의 몫이다.
-
-        끄기만 하고 여는 길을 안 주면, 사람은 그래프가 사라졌다고 읽는다.
-        """
-        self.gil("init")
-        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
-        self.assertIn("gil viewer open", out)
-
-    def test_the_reason_survives_the_change_of_medium(self):
-        """#55 의 근거는 그대로 남는다 — 왜 그래프를 봐야 하는지가 사라지면 규범도 사라진다."""
-        self.gil("init")
-        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
-        self.assertIn("이미 있는 가지를 못 보고 새로 파", out)
-
-    def test_it_does_not_send_you_to_a_door_that_is_not_there(self):
-        """서버를 안 띄우면서 '지금 열어라'라고 말하지 않는다.
-
-        옛 문안은 자동 기동을 전제로 했다. 전제가 사라졌는데 문장이 남으면, 안내가
-        사람을 한 번 더 세운다 — 이 저장소가 v3.58.1·v3.58.2 에서 다섯 자리를 고친 병이다.
-        """
-        self.gil("init")
-        out = (lambda r: r.stdout + r.stderr)(self.gil("handoff"))
-        self.assertNotIn("선택이 아니다", out)
-
-
 class TestChainSuccessionIsDeclaredNotInferred(GilFixture):
     """"이어받음"은 닫힌 끝에서 태어났을 때만 (이슈 #53 · #54).
 
@@ -7712,7 +6729,7 @@ class TestChainSuccessionIsDeclaredNotInferred(GilFixture):
 
     def _parents(self):
         import json, re
-        r = self.gil("viewer", "build", "--out", "g.html")
+        r = self.gil("graph", "--html", "--out", "g.html")
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(os.path.join(self.repo, "g.html"), encoding="utf-8") as f:
             h = f.read()
@@ -7988,7 +7005,7 @@ class TestViewerDoesNotDisturbTheRepo(GilFixture):
         self.gil("chain", "c", "--purpose", "P")
         index = os.path.join(self.repo, ".git", "index")
         before = os.stat(index).st_mtime_ns
-        r = self.gil("viewer", "text")
+        r = self.gil("graph")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(os.stat(index).st_mtime_ns, before,
                          "뷰어가 인덱스를 갱신했다 — 동시에 커밋하는 쪽과 락으로 경합한다")
@@ -8299,7 +7316,7 @@ class TestDeployStaged(GilFixture):
     def test_target_is_shown_in_viewer(self):
         self.gil("deploy", "--at", "d/c1/s5", "--tag", "v2.1.0", "--target", "l40s:8080")
         out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
+        self.gil("graph", "--html", "--out", out_html)
         with open(out_html, encoding="utf-8") as f:
             html = f.read()
         self.assertIn('"deployTarget":"l40s:8080"', html)
@@ -8540,74 +7557,6 @@ class TestMCPExposesNewGrammar(GilFixture):
         sch = self._tool_schema("gil_deploy")
         self.assertIn("state", sch)
         self.assertIn("promote", sch)
-
-
-class TestViewerIdentityBeforeClaim(GilFixture):
-    """그 포트의 뷰어가 이 저장소를 보는지 확인하고 말한다 (온보딩 실측에서 발견).
-
-    포트가 열려 있다는 사실만으로 "관전 중"이라 부르면, 다른 프로젝트의 뷰어가 같은 기본
-    포트를 쥐고 있을 때 사람을 **남의 그래프**로 보낸다. 실제로 새 폴더에서 gil_init 을
-    했더니 다른 저장소의 뷰어 주소를 안내했고, handoff 는 그 주소를 "지금 열어라 — 선택이
-    아니다"라는 규범(#55)으로 지시했다. 레일이 틀린 곳을 가리키면 레일이 아니다.
-    """
-
-    def _fake_server_on(self, port, body):
-        """그 포트를 쥔 다른 무언가를 흉내낸다(다른 저장소의 뷰어 또는 뷰어가 아닌 것)."""
-        import http.server, threading
-        payload = body.encode()
-
-        class H(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-
-            def log_message(self, *a):
-                pass
-
-        srv = http.server.HTTPServer(("127.0.0.1", port), H)
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        self.addCleanup(srv.shutdown)
-        return srv
-
-    def _handoff_with_port(self, port):
-        env = dict(os.environ, GIL_NO_VIEWER="1", GIL_VIEWER_PORT=str(port))
-        r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo, env=env,
-                           capture_output=True, text=True)
-        return r.stdout + r.stderr
-
-    def test_foreign_repo_viewer_is_not_claimed(self):
-        """다른 저장소를 보는 뷰어를 '이 저장소의 뷰어'라 부르지 않는다."""
-        self.gil("init")
-        port = 8873
-        self._fake_server_on(port, '{"repo":"/somewhere/else"}')
-        out = self._handoff_with_port(port)
-        self.assertIn("다른 저장소", out)
-        self.assertIn("/somewhere/else", out)   # 어디를 보고 있는지 짚어준다
-        self.assertNotIn("뷰어: 살아있음", out)
-
-    def test_non_viewer_on_port_is_not_claimed(self):
-        """뷰어가 아닌 무언가가 포트를 쥐고 있어도 마찬가지다."""
-        self.gil("init")
-        port = 8874
-        self._fake_server_on(port, 'not json at all')
-        out = self._handoff_with_port(port)
-        self.assertIn("다른 저장소", out)
-        self.assertNotIn("뷰어: 살아있음", out)
-
-    def test_directive_does_not_send_people_to_the_wrong_graph(self):
-        """규범('지금 열어라')이 틀린 주소를 가리키지 않는다 — 여기가 제일 아픈 자리다."""
-        self.gil("init")
-        port = 8875
-        self._fake_server_on(port, '{"repo":"/somewhere/else"}')
-        out = self._handoff_with_port(port)
-        # 옛 규범은 "지금 열어라"라고 하면서 주소를 냈으므로, 남의 포트일 때 **경고로**
-        # 막아야 했다. 지금은 내 저장소를 보는 뷰어일 때만 주소를 낸다 — 애초에 틀린 곳을
-        # 가리키지 않는다. 막는 방식이 경고에서 침묵으로 바뀐 것이고, 지키는 것은 같다.
-        self.assertNotIn("127.0.0.1:" + str(port), out)
-        self.assertIn("--port", out)   # 비켜 띄우라는 다음 한 수는 그대로 준다
 
 
 class TestAtReturnsAndIdsStayUnique(GilFixture):
@@ -9225,7 +8174,7 @@ class TestInterviewSubmitIsVisible(GilFixture):
 
     def _build(self):
         out = os.path.join(self.repo, "v.html")
-        r = self.gil("viewer", "build", "--out", out)
+        r = self.gil("graph", "--html", "--out", out)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         with open(out, encoding="utf-8") as f:
             return f.read()
@@ -9260,12 +8209,14 @@ class TestInterviewSubmitIsVisible(GilFixture):
     def test_submit_failure_explains_itself(self):
         """"TypeError: Failed to fetch" 는 사람에게 아무것도 안 알려준다(상현님 실사용).
 
-        이 자리에 오는 원인은 대개 하나다 — 이 페이지를 만든 서버가 이미 없다."""
+        이 화면은 이제 **언제나 정적 스냅샷**이다 — 그러니 답은 "서버를 다시 띄워라"가
+        아니라 "그림을 다시 가져와라"여야 한다."""
         self._seed()
         html = self._build()
-        self.assertIn("뷰어 서버에 닿지 못했습니다", html)
         self.assertIn("답은 아직 제출되지 않았습니다", html)   # 잃은 게 아니라는 사실부터
-        self.assertIn("gil viewer serve", html)                 # 되살리는 한 수
+        # 되살리는 한 수: 서버가 은퇴했으니 "다시 띄워라"가 아니라 **다시 가져와라**다.
+        self.assertIn("스냅샷", html, "이 그림이 무엇인지 화면이 안 말한다")
+        self.assertNotIn("gil viewer", html, "은퇴한 명령을 아직 가리킨다")
 
     def test_reference_state_tracks_agent_reading(self):
         """에이전트가 읽으면 화면이 그걸 말한다 — 사람이 '전달됐나'를 묻지 않아도 되게."""
@@ -9416,7 +8367,7 @@ class TestPollutedGraphIsRendered(GilFixture):
         """sha 가 정체성이면 중복 번호가 남아 있어도 그래프는 옳게 그려진다."""
         self._polluted()
         out = os.path.join(self.repo, "v.html")
-        r = self.gil("viewer", "build", "--out", out)
+        r = self.gil("graph", "--html", "--out", out)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         with open(out, encoding="utf-8") as f:
             html = f.read()
@@ -9608,7 +8559,7 @@ class TestHereAndWorkNode(GilFixture):
 
     def _build(self):
         out = os.path.join(self.repo, "v.html")
-        r = self.gil("viewer", "build", "--out", out)
+        r = self.gil("graph", "--html", "--out", out)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         with open(out, encoding="utf-8") as f:
             return f.read()
@@ -9737,7 +8688,7 @@ class TestLayerGraphInViewer(GilFixture):
         self.gil("merge", "login", "--into", "dev", "--reason", "배포 단위에 포함")
         self.gil("deploy", "--tag", "v1.0.0")
         out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
+        r = self.gil("graph", "--html", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         return open(out_html, encoding="utf-8").read()
 
@@ -9790,7 +8741,7 @@ class TestLayerGraphInViewer(GilFixture):
         self.gil("chain", "search", "--purpose", "검색", "--reference", "-",
                  "--criterion", "된다", input="기준")
         out_html = os.path.join(self.repo, "g2.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         html = open(out_html, encoding="utf-8").read()
         data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
         order = data["devorder"]
@@ -9816,7 +8767,7 @@ class TestLayerGraphInViewer(GilFixture):
         self._git("checkout", "-q", "dev")
         self._git("commit", "-q", "--allow-empty", "-m", "dev: 문서 정리")
         out_html = os.path.join(self.repo, "g3.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         html = open(out_html, encoding="utf-8").read()
         data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>', html, re.S).group(1))
         order = data["devorder"]
@@ -9850,7 +8801,7 @@ class TestLayerGraphInViewer(GilFixture):
         self.assertRegex(out, r"dev \d+걸음째",
                          "언제 갈라졌는지가 없다 — '어디서'만으론 무엇을 물려받았는지 모른다")
         # 텍스트 지도도 층을 맨 위에 얹는다.
-        txt = self.gil("viewer", "--text").stdout
+        txt = self.gil("graph").stdout
         self.assertIn("층 main ─ dev", txt, txt[:400])
         self.assertIn("search ← dev", txt, txt[:400])
 
@@ -9896,7 +8847,7 @@ class TestLayerGraphInViewer(GilFixture):
         self.gil("open", "login/c3", "--author", "clew", "--purpose", "합친다", "--fits", "기여",
                  "--parent", "c1", "--parent", "c2", "--inherit", "둘이 남긴 것", "--body", "정의")
         out_html = os.path.join(self.repo, "g8.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         dag = json.loads(re.search(r'"dagdata"[^>]*>(\[.*?\])</script>',
                                    open(out_html, encoding="utf-8").read(), re.S).group(1))
         by = {n["sha"]: f'{n["cycle"]}/{n["step"]}' for n in dag}
@@ -9935,7 +8886,7 @@ class TestLayerGraphInViewer(GilFixture):
                      "--criterion", "된다", "--parallel-with", "search", input="기준")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         out_html = os.path.join(self.repo, "g7.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         data = json.loads(re.search(r'"layergraphdata"[^>]*>(\{.*?\})</script>',
                                     open(out_html, encoding="utf-8").read(), re.S).group(1))
         self.assertIn("obs", data["devroots"],
@@ -9956,7 +8907,7 @@ class TestLayerGraphInViewer(GilFixture):
         self.gil("open", "search/c1", "--author", "clew", "--purpose", "P",
                  "--fits", "기여", "--body", "정의")
         out_html = os.path.join(self.repo, "g6.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         data = json.loads(re.search(r'"cycledata"[^>]*>(.*?)</script>',
                                     open(out_html, encoding="utf-8").read(), re.S).group(1))
         c1 = [c for c in data["search"]["cycles"] if c["name"] == "c1"][0]
@@ -9984,7 +8935,7 @@ class TestLayerGraphInViewer(GilFixture):
                      "--inherit", "두 갈래가 남긴 것", "--body", "정의")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         out_html = os.path.join(self.repo, "g5.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         data = json.loads(re.search(r'"cycledata"[^>]*>(.*?)</script>',
                                     open(out_html, encoding="utf-8").read(), re.S).group(1))
         c3 = [c for c in data["login"]["cycles"] if c["name"] == "c3"][0]
@@ -10014,7 +8965,7 @@ class TestLayerGraphInViewer(GilFixture):
         self._git("checkout", "-q", "dev")
         self._git("commit", "-q", "--allow-empty", "-m", "dev: 평범한 손질")
         out_html = os.path.join(self.repo, "g4.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         html2 = open(out_html, encoding="utf-8").read()
         rows2 = json.loads(re.search(r'"gitgraphdata"[^>]*>(\[.*?\])</script>', html2, re.S).group(1))
         plain = [c for c in rows2 if c["subj"] == "dev: 평범한 손질"]
@@ -10823,7 +9774,7 @@ class TestRawGraphLanesAreReal(GilFixture):
     def _lanes(self):
         import json, re
         out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
+        r = self.gil("graph", "--html", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out_html, encoding="utf-8") as f:
             html = f.read()
@@ -11080,7 +10031,7 @@ class TestSproutIsNotAnOrphan(GilFixture):
     def _dag(self):
         import json, re
         out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
+        r = self.gil("graph", "--html", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out_html, encoding="utf-8") as f:
             html = f.read()
@@ -11234,7 +10185,7 @@ class TestTheToolTeachesBranchingAndConfluence(GilFixture):
             self.gil("close", f"c/{cy}", "--verdict", "supported")
         import json, re
         out_html = os.path.join(self.repo, "g.html")
-        self.gil("viewer", "build", "--out", out_html)
+        self.gil("graph", "--html", "--out", out_html)
         with open(out_html, encoding="utf-8") as f:
             dag = json.loads(re.search(r'id="dagdata"[^>]*>(.*?)</script>', f.read(), re.S).group(1))
         by = {n["sha"]: n for n in dag}
@@ -11300,230 +10251,6 @@ class TestTheToolTeachesBranchingAndConfluence(GilFixture):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("네가 쓴 문장", r.stdout + r.stderr,
                          "사람의 답에서 인용했는데 창작이라 했다")
-
-
-class TestViewerLanguages(GilFixture):
-    """뷰어 화면의 언어 — ko · en · zh-CN · zh-TW (상현님).
-
-    gil 의 주 독자는 에이전트고 에이전트는 한국어를 읽는다. 그러니 영어·중국어의 실익은 거의
-    전적으로 **사람 관전자**에게 있다 — 관전 도구부터가 맞는 순서다.
-
-    여기서 지키는 것은 셋이다: (1) 사전에 구멍이 없다 (2) 한국어 화면이 이 갈아끼움으로
-    바뀌지 않았다 (3) 사람이 쓴 글은 어느 언어에서도 번역되지 않는다."""
-
-    LANGS = ["ko", "en", "zh-CN", "zh-TW"]
-
-    def _build(self):
-        self.gil("init", "--name", "clew")
-        self.gil("chain", "demo", "--purpose", "뷰어 언어 테스트")
-        self.gil("open", "demo/c001", "--author", "clew", "--purpose", "합 100")
-        self.gil("step", "demo/c001", "--kind", "success", "--title", "찾음")
-        out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        with open(out_html, encoding="utf-8") as f:
-            return f.read()
-
-    def _dict(self, html):
-        import json, re
-        m = re.search(r'id="i18ndata"[^>]*>(.*?)</script>', html, re.S)
-        self.assertIsNotNone(m, "사전이 페이지에 실리지 않았다")
-        return json.loads(m.group(1))
-
-    def test_no_key_is_missing_in_any_language(self):
-        """**조용히 한국어로 떨어지면 낡은 화면을 아무도 모른다.**
-
-        방금 고친 버전 문의와 같은 실패 모양이다 — 기구는 있는데 그 자리에 서 있지 않은 것.
-        번역이 빠지면 여기서 이름으로 떨어진다."""
-        payload = self._dict(self._build())
-        self.assertEqual(payload["langs"], self.LANGS)
-        missing = [f"{k}/{l}" for k, row in payload["dict"].items()
-                   for l in self.LANGS if not (row.get(l) or "").strip()]
-        self.assertEqual(missing, [], "사전에 구멍이 있다: " + ", ".join(sorted(missing)))
-
-    def test_placeholders_survive_every_translation(self):
-        """{files} 같은 자리표시자가 번역에서 사라지면 화면에 숫자가 안 뜬다 — 조용한 오답이다."""
-        import re
-        payload = self._dict(self._build())
-        bad = []
-        for k, row in payload["dict"].items():
-            want = set(re.findall(r"\{(\w+)\}", row["ko"]))
-            for l in self.LANGS:
-                if set(re.findall(r"\{(\w+)\}", row[l])) != want:
-                    bad.append(f"{k}/{l}")
-        self.assertEqual(bad, [], "자리표시자가 어긋난다: " + ", ".join(sorted(bad)))
-
-    def test_korean_markup_is_untouched(self):
-        """갈아끼움은 한국어 화면을 바꾸지 않는다 — 마크업에 원문이 그대로 박혀 있고,
-        그래서 JS 가 죽어도 화면이 비지 않는다."""
-        html = self._build()
-        self.assertIn("gil — 사고의 지도", html)
-        self.assertIn("전체맵", html)
-        self.assertIn("정적 스냅샷", html)
-
-    def test_user_written_text_is_never_translated(self):
-        """체인 이름·스텝 제목은 **사람이 쓴 것**이다. 옮기면 기록을 위조하는 것이다."""
-        payload = self._dict(self._build())
-        blob = repr(payload["dict"])
-        for written in ("demo", "뷰어 언어 테스트", "찾음"):
-            self.assertNotIn(written, blob,
-                             f"사용자가 쓴 글 '{written}' 이 번역 사전에 들어갔다")
-
-    def test_no_new_ui_string_bypasses_the_dictionary(self):
-        """**사전을 거치지 않고 박은 문구는 영어 화면에서 조용히 한국어로 남는다.**
-
-        이게 이 작업이 썩는 방식이다: 반년 뒤 누가 화면에 한 줄 더 붙이면서 사전을 잊고,
-        아무도 그걸 모른 채 영어 화면만 낡는다. 소스에서 직접 막는다 — 뷰어의 JS 가 화면에
-        찍는 글은 T() 를 타야 한다(마크업의 한국어 원문은 data-i18n 이 짝이라 예외)."""
-        import re
-        src = renderer_src_path()
-        with open(src, encoding="utf-8") as f:
-            lines = f.readlines()
-        bad = []
-        in_block = False
-        for i, ln in enumerate(lines, 1):
-            was_block = in_block
-            opens, closes = ln.count("/*"), ln.count("*/")
-            if opens > closes:
-                in_block = True
-            elif closes and in_block:
-                in_block = False
-            in_block = in_block or (was_block and not closes)
-            if ln.lstrip().startswith("//"):
-                continue
-            # 줄 끝 주석은 화면에 안 나간다 — 거기 한국어가 있는 건 정상이다.
-            ln = re.sub(r"\s+//[^'\"]*$", "", ln.rstrip("\n"))
-            if re.search(r"(textContent|innerHTML|\.title)\s*=\s*'[^']*[가-힣]", ln):
-                bad.append(f"{i}: {ln.strip()[:70]}")
-            # **그림 안도 화면이다**(#118). 위 정규식은 `textContent=` 꼴만 봤고, SVG 라벨·
-            # 툴팁은 svgEl() 의 **인자로** 곧장 들어간다 — 그래서 영어 화면인데 그래프 안만
-            # 한국어로 남았고(실측: ✓ 봉인 · ⚙ 설계 · 배포 · 부모), 아무도 못 봤다.
-            if re.search(r"svgEl\([^)]*'[^']*[가-힣]", ln):
-                bad.append(f"{i}(svg): {ln.strip()[:70]}")
-            # Go 가 직접 쓰는 SVG 마크업도 data-i18n 짝이 있어야 갈아끼워진다.
-            m = re.search(r"<text[^>]*>([^<]*[가-힣][^<]*)</text>", ln)
-            if m and "i18nAttr" not in ln and "esc(" not in ln:
-                bad.append(f"{i}(markup): {ln.strip()[:70]}")
-            # **꼴을 세지 말고 글자를 세라.** 위 셋은 전부 "어떤 모양으로 화면에 닿는가"를
-            # 열거한다 — 그래서 열거에 없는 모양(여러 줄에 걸친 삼항, 문자열 이어붙이기,
-            # 함수 인자로 들어가는 툴팁)은 통과했고, JS 안에 한글 40여 줄이 남았다.
-            # 열거는 늘 뒤늦다. **JS 안의 한글 리터럴 자체**를 세면 새 모양도 자동으로 걸린다.
-            #
-            # 예외는 둘뿐이고, 둘 다 **화면이 아닌 것**이다: 블록 주석 안(사람이 읽는 설명)과
-            # console.*(개발자 채널 — 사람 관전자의 화면에 안 뜬다. 조각이 죽었다는 사실은
-            # 화면에도 뜨는데, 그쪽은 viewer.partfail 로 사전을 탄다).
-            if was_block or in_block or "console." in ln:
-                continue
-            for lit in re.findall(r"'((?:[^'\\]|\\.)*)'", ln):
-                if re.search(r"[가-힣]", lit):
-                    bad.append(f"{i}(literal): {ln.strip()[:70]}")
-                    break
-        self.assertEqual(bad, [], "사전을 안 거친 화면 문구가 있다:\n" + "\n".join(bad))
-
-    def test_serve_rejects_an_unknown_language(self):
-        """모르는 언어를 조용히 무시하면 사람은 왜 안 바뀌는지 모른다."""
-        self.gil("init", "--name", "clew")
-        r = self.gil("viewer", "serve", "--lang", "xx", "--port", "0")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("모르는 언어", r.stdout + r.stderr)
-
-
-class TestViewerOwnership(GilFixture):
-    """**포트가 열렸다는 사실은 주인을 말해 주지 않는다** (상현님).
-
-    옛 코드는 기본 포트가 열려 있으면 그냥 물러났다 — 그 뷰어가 남의 저장소 것이어도. 그러면
-    이 세션은 뷰어가 없는데 있는 줄 알고, 사람은 남의 그래프를 자기 것으로 읽는다. 그리고 켜는
-    레일을 깔았으면 끄는 레일도 깔아야 한다 — 아니면 정리는 사람의 기억력에 맡겨진다."""
-
-    def _free_port(self):
-        import socket
-        s = socket.socket()
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-        s.close()
-        return str(port)
-
-    def _other_repo(self):
-        work = tempfile.mkdtemp(prefix="gil-other-")
-        subprocess.run(["git", "init", "-q", work], check=True)
-        for a in (["config", "user.email", "t@e.com"], ["config", "user.name", "t"]):
-            subprocess.run(["git", *a], cwd=work, check=True)
-        subprocess.run([*GIL_CMD, "init", "--name", "other"], cwd=work,
-                       capture_output=True, text=True,
-                       env=dict(os.environ, GIL_NO_VIEWER="1"))
-        return work
-
-    def _serve(self, repo, port):
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
-                             cwd=repo, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, env=env)
-        for _ in range(60):
-            try:
-                urllib.request.urlopen("http://127.0.0.1:" + port + "/whoami", timeout=1).read()
-                return p
-            except Exception:
-                time.sleep(0.1)
-        p.terminate()
-        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
-
-    def test_steps_aside_when_another_repo_holds_the_port(self):
-        self.gil("init", "--name", "clew")
-        base = self._free_port()
-        other = self._other_repo()
-        held = self._serve(other, base)
-        # 이 시험은 **자동 기동 경로**를 검증한다(남이 쥔 포트 앞에서 비켜 띄우는 동작).
-        # 자동 기동은 이제 옵트인이므로 여기서 명시적으로 켠다 — 기본값이 바뀌었다고 그
-        # 경로의 검증을 잃으면, 켠 사람에게만 나는 결함이 아무에게도 안 잡힌다.
-        env = dict(os.environ, GIL_VIEWER_PORT=base, GIL_AUTO_VIEWER="1")
-        env.pop("GIL_NO_VIEWER", None)
-        try:
-            r = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
-                               capture_output=True, text=True, env=env)
-            self.assertIn("다른 저장소가 쓰고 있다", r.stdout)
-            self.assertIn("비켜서 띄운다", r.stdout,
-                          "남이 쥔 포트 앞에서 손을 놓았다:\n" + r.stdout)
-            # 비켜 띄운 자리가 실제로 **내 저장소**를 본다 — 그리고 handoff 는 그 자리를 가리킨다.
-            listing = subprocess.run([*GIL_CMD, "viewer", "list"], cwd=self.repo,
-                                     capture_output=True, text=True, env=env).stdout
-            self.assertIn("◀ 이 저장소", listing, "비켜 띄운 뷰어가 내 것이 아니다:\n" + listing)
-            mine = [ln for ln in listing.splitlines() if "◀ 이 저장소" in ln][0]
-            port = mine.split("127.0.0.1:")[1].split()[0]
-            self.assertNotEqual(port, base)
-            self.assertIn("http://127.0.0.1:" + port, r.stdout,
-                          "handoff 가 남의 주소를 '지금 열어라'로 가리켰다")
-            # 남의 뷰어는 살아 있다 — 비켜서 띄우는 것이지 밀어내는 것이 아니다.
-            self.assertIsNone(held.poll(), "남의 뷰어를 죽였다")
-        finally:
-            subprocess.run([*GIL_CMD, "viewer", "stop"], cwd=self.repo,
-                           capture_output=True, text=True, env=env)
-            held.terminate()
-            held.wait(timeout=10)
-            shutil.rmtree(other, ignore_errors=True)
-
-    def test_stop_kills_only_this_repos_viewer(self):
-        self.gil("init", "--name", "clew")
-        base = self._free_port()
-        other = self._other_repo()
-        held = self._serve(other, base)
-        mineport = str(int(base) + 1)
-        minep = self._serve(self.repo, mineport)
-        env = dict(os.environ, GIL_VIEWER_PORT=base)
-        env.pop("GIL_NO_VIEWER", None)
-        try:
-            r = subprocess.run([*GIL_CMD, "viewer", "stop"], cwd=self.repo,
-                               capture_output=True, text=True, env=env)
-            self.assertIn("뷰어 껐다", r.stdout, r.stdout + r.stderr)
-            self.assertIn(mineport, r.stdout)
-            minep.wait(timeout=10)  # 실제로 죽었나 — 말이 아니라 사건이다
-            self.assertIsNone(held.poll(), "남의 저장소 뷰어까지 껐다")
-        finally:
-            for p in (held, minep):
-                if p.poll() is None:
-                    p.terminate()
-                    p.wait(timeout=10)
-            shutil.rmtree(other, ignore_errors=True)
 
 
 class TestSessionTidy(GilFixture):
@@ -11880,7 +10607,7 @@ class TestPruneApprovalHasNoSilentDoor(GilFixture):
     def _page(self):
         """뷰어 HTML(정적 build 로 얻는다 — 서버를 띄우지 않아도 같은 렌더 코드다)."""
         out = os.path.join(self.repo, "v.html")
-        r = self.gil("viewer", "build", "--out", out)
+        r = self.gil("graph", "--html", "--out", out)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         with open(out, encoding="utf-8") as f:
             return f.read()
@@ -12495,7 +11222,7 @@ class TestDeployMarkerSurvivesTheMerges(GilFixture):
         r = self.gil("deploy", "--tag", "v1.0.0", *extra)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         out_html = os.path.join(self.repo, "g.html")
-        self.assertEqual(self.gil("viewer", "build", "--out", out_html).returncode, 0)
+        self.assertEqual(self.gil("graph", "--html", "--out", out_html).returncode, 0)
         return open(out_html, encoding="utf-8").read()
 
     def _dag(self, html):
@@ -12778,238 +11505,6 @@ class TestChainMustSayWhereItInherits(GilFixture):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
-class TestViewerSaysWhichRepository(GilFixture):
-    """**이 화면은 어느 저장소인가** (이슈 #110).
-
-    여러 저장소에서 gil 을 쓰면 뷰어 포트가 저장소 사이를 떠돈다. 같은 번호가 어느 순간 다른
-    저장소를 서비스하는데, 화면 어디에도 정체가 없었다 — 제목은 어느 저장소든 "gil — 사고의
-    지도"다. 그래서 사람이 남의 그래프를 보며 "인터뷰가 안 보인다, 많이 망가졌나 보네"라고
-    읽었다. 도구는 정상이었고 화면만 남의 것이었다.
-
-    에이전트도 같이 속았다. 체인 이름(ail-runtime)으로 포트를 확인했는데 그 저장소에도 우연히
-    같은 이름의 체인이 있었다 — **이름은 저장소마다 겹칠 수 있으니 정체의 근거가 못 된다.**"""
-
-    def _free_port(self):
-        import socket
-        s = socket.socket()
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-        s.close()
-        return str(port)
-
-    def _html(self):
-        self.gil("init", "--name", "clew")
-        out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return open(out_html, encoding="utf-8").read()
-
-    def _serve(self, repo, port):
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
-                             cwd=repo, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, env=env)
-        for _ in range(60):
-            try:
-                urllib.request.urlopen("http://127.0.0.1:" + port + "/whoami", timeout=1).read()
-                return p
-            except Exception:
-                time.sleep(0.1)
-        p.terminate()
-        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
-
-    def test_the_page_names_the_repository_it_watches(self):
-        """한 줄이면 이번 사고 전체가 예방된다 — 가장 값싼 고침(제안 a)."""
-        html = self._html()
-        real = os.path.realpath(self.repo)
-        self.assertIn("repostamp", html, "화면에 저장소 정체가 없다")
-        self.assertTrue(real in html or self.repo in html,
-                        "화면이 저장소 경로를 말하지 않는다 — 어느 저장소인지 알 길이 없다")
-
-    def test_the_page_and_whoami_say_the_same_id(self):
-        """대조하라고 만든 값이 두 자리에서 다르면 대조라는 행위가 성립하지 않는다(제안 b)."""
-        self.gil("init", "--name", "clew")
-        port = self._free_port()
-        p = self._serve(self.repo, port)
-        try:
-            who = json.loads(urllib.request.urlopen(
-                "http://127.0.0.1:" + port + "/whoami", timeout=3).read().decode())
-            page = urllib.request.urlopen("http://127.0.0.1:" + port + "/",
-                                          timeout=5).read().decode()
-            self.assertTrue(who.get("id"), "/whoami 가 식별자를 안 준다 — 자동화가 대조할 근거가 없다")
-            self.assertIn("#" + who["id"], page, "화면과 /whoami 의 식별자가 다르다")
-            self.assertIn(who["repo"], page)
-        finally:
-            p.terminate()
-            p.wait(timeout=10)
-
-    def test_two_repositories_born_in_the_same_second_still_differ(self):
-        """**뿌리 커밋만으로는 못 가른다.** 같은 초에 init 한 둘은 뿌리 sha 까지 같아진다
-        (실측). 정체를 말하라고 만든 값이 정체를 못 가르면 그건 값이 아니다."""
-        self.gil("init", "--name", "clew")
-        other = tempfile.mkdtemp(prefix="gil-twin-")
-        try:
-            subprocess.run(["git", "init", "-q", other], check=True)
-            for a in (["config", "user.email", "test@example.com"], ["config", "user.name", "test"],
-                      ["config", "commit.gpgsign", "false"]):
-                subprocess.run(["git", *a], cwd=other, check=True)
-            subprocess.run([*GIL_CMD, "init", "--name", "clew"], cwd=other,
-                           capture_output=True, text=True,
-                           env=dict(os.environ, GIL_NO_VIEWER="1"))
-            ports = [self._free_port()]
-            ports.append(str(int(ports[0]) + 1))
-            ps = [self._serve(self.repo, ports[0]), self._serve(other, ports[1])]
-            try:
-                ids = [json.loads(urllib.request.urlopen(
-                    "http://127.0.0.1:" + pt + "/whoami", timeout=3).read().decode())["id"]
-                    for pt in ports]
-                self.assertNotEqual(ids[0], ids[1],
-                                    "서로 다른 저장소가 같은 식별자를 답했다 — 이 값으론 못 가른다")
-            finally:
-                for p in ps:
-                    p.terminate()
-                    p.wait(timeout=10)
-        finally:
-            shutil.rmtree(other, ignore_errors=True)
-
-    def test_the_tab_title_carries_the_repository(self):
-        """탭이 여럿이면 제목이 유일한 단서인데 모두 같은 제목을 달고 있었다."""
-        html = self._html()
-        self.assertIn('id="repodata"', html, "탭 제목이 읽을 저장소 정보가 페이지에 없다")
-        self.assertIn("document.title", html)
-
-    def test_the_path_is_never_translated(self):
-        """경로와 식별자는 사람이 만든 사실이다 — 옮기면 그 자리를 못 찾는다."""
-        html = self._html()
-        m = re.search(r'id="i18ndata"[^>]*>(.*?)</script>', html, re.S)
-        self.assertIsNotNone(m)
-        blob = m.group(1)
-        self.assertNotIn(os.path.basename(self.repo), blob,
-                         "저장소 경로가 번역 사전에 들어갔다")
-
-
-class TestHandoffPointsAtThisRepositorysViewer(GilFixture):
-    """**한 출력이 두 말을 했다** (이슈 #110 e).
-
-    남이 기본 포트를 쥐고 있어 우리가 비켜서 떴을 때, 같은 handoff 가 위에서는 "포트 X 는 다른
-    저장소가 쓰고 있다"(= 이 저장소엔 뷰어가 없다)고 하고, 열네 줄 아래에서는 우리 주소를
-    "지금 열어라"라고 했다. 앞 줄을 믿은 세션은 뷰어를 하나 더 띄우고, 그 뷰어가 또 다른 포트를
-    잡아 떠돎을 키운다. 판정이 두 자리에서 갈리면 사람은 어느 쪽을 믿을지부터 고민한다."""
-
-    def _free_port(self):
-        import socket
-        s = socket.socket()
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-        s.close()
-        return str(port)
-
-    def _other_repo(self):
-        work = tempfile.mkdtemp(prefix="gil-other-")
-        subprocess.run(["git", "init", "-q", work], check=True)
-        for a in (["config", "user.email", "t@e.com"], ["config", "user.name", "t"],
-                  ["config", "commit.gpgsign", "false"]):
-            subprocess.run(["git", *a], cwd=work, check=True)
-        subprocess.run([*GIL_CMD, "init", "--name", "other"], cwd=work,
-                       capture_output=True, text=True,
-                       env=dict(os.environ, GIL_NO_VIEWER="1"))
-        return work
-
-    def _serve(self, repo, port):
-        env = dict(os.environ)
-        env.pop("GIL_NO_VIEWER", None)
-        p = subprocess.Popen([*GIL_CMD, "viewer", "serve", "--repo", ".", "--port", port],
-                             cwd=repo, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, env=env)
-        for _ in range(60):
-            try:
-                urllib.request.urlopen("http://127.0.0.1:" + port + "/whoami", timeout=1).read()
-                return p
-            except Exception:
-                time.sleep(0.1)
-        p.terminate()
-        self.skipTest("뷰어가 안 떴다(포트 충돌 가능)")
-
-    def test_liveness_line_finds_our_viewer_even_when_it_stepped_aside(self):
-        self.gil("init", "--name", "clew")
-        base = self._free_port()
-        mineport = str(int(base) + 2)
-        other = self._other_repo()
-        held = self._serve(other, base)
-        minep = self._serve(self.repo, mineport)
-        env = dict(os.environ, GIL_VIEWER_PORT=base, GIL_NO_VIEWER="1")
-        try:
-            out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
-                                 capture_output=True, text=True, env=env).stdout
-            live = [ln for ln in out.splitlines() if ln.startswith("▶ 뷰어:")]
-            self.assertTrue(live, "뷰어 생존 줄이 없다:\n" + out)
-            self.assertIn("살아있음", live[0],
-                          "제 뷰어가 떠 있는데 없다고 했다 — 세션은 뷰어를 하나 더 띄운다:\n" + live[0])
-            self.assertIn(mineport, live[0])
-            self.assertNotIn("다른 저장소", live[0])
-        finally:
-            for p in (held, minep):
-                p.terminate()
-                p.wait(timeout=10)
-            shutil.rmtree(other, ignore_errors=True)
-
-    def test_the_directive_carries_the_fingerprint_to_check(self):
-        """주소만 주면 사람은 옛 탭을 보고 있는지 알 수 없다 — 대조할 값을 함께 준다."""
-        self.gil("init", "--name", "clew")
-        port = self._free_port()
-        p = self._serve(self.repo, port)
-        env = dict(os.environ, GIL_VIEWER_PORT=port, GIL_NO_VIEWER="1")
-        try:
-            out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
-                                 capture_output=True, text=True, env=env).stdout
-            who = json.loads(urllib.request.urlopen(
-                "http://127.0.0.1:" + port + "/whoami", timeout=3).read().decode())
-            self.assertIn("#" + who["id"], out,
-                          "안내가 화면과 대조할 값을 안 줬다 — 이름으로 확인하다 오진했다")
-            self.assertIn("이 저장소:", out)
-        finally:
-            p.terminate()
-            p.wait(timeout=10)
-
-    def test_a_repository_can_pin_its_own_port(self):
-        """어제 받은 주소가 오늘은 남의 화면이면 사람은 북마크를 만들 수 없다(제안 d)."""
-        self.gil("init", "--name", "clew")
-        pin = self._free_port()
-        os.makedirs(os.path.join(self.repo, ".gil"), exist_ok=True)
-        with open(os.path.join(self.repo, ".gil", "viewer-port"), "w") as f:
-            f.write(pin + "\n")
-        env = dict(os.environ, GIL_NO_VIEWER="1")
-        env.pop("GIL_VIEWER_PORT", None)
-        out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
-                             capture_output=True, text=True, env=env).stdout
-        live = [ln for ln in out.splitlines() if ln.startswith("▶ 뷰어:")]
-        self.assertTrue(live, out)
-        self.assertIn(pin, live[0], "선언한 자리를 안 쓴다:\n" + live[0])
-        # 자리를 알리는 것과 고장을 알리는 것은 다르다 — 자동 기동을 끈 뒤로 안 떠 있는
-        # 것은 정상이고, 그걸 "죽어있음"이라 적으면 읽는 쪽이 고치려 든다.
-        self.assertNotIn("죽어있음", live[0])
-
-    def test_a_pinned_viewer_is_not_called_someone_elses(self):
-        """스캔이 못 찾았다는 사실을 '남의 것'의 근거로 쓰면, 눈이 좁아진 만큼 거짓말이 는다."""
-        self.gil("init", "--name", "clew")
-        pin = self._free_port()
-        os.makedirs(os.path.join(self.repo, ".gil"), exist_ok=True)
-        with open(os.path.join(self.repo, ".gil", "viewer-port"), "w") as f:
-            f.write(pin + "\n")
-        p = self._serve(self.repo, pin)
-        env = dict(os.environ, GIL_NO_VIEWER="1")
-        env.pop("GIL_VIEWER_PORT", None)
-        try:
-            out = subprocess.run([*GIL_CMD, "handoff"], cwd=self.repo,
-                                 capture_output=True, text=True, env=env).stdout
-            live = [ln for ln in out.splitlines() if ln.startswith("▶ 뷰어:")]
-            self.assertIn("살아있음", live[0], "제 뷰어를 남의 것이라 불렀다:\n" + live[0])
-        finally:
-            p.terminate()
-            p.wait(timeout=10)
-
-
 class TestViewerShowsTheCompetition(GilFixture):
     """**나란히 세운 것은 비교하려는 것이다 — 그런데 비교하는 화면이 없었다** (이슈 #112).
 
@@ -13024,7 +11519,7 @@ class TestViewerShowsTheCompetition(GilFixture):
 
     def _cycdata(self):
         out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
+        r = self.gil("graph", "--html", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out_html, encoding="utf-8") as f:
             html = f.read()
@@ -13415,7 +11910,7 @@ class TestGitGraphShowsTheSiblings(GilFixture):
 
     def _gitgraph(self):
         out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
+        r = self.gil("graph", "--html", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out_html, encoding="utf-8") as f:
             html = f.read()
@@ -13527,64 +12022,6 @@ class TestAdoptDevNeverShrinksTheLayer(GilFixture):
         self.assertIn("이후:", out, "옮긴 뒤 범위를 안 보여준다:\n" + out)
 
 
-class TestReopeningTheViewerIsOneMove(GilFixture):
-    """**탭을 한 번 닫으면 다시 켜기가 너무 어렵다** (상현님).
-
-    뷰어 포트는 저장소 사이를 떠돈다(#110). 그래서 관전 창을 닫으면 사람이 `gil viewer list` 로
-    번호를 찾아 주소를 손으로 옮겨야 했다 — 도구가 할 수 있는 일을 사람에게 미룬 것이다.
-    그리고 그 한 줄조차 터미널 앞에 앉아 있어야 칠 수 있다.
-
-    `gil viewer open` 한 줄, 그리고 그 줄을 부르는 **런처(버튼)**. 런처는 새 바이너리가 아니라
-    gil 이 그 자리에서 만드는 껍데기라(mac .app · windows .cmd · linux .desktop) '단일 정적
-    바이너리' 원칙을 건드리지 않는다."""
-
-    def test_open_says_where_to_go(self):
-        """억제 환경에서도 **어디로 가면 되는지는 말한다** — 침묵하면 무엇을 했는지 모른다."""
-        self.gil("init", "--name", "clew")
-        r = self.gil("viewer", "open")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("뷰어", r.stdout + r.stderr)
-
-    def test_shortcut_makes_a_launcher_that_names_this_repo(self):
-        """버튼은 **자기가 어느 저장소인지 알고** 눌린다 — 눌리는 자리는 그 저장소가 아니다."""
-        self.gil("init", "--name", "clew")
-        out = os.path.join(self.repo, "btn.app")
-        r = self.gil("viewer", "shortcut", "--out", out)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        script = os.path.join(out, "Contents", "MacOS", "run") if sys.platform == "darwin" else out
-        self.assertTrue(os.path.exists(script), "런처가 안 만들어졌다: " + script)
-        with open(script, encoding="utf-8") as f:
-            body = f.read()
-        self.assertIn("viewer open", body, "런처가 여는 명령을 안 부른다")
-        real = os.path.realpath(self.repo)
-        self.assertIn(real, body, "런처에 저장소 자리가 안 박혔다:\n" + body)
-
-    def test_the_launcher_is_executable(self):
-        """실행 권한이 없으면 버튼이 아니라 파일이다."""
-        if sys.platform != "darwin":
-            self.skipTest("이 시험은 .app 번들 형태에서만 의미가 있다")
-        self.gil("init", "--name", "clew")
-        out = os.path.join(self.repo, "btn.app")
-        self.gil("viewer", "shortcut", "--out", out)
-        script = os.path.join(out, "Contents", "MacOS", "run")
-        self.assertTrue(os.access(script, os.X_OK), "런처에 실행 권한이 없다")
-        self.assertTrue(os.path.exists(os.path.join(out, "Contents", "Info.plist")),
-                        "Info.plist 가 없다 — Finder 가 이걸 앱으로 안 본다")
-
-    def test_shortcut_refuses_outside_a_repository(self):
-        """열 그래프가 없는 자리에서 버튼을 만들면, 그 버튼은 누를 때마다 실패한다."""
-        work = tempfile.mkdtemp(prefix="gil-nogit-")
-        try:
-            env = dict(os.environ, GIL_NO_VIEWER="1")
-            r = subprocess.run([*GIL_CMD, "viewer", "shortcut", "--out",
-                                os.path.join(work, "btn.app")],
-                               cwd=work, capture_output=True, text=True, env=env)
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("git 저장소가 아니다", r.stdout + r.stderr)
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
-
-
 class TestEdgesDoNotRepeatWhatIsAlreadyThere(GilFixture):
     """**A→B→C 인데 A→C 까지 그린다** (상현님 관측).
 
@@ -13629,7 +12066,7 @@ class TestEdgesDoNotRepeatWhatIsAlreadyThere(GilFixture):
 
     def _dag_parents(self):
         out_html = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out_html)
+        r = self.gil("graph", "--html", "--out", out_html)
         self.assertEqual(r.returncode, 0, r.stderr)
         html = open(out_html, encoding="utf-8").read()
         pat = (r'\{"sha":"([0-9a-f]+)","chain":"([^"]*)","cycle":"([^"]*)","step":"([^"]*)",'
@@ -13833,7 +12270,7 @@ class TestWhatTheHelpPointsAtExists(GilFixture):
     # 백그라운드 프로세스(viewer·mcp)·사람 대기(interview·intake)·비가역(prune·migrate·
     # deploy)·저장소 바깥에 쓰기(global·memory·docs·guard). **문법이 아니라 부작용 때문에**
     # 빼는 것이므로, 여기에 이름을 더할 때는 그 이유를 적어야 한다.
-    NOT_RUN = ("viewer", "mcp", "init", "docs", "global", "memory", "prune",
+    NOT_RUN = ("mcp", "init", "docs", "global", "memory", "prune",
                "migrate", "deploy", "guard", "version", "handoff", "interview", "intake")
 
     def test_the_lines_it_tells_you_to_type_actually_parse(self):
@@ -13954,7 +12391,7 @@ class TestTheGraphHasItsOwnDoor(GilFixture):
         old = os.path.join(self.repo, "old.html")
         r = self.gil("graph", "--html", "--out", new)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.gil("viewer", "build", "--out", old)
+        self.gil("graph", "--html", "--out", old)
         with open(new, encoding="utf-8") as f1, open(old, encoding="utf-8") as f2:
             self.assertEqual(f1.read(), f2.read(), "두 진입점이 다른 그림을 낸다")
 
@@ -14036,8 +12473,20 @@ class TestRetiringACommandLeavesNoDanglingGuidance(GilFixture):
             self.skipTest("아직 은퇴한 명령이 없다 — 위 판정기 시험이 이 자리를 지킨다")
         bad = []
         for f in sorted(glob.glob(os.path.join(self.GO, "*.go"))):
+            raw = False          # ` … ` raw string 안인가
             for i, ln in enumerate(open(f, encoding="utf-8"), 1):
-                if ln.lstrip().startswith("//"):
+                # **raw string 안의 `//` 는 Go 주석이 아니다.** 렌더러의 css·js 는 통째로
+                # raw string 이고, 그 안의 `// …` 줄은 **화면에 나가는 글**이다. 이걸
+                # 주석으로 보고 건너뛰다가 두 자리를 놓쳤다(console.error('[gil viewer] …')).
+                was_raw = raw
+                if ln.count("`") % 2:
+                    raw = not raw
+                if not was_raw and ln.lstrip().startswith("//"):
+                    continue
+                if was_raw:
+                    for name in retired:
+                        if self._mentions(ln, name):
+                            bad.append(f"{os.path.basename(f)}:{i} → gil {name} (화면에 나가는 글)")
                     continue
                 for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', ln):
                     for name in retired:
@@ -14147,7 +12596,7 @@ class TestTheScreenCountsOneThing(GilFixture):
 
     def _build(self):
         out = os.path.join(self.repo, "g.html")
-        r = self.gil("viewer", "build", "--out", out)
+        r = self.gil("graph", "--html", "--out", out)
         self.assertEqual(r.returncode, 0, r.stderr)
         return open(out, encoding="utf-8").read()
 

@@ -4,9 +4,8 @@
 // 한다. git 명령은 -C <repo> 로 대상 레포에서 돈다 — 뷰어를 그 레포 안에 두지 않아 작업과
 // 충돌 없음. stdlib 만, 외부 의존 0.
 //
-//	gil viewer text                    텍스트 트리 1회 출력
-//	gil viewer serve [--port <포트>]   브라우저 관전 서버(자동 새로고침)
-//	gil viewer build --out <파일>      정적 자기완결 HTML
+//	gil graph                         터미널 그림 1회 출력
+//	gil graph --html --out <파일>      정적 자기완결 HTML
 //
 // (옛 별도 바이너리 gilviewer 는 폐지되고 gil 에 통합됐다.)
 package main
@@ -883,106 +882,6 @@ func buildGraph() graphView {
 	return g
 }
 
-// cmdViewer — gil viewer <serve|build|text> 디스패치. gil main.go 의 case "viewer" 에서 불린다.
-// 뷰어는 격리 유지를 위해 gil flags 대신 자체 수동 파서를 쓴다(의존성 0).
-func cmdViewer(args []string) {
-	// 관전 서버는 오래 산다 — 저장소가 밖에서 바뀌므로 읽기 캐시를 쓰면 화면이 얼어붙는다.
-	stopGitCache()
-	sub := ""
-	out := ""
-	port := "8790"
-	lang := ""
-	rest := args
-	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
-		sub = rest[0]
-		rest = rest[1:]
-	}
-	for i := 0; i < len(rest); i++ {
-		switch rest[i] {
-		case "--repo":
-			if i+1 < len(rest) {
-				viewerRepoDir = rest[i+1]
-				i++
-			}
-		case "--port":
-			if i+1 < len(rest) {
-				port = rest[i+1]
-				i++
-			}
-		case "--out":
-			if i+1 < len(rest) {
-				out = rest[i+1]
-				i++
-			}
-		// 화면 언어의 **기본값**. 이 상위 파서가 추려서 넘기는 구조라, 여기 없으면 플래그는
-		// 조용히 사라진다 — serve 쪽에만 넣어 두고 안 먹는 걸 한참 찾았다.
-		case "--lang":
-			if i+1 < len(rest) {
-				lang = rest[i+1]
-				i++
-			}
-		// --open: 시스템 브라우저까지 연다. **기본은 조용히 서버만 띄우는 것**이다 — 자동으로
-		// 튀어나오는 창은 도움보다 방해였다(이슈 #48). 주소는 stdout 에 그대로 나온다.
-		case "--open":
-			os.Setenv("GIL_OPEN_BROWSER", "1")
-		case "--no-open":
-			// 이제 기본이라 아무 일도 안 한다. 이미 쓰인 문서·스크립트 호환용.
-		}
-	}
-	switch sub {
-	case "serve":
-		sa := []string{"--port", port}
-		if lang != "" {
-			sa = append(sa, "--lang", lang)
-		}
-		serve(sa)
-	case "list":
-		// 어느 포트가 어느 저장소를 보는가(이슈 #93 곁다리). 포트 폴백으로 뷰어가 세션마다
-		// 겹겹이 쌓이는데, 그걸 알 방법이 없어 사람이 남의 그래프를 자기 것으로 읽었다.
-		vs := viewerScan()
-		if len(vs) == 0 {
-			println2("뜬 뷰어 없음 — 띄워라: gil viewer serve")
-			return
-		}
-		mineAbs, _ := filepath.Abs(".")
-		for _, v := range vs {
-			mark := " "
-			if v.Repo == mineAbs {
-				mark = "◀ 이 저장소"
-			}
-			println2("  127.0.0.1:" + v.Port + "  →  " + v.Repo + "  " + mark)
-		}
-		println2("  (죽은 뷰어의 이유는 각 저장소의 .git/gil-viewer.log 에 남는다.)")
-	case "open":
-		// **탭을 닫으면 다시 켜기가 어렵다**(상현님). 포트는 저장소 사이를 떠돌아, 다시 보려면
-		// 사람이 list 로 번호를 찾아 손으로 옮겨야 했다 — 도구가 할 수 있는 일이다.
-		viewerOpen()
-	case "shortcut":
-		// 그 한 줄조차 터미널 앞에 앉아 있어야 칠 수 있다. 버튼 하나로 만든다.
-		viewerShortcut(out)
-	case "stop":
-		// 켠 것을 끈다(상현님). 이 저장소를 보는 뷰어만 — 남의 것은 건드리지 않는다.
-		for _, ln := range stopMyViewers() {
-			println2(ln)
-		}
-	case "build":
-		if out == "" {
-			die("사용: gil viewer build --out <파일> [--repo <경로>]")
-		}
-		runViewerBuild(out)
-	case "", "text":
-		renderText(buildGraph())
-	default:
-		die("gil viewer: 알 수 없는 서브명령 \"" + sub + "\" — [serve open shortcut build text list stop]")
-	}
-}
-
-// runViewerBuild — 옛 이름. 실물은 `gil graph --html --out`(graph_cmd.go)이다.
-//
-// **두 벌로 갈라 두지 않는다** — 한쪽만 고쳐지면 시험이 재는 그림과 사람이 보는 그림이
-// 달라진다. 이 자리는 뷰어가 은퇴할 때 함께 사라진다.
-func runViewerBuild(out string) { writeGraphHTML(out) }
-
 func renderText(g graphView) {
 	fmt.Println("═══ gil 그래프 뷰어 — 체인 > 사이클 > 스텝 ═══")
 	work := "작업 없음(클린)"
@@ -1183,4 +1082,40 @@ func reduceTransitiveParents(ps []string, parents map[string][]string) []string 
 		return uniq
 	}
 	return out
+}
+
+// tipSignature — 그래프의 **지금 상태를 한 줄로 접은 값**. 바뀌었는지만 알면 되는 자리에서
+// 전체를 다시 읽지 않게 한다(MCP 카드의 낡음 배너가 이걸 쓴다).
+//
+// 여기 사는 이유: 오래 뷰어 서버 파일에 세들어 있었다 — 서버가 페이지 캐시를 무효화하는 데
+// 썼기 때문이다. 서버는 은퇴하고 이 값은 남는다(mcp_ui.go·mcp_ui_card.go·mcp_ui_status.go).
+func tipSignature() string {
+	const fs = "\x1f"
+	out, err := viewerGit("for-each-ref", "--format=%(refname:short)"+fs+"%(objectname)", "refs/heads/")
+	if err != nil {
+		return "err"
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	// 로컬 상태도 서명에 넣는다(상현님: 제출해도 아무 일도 안 일어난다). 커밋이 안 바뀌어도
+	// **누가 기다리는지·에이전트가 읽었는지**는 바뀐다 — 그게 사람이 가장 보고 싶은 변화다.
+	if dir := viewerGitDir(); dir != "" {
+		if ents, err := os.ReadDir(filepath.Join(dir, "gil")); err == nil {
+			for _, e := range ents {
+				n := e.Name()
+				if strings.HasPrefix(n, "interview-waiting-") {
+					if viewerWaiterActive(strings.TrimPrefix(n, "interview-waiting-")) {
+						lines = append(lines, "wait"+fs+n)
+					}
+					continue
+				}
+				if n == "interview-seen" {
+					if b, err := os.ReadFile(filepath.Join(dir, "gil", n)); err == nil {
+						lines = append(lines, "seen"+fs+strings.TrimSpace(string(b)))
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
 }

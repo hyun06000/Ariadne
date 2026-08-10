@@ -170,16 +170,9 @@ func cmdInit(args []string) {
 	// 워크플로우를 배운다 — 여기서 한 번 물어 두는 값이 가장 싸다.
 	versionAskPrint()
 
-	// 뷰어는 **청할 때 뜬다**(상현님). 옛 init 은 여기서 관전 서버를 띄웠는데, 그러면
-	// 저장소를 만드는 것만으로 사람이 안 부른 서버가 하나 생긴다. 작업 중에 필요한 세 줄은
-	// gil status 가 답하고, 전체를 훑고 싶을 때 아래 한 줄로 연다.
-	if viewerAutoOn() {
-		launchViewer()
-	} else {
-		println2("")
-		println2("  지금 어디인지 보려면:  " + surfaceCmd("status") + "  (서버 없이, 이 자리에서)")
-		println2("  전체 그래프를 훑으려면: " + surfaceCall("viewer", "open", "") + "")
-	}
+	println2("")
+	println2("  지금 어디인지 보려면:  " + surfaceCmd("status") + "  (이 자리에서 바로)")
+	println2("  전체 그래프를 훑으려면: " + surfaceCmd("graph"))
 	// 여기서 사다리를 다시 늘어놓지 않는다 — 사다리는 `gil start` 가 진다.
 	//
 	// 왜 바꿨나(2026-08-09). 옛 NEXT 는 이름 짓기·방 채우기·개시 인터뷰를 번호로 늘어놨는데,

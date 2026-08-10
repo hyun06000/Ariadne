@@ -460,7 +460,7 @@ func cmdMigrateToDevLayout(prefix string, dryRun, allowDirtyTips, replace bool, 
 	}
 	println2("  옛 브랜치는 그대로 있다 — 지우지 않는다. 두 나무를 나란히 놓고 세어서 무손실을 확인하라:")
 	println2("    gil fsck            (새 나무의 위반)")
-	println2("    gil viewer serve    (전체맵 맨 위 두 줄에 층이 보인다)")
+	println2("    " + surfaceCmd("graph") + "         (전체맵 맨 위 두 줄에 층이 보인다)")
 	println2("  확인이 끝나면 옛 체인을 접어라(객체는 안 지운다 — 되돌릴 수 있다):")
 	for _, ch := range ordered {
 		println2("    gil chain-retire " + ch + " --reason '" + prefix + " 로 이주함'")

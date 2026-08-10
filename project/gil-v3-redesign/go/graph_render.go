@@ -1922,7 +1922,7 @@ function setLang(l){
   // 인터뷰 폼은 한 글자마다 초안이 저장되므로 다시 그려도 쓰던 답을 잃지 않는다(그게 아니면
   // 언어를 바꿨다는 이유로 답이 날아간다 — 언어 토글이 덫이 되는 자리다).
   ['buildStepMap','buildPrunes','buildReferences','buildInterviews'].forEach(fn=>{
-    if(typeof window[fn]==='function'){ try{ window[fn](); }catch(e){ console.error('[gil viewer] '+fn,e); } }
+    if(typeof window[fn]==='function'){ try{ window[fn](); }catch(e){ console.error('[gil graph] '+fn,e); } }
   });
 }
 function buildLangToggle(){
@@ -4042,7 +4042,7 @@ document.querySelectorAll('#depthseg button').forEach(b=>b.addEventListener('cli
 // 관전 도구의 침묵은 '이상 없음'과 구분되지 않는다(이슈 #84·#90).
 function step(name, fn){
   try{ fn(); }catch(e){
-    console.error('[gil viewer] '+name+' 실패:', e);
+    console.error('[gil graph] '+name+' 실패:', e);
     const b=document.createElement('div');
     b.style.cssText='margin:8px 12px;padding:8px 12px;border:1px solid #c33;border-radius:6px;color:#c33;font:12px ui-monospace,monospace';
     b.textContent=T('viewer.partfail',{name:name,err:(e&&e.message||e)});

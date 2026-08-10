@@ -113,7 +113,7 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
   체인 거부가 주는 권장 경로(`gil intake`)에 **대응 툴이 없어서**, 남는 길이 같은 메시지가
   금지하는 것 하나뿐이었다(*"네가 기준을 창작해 넣지 마라"*) — **표면이 자기가 금지한 실패를
   강제했다** · "가장 먼저 부르라"는 `gil_handoff` 의 다음 수 12개 중 **11개가 못 치는 것**
-  (`gil global read` ×7 · `gil memory append` · `gil viewer open` · `handoff --end`) ·
+  (`gil global read` ×7 · `gil memory append` · gil viewer open · `handoff --end`) ·
   그리고 `initialize` 의 **instructions 가 비어 있었다** — 시작점을 말할 유일한 자리다.
   덤으로 스키마가 `gil_chain` 의 `purpose` 를 **필수**로 광고했는데 권장 경로인 `from_intake`
   는 그걸 금지한다: 호출이 gil 에 닿기도 전에 검증에서 죽었다(`gil_open`·`gil_deploy` 도 같은
@@ -307,9 +307,9 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
   **이미 다른 부모를 통해 들어오는 선은 다시 긋지 않는다**(상현님) — 전체맵 엣지의 이행 축소.
   v3.57.0 = **탭을 닫아도 한 번에 다시 연다**(상현님) — 뷰어를 띄운 뒤 브라우저 탭을 닫으면
   다시 여는 길이 없었다. 포트는 저장소마다 다르고 사람은 그걸 외우지 않는다 — 그래서 "다시
-  보고 싶다"가 **주소를 찾는 일**이 됐다. `gil viewer open` 이 그 저장소의 뷰어를 찾아
+  보고 싶다"가 **주소를 찾는 일**이 됐다. gil viewer open 이 그 저장소의 뷰어를 찾아
   브라우저로 열고, 꺼져 있으면 띄운 뒤 연다(주인 확인은 v3.48.0 의 `/whoami` 그대로 —
-  남이 쥔 포트는 열지 않는다). `gil viewer shortcut` 은 그 한 줄을 **사람이 누를 수 있는
+  남이 쥔 포트는 열지 않는다). gil viewer shortcut 은 그 한 줄을 **사람이 누를 수 있는
   것**으로 만든다: macOS `.app`(~/Applications, Dock·Spotlight) · Windows `.cmd` ·
   Linux `.desktop`. 저장소 밖에서 눌러도 자기 저장소를 연다(런처에 경로를 각인한다).
   v3.56.1 = **층은 줄어들지 않는다**(#117) — `gil init` 이 심은 정상 뿌리를 가진 저장소가
@@ -523,7 +523,7 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
   v3.39.0/v3.40.0 = **이슈 #92·#93 닫음.** chain-retire 에 `--dry-run`·(위반 접을 때만)
   `--confirm`, fsck 가 접힌 위반을 집계로 고지, handoff 에 접힌 흔적 · 뷰어 로그
   (`<레포>/.git/gil-viewer.log`), die 가 서버를 안 죽임, 레포 사라지면 자진 종료,
-  `--wait` 중 창구가 죽으면 되살림, `gil viewer list`.
+  `--wait` 중 창구가 죽으면 되살림, gil viewer list.
   v3.38.0 = analyze `--finding`(결론) 필수 · 재분기가 **벽의 지도**를 벗어나면 `--despite`
   없이는 거부 · 누적 지식이 handoff·모든 가설 스텝에 **묻지 않아도** 도착(그 밖의 커밋엔 한 줄 넛지).
   v3.37.0 = **기준 없는 체인은 태어나지 못한다** — chain 이 --from-intake(권장) 또는
