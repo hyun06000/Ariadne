@@ -74,15 +74,21 @@ func uiResourceMeta() mcp.Meta {
 // 왜. resources/read 는 인자를 못 싣는다. 그래서 지금까지 툴이 저장소를 URI 에 박아 돌려줬고
 // (ui://gil/status/%2FUsers%2F…), 호스트는 그걸 읽어 성공했지만 **화면엔 아무것도 안 떴다.**
 // 유력한 이유: 렌더할 UI 리소스를 목록(resources/list)에서 찾을 때 그 변형 URI 는 없다.
-// 그러니 툴은 **선언된 URI 그대로** 가리키고, 저장소는 이 프로세스가 기억한다 — 한 세션의
-// 서버는 한 호스트만 상대하므로 마지막 호출의 자리가 곧 사람이 보고 있는 자리다.
+// 그러니 툴은 **선언된 URI 그대로** 가리키고, 저장소는 이 프로세스가 기억한다.
+//
+// **여기 하나는 일부러 호출을 넘어 남는다.** 나머지 자리는 호출마다 밑바탕으로 되돌아가지만
+// (git.go 의 repoDir), 리소스 읽기는 인자를 실을 수 없어 되돌아갈 곳이 그 자리엔 없다.
+// 호스트는 화면을 여는 툴 호출 **직후에** 읽으므로 실제로는 방금 그 호출의 자리다.
+//
+// 그래서 남는 위험은 하나뿐이다 — 앞선 툴 호출 없이 읽기만 오는 경우. 그때 화면은 앞
+// 대화의 저장소를 그릴 수 있다. 그걸 **감추지 않는다**: 카드가 자기 저장소 경로를 머리에
+// 적는다(#110 이 세운 것 — 화면에 정체가 없으면 사람은 남의 그래프를 보며 자기 것이
+// 비었다고 오진한다). 없앨 수 없는 것은 보이게 한다.
 var mcpUIRepo string
 
 // rememberUIRepo — 지금 선 자리를 기억한다(툴 핸들러가 저장소를 정한 직후에 부른다).
 func rememberUIRepo() {
-	if wd, err := os.Getwd(); err == nil {
-		mcpUIRepo = wd
-	}
+	mcpUIRepo = hereAbs()
 }
 
 // uiRepoFor — 이 읽기가 볼 저장소. URI 에 실려 왔으면 그것, 아니면 기억한 자리.
@@ -376,14 +382,11 @@ func renderUIResource(uri, repo string) (*mcp.ReadResourceResult, error) {
 			return page(uiProblemPage("이 경로는 git 저장소가 아니다", repo,
 				"사람이 보고 있는 폴더의 최상위(.git 이 있는 자리)를 repo 인자에 실어 gil_graph 를 다시 불러라."))
 		}
-		if os.Chdir(repo) != nil {
-			return page(uiProblemPage("저장소로 이동하지 못했다", repo, "경로 권한을 확인하라."))
-		}
+		setRepoDir(repo)
 		stopGitCache()
 	}
 	if !gitOK("rev-parse", "--git-dir") {
-		wd, _ := os.Getwd()
-		return page(uiProblemPage("어느 저장소를 그릴지 모른다", wd,
+		return page(uiProblemPage("어느 저장소를 그릴지 모른다", hereAbs(),
 			"이 창은 인자를 실을 수 없는 자리(resources/read)에서 열렸고, 호스트가 열린 폴더를 "+
 				"알려주지 않았다(MCP roots 미지원). gil_graph 를 repo 인자와 함께 부르면 그 저장소가 그려진다."))
 	}

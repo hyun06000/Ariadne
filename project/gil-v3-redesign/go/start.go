@@ -205,7 +205,7 @@ func startAdvance(st startState) bool {
 				// **폼이 서지 않았다.** 사람의 뜻은 여기서 알 수 없다 — 단언하지 않는다(#57).
 				// 막다른 길로 두지도 않는다: 물어볼 손은 에이전트에게 있다(그게 에이전트가
 				// 제일 잘하는 일이다). 물어보고 그 답을 실어 오면 그대로 선다.
-				wd, _ := os.Getwd()
+				wd := hereAbs()
 				die("멈춤: 이 호스트에 네이티브 폼이 서지 않아 **사람에게 직접 물어야 한다**.\n" +
 					"  (사람이 거절한 것이 아니다 — 폼이 뜨지 못한 것이고, 둘은 다르다.)\n\n" +
 					"  여기에 저장소를 세우게 된다:  " + wd + "\n\n" +
@@ -275,8 +275,8 @@ func requireChosenPlace() {
 // chosenPlaceErr — 같은 판정을 error 로. gil_init 처럼 die 가 아니라 error 로 돌려야 하는
 // 자리가 있어서 둘로 쓴다 — **판정은 한 곳에만 산다**(갈라 두면 한쪽만 낡는다).
 func chosenPlaceErr() error {
-	wd, err := os.Getwd()
-	if err != nil || wd == "" {
+	wd := hereAbs()
+	if wd == "" || wd == "." {
 		return nil
 	}
 	why := containerPlace(wd)

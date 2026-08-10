@@ -44,7 +44,7 @@ func checksText() string {
 			return out
 		}
 	}
-	if b, err := os.ReadFile(checksFile); err == nil {
+	if b, err := os.ReadFile(repoPath(checksFile)); err == nil {
 		return string(b)
 	}
 	return ""
@@ -96,6 +96,10 @@ func runLayerCheck(layer string, skip bool, skipReason string) (ran, passed bool
 	}
 	println2("  ▸ 층 검사(" + from + "): " + cmd)
 	c := exec.Command("sh", "-c", cmd)
+	// **검사는 그 저장소 안에서 돈다.** 프로세스가 선 자리에서 돌면 남의 저장소의
+	// 시험이 통과했다고 이 저장소의 층이 열린다 — git 은 자리를 값으로 드는데(git.go)
+	// 이 자식만 프로세스 cwd 를 쓰면 그 둘이 갈린다.
+	c.Dir = repoDir
 	c.Stdout = os.Stderr // stdout 은 gil 자신의 출력 통로다 — 남의 출력을 섞지 않는다
 	c.Stderr = os.Stderr
 	if err := c.Run(); err != nil {

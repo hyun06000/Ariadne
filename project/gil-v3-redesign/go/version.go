@@ -102,7 +102,7 @@ func versionAskStamp() string { return versionStampPath("version-asked") }
 func versionCheckStamp() string { return versionStampPath("version-checked") }
 
 func versionStampPath(name string) string {
-	dir := strings.TrimSpace(git("rev-parse", "--git-dir"))
+	dir := gitDirAbs()
 	if dir == "" {
 		return ""
 	}

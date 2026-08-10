@@ -199,7 +199,9 @@ func cmdInit(args []string) {
 var inStartRail bool
 
 func writeFile(path, content string) {
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	// **저장소 상대경로는 이 호출이 보는 저장소에 쓴다.** 프로세스 cwd 에 쓰면 git 은
+	// 저쪽을 보고 파일은 이쪽에 앉는다 — 오류 없이 조용히 갈리는 자리다(git.go 의 repoPath).
+	if err := os.WriteFile(repoPath(path), []byte(content), 0o644); err != nil {
 		die("거부: 파일 쓰기 실패: " + err.Error())
 	}
 }

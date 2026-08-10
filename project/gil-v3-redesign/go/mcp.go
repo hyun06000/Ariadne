@@ -102,14 +102,20 @@ func cmdMCP(args []string) {
 	}
 	if target != "" {
 		abs, err := filepath.Abs(target)
-		if err != nil || os.Chdir(abs) != nil {
-			die("거부: 저장소 경로로 이동 못 함: " + target)
+		if err != nil {
+			die("거부: 저장소 경로를 해석하지 못했다: " + target)
 		}
-		// **누가 이 자리를 정했는지 기록한다.** 여기서 chdir 만 하고 repoSource 를 안 고치던
+		// **없는 폴더는 여기서 거부한다.** 옛 코드는 os.Chdir 이 실패하면서 이 자리를 막았다 —
+		// 자리를 값으로 옮기면 그 관문이 사라지고, 대신 첫 git 호출이 `chdir: no such file`
+		// 이라는 날 오류로 죽는다. 도구가 아는 것을 사람의 말로 말하는 자리를 잃지 않는다.
+		if st, serr := os.Stat(abs); serr != nil || !st.IsDir() {
+			die("거부: 저장소 경로로 갈 수 없다: " + abs)
+		}
+		// **누가 이 자리를 정했는지 기록한다**(setRepoBase 가 함께 적는다). 이걸 안 고치던
 		// 동안, 진단 배너는 Claude Code 설정(CLAUDE_PROJECT_DIR 로 자리를 받는 정규 구성)에서도
 		// "프로세스가 뜬 자리"라고 답했다 — 도구가 자기 자리의 출처를 틀리게 말한 것이다(#110 이
 		// 세운 값이 바로 이 한 줄이다). 세울 자리를 판정하는 데도 이 값을 쓰므로 더 중요해졌다.
-		repoSource = chose
+		setRepoBase(abs, chose)
 	}
 	if *repo != "" {
 		mcpRepoPinned, _ = filepath.Abs(*repo)
@@ -236,7 +242,7 @@ func requireRepoHere() {
 		die(mcpRepoMismatch)
 	}
 	if !gitOK("rev-parse", "--git-dir") {
-		wd, _ := os.Getwd()
+		wd := hereAbs()
 		// **먼저 물어야 할 것은 "여기가 맞나"다.** 호스트가 roots 를 안 주면 gil 은 프로세스가
 		// 뜬 자리(대개 `/`)에 선다 — 그때 이 자리는 "저장소가 없다"가 아니라 "엉뚱한 데 서
 		// 있다"이다. 옛 문구는 그 구분 없이 gil_init 만 가리켰고, 실측에서 에이전트는 막힌
@@ -288,8 +294,8 @@ func toolUI[In any](s *mcp.Server, name, desc string, meta mcp.Meta, argv func(I
 // repoBanner — 지금 읽고 있는 저장소가 어디인지 한 줄(이슈 #51). 읽기 툴에만 붙인다 —
 // 모든 응답에 붙이면 잡음이 되어 아무도 안 읽는다.
 func repoBanner() string {
-	wd, err := os.Getwd()
-	if err != nil || wd == "" {
+	wd := hereAbs()
+	if wd == "" || wd == "." {
 		return ""
 	}
 	// 자리를 **무엇이 정했는지**까지 말한다. 이걸 안 밝히던 동안, 어긋남 하나를 쫓는 데

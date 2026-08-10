@@ -170,11 +170,52 @@ func fileAgeSeconds(path string) (int, bool) {
 	return int(time.Since(st.ModTime()).Seconds()), true
 }
 
+// ── 자리는 프로세스의 것이 아니다 ────────────────────────────────────────────
+//
+// **한 `gil mcp serve` 프로세스를 여러 대화가 나눠 쓴다.** 그런데 지금까지 "지금 보는
+// 저장소"는 `os.Chdir` 로 **프로세스 전역**이었다. 그래서 대화 A 가 `repo=/X` 를 실어
+// 부르면 프로세스가 /X 로 옮겨 가고, 그 뒤 새 빈 폴더에서 "gil 프로젝트 시작하자"고 한
+// 대화 B 의 `gil_start {}` 가 **남의 저장소**를 보며 "이미 서 있다 — 체인 12개"라고
+// 답했다(실측 2026-08-10). 오류는 하나도 안 났다. 옮기는 자리는 아홉, 되돌리는 자리는 0.
+//
+// 라벨("물려받은 자리")로 막으려다 접었다 — 아홉 중 다섯이 출처를 안 고쳐서 라벨이 서지
+// 않았고, 그 다섯이 하필 **사람의 문장을 저장소에 확정하는 길**이었다. 상현님 판단:
+// **상태를 없애라.** gil 은 git 의 얇은 래퍼지 자리를 든 백엔드가 아니다.
+//
+// 그래서 자리를 **값**으로 든다. 모든 git 자식은 gitCommand 를 지나므로 여기 한 줄이면
+// 호출 지점 수백 곳을 안 건드리고 자리가 인자가 된다. 비면 프로세스가 선 자리 — CLI 는
+// 사람이 cd 한 그 자리가 곧 답이라 아무것도 안 바뀐다.
+//
+// **MCP 에서는 요청마다 다시 정해진다**(mcp_roots.go 의 미들웨어): 밑바탕(roots·--repo·
+// 환경변수)으로 되돌린 뒤, 이 호출이 repo 를 실어 왔으면 그것으로 덮는다. 앞 호출이 정한
+// 자리는 **다음 호출에 남지 않는다** — 그게 이 결함의 전부였다.
+var repoDir string
+
+// setRepoDir — 이 호출이 볼 저장소를 정한다. os.Chdir 을 대신한다(프로세스는 안 움직인다).
+func setRepoDir(abs string) {
+	// **심링크는 여기서 푼다.** 옛 코드는 `os.Chdir` 뒤 `os.Getwd` 로 자리를 읽었고, 그건
+	// 언제나 **실체 경로**였다(macOS 의 /var → /private/var 가 그 예다). 값으로 들면서 그
+	// 풀림이 사라지면, 같은 출력 안에서 `git rev-parse --show-toplevel`(git 이 푼 실체)과
+	// 우리가 적는 경로가 갈린다 — 사람 눈에는 도구가 두 자리를 말하는 것으로 보인다.
+	// 자리를 값으로 옮기는 변경이 **경로의 뜻까지 바꿔서는 안 된다.**
+	if p, err := filepath.EvalSymlinks(abs); err == nil && p != "" {
+		abs = p
+	}
+	if repoDir == abs {
+		return
+	}
+	repoDir = abs
+	stopGitCache() // 자리가 바뀌었으니 앞서 읽어 둔 것은 다른 저장소의 것이다
+}
+
 // gitCommand — 모든 git 자식 프로세스는 이걸 거친다. 윈도우에서 콘솔 창이 번쩍이지 않게
 // hideConsole 을 붙인다(콘솔 없는 부모가 gil 을 돌릴 때, git 호출마다 cmd 창이 계단식으로
 // 뜨고 꺼지는 실사용 공포 방지). 유닉스에선 no-op 이라 무해하다.
+//
+// **그리고 자리를 싣는다**(cmd.Dir) — 위 문단이 그 이유다.
 func gitCommand(args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
+	cmd.Dir = repoDir
 	// **gil 이 부른 git 임을 자식에게 알린다**(gil guard). pre-commit 훅은 이 표시가 있으면
 	// 통과시킨다 — 막으려는 것은 사람·다른 도구가 gil 을 우회해 끼우는 커밋이지, gil 자신이
 	// 스텝을 새기는 일이 아니다. (훅 없는 저장소에서는 아무 일도 하지 않는 무해한 변수다.)
@@ -764,8 +805,51 @@ func gitTopAbs() string {
 			return t
 		}
 	}
+	if repoDir != "" {
+		return repoDir
+	}
 	if wd, err := os.Getwd(); err == nil {
 		return wd
 	}
 	return "."
+}
+
+// hereAbs — 지금 이 호출이 서 있는 자리(저장소가 아닐 수도 있다).
+//
+// os.Getwd 를 직접 부르면 **프로세스가 뜬 자리**가 나온다 — MCP 에서는 그게 대개 `/` 이고,
+// 이 호출이 실제로 보는 저장소와 다르다. 사람에게 "여기에 세운다"·"여기는 저장소가 아니다"
+// 라고 말하는 자리가 그 값을 쓰면, 도구가 자기가 선 곳을 틀리게 말하게 된다.
+func hereAbs() string {
+	if repoDir != "" {
+		return repoDir
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
+}
+
+// repoPath — 저장소 안의 상대경로를 **이 호출이 보는 저장소** 기준 절대경로로.
+//
+// 왜 필요한가. git 은 cmd.Dir 을 따라가는데 Go 의 파일 접근은 **프로세스의 cwd** 를 따라간다.
+// 둘이 갈리면 git 은 저쪽 저장소를 보고 파일은 이쪽을 읽는 — 오류 없이 조용히 틀리는 —
+// 상태가 된다. 저장소 안의 것을 열 때는 반드시 이걸 지난다.
+func repoPath(rel ...string) string {
+	if repoDir == "" {
+		return filepath.Join(rel...)
+	}
+	return filepath.Join(append([]string{repoDir}, rel...)...)
+}
+
+// gitDirAbs — 이 저장소의 .git **절대경로**("" = 못 알아냄).
+//
+// `rev-parse --git-dir` 은 워크트리 안에서 부르면 `.git` 이라는 **상대경로**를 준다. 그걸
+// 그대로 Go 의 파일 접근에 쓰면 프로세스 cwd 기준으로 풀려, 자리를 값으로 든 뒤에는
+// 엉뚱한 곳을 읽는다. 규범적으로 안전한 이름이 따로 있다: `--absolute-git-dir`.
+func gitDirAbs() string {
+	out, err := gitTry("rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }

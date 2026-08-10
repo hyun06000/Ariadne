@@ -273,7 +273,7 @@ func cycleLoadBanner(openChains map[string]int) []string {
 // 세계가 출력됐고 — 어제 연 체인은 거기 없었다. 낡은 세계를 완전한 세계인 척 내놓는 것이
 // 이 계열에서 제일 위험하다. 우리는 v2 를 고칠 수 없으니, v3 쪽에서 먼저 말한다.
 func gatePointerBanner() []string {
-	b, err := os.ReadFile(gateFile())
+	b, err := os.ReadFile(repoPath(gateFile()))
 	if err != nil {
 		return nil
 	}
@@ -285,11 +285,13 @@ func gatePointerBanner() []string {
 			continue
 		}
 		seen[p] = true
-		fi, err := os.Stat(p)
+		fi, err := os.Stat(repoPath(p))
 		if err != nil || fi.IsDir() {
 			continue // 없는 경로는 이 축의 위험이 아니다(그냥 낡은 문서)
 		}
-		ver := strings.TrimSpace(runOut(p, "version"))
+		// **찾은 것과 실행하는 것이 같은 파일이어야 한다.** Stat 은 저장소 기준으로 풀고
+		// exec 는 프로세스 cwd 기준으로 풀면, 있는 것을 확인하고 다른 것을 실행한다.
+		ver := strings.TrimSpace(runOut(repoPath(p), "version"))
 		if strings.Contains(ver, gilVersion) {
 			continue // 이 바이너리와 같은 것을 가리킨다 — 정상
 		}

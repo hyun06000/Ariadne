@@ -20,7 +20,6 @@ package main
 import (
 	"context"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -76,11 +75,29 @@ func adoptCallRepo(in any) {
 			"  사람이 보고 있는 폴더의 **최상위**(.git 이 있는 자리)를 적어라.\n" +
 			"  거기서 시작하는 것이라면 먼저 gil_init 을 그 경로로 불러라.")
 	}
-	if os.Chdir(abs) != nil {
-		die("거부: 저장소 경로로 이동 못 함: " + abs)
-	}
+	setRepoDir(abs)
 	repoSource = repoSourceArg
-	stopGitCache() // 옮겼으니 앞서 읽어 둔 것은 다른 저장소의 것이다
+}
+
+// repoBase — 이 **연결**의 밑바탕 자리. 호스트가 정한 것(roots) 또는 사람이 설정에 적은 것
+// (--repo·CLAUDE_PROJECT_DIR)이다. 연결 하나에 한 번 정해지고 안 흔들린다.
+//
+// repoDir(git.go)과 무엇이 다른가. repoDir 은 **이 호출**의 자리다 — 호출이 repo 를 실어
+// 오면 그것으로 덮인다. 그리고 **다음 호출 앞에서 여기 밑바탕으로 되돌아간다**(아래
+// 미들웨어). 이 되돌림이 없던 것이 결함의 전부였다: 대화 A 가 실어 온 경로가 프로세스에
+// 눌러앉아, 새 폴더에서 시작하려던 대화 B 가 남의 저장소를 보고 "이미 있다"고 답했다.
+//
+// **MCP 의 session 은 연결 하나지 사람의 대화가 아니다.** 그러니 연결에 눌러앉아도 되는
+// 것(밑바탕)과 한 호출에만 유효한 것(repo 인자)을 갈라야 한다.
+var (
+	repoBase       string
+	repoBaseSource = repoSourceUnchosen
+)
+
+func setRepoBase(abs, source string) {
+	repoBase, repoBaseSource = abs, source
+	setRepoDir(abs)
+	repoSource = source
 }
 
 // repoSource — 지금 선 자리를 **무엇이 정했나**. 진단에 쓴다.
@@ -121,6 +138,18 @@ func installRootsMiddleware(s *mcp.Server) {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if ss, ok := req.GetSession().(*mcp.ServerSession); ok {
 				adoptHostRoot(ctx, ss)
+			}
+			// **앞 호출이 정한 자리를 물려주지 않는다.** 이 한 줄이 결함의 답이다 —
+			// repo 인자는 "지금 이 명령은 여기다"이지 "이제부터 계속 여기다"가 아니다.
+			// 되돌릴 밑바탕이 없으면(호스트가 roots 도 환경변수도 안 줬으면) 자리는 비고,
+			// 그러면 git 이 선 자리에서 **git 처럼 실패한다** — 여기는 저장소가 아니다.
+			// 없는 자리를 짐작으로 채우는 것보다 그 실패가 낫다(상현님).
+			//
+			// 되돌림은 여기 한 자리다. 핸들러마다 심으면 새 툴이 늘 때 빠뜨리고, 빠뜨린
+			// 그 하나가 다시 "어떤 호출은 남의 저장소를 본다"가 된다.
+			if repoDir != repoBase {
+				setRepoDir(repoBase)
+				repoSource = repoBaseSource
 			}
 			return next(ctx, method, req)
 		}
@@ -200,12 +229,7 @@ func adoptHostRoot(ctx context.Context, ss *mcp.ServerSession) {
 		}
 		return // --repo 가 최우선 — 어긋남은 위에서 고지한다.
 	}
-	if os.Chdir(pick) != nil {
-		return
-	}
-	repoSource = repoSourceRoots
-	// 옮겼으니 앞서 읽어 둔 것은 다른 저장소의 것이다.
-	stopGitCache()
+	setRepoBase(pick, repoSourceRoots)
 }
 
 // pickRepoRoot — roots 중 실제로 쓸 폴더 하나. **git 저장소인 것을 먼저** 고른다.

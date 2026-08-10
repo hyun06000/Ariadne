@@ -24,7 +24,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -67,9 +66,7 @@ func registerPruneCardTools(s *mcp.Server) {
 // 사람은 "됐다"가 아니라 지금 상태를 본다(인터뷰 제출이 세운 규칙과 같다).
 func pruneCardAct(in inPruneAct, run func(target string)) (*mcp.CallToolResult, any, error) {
 	if repo := cardRepo(in.Repo); repo != "" {
-		if os.Chdir(repo) == nil {
-			stopGitCache()
-		}
+		setRepoDir(repo)
 	}
 	target := strings.TrimSpace(in.Target)
 	if target == "" {

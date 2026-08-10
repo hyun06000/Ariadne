@@ -738,7 +738,7 @@ func cmdMigrate(args []string) {
 			stderr(ln)
 		}
 		stderr("  (gil init 이 온보딩 문서·대문 진입점까지 같이 깐다 — 이슈 #73)")
-	} else if _, err := os.Stat("docs/gil/index.md"); err != nil {
+	} else if _, err := os.Stat(repoPath("docs/gil/index.md")); err != nil {
 		// 세계는 섰는데 저장소에 길이 없다 — 다음 세션이 대문에서 옛 경로를 따라간다(#73).
 		stderr("")
 		stderr("⚠ 이 저장소에 온보딩이 없다(docs/gil/ 부재) — 복원 경로의 첫 칸(대문)이 비었다.")

@@ -45,7 +45,7 @@ func installDocs(force bool) (int, int) {
 			continue
 		}
 		if !force {
-			if cur, err := os.ReadFile(path); err == nil {
+			if cur, err := os.ReadFile(repoPath(path)); err == nil {
 				if string(cur) == string(b) {
 					skipped++
 					continue
@@ -55,9 +55,9 @@ func installDocs(force bool) (int, int) {
 			}
 		}
 		if d := filepath.Dir(path); d != "." {
-			os.MkdirAll(d, 0o755)
+			os.MkdirAll(repoPath(d), 0o755)
 		}
-		if err := os.WriteFile(path, b, 0o644); err != nil {
+		if err := os.WriteFile(repoPath(path), b, 0o644); err != nil {
 			die("거부: " + path + " 쓰기 실패: " + err.Error())
 		}
 		wrote++
@@ -103,7 +103,7 @@ func gateBlock(name string) string {
 // 반환: "added" | "updated" | "unchanged".
 func installGate(path, name string) string {
 	block := gateBlock(name)
-	cur, err := os.ReadFile(path)
+	cur, err := os.ReadFile(repoPath(path))
 	if err != nil {
 		writeFile(path, "# "+filepath.Base(path)+"\n\n"+block+"\n")
 		return "added"
@@ -128,7 +128,7 @@ func installGate(path, name string) string {
 // gateFile — 이 저장소의 대문. CLAUDE.md 가 표준이지만 이미 있는 것을 존중한다.
 func gateFile() string {
 	for _, c := range []string{"CLAUDE.md", "AGENTS.md"} {
-		if _, err := os.Stat(c); err == nil {
+		if _, err := os.Stat(repoPath(c)); err == nil {
 			return c
 		}
 	}

@@ -40,7 +40,7 @@ func interviewDoneSHA(chain string) string {
 
 // seenPath — 이 클론이 "봤다"고 기록해 둔 파일(.git 안 — 커밋되지 않는다).
 func seenPath() string {
-	dir := strings.TrimSpace(git("rev-parse", "--git-dir"))
+	dir := gitDirAbs()
 	if dir == "" {
 		return ""
 	}

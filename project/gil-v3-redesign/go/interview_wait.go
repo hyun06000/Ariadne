@@ -29,7 +29,9 @@ func shellRun(cmdline string) (string, error) {
 	if runtime.GOOS == "windows" {
 		sh, flag = "cmd", "/C"
 	}
-	out, err := exec.Command(sh, flag, cmdline).CombinedOutput()
+	c := exec.Command(sh, flag, cmdline)
+	c.Dir = repoDir // 사람이 준 한 줄도 그 저장소 안에서 돈다
+	out, err := c.CombinedOutput()
 	return string(out), err
 }
 
@@ -37,7 +39,7 @@ func shellRun(cmdline string) (string, error) {
 const waiterStale = 10 * time.Second
 
 func waitPath(chain string) string {
-	dir := strings.TrimSpace(git("rev-parse", "--git-dir"))
+	dir := gitDirAbs()
 	if dir == "" || chain == "" {
 		return ""
 	}

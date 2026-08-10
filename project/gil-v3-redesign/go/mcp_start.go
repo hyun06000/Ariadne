@@ -169,9 +169,7 @@ func adoptCallRepoForCreate(in hasRepo) error {
 	if !st.IsDir() {
 		return errString("거부: 폴더가 아니라 파일이다 — " + abs)
 	}
-	if os.Chdir(abs) != nil {
-		return errString("거부: 저장소 경로로 이동 못 함: " + abs)
-	}
+	setRepoDir(abs)
 	repoSource = repoSourceArg
 	stopGitCache()
 	return nil
@@ -183,7 +181,7 @@ func adoptCallRepoForCreate(in hasRepo) error {
 // 넘긴다 — 구분 못 하는 것을 단언하지 않는 자리다(#57 이 세운 태도). 다만 그 경우 확인의
 // 출처가 '에이전트의 주장'이라는 사실을 기록에 남긴다: 사람 폼의 승낙과는 다른 것이다.
 func elicitWorldConfirm(ctx context.Context, req *mcp.CallToolRequest, said bool) (bool, string) {
-	wd, _ := os.Getwd()
+	wd := hereAbs()
 	schema := `{"type":"object","properties":{"ok":{"type":"boolean","title":"이 폴더에 gil 기록을 시작할까요?","description":"` +
 		jsonEscape(wd) + `"}},"required":["ok"]}`
 	res, err := req.Session.Elicit(ctx, &mcp.ElicitParams{

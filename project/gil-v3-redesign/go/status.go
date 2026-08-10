@@ -21,7 +21,6 @@ package main
 
 import (
 	"encoding/json"
-	"os"
 	"sort"
 	"strings"
 )
@@ -307,7 +306,7 @@ func cmdStatus(args []string) {
 }
 
 func gatherStatus() statusOut {
-	wd, _ := os.Getwd()
+	wd := hereAbs()
 	st := statusOut{Repo: wd, Branch: currentBranch(), Next: []string{}, Warnings: []string{},
 		Rollback:       []statusRollback{},
 		OpenInterviews: []statusInterview{},

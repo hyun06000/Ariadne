@@ -126,8 +126,8 @@ func repoFromStatusURI(uri string) string {
 // 쪽으로 그려졌는지에 따라 화면이 달라지고, 그건 나중에 갈리는 종류의 이중화다.
 func renderStatusResource(uri, repo string) (*mcp.ReadResourceResult, error) {
 	if repo != "" {
-		if _, err := gitTryIn(repo, "rev-parse", "--git-dir"); err == nil && os.Chdir(repo) == nil {
-			stopGitCache()
+		if _, err := gitTryIn(repo, "rev-parse", "--git-dir"); err == nil {
+			setRepoDir(repo)
 			rememberUIRepo()
 		}
 	}

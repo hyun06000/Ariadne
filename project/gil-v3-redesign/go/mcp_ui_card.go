@@ -24,7 +24,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -183,13 +182,10 @@ func registerGilCardTool(s *mcp.Server) {
 		// "응답에 카드가 없다"만 적고 사람은 왜 그런지 모른다 — 실측으로 그 자리를 봤다.
 		// 화면은 언제나 무언가를 말해야 하고, 못 하는 것은 못 한다고 말해야 한다.
 		if repo := cardRepo(in.Repo); repo != "" {
-			if os.Chdir(repo) == nil {
-				stopGitCache()
-			}
+			setRepoDir(repo)
 		}
 		if !gitOK("rev-parse", "--git-dir") {
-			wd, _ := os.Getwd()
-			return cardResult(uiNoRepoCard(wd)), nil, nil
+			return cardResult(uiNoRepoCard(hereAbs())), nil, nil
 		}
 		rememberUIRepo()
 		var st statusOut

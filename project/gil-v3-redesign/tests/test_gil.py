@@ -5818,6 +5818,49 @@ class TestMCPRoots(GilFixture):
         self.assertTrue(r[0][0])
         self.assertIn("git 저장소가 아니다", r[0][1])
 
+    def test_a_call_does_not_leave_its_repo_behind(self):
+        """**앞 호출이 정한 자리를 다음 호출이 물려받지 않는다** (실측 2026-08-10).
+
+        한 `gil mcp serve` 프로세스를 **여러 대화가 나눠 쓴다.** 그런데 자리가 `os.Chdir` 로
+        프로세스 전역이라, 대화 A 가 `repo=/X` 를 실어 부르면 프로세스가 거기 눌러앉았다.
+        그 뒤 새 빈 폴더에서 "gil 프로젝트 시작하자"고 한 대화 B 의 `gil_start {}` 가
+        **남의 저장소**를 보며 "온보딩은 끝났다 — 체인 12개"라고 답했다. 오류는 하나도
+        안 났다 — 옮기는 자리는 아홉이었고 되돌리는 자리는 **0** 이었다.
+
+        repo 인자의 뜻은 문서에 이미 적혀 있었다: *"그 호출 하나에만 산다."* 코드가 그
+        문장을 안 지켰을 뿐이다. 그러니 재는 것도 그 문장이다 — 한 프로세스, 두 호출.
+        """
+        r = self._serve_outside([("gil_log", {"repo": self.repo}),
+                                 ("gil_log", {})], roots=None)
+        self.assertFalse(r[0][0], r[0][1])
+        self.assertIn(str(Path(self.repo).resolve()), r[0][1])
+        # 둘째 호출은 아무것도 안 실었다. roots 도 환경변수도 없으니 **되돌아갈 밑바탕이
+        # 없다** — 그러면 git 처럼 실패해야 한다(상현님). 짐작으로 앞 저장소를 쓰는 것보다
+        # 그 실패가 낫다: 짐작은 조용히 틀리고, 실패는 다음 수를 말한다.
+        self.assertNotIn(str(Path(self.repo).resolve()), r[1][1],
+                         "앞 호출이 정한 저장소를 그대로 물려받았다 — 새 대화가 남의 기록을 본다")
+        self.assertTrue(r[1][0], "저장소가 없는데 성공했다고 답한다")
+
+    def test_the_hosts_workspace_comes_back_after_a_call_pointed_elsewhere(self):
+        """되돌아갈 **밑바탕**이 있으면 거기로 돌아온다 — 연결의 자리와 호출의 자리는 다르다.
+
+        roots 는 호스트가 "이 워크스페이스는 여기"라고 말하는 **연결의 사실**이라 눌러앉아도
+        된다. repo 인자는 "지금 이 명령은 여기다"라 눌러앉으면 안 된다. 앞 시험이 밑바탕이
+        없을 때를 재고, 이 시험이 있을 때를 잰다 — 둘을 같이 안 재면 되돌림이 "아무 데도
+        못 가게 막는 것"으로 굳어도 아무도 모른다.
+        """
+        import tempfile
+        ws = tempfile.mkdtemp()
+        subprocess.run([*GIL_CMD, "init", "--name", "ws"], cwd=ws, check=True,
+                       capture_output=True, text=True,
+                       env=dict(os.environ, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1"))
+        r = self._serve_outside([("gil_log", {"repo": self.repo}),
+                                 ("gil_log", {})],
+                                roots=[{"uri": self._file_uri(ws), "name": "ws"}])
+        self.assertIn(str(Path(self.repo).resolve()), r[0][1])
+        self.assertIn(str(Path(ws).resolve()), r[1][1],
+                      "호스트가 말한 워크스페이스로 안 돌아왔다")
+
     def test_banner_names_who_decided_this_spot(self):
         """진단 — 지금 자리를 **무엇이 정했고 누가 불렀나**를 도구가 스스로 밝힌다.
 

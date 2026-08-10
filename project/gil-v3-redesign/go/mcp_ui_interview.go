@@ -26,7 +26,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strconv"
 	"strings"
 
@@ -197,9 +196,7 @@ func registerInterviewSubmitTool(s *mcp.Server) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inInterviewSubmit) (*mcp.CallToolResult, any, error) {
 		defer dropTempFiles()
 		if repo := cardRepo(in.Repo); repo != "" {
-			if os.Chdir(repo) == nil {
-				stopGitCache()
-			}
+			setRepoDir(repo)
 		}
 		chain := strings.TrimSpace(in.Chain)
 		if chain == "" {
