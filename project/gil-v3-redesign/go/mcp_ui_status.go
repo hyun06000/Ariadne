@@ -182,8 +182,16 @@ func statusCardShellHTML() string {
   // 방식 자체가 다르다 — pip 은 화면이 스스로 청하고(곁에 서는 것이 기본), 풀스크린은
   // **사람이 눌러야** 청한다(정본 패턴: availableDisplayModes 에 있으면 버튼을 보이고,
   // 누르면 그때 requestDisplayMode). 지금까지 우리는 버튼 없이 자동으로만 청해 봤다.
+  //
+  // ln* — **링크를 여는 것도 따로 적는다.** 2026-08-11 에 pip 이 없다는 것이 확정되면서
+  // (호스트가 여는 모드: inline·fullscreen), 대화 곁에 계속 서 있는 화면은 카드 안에서
+  // 원리적으로 불가능해졌다. 남은 길은 **카드가 바깥의 것을 여는 것**이고, 이 호스트는
+  // 핸드셰이크에서 openLinks 를 할 수 있다고 밝혔다. 그런데 그것이 https 만인지
+  // 커스텀 스킴(gil://)까지인지는 규범이 안 정한다 — "Invalid URL" 오류가 있다는 것만
+  // 적혀 있다. 정하지 않은 것은 재야 안다.
   var HOST={modes:[],mode:"",dims:null,vars:0,caps:[],asked:"",grant:"",err:"",why:"",ua:"",plat:"",
-            fsAsked:"",fsGrant:"",fsErr:"",fsWhy:""};
+            fsAsked:"",fsGrant:"",fsErr:"",fsWhy:"",
+            lnAsked:"",lnGrant:"",lnErr:"",lnWhy:""};
   var VER=` + jsString(gilVersion) + `, seen=[], repo="", PROBE=` + probeJS + `;
   function slot(){ return document.getElementById("gil-card"); }
   function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
@@ -434,7 +442,9 @@ func statusCardShellHTML() string {
     var big=(HOST.mode==="fullscreen");
     var label=big?"작게 되돌린다":"크게 본다";
     if(st.forced) label+=" (계기 — 호스트가 안 밝힌 모드다)";
-    var sig=label+"|"+HOST.fsErr;
+    // **다시 그릴 이유를 전부 센다.** 링크 시험의 결과가 이 표식에 없으면, 눌러서 답이
+    // 와도 화면이 안 바뀐다 — 누른 사람에게는 "아무 일도 안 일어났다"로 보인다.
+    var sig=label+"|"+HOST.fsErr+"|"+HOST.lnAsked+"|"+HOST.lnErr+"|"+HOST.lnGrant;
     if(el.dataset.sig===sig && !el.hidden) return;
     el.dataset.sig=sig; el.hidden=false; el.innerHTML="";
     var b=document.createElement("button");
@@ -443,6 +453,21 @@ func statusCardShellHTML() string {
     // 실패는 **그 자리에** 적는다 — 누른 사람이 결과를 보는 곳이 여기다.
     if(HOST.fsErr){ var n=document.createElement("span");
       n.className="modenote"; n.textContent=HOST.fsErr; el.appendChild(n); }
+    // **계기를 켠 동안만** 링크 시험 버튼을 낸다. 커스텀 스킴을 먼저 놓는다 — 그것이
+    // 물음이고, https 는 그것이 실패했을 때 "링크 자체가 안 되는 것"과 "스킴이 막힌 것"을
+    // 가르는 대조군이다. 둘을 한 번에 누르게 하면 무엇이 무엇을 답한 것인지 섞인다.
+    if(PROBE){
+      [["gil://monitor-probe","링크 시험 (gil://)"],
+       ["https://example.com","대조군 (https)"]].forEach(function(p){
+        var lb=document.createElement("button");
+        lb.className="btn modebtn"; lb.setAttribute("data-act","link-probe");
+        lb.setAttribute("data-url",p[0]); lb.setAttribute("data-noarm","1");
+        lb.textContent=p[1]; el.appendChild(lb);
+      });
+      if(HOST.lnAsked){ var ln=document.createElement("span"); ln.className="modenote";
+        ln.textContent=HOST.lnAsked+" → "+(HOST.lnErr||HOST.lnGrant||"기다리는 중");
+        el.appendChild(ln); }
+    }
     reportSize();
   }
   // **한 번 누르면 한 번 청한다.** 그리고 답이 없는 것도 답이다 — 안 적으면 "눌렀는데
@@ -462,6 +487,39 @@ func statusCardShellHTML() string {
     };
     send({id:i,method:"ui/request-display-mode",params:{mode:want}});
     setTimeout(function(){ if(!settled){ HOST.fsErr="답이 없다(1500ms)"; syncModeBar(); refresh(); } },1500);
+    syncModeBar();
+  }
+
+  // ── 바깥의 것을 여는 것도 사람이 정한다 ──────────────────────────────────────
+  //
+  // **왜 이 계기가 있나.** pip 이 없다는 것이 확정된 자리에서(2026-08-11 실측), "대화 곁에
+  // 계속 서 있는 화면"은 카드 안에서 못 만든다. 그러면 남는 것은 카드가 **바깥의 앱**을 여는
+  // 것이고, 그 길이 실재하는지는 커스텀 URI 스킴이 ui/open-link 를 통과하는가에 달렸다.
+  // 규범은 스킴을 제한하지 않지만 "Invalid URL"·"Policy violation" 오류를 정의해 둔다 —
+  // **정하지 않은 것은 재야 안다.** 디렉터리 제출 문서는 반대편에서 이걸 가리킨다:
+  // allowed link URIs 에 myapp: 꼴의 커스텀 스킴을 **자기 앱에 한해** 적으라고 한다.
+  //
+  // **누르는 것은 사람이다.** 링크를 여는 것은 이 기계에 보이는 부작용이 있다(브라우저 탭이
+  // 뜨거나, 등록된 앱이 뜨거나, OS 가 "여는 앱이 없다"고 한다). 화면이 스스로 열면 그건
+  // 사람이 고른 것이 아니다 — fullscreen 에서 배운 그대로다.
+  //
+  // **기본 배포에는 안 나온다**(PROBE). 이건 제품 기능이 아니라 재려고 놓은 자리다.
+  function askOpenLink(url){
+    if(!hsOK){ HOST.lnWhy="핸드셰이크가 안 됐다"; syncModeBar(); return; }
+    HOST.lnAsked=url; HOST.lnGrant=""; HOST.lnErr=""; HOST.lnWhy="";
+    var settled=false, i=++id;
+    pending[i]=function(res,err){
+      settled=true;
+      // **성공은 빈 결과다**(규범: result {}). 그러니 "res 가 비었다"를 실패로 읽으면 안 된다 —
+      // 여기서 그걸 뒤집어 읽으면 되는 것을 안 된다고 적고, 그 위에서 다음 판단이 선다.
+      if(err) HOST.lnErr=String((err&&(err.code!==undefined?err.code+":":""))||"")+
+                          String((err&&err.message)||err);
+      else HOST.lnGrant="열렸다고 답했다(빈 결과)";
+      syncModeBar(); refresh();
+    };
+    send({id:i,method:"ui/open-link",params:{url:url}});
+    // **답이 없는 것도 답이다** — 이 호스트가 이 요청을 아예 안 받는다는 뜻이다.
+    setTimeout(function(){ if(!settled){ HOST.lnErr="답이 없다(1500ms)"; syncModeBar(); refresh(); } },1500);
     syncModeBar();
   }
 
@@ -536,7 +594,8 @@ func statusCardShellHTML() string {
     // 서버가 제 판과 대조해서 다르면 그 사실을 말한다(uiHostLine).
     a.host=JSON.stringify({ver:VER,modes:HOST.modes,mode:HOST.mode,vars:HOST.vars,caps:HOST.caps,
       asked:HOST.asked,grant:HOST.grant,err:HOST.err,why:HOST.why,ua:HOST.ua,plat:HOST.plat,
-      fsAsked:HOST.fsAsked,fsGrant:HOST.fsGrant,fsErr:HOST.fsErr,fsWhy:HOST.fsWhy});
+      fsAsked:HOST.fsAsked,fsGrant:HOST.fsGrant,fsErr:HOST.fsErr,fsWhy:HOST.fsWhy,
+      lnAsked:HOST.lnAsked,lnGrant:HOST.lnGrant,lnErr:HOST.lnErr,lnWhy:HOST.lnWhy});
     send({id:i,method:"tools/call",params:{name:"gil_status_card",arguments:a}});
   }
 
@@ -580,6 +639,7 @@ func statusCardShellHTML() string {
     if(b.getAttribute("data-act")==="refetch"){ drawn=false; fetches=0; fetchCard(); return; }
     // **여기가 사람의 제스처다.** 정본이 요구하는 것도, 우리가 한 번도 안 해 본 것도 이것이다.
     if(b.getAttribute("data-act")==="mode"){ askFullscreen(); return; }
+    if(b.getAttribute("data-act")==="link-probe"){ askOpenLink(b.getAttribute("data-url")||""); return; }
     // **어디에 만들까 — 사람이 이름만 정하고 경로는 아무도 치지 않는다.**
     if(b.getAttribute("data-act")==="start-here"){
       var box=b.closest("[data-start]"); if(!box) return;

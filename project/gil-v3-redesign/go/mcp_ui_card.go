@@ -77,6 +77,14 @@ var mcpUIHost struct {
 	FSGrant string `json:"fsGrant"`
 	FSErr   string `json:"fsErr"`
 	FSWhy   string `json:"fsWhy"`
+	// **바깥의 것을 여는 것.** pip 이 없다는 것이 확정된 뒤(2026-08-11), 대화 곁에 서는
+	// 화면은 카드 안에서 못 만든다 — 남은 길은 카드가 바깥의 앱을 여는 것이다. 규범은
+	// ui/open-link 의 스킴을 제한하지 않고, 디렉터리 정책은 커스텀 스킴을 자기 앱에 한해
+	// 허용한다. 그 둘 사이에 실제로 무엇이 통과하는지는 재야 안다.
+	LnAsked string `json:"lnAsked"`
+	LnGrant string `json:"lnGrant"`
+	LnErr   string `json:"lnErr"`
+	LnWhy   string `json:"lnWhy"`
 	// Ver — **화면에 떠 있는 껍데기의 판.** 호스트가 ui:// 리소스를 캐시하고 다시 안 읽으므로
 	// (규범 허용), 서버를 새로 깔아도 사람 화면에는 옛 껍데기가 남을 수 있다.
 	Ver   string `json:"ver"`
@@ -173,6 +181,19 @@ func uiHostLine() string {
 		s += " · 크게 보기: 버튼을 안 냈다(" + mcpUIHost.FSWhy + ")"
 	default:
 		s += " · 크게 보기: 버튼은 있고 아직 아무도 안 눌렀다"
+	}
+	// **링크는 아무도 안 누르면 아무 말도 안 한다.** 이건 계기(GIL_UI_PROBE=1)를 켠 동안만
+	// 나오는 시험 버튼이라, 안 눌린 것이 기본이다 — 기본 상태를 매번 한 줄로 적으면 그 줄이
+	// 나머지를 덮는다. 누른 뒤에만 말한다.
+	switch {
+	case mcpUIHost.LnErr != "":
+		s += " · 링크 열기(" + mcpUIHost.LnAsked + ") 사람이 누름 → " + mcpUIHost.LnErr
+	case mcpUIHost.LnGrant != "":
+		s += " · 링크 열기(" + mcpUIHost.LnAsked + ") 사람이 누름 → " + mcpUIHost.LnGrant
+	case mcpUIHost.LnAsked != "":
+		s += " · 링크 열기(" + mcpUIHost.LnAsked + ") 사람이 누름 → 아직 답을 못 받았다"
+	case mcpUIHost.LnWhy != "":
+		s += " · 링크 열기: 안 청했다(" + mcpUIHost.LnWhy + ")"
 	}
 	return s
 }
