@@ -46,6 +46,33 @@
 **그래서 MVP 표면은 Claude Desktop 채팅이다.** 카드가 거기 있고, 풀스크린이 거기 있고,
 무엇보다 **설치가 드래그 한 번**이다(§5).
 
+### 2.1 끝까지 밟아서 확인했다 (2026-08-10, `.mcpb` 실사용)
+
+명세를 쓴 그날 저녁에 `.mcpb` 를 구워 Claude Desktop 에 설치하고 **풀스크린을 실제로 띄웠다.**
+이 저장소가 여덟 번 다른 얼굴로 막혔던 자리다 — 이제 밟았다.
+
+| 밟은 것 | 결과 |
+|---|---|
+| `.mcpb` 설치 (설정 → Extensions) | ✅ `Connected to gil (29 tools)` · `announcing gil: 25 tool(s)` |
+| 확장이 맥에서 직접 도는가 | ✅ `Using basic execution ... server.type is "binary"` — 샌드박스 아님 |
+| **Cowork · 로컬 에이전트 모드** | ❌ **확장의 툴이 안 간다**(그 대화는 `local_…` 세션이고 MCP 는 CLI 가 붙인다) |
+| **일반 채팅** | ✅ `resources/read ui://gil/status` — **호스트가 카드를 그린다** |
+| 저장소 자리 | ❌ roots 를 안 준다 → `/` 에 섬. **§4.1 의 전제가 실측으로 확인됐다** |
+| **풀스크린** | ✅ **사람이 버튼을 눌러 커졌다** |
+
+**Cowork 는 이 구조로 닿지 않는다.** 플러그인 설치 창이 `.zip`/`.plugin` 만 받고, 그 경로로
+붙으면 클라이언트가 다시 CLI 가 되어 MCP Apps 가 없다. MVP 를 일반 채팅으로 잡은 것이 맞았다.
+
+**그리고 계기는 이 표면에서 필요 없다.** 이번 판은 `GIL_UI_PROBE=1` 을 켜고 쟀지만, 호스트의
+판정은 `availableDisplayModes.includes(mode)` 하나이고 그것이 **승인했다** — 즉 이 표면은
+목록에 `fullscreen` 을 넣어 준다(번들에서 읽은 `["inline","fullscreen"]` 과 일치). 그러니
+배포용 매니페스트에서 계기를 **뺀다**(§5.3).
+
+**실패한 것을 잘못 읽을 뻔했다.** 채팅에서 처음 부른 gil 이 죽었을 때 첫 해석은 "샌드박스라
+git 이 없다"였다. 확장 바이너리를 `cwd=/` 로 직접 돌려 같은 문구를 재현해 보니
+`fatal: … 깃 저장소가 아닙니다` 였다 — **git 이 없는 게 아니라 어느 폴더인지를 모르는 것**이다.
+둘을 안 갈랐으면 표면 전체를 버릴 뻔했다. 재현할 수 있는 것은 재현해서 가른다.
+
 ---
 
 ## 3. 구조 — 이음매는 언어가 아니라 빌드 시점에 있다
@@ -168,11 +195,31 @@ gil-<버전>-<플랫폼>.mcpb  를  Claude 창에 끌어다 놓는다.  끝.
 
 ### 5.3 `.mcpb` 의 내용
 
-- `manifest.json` — `server.type: "binary"`, `entry_point` 가 번들 안 바이너리를 가리키고
-  `mcp_config.command` 가 그것을 stdio 로 띄운다.
+공식 도구(`@anthropic-ai/mcpb` v2.1.2)의 스키마와 템플릿으로 확인한 형태다. 실제로 구워
+설치까지 밟았다(§2.1).
+
+```json
+{
+  "manifest_version": "0.3",
+  "name": "gil", "display_name": "gil", "version": "3.58.4",
+  "description": "…", "author": { "name": "…" },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/gil",
+    "mcp_config": { "command": "${__dirname}/server/gil", "args": ["mcp", "serve"] }
+  },
+  "compatibility": { "platforms": ["darwin"] }
+}
+```
+
+- `${__dirname}` 은 MCPB 가 설치 경로로 치환한다(`mcpb init` 이 `binary` 에 쓰는 형태 그대로).
+- 굽기·검증: `mcpb validate manifest.json` → `mcpb pack .`. 파일은 **매니페스트 + 바이너리 둘뿐**,
+  7.3MB.
 - 플랫폼별로 따로 굽는다(한 파일에 5타깃을 다 넣으면 75MB 가 된다).
-- ⚠ **확인 필요:** MCPB 매니페스트의 정확한 필드(플랫폼 제약·서명·업데이트)는 MCPB 규범을
-  읽고 맞춘다. 지금 문서에 적힌 것은 앱 번들에서 확인한 **수용 형식**까지다.
+- **애드혹 서명으로 통과했다.** 다만 앱에 `Require signed extensions` 설정이 있으므로,
+  배포판은 정식 서명을 갖춘다. `Allow desktop extensions` 가 꺼져 있으면 설치 자체가 막힌다.
+- **`env` 에 계기를 싣지 않는다.** 재는 판에서만 `GIL_UI_PROBE=1` 을 넣었고, 이 표면은
+  계기 없이도 풀스크린 버튼이 뜬다(§2.1).
 
 ### 5.4 이미 값을 치러 배운 것
 
@@ -257,8 +304,10 @@ basic-host 8080  ──  sandbox 8081  ──  gil --http :3001/mcp
 
 ## 10. 미해결 · 확인 필요
 
-- MCPB 매니페스트의 정확한 스키마와 서명·업데이트 흐름(§5.3).
-- Desktop 채팅이 **roots 를 정말 안 주는지** 새 표면에서 다시 잰다 — 안 주는 것이 §4.1 의
-  전제다. 전제가 틀렸으면 첫 화면이 더 간단해진다.
+- ~~MCPB 매니페스트 스키마~~ · ~~Desktop 채팅이 roots 를 주는지~~ → §2.1·§5.3 에서 확인됐다.
+- **서명·업데이트 흐름** — 애드혹으로는 통과했지만 `Require signed extensions` 를 켠 사람에게는
+  안 간다. 정식 서명과 버전 갱신 경로를 정해야 한다.
+- **Cowork 를 어떻게 할 것인가.** 지금 구조로는 확장이 안 닿는다(§2.1). 표면을 포기할지,
+  플러그인 경로로 **텍스트 전용** gil 을 따로 낼지는 사람이 정할 일이다.
 - 커넥터로 붙은 gil 에게 Desktop 이 어떤 `hostCapabilities` 를 주는지(파일 접근·링크 열기).
 - `ui/initialize` 의 params 이름(규범은 셋, mdx 예시는 더 싣는다) — SDK 를 쓰면 사라질 문제.
