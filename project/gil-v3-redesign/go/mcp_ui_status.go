@@ -165,9 +165,20 @@ func statusCardShellHTML() string {
   function slot(){ return document.getElementById("gil-card"); }
   function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
   function notify(m,p){ send({method:m,params:p||{}}); }
-  function reportSize(){ notify("ui/notifications/size-changed",
-    {width:document.documentElement.scrollWidth,
-     height:document.documentElement.scrollHeight}); }
+  // **내용을 잰다 — 칸을 재지 않는다.** 칸을 채우는 모드에서는 documentElement.scrollHeight
+  // 가 곧 칸의 높이라, 그걸 보고하면 "지금 크기가 딱 맞다"는 말이 되어 영영 안 자란다.
+  // 카드 조각의 실제 높이를 재면 그 고리가 끊긴다.
+  function reportSize(){
+    var el=slot(), de=document.documentElement;
+    var h=de.scrollHeight, w=de.scrollWidth;
+    if(el){
+      var r=el.getBoundingClientRect();
+      // 바깥 여백(body padding)을 더해 준다 — 안 더하면 매번 조금씩 잘린다.
+      h=Math.max(h, Math.ceil(r.height)+24);
+      w=Math.max(w, Math.ceil(r.width)+24);
+    }
+    notify("ui/notifications/size-changed",{width:w,height:h});
+  }
 
   // **받은 것을 전부 적어 둔다.** 보내는 길은 되는데(호출이 서버에 도착한다) 응답이 콜백에
   // 안 닿는다 — 실측: 카드 조회 14번, 화면은 계속 "가져오는 중". iframe↔호스트 프레임은
@@ -536,12 +547,24 @@ func statusCardShellHTML() string {
     }catch(_){}
   }
 
-  // **좁은 칸에서 사는 법.** 호스트가 크기를 고정했으면(height/width) 그 칸을 채우고 안에서
-  // 구른다 — 우리가 원하는 높이를 보고해 봐야 소용이 없다. 유연하면 지금처럼 자란다.
+  // **좁은 칸에서 사는 법 — 그런데 전용 칸을 받았을 때만.**
+  //
+  // 처음엔 "호스트가 height 를 주면 무조건 그 칸을 채운다"로 했다. 실측(상현님)에서 그게
+  // 인라인 카드를 **읽을 수 없게** 만들었다: 세로가 짧게 눌리고 안에서 스크롤해야 했다.
+  //
+  // 기제는 자기를 강화하는 고리다. html 에 height:100%·overflow:hidden 을 걸면
+  // documentElement.scrollHeight 가 **내용 높이가 아니라 칸 높이**가 된다 → 작은 높이를
+  // 보고한다 → 호스트가 그 크기를 유지한다 → 다시 작은 높이를 보고한다. 한 번 눌리면
+  // 스스로는 못 빠져나온다.
+  //
+  // 그러니 칸을 채우는 것은 **전용 칸(pip·fullscreen)** 을 실제로 받았을 때뿐이다.
+  // 인라인에서는 예전처럼 자란다 — 대화 흐름 안에서는 우리가 높이를 정하는 쪽이 맞다.
   function applyContainer(){
     var d=HOST.dims||{};
-    var fixed=(typeof d.height==="number")||(typeof d.width==="number");
+    var own=(HOST.mode==="pip"||HOST.mode==="fullscreen");
+    var fixed=own&&((typeof d.height==="number")||(typeof d.width==="number"));
     document.documentElement.setAttribute("data-fit", fixed?"fixed":"flex");
+    reportSize();
   }
 
   var hs=++id;
@@ -844,9 +867,9 @@ func statusCardDocHead() string {
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){` + cardVarsDark + `}}
 :root[data-theme="dark"]{` + cardVarsDark + `}
 *{box-sizing:border-box}
-/* **좁은 칸에서 사는 법**(규범 containerDimensions). 호스트가 크기를 고정했으면 우리가
-   원하는 높이를 보고해 봐야 소용없다 — 칸을 채우고 **안에서** 구른다. 유연하면 지금처럼
-   자란다(그때는 페이지가 스크롤을 안 만들어야 호스트가 높이를 그대로 준다). */
+/* **전용 칸(pip·fullscreen)을 받았을 때만** 칸을 채우고 안에서 구른다(규범
+   containerDimensions). 인라인에서는 걸지 않는다 — 걸었더니 카드가 짧게 눌려 읽을 수
+   없었다(상현님 실측). 판정은 applyContainer 에 있고 여기는 그 결과를 그릴 뿐이다. */
 html[data-fit="fixed"],html[data-fit="fixed"] body{height:100%;overflow:hidden}
 html[data-fit="fixed"] body{display:flex;padding:10px}
 html[data-fit="fixed"] .card{overflow-y:auto;flex:1 1 auto;max-width:none}

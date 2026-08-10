@@ -5614,7 +5614,15 @@ class TestMCPAppsCard(GilFixture):
         self.assertIn("appInfo:{name", html)
         self.assertIn('"ui/notifications/initialized"', html)
         # 크기 알림은 width·height 둘 다 — 규범의 모양이다.
-        self.assertIn("width:document.documentElement.scrollWidth", html)
+        #
+        # **어떻게 재는지가 아니라 무엇을 보내는지를 잰다.** 옛 시험은 그때의 구현
+        # (`document.documentElement.scrollWidth`)을 박아 뒀는데, 재는 법을 고치자
+        # (칸이 아니라 내용을 재게) 사실은 그대로인데 빨개졌다.
+        self.assertIn('"ui/notifications/size-changed"', html, "크기를 아예 안 알린다")
+        rs = html.partition("function reportSize(")[2].partition("\n  }")[0]
+        self.assertTrue(rs.strip(), "reportSize 를 못 읽었다 — 이 시험이 눈이 먼다")
+        self.assertRegex(rs, r"width\s*:", "너비를 안 싣는다")
+        self.assertRegex(rs, r"height\s*:", "높이를 안 싣는다")
 
     def test_the_card_travels_in_content_because_that_is_what_reaches_the_app(self):
         """호스트는 앱에게 **structuredContent 를 넘기지 않는다**(실측: `content,isError` 만 왔다).
@@ -12544,11 +12552,32 @@ class TestTheScreenAsksForTheRoomItNeeds(GilFixture):
         waiting = self.gil("status", "--card").stdout
         self.assertIn("data-needs-human", waiting, "기다리는 질문이 있는데 표식이 없다")
 
-    def test_it_fills_a_fixed_container_instead_of_reporting_its_height(self):
-        """좁은 칸(pip)은 크기가 고정일 수 있다 — 그때는 채우고 **안에서** 구른다."""
+    def test_it_fills_a_fixed_container_only_when_it_got_one(self):
+        """**칸을 채우는 것은 전용 칸(pip·fullscreen)을 받았을 때뿐이다** (상현님 실측).
+
+        처음엔 "호스트가 height 를 주면 무조건 채운다"로 했다. 그게 인라인 카드를 **읽을 수
+        없게** 만들었다 — 세로가 짧게 눌려 안에서 스크롤해야 했다.
+
+        기제는 **자기를 강화하는 고리**다: html 에 height:100%·overflow:hidden 을 걸면
+        documentElement.scrollHeight 가 내용 높이가 아니라 **칸 높이**가 된다 → 작은 높이를
+        보고한다 → 호스트가 그 크기를 유지한다 → 다시 작은 높이를 보고한다. 한 번 눌리면
+        스스로는 못 빠져나온다. 그래서 두 자리를 함께 막는다."""
         sh = self.shell()["status"]
         self.assertIn("containerDimensions", sh, "호스트가 준 칸 크기를 안 읽는다")
         self.assertIn('data-fit="fixed"', sh, "고정 칸에서 채우는 규칙이 없다")
+        # ① 판정이 **모드**를 본다 — 인라인이면 채우지 않는다.
+        body = sh.partition("function applyContainer(")[2].partition("\n  }")[0]
+        self.assertTrue(body.strip(), "applyContainer 를 못 읽었다 — 이 시험이 눈이 먼다")
+        self.assertIn("HOST.mode", body,
+                      "칸을 채울지 정하면서 **어떤 자리에 있는지**를 안 본다 — "
+                      "인라인에서 채우면 카드가 눌려 읽을 수 없게 된다")
+        for m in ('"pip"', '"fullscreen"'):
+            self.assertIn(m, body, f"전용 칸 판정에 {m} 이 없다")
+        # ② 보고하는 크기가 **자기 자신을 보지 않는다** — 칸이 아니라 내용을 잰다.
+        rs = sh.partition("function reportSize(")[2].partition("\n  }")[0]
+        self.assertIn("getBoundingClientRect", rs,
+                      "칸 높이만 보고한다 — 채우는 모드에서 그 값은 곧 칸의 높이라 "
+                      "'딱 맞다'는 말이 되어 영영 안 자란다")
 
 
 class TestWhatWeDeclareToTheHostIsTheSpecsShape(GilFixture):
