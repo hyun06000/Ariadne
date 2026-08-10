@@ -188,16 +188,27 @@ func registerGilUI(s *mcp.Server) {
 // 호스트가 iframe 높이를 맞추게. (3) 낡음 감지 — 호스트가 보내는 tool-result 의 팁 서명이 이
 // 화면을 그릴 때의 서명과 다르면, 그래프가 그 뒤로 움직였다는 뜻이니 배너로 밝힌다.
 func injectUIBridge(html, sig string) string {
+	probeJS := "false"
+	if os.Getenv("GIL_UI_PROBE") == "1" {
+		probeJS = "true"
+	}
 	bridge := `<div id="gil-stale-banner" hidden>이 화면은 그 뒤 움직인 그래프를 아직 못 봤다 —
 최신으로 보려면 gil_graph 를 다시 불러라.</div>
+<div id="gil-fs-bar" hidden><button type="button" id="gil-fs-btn">크게 본다</button><span
+ id="gil-fs-note"></span></div>
 <style>
 #gil-stale-banner{position:sticky;bottom:0;margin:12px 0 0;padding:10px 14px;border-radius:10px;
   background:#3a2a12;color:#ffd79a;border:1px solid #7a5a24;font-size:13px;line-height:1.5}
+#gil-fs-bar{position:fixed;top:10px;right:12px;z-index:9999;display:flex;gap:8px;
+  align-items:center;font:13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+#gil-fs-btn{border-radius:7px;padding:5px 14px;font:inherit;cursor:pointer;
+  border:1px solid #7a5a24;background:#3a2a12;color:#ffd79a}
+#gil-fs-note{color:#ffd79a}
 </style>
 <script>
 (function(){
-  var MY_SIG=` + jsString(sig) + `;
-  var id=0, host=window.parent;
+  var MY_SIG=` + jsString(sig) + `, PROBE=` + probeJS + `;
+  var id=0, host=window.parent, pending={};
   if(host===window) return;              // iframe 이 아니면 브리지는 무의미
   function send(msg){ host.postMessage(Object.assign({jsonrpc:"2.0"},msg),"*"); }
   function notify(method,params){ send({method:method,params:params||{}}); }
@@ -214,34 +225,66 @@ func injectUIBridge(html, sig string) string {
   // 응답을 받으면 **initialized** 를 보낸다 — 규범이 "이 알림 전에는 호스트가 뷰에 아무것도
   // 보내지 않는다"고 정한 관문이다(그래서 이걸 빼면 화면이 서지 않는다).
   window.addEventListener("message",function(e){
-    var m=e.data;
-    if(m && m.id===1 && m.result && m.result.protocolVersion){
+    var m=e.data; if(!m) return;
+    if(m.id===1 && m.result && m.result.protocolVersion){
       notify("ui/notifications/initialized",{}); reportSize();
       askBig(m.result);
+      return;
     }
+    // 우리가 보낸 요청의 답은 그 자리에서 받는다 — 전에는 id===1 말고는 아무것도 안 들어서
+    // 표시모드 요청의 답이 어디에도 안 적혔다(청했는지만 알고 결과는 몰랐다).
+    if(m.id!==undefined && pending[m.id]){ var cb=pending[m.id]; delete pending[m.id];
+      cb(m.result,m.error); return; }
+    // 렌더 뒤에 호스트가 모드를 바꿀 수 있다(규범: host-context-changed).
+    if(m.method==="ui/notifications/host-context-changed"){
+      var hc=m.params||{};
+      if(hc.availableDisplayModes) MODES=hc.availableDisplayModes;
+      if(hc.displayMode) MODE=hc.displayMode;
+      syncBig();
+    }
+  });
+  document.addEventListener("click",function(ev){
+    if(ev.target && ev.target.id==="gil-fs-btn"){ ev.preventDefault(); toggleBig(); }
   });
 
   // (1b) **이 그림은 크게 봐야 하는 것이다.** 상태 카드와 일이 다르다: 상태 카드는 곁에 두고
   // 일하는 동안 계속 보는 것이고, 전체맵은 한 번 크게 펼쳐 보고 닫는 것이다. 빈 저장소에서도
   // 226KB 짜리 그림이라, 인라인 칸에 눌러 넣으면 사람은 스크롤로 그것을 더듬게 된다.
   //
-  // **호스트가 목록에 넣은 모드만 청한다**(규범: 지원 안 하는 모드를 청하면 안 된다).
-  // 그리고 돌아온 값을 믿는다: 청한 것과 다를 수 있다.
+  // **그런데 크게 여는 것은 사람이 정한다.** 전에는 여기서 **자동으로** 청했다 — 정본
+  // (ext-apps docs/patterns.md · add-app-to-server)은 반대다: 목록에 fullscreen 이 있으면
+  // **버튼을 보이고**, 사람이 누르면 그때 청한다. 자동으로만 청해 온 탓에 이 저장소는
+  // "호스트가 안 준다"와 "제스처가 없어서 안 준다"를 아직 못 갈랐다.
   //
-  // **다만 없는 것과 안 밝힌 것은 다르다**(b83a94dd 가 상태 카드에서 값을 치른 구분 —
-  // 그때 이 자리는 안 배웠다). 목록을 줬는데 fullscreen 이 없으면 안 청한다. 목록을 아예
-  // 안 줬으면 그건 "지원 안 한다"가 아니라 **모르는 것**이라, 청해 보고 답을 받는다.
-  // 거절되면 인라인 그대로다 — 잃는 것이 없다. roots 에서 이미 겪었다: 선언과 구현이
-  // 갈리는 호스트는 실재한다.
+  // 언제 버튼을 보이나 — 상태 카드와 같은 규칙(mcp_ui_status.go 의 fsState 주석):
+  //   · 목록에 있다 → 보인다(정본)  · 목록을 안 줬다 → 모르는 것이라 보인다
+  //   · 목록을 줬는데 없다 → 규범이 청하지 말라 하므로 안 보인다(계기 GIL_UI_PROBE=1 일 때만).
+  var MODES=[], MODE="";
   function askBig(res){
     try{
       var hc=(res&&res.hostContext)||{};
-      var modes=hc.availableDisplayModes||[];
-      if(modes.length && modes.indexOf("fullscreen")<0) return;
-      if(hc.displayMode==="fullscreen") return;
-      var i=++id;
-      send({id:i,method:"ui/request-display-mode",params:{mode:"fullscreen"}});
+      MODES=hc.availableDisplayModes||[]; MODE=hc.displayMode||"";
+      syncBig();
     }catch(_){}
+  }
+  function syncBig(){
+    var el=document.getElementById("gil-fs-bar"); if(!el) return;
+    var declared=MODES.indexOf("fullscreen")>=0, unknown=!MODES.length;
+    if(!(declared||unknown||PROBE)){ el.hidden=true; return; }
+    var big=(MODE==="fullscreen");
+    el.hidden=false;
+    el.firstChild.textContent=big?"작게 되돌린다":"크게 본다";
+  }
+  function toggleBig(){
+    var want=(MODE==="fullscreen")?"inline":"fullscreen";
+    var i=++id;
+    pending[i]=function(res,err){
+      if(!err && res && res.mode){ MODE=res.mode; syncBig(); }
+      else { var el=document.getElementById("gil-fs-note");
+        if(el){ el.textContent=err?("호스트가 거절했다: "+String((err&&(err.message||err.code))||err))
+                                  :"호스트가 답에 모드를 안 실었다"; } }
+    };
+    send({id:i,method:"ui/request-display-mode",params:{mode:want}});
   }
 
   // (2) 크기 보고 — 내용이 바뀌면(카드 펼침 등) 다시 알린다.

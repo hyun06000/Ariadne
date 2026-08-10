@@ -12557,28 +12557,52 @@ class TestTheScreenAsksForTheRoomItNeeds(GilFixture):
         sh = self.shell()
         self.assertIn('"pip"', sh["status"], "상태 카드가 곁에 서는 모드를 아예 선언 안 한다")
         self.assertIn('params:{mode:"pip"}', sh["status"], "상태 카드가 곁에 서기를 안 청한다")
-        self.assertIn('params:{mode:"fullscreen"}', sh["graph"], "전체맵이 크게 서기를 안 청한다")
+        self.assertIn('"fullscreen"', sh["graph"], "전체맵이 크게 서는 모드를 아예 선언 안 한다")
         self.assertNotIn('"pip"', sh["graph"],
                          "전체맵이 곁에 두는 모드를 선언한다 — 그건 한 번 보고 닫는 그림이다")
 
-    def test_it_never_asks_for_a_mode_the_host_did_not_offer(self):
-        """**추측으로 켜면 없는 화면을 가리키는 그 병이 된다.**"""
+    def test_making_it_big_waits_for_a_human_hand(self):
+        """**크게 여는 것은 사람이 정한다** — 정본이 그렇고, 우리는 그렇게 안 했다.
+
+        정본(ext-apps: docs/patterns.md · plugins/mcp-apps/skills/add-app-to-server)의 패턴은
+        하나다: availableDisplayModes 에 fullscreen 이 있으면 **버튼을 보이고**, 사람이 누르면
+        그때 ui/request-display-mode 를 보낸다. 우리는 두 화면 모두 **버튼 없이 자동으로**
+        청했다 — 그래서 2026-08-10 현재까지 **제스처가 있는 요청을 한 번도 안 해 봤고**,
+        "호스트가 안 준다"와 "제스처가 없어서 안 준다"가 아직 안 갈렸다. 갈리지 않은 것을
+        결론으로 쓰면 그 위의 판단이 전부 추측이 된다.
+
+        곁에 서는 것(pip)은 그대로 화면이 스스로 청한다 — 그건 자리를 옮기는 것이 아니라
+        **곁에 서는 것**이고, 상현님이 기본으로 정한 동작이다(b83a94dd)."""
         for name, sh in self.shell().items():
-            i = sh.find("request-display-mode")
-            self.assertGreater(i, 0, f"{name}: 청하는 자리가 없다")
-            # **낱말이 몇 글자 앞에 있나를 세지 않는다** — 그건 배선을 조금만 옮겨도 빨개지는
-            # 판정이고, 이 세션에서 그 실수를 이미 여러 번 했다. 재야 하는 것은 데이터 흐름이다:
-            #   ㄱ) 호스트가 밝힌 목록을 **어딘가에서 받아 두고**
-            #   ㄴ) 청하는 함수가 그 목록에 있는지 보고 **없으면 되돌아간다**
+            i = sh.find('mode:"fullscreen"')
+            self.assertLess(i, 0,
+                            f"{name}: fullscreen 을 **박아서** 청한다 — 사람이 누른 것이 아니라 "
+                            "화면이 스스로 청하는 모양이다(정본과 반대 방향)")
+            self.assertIn("request-display-mode", sh, f"{name}: 청하는 자리가 아예 없다")
+            # 사람의 손이 닿는 자리가 실재해야 한다 — 없으면 "버튼으로 바꿨다"가 말뿐이다.
+            self.assertIn("click", sh, f"{name}: 누를 자리가 없다 — 제스처가 닿을 곳이 없다")
+
+    def test_it_never_offers_a_mode_the_host_did_not_offer(self):
+        """**추측으로 켜면 없는 화면을 가리키는 그 병이 된다.**
+
+        관문은 이제 *청하는 함수*가 아니라 **버튼을 내는 함수**에 있다(사람이 누르기 전에
+        걸러야 하니 그쪽이 맞는 자리다 — 눌렀는데 아무 일도 안 나는 버튼은 없는 화면을
+        가리키는 안내와 같은 것이다). 그러니 재는 것도 그 자리다."""
+        for name, sh in self.shell().items():
             self.assertIn("availableDisplayModes", sh,
                           f"{name}: 호스트가 무엇을 여는지 아예 안 읽는다")
+            # 판정 함수는 이름이 아니라 **하는 일**로 찾는다 — 이름을 박으면 배선을 옮길 때
+            # 눈이 먼다(이 저장소가 여러 번 값을 치른 자리다).
+            i = sh.find('indexOf("fullscreen")')
+            self.assertGreater(i, 0,
+                               f"{name}: 목록에 fullscreen 이 있는지 아예 안 본다 — 추측으로 낸다")
             fstart = sh.rfind("function ", 0, i)
-            self.assertGreater(fstart, 0, f"{name}: 청하는 함수를 못 찾았다")
-            fn = sh[fstart:i]
-            self.assertIn("indexOf(", fn,
-                          f"{name}: 호스트가 준 목록에 들어 있는지 안 보고 청한다")
-            self.assertIn("return", fn,
-                          f"{name}: 목록에 없을 때 되돌아가지 않는다 — 추측으로 청한다")
+            fn = sh[fstart:sh.find("\n  }", i)]
+            self.assertTrue(fn.strip(), f"{name}: 판정 함수를 못 읽었다 — 이 시험이 눈이 먼다")
+            # **없는 것과 안 밝힌 것은 다르다**(b83a94dd 가 pip 에서 값을 치른 구분).
+            self.assertIn("length", fn,
+                          f"{name}: 목록이 비었는지(=안 밝혔는지)를 안 본다 — 밝히지 않은 "
+                          "호스트에서 열 수 있는 자리를 스스로 닫는다")
 
     def test_asking_to_sit_aside_is_the_default_but_never_a_fight(self):
         """**곁에 서는 것이 기본이다**(상현님) — 상태 카드는 원래 곁에 두고 일하는 화면이다.
@@ -12636,6 +12660,26 @@ class TestTheScreenAsksForTheRoomItNeeds(GilFixture):
         # 첫 조회가 그 결과를 실어 가려면 **자리가 정해진 뒤에** 나가야 한다.
         self.assertIn("function asideDone(", sh,
                       "답을 기다렸다 첫 조각을 가져오는 자리가 없다 — 서버는 늘 한 발 늦는다")
+
+    def test_not_yet_pressed_is_not_the_same_as_refused(self):
+        """**안 눌린 것을 "거절됐다"로 읽으면 다음 세션이 안 해 본 것을 결론으로 쓴다.**
+
+        크게 보기는 사람이 눌러야 청해진다. 그러니 아무 기록이 없는 상태는 "호스트가 안
+        준다"가 아니라 **아직 아무도 안 눌렀다**이다. 두 갈래를 한 침묵으로 두면, 이 저장소가
+        2026-08-10 에 실제로 그랬던 것처럼 — 한 번도 안 청해 본 채로 "이 호스트는 fullscreen
+        을 안 준다"가 사실로 굳는다.
+
+        그리고 그 기록은 **pip 과 따로** 적혀야 한다: 둘은 청하는 방식부터 다르고(하나는
+        화면이, 하나는 사람이), 한 칸에 겹치면 "곁엔 못 서지만 크게는 된다"가 뭉개진다."""
+        sh = self.shell()["status"]
+        for k in ("fsAsked", "fsGrant", "fsErr", "fsWhy"):
+            self.assertIn(k, sh, f"{k} 칸이 없다 — 크게 보기의 결과가 어디에도 안 남는다")
+            self.assertIn(f"{k}:HOST.{k}", sh, f"{k} 가 서버로 안 간다 — 도구가 영영 결과를 모른다")
+        # 무응답도 판정한다 — 답이 없는 것도 답이다(이 호스트가 그 요청을 안 받는다는 뜻).
+        body = sh.partition("function askFullscreen(")[2].partition("\n  }")[0]
+        self.assertTrue(body.strip(), "askFullscreen 을 못 읽었다 — 이 시험이 눈이 먼다")
+        self.assertIn("setTimeout", body,
+                      "답이 안 올 때를 판정하지 않는다 — 무응답과 거절이 구별되지 않는다")
 
     def test_the_card_marks_when_it_needs_a_human(self):
         """껍데기는 카드 내용을 모른다(레이아웃은 Go 에만 있다) — 그래서 카드가 표시한다."""

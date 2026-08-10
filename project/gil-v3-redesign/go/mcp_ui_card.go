@@ -69,9 +69,16 @@ var mcpUIHost struct {
 	// 이 칸이 없던 동안, 한 서버를 여러 표면(Code·Cowork·채팅)이 나눠 쓰는 바람에 읽은
 	// 표시모드가 **어느 표면의 것인지 알 수 없었다** — 마지막에 보고한 화면이 앞의 값을
 	// 덮으니까. 출처 없는 값은 잰 것이 아니다.
-	UA    string `json:"ua"`
-	Plat  string `json:"plat"`
-	known bool
+	UA   string `json:"ua"`
+	Plat string `json:"plat"`
+	// **크게 보기는 곁에 세우기와 따로 적는다.** 둘은 청하는 방식부터 다르다 — pip 은 화면이
+	// 스스로, fullscreen 은 **사람이 눌러야**(정본 패턴). 한 칸에 겹쳐 적으면 "곁엔 못 서지만
+	// 크게는 된다" 같은 갈래가 한 값으로 뭉개지고, 그러면 다음 수가 다시 추측이 된다.
+	FSAsked string `json:"fsAsked"`
+	FSGrant string `json:"fsGrant"`
+	FSErr   string `json:"fsErr"`
+	FSWhy   string `json:"fsWhy"`
+	known   bool
 }
 
 // uiHostLine — 이 표면에 대해 **아는 것만** 한 줄로. 모르면 빈 값(모르는 것은 말하지 않는다).
@@ -129,6 +136,21 @@ func uiHostLine() string {
 		s += " · 곁에 세우기(pip) 청함 → 호스트가 준 자리: " + mcpUIHost.Grant
 	case mcpUIHost.Asked != "":
 		s += " · 곁에 세우기(pip) 청함 → 아직 답을 못 받았다"
+	}
+	// **크게 보기는 사람이 눌러야 청해진다.** 그러니 여기 아무것도 안 적혀 있으면 그것은
+	// "거절됐다"가 아니라 **아직 아무도 안 눌렀다**는 뜻이다 — 그 둘을 섞으면 다음 세션이
+	// "호스트가 안 준다"고 결론짓고 실제로는 한 번도 안 청해 본 채로 넘어간다.
+	switch {
+	case mcpUIHost.FSErr != "":
+		s += " · 크게 보기(fullscreen) 사람이 누름 → " + mcpUIHost.FSErr
+	case mcpUIHost.FSGrant != "":
+		s += " · 크게 보기(fullscreen) 사람이 누름 → 호스트가 준 자리: " + mcpUIHost.FSGrant
+	case mcpUIHost.FSAsked != "":
+		s += " · 크게 보기(fullscreen) 사람이 누름 → 아직 답을 못 받았다"
+	case mcpUIHost.FSWhy != "":
+		s += " · 크게 보기: 버튼을 안 냈다(" + mcpUIHost.FSWhy + ")"
+	default:
+		s += " · 크게 보기: 버튼은 있고 아직 아무도 안 눌렀다"
 	}
 	return s
 }

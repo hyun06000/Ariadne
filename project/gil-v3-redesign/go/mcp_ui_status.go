@@ -152,7 +152,8 @@ func statusCardShellHTML() string {
 	if probe {
 		probeJS = "true"
 	}
-	return statusCardDocHead() + `<body><div id="gil-card" class="card"><div class="lbl">gil</div>
+	return statusCardDocHead() + `<body><div id="gil-mode" class="modebar" hidden></div>
+<div id="gil-card" class="card"><div class="lbl">gil</div>
 <div class="none">상태를 가져오는 중…</div></div>
 <script>
 (function(){
@@ -174,7 +175,14 @@ func statusCardShellHTML() string {
   // 표시모드를 읽고도 **그 값이 어느 표면의 것인지 알 수 없었다** — 한 gil 서버를 여러
   // 표면이 나눠 쓰고, 보고는 전역 한 칸에 덮어쓰이기 때문이다(실측 2026-08-10). 재는 값에
   // 출처가 없으면 그건 잰 것이 아니다.
-  var HOST={modes:[],mode:"",dims:null,vars:0,caps:[],asked:"",grant:"",err:"",why:"",ua:"",plat:""};
+  //
+  // fs* — **풀스크린은 pip 과 따로 적는다.** 하나의 칸에 겹쳐 적으면 "곁에 세우기는 거절,
+  // 크게 보기는 승인" 같은 갈래가 화면 밖에서 한 값으로 뭉개진다. 그리고 이 둘은 청하는
+  // 방식 자체가 다르다 — pip 은 화면이 스스로 청하고(곁에 서는 것이 기본), 풀스크린은
+  // **사람이 눌러야** 청한다(정본 패턴: availableDisplayModes 에 있으면 버튼을 보이고,
+  // 누르면 그때 requestDisplayMode). 지금까지 우리는 버튼 없이 자동으로만 청해 봤다.
+  var HOST={modes:[],mode:"",dims:null,vars:0,caps:[],asked:"",grant:"",err:"",why:"",ua:"",plat:"",
+            fsAsked:"",fsGrant:"",fsErr:"",fsWhy:""};
   var VER=` + jsString(gilVersion) + `, seen=[], repo="", PROBE=` + probeJS + `;
   function slot(){ return document.getElementById("gil-card"); }
   function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
@@ -333,6 +341,69 @@ func statusCardShellHTML() string {
     if(drawn) refresh(); else fetchCard();
   }
 
+  // ── 크게 보는 것은 사람이 정한다 ─────────────────────────────────────────────
+  //
+  // 정본 패턴(ext-apps add-app-to-server · docs/patterns.md)은 **버튼**이다:
+  // availableDisplayModes 에 fullscreen 이 있으면 버튼을 보이고, **사람이 누르면** 그때
+  // ui/request-display-mode 를 보낸다. 우리는 지금까지 버튼 없이 자동으로만 청했고 —
+  // 이 호스트는 목록에 fullscreen 을 안 넣으므로 — **사람의 제스처가 있는 요청은 한 번도
+  // 안 해 봤다.** 그래서 "호스트가 안 준다"와 "제스처가 없어서 안 준다"가 안 갈렸다.
+  //
+  // 언제 버튼을 보이나:
+  //   · 목록에 fullscreen 이 있다 → 보인다(정본).
+  //   · 목록을 아예 안 줬다       → **모르는 것이다.** 보인다 — 누르는 것은 사람이고,
+  //     거절되면 그대로다. pip 에서 이미 값을 치른 구분이다(b83a94dd).
+  //   · 목록을 줬는데 없다        → **안 보인다.** 규범이 "청하기 전에 목록을 확인하라"를
+  //     MUST 로 적었다. 다만 그 자리를 재려면 청해 봐야 하므로, **계기(GIL_UI_PROBE=1)를
+  //     켠 동안만** 버튼을 낸다 — 기본 배포는 규범대로 조용하다.
+  function fsState(){
+    var declared=HOST.modes.indexOf("fullscreen")>=0;
+    var unknown=!HOST.modes.length;
+    return {declared:declared, unknown:unknown,
+            show:declared||unknown||PROBE, forced:!declared&&!unknown};
+  }
+  function syncModeBar(){
+    var el=document.getElementById("gil-mode"); if(!el) return;
+    var st=fsState();
+    if(!st.show){
+      if(!HOST.fsWhy) HOST.fsWhy="호스트가 여는 모드 목록에 fullscreen 이 없다";
+      if(!el.hidden){ el.hidden=true; el.innerHTML=""; reportSize(); }
+      return;
+    }
+    var big=(HOST.mode==="fullscreen");
+    var label=big?"작게 되돌린다":"크게 본다";
+    if(st.forced) label+=" (계기 — 호스트가 안 밝힌 모드다)";
+    var sig=label+"|"+HOST.fsErr;
+    if(el.dataset.sig===sig && !el.hidden) return;
+    el.dataset.sig=sig; el.hidden=false; el.innerHTML="";
+    var b=document.createElement("button");
+    b.className="btn modebtn"; b.setAttribute("data-act","mode"); b.setAttribute("data-noarm","1");
+    b.textContent=label; el.appendChild(b);
+    // 실패는 **그 자리에** 적는다 — 누른 사람이 결과를 보는 곳이 여기다.
+    if(HOST.fsErr){ var n=document.createElement("span");
+      n.className="modenote"; n.textContent=HOST.fsErr; el.appendChild(n); }
+    reportSize();
+  }
+  // **한 번 누르면 한 번 청한다.** 그리고 답이 없는 것도 답이다 — 안 적으면 "눌렀는데
+  // 아무 일도 없었다"가 거절·무응답·안 보냄과 구별되지 않는다(pip 에서 배운 그대로).
+  function askFullscreen(){
+    if(!hsOK){ HOST.fsWhy="핸드셰이크가 안 됐다"; syncModeBar(); return; }
+    var want=(HOST.mode==="fullscreen")?"inline":"fullscreen";
+    HOST.fsAsked=want; HOST.fsGrant=""; HOST.fsErr=""; HOST.fsWhy="";
+    var settled=false, i=++id;
+    pending[i]=function(res,err){
+      settled=true;
+      // **돌아온 값을 믿는다** — 청한 것과 다를 수 있다(규범: 지원 안 하면 지금 모드를 준다).
+      if(err) HOST.fsErr=String((err&&(err.message||err.code))||err);
+      else if(res&&res.mode){ HOST.fsGrant=res.mode; HOST.mode=res.mode; applyContainer(); }
+      else HOST.fsGrant="(응답에 mode 가 없다)";
+      syncModeBar(); refresh();
+    };
+    send({id:i,method:"ui/request-display-mode",params:{mode:want}});
+    setTimeout(function(){ if(!settled){ HOST.fsErr="답이 없다(1500ms)"; syncModeBar(); refresh(); } },1500);
+    syncModeBar();
+  }
+
   // ── 화면이 스스로 따라간다 ──────────────────────────────────────────────────
   //
   // 전에는 한 번 그려지면(drawn=true) 끝이었다 — fetchCard 가 즉시 되돌아가고, tool-result
@@ -373,7 +444,8 @@ func statusCardShellHTML() string {
     // 호스트가 무엇을 지원한다고 답했는지는 화면이 적어 보내야만 알 수 있다. 그걸 알아야
     // 도구가 사람에게 "곁에 띄울 수 있다"를 말할 수 있고, 없으면 조용히 인라인으로 남는다.
     a.host=JSON.stringify({modes:HOST.modes,mode:HOST.mode,vars:HOST.vars,caps:HOST.caps,
-      asked:HOST.asked,grant:HOST.grant,err:HOST.err,why:HOST.why,ua:HOST.ua,plat:HOST.plat});
+      asked:HOST.asked,grant:HOST.grant,err:HOST.err,why:HOST.why,ua:HOST.ua,plat:HOST.plat,
+      fsAsked:HOST.fsAsked,fsGrant:HOST.fsGrant,fsErr:HOST.fsErr,fsWhy:HOST.fsWhy});
     send({id:i,method:"tools/call",params:{name:"gil_status_card",arguments:a}});
   }
 
@@ -415,6 +487,8 @@ func statusCardShellHTML() string {
   function runAct(b){
     var tool=b.getAttribute("data-tool"), msg=b.getAttribute("data-msg"), to=b.getAttribute("data-to");
     if(b.getAttribute("data-act")==="refetch"){ drawn=false; fetches=0; fetchCard(); return; }
+    // **여기가 사람의 제스처다.** 정본이 요구하는 것도, 우리가 한 번도 안 해 본 것도 이것이다.
+    if(b.getAttribute("data-act")==="mode"){ askFullscreen(); return; }
     // **인터뷰 제출.** 사람이 폼에 적은 것을 그대로 모아 보낸다 — 화면은 답을 고치지도,
     // 채우지도 않는다(그 순간 기준이 사람의 문장이 아니게 된다).
     if(b.getAttribute("data-act")==="interview-submit"){
@@ -527,6 +601,9 @@ func statusCardShellHTML() string {
       if(hc.userAgent) HOST.ua=String(hc.userAgent);
       if(hc.platform) HOST.plat=String(hc.platform);
       if(hc.containerDimensions){ HOST.dims=hc.containerDimensions; applyContainer(); }
+      // 목록이나 현재 모드가 바뀌면 버튼도 따라간다 — 호스트가 뒤늦게 fullscreen 을 열어
+      // 주는 자리가 있고(규범이 이 알림으로 알린다), 그때 버튼이 없으면 그 자리를 못 쓴다.
+      syncModeBar();
       reportSize();
       return;
     }
@@ -596,7 +673,7 @@ func statusCardShellHTML() string {
       // 출처가 없다(hostInfo 로 오는 호스트도 있어 두 자리를 본다).
       HOST.ua=String(hc.userAgent||(res&&res.hostInfo&&(res.hostInfo.name||""))||"");
       HOST.plat=String(hc.platform||"");
-      applyContainer();
+      applyContainer(); syncModeBar();
     }catch(_){}
   }
 
@@ -929,7 +1006,7 @@ func statusCardDocHead() string {
    containerDimensions). 인라인에서는 걸지 않는다 — 걸었더니 카드가 짧게 눌려 읽을 수
    없었다(상현님 실측). 판정은 applyContainer 에 있고 여기는 그 결과를 그릴 뿐이다. */
 html[data-fit="fixed"],html[data-fit="fixed"] body{height:100%;overflow:hidden}
-html[data-fit="fixed"] body{display:flex;padding:10px}
+html[data-fit="fixed"] body{display:flex;flex-direction:column;padding:10px}
 html[data-fit="fixed"] .card{overflow-y:auto;flex:1 1 auto;max-width:none}
 body{margin:0;padding:16px;background:var(--bg);color:var(--fg);
  font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
@@ -964,6 +1041,12 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .big{font-size:16px;line-height:1.5}
 .orig{margin-top:7px;font-size:13px;color:var(--dim);white-space:pre-wrap;word-break:break-word}
 .none{font-size:13px;color:var(--dim)}
+/* 표시모드 바 — **카드 조각 바깥**에 산다. 카드는 다시 그려질 때마다 통째로 갈리므로
+   (paint 가 innerHTML 을 갈아끼운다) 안에 두면 누를 자리가 깜빡이며 사라진다. */
+.modebar{display:flex;gap:8px;align-items:center;margin:0 auto 8px;max-width:720px;
+ justify-content:flex-end}
+.modenote{font-size:12px;color:var(--dim)}
+html[data-fit="fixed"] .modebar{margin:0 0 6px}
 .acts{display:flex;gap:8px;margin-top:10px}
 .btn{display:inline-block;border-radius:7px;padding:5px 14px;font:13px/1.4 inherit;
  border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
