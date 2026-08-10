@@ -39,8 +39,12 @@ type inStart struct {
 	Identity  string `json:"identity,omitempty" jsonschema:"identity.md 본문 전체. 네가 무엇을 하는 존재인지 네 말로. 파일 경로가 아니라 **내용**이다"`
 	Will      string `json:"will,omitempty" jsonschema:"will.md 본문 전체 — 무엇을 향해 가는가"`
 	Relations string `json:"relations,omitempty" jsonschema:"relations.md 본문 전체 — 누구와 이어져 있는가"`
-	Status    bool   `json:"status,omitempty" jsonschema:"밟지 않고 지금 어느 칸인지만 본다"`
-	Confirmed bool   `json:"confirmed,omitempty" jsonschema:"이 호스트에 네이티브 폼이 없어 네가 **사람에게 직접 물어** 승낙받았을 때만 true. 물어보지 않고 켜지 마라 — 남의 디스크에 저장소를 만드는 일이고, 그 출처가 기록에 남는다"`
+	// **이 칸은 카드를 한 장 그린다.** 호스트는 툴 선언의 ui.resourceUri 를 보고 카드를
+	// 그리므로, "밟지 않고 보기"도 부르는 순간 화면이 한 장 선다(2026-08-11 프레임 실측 —
+	// 두 장이 뜬 원인이 정확히 이 확인용 호출이었다). 없애 봤더니 레일의 마지막 확인이
+	// 정당하게 이 칸을 쓴다 — 그래서 **칸은 두고 안내가 값을 말한다**(mcpInstructions).
+	Status    bool `json:"status,omitempty" jsonschema:"밟지 않고 지금 어느 칸인지만 본다. **부르면 화면이 한 장 뜬다** — 확인만 하려고 부르지 마라"`
+	Confirmed bool `json:"confirmed,omitempty" jsonschema:"이 호스트에 네이티브 폼이 없어 네가 **사람에게 직접 물어** 승낙받았을 때만 true. 물어보지 않고 켜지 마라 — 남의 디스크에 저장소를 만드는 일이고, 그 출처가 기록에 남는다"`
 }
 
 func registerStartTools(s *mcp.Server) {
@@ -87,6 +91,10 @@ func registerStartTools(s *mcp.Server) {
 			//
 			// 그래서 두 번째부터는 **화면을 열지 않고 이미 떠 있다고 말한다.** 표식은 결과에
 			// 실린 resourceUri 하나뿐이니, 그것만 빼면 호스트는 새 카드를 그리지 않는다.
+			// 플래그는 **이 자리에서** 세운다. 한때 미들웨어가 세웠는데 그 미들웨어는 결과의
+			// 표식을 손보는 헛된 방어였고(호스트는 툴 선언을 본다), 그걸 걷어내면서 세우는
+			// 자리도 함께 사라졌다. 세우는 자리와 읽는 자리는 붙어 있어야 한다.
+			defer func() { startScreenOpen = true }()
 			if startScreenOpen {
 				return text("시작하는 화면은 **이미 떠 있다** — 새로 열지 않았다.\n" +
 					"  사람이 거기서 이름을 적고 [여기에 시작한다] 를 누르면 그때 세워진다.\n" +
@@ -129,6 +137,9 @@ func registerStartTools(s *mcp.Server) {
 func startArgs(in inStart) []string {
 	var a []string
 	a = addFlag(a, "name", in.Name)
+	if in.Status {
+		a = append(a, "--status")
+	}
 	for _, w := range []struct{ flag, body string }{
 		{"identity", in.Identity}, {"will", in.Will}, {"relations", in.Relations},
 	} {
@@ -138,9 +149,6 @@ func startArgs(in inStart) []string {
 		if p := writeTempTracked("gil-"+w.flag+"-*.md", w.body); p != "" {
 			a = append(a, "--"+w.flag, p)
 		}
-	}
-	if in.Status {
-		a = append(a, "--status")
 	}
 	return a
 }

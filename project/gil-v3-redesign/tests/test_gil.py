@@ -12888,6 +12888,53 @@ class TestNobodyTypesAPathToStart(GilFixture):
         self.assertIn("여기에 시작한다", out, "그 화면에 있는 버튼을 안 가리킨다:\n" + out)
         self.assertNotIn("답을 제출한다", out, "인터뷰 폼의 버튼을 가리킨다:\n" + out)
 
+    def test_it_does_not_invite_a_peek_call_that_costs_a_card(self):
+        """**화면을 여는 툴은 부를 때마다 카드가 한 장씩 뜬다 — 서버는 그걸 못 막는다.**
+
+        2026-08-11 프레임 실측. 호스트의 오류 문구가 규칙을 그대로 말한다:
+        `Tool <이름> has no UI resource (no ui/resourceUri in tool._meta)` — 호스트는 **툴
+        선언**을 보고 카드를 그린다. 결과에 실린 표식은 그 판정에 안 쓰인다.
+
+        그래서 "결과에서 표식을 빼면 두 번째 카드가 안 뜬다"는 방어를 세 라운드 붙들었는데
+        **처음부터 효력이 없었다.** 내 시험은 결과의 표식만 봤고, 그건 내가 고른 대리 지표지
+        사람이 보는 것이 아니었다 — **재는 것이 화면이 아니면 초록은 아무것도 보증하지 않는다.**
+
+        실측에서 두 장을 만든 것은 에이전트의 **확인용 호출**이었다:
+        `gil_start {status:true}` 로 칸을 엿보고 그다음 `gil_start {}`. 두 번 다 카드가 떴다.
+        그러니 재는 것은 둘이다 — ㄱ) 엿보라고 초대하는 칸을 두지 않는다
+        ㄴ) 안내가 "부르면 한 장 뜬다 · 확인하려고 부르지 마라"를 **첫 호출 전에** 가르친다."""
+        home, cwd = self._fresh()
+        import json, subprocess
+        env = dict(os.environ, HOME=home, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1")
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=cwd, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, env=env)
+        self.addCleanup(p.terminate)
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "t", "version": "0"}}})
+        got = json.loads(p.stdout.readline())["result"]
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        # ㄱ) 엿보는 칸이 없다.
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        while True:
+            m = json.loads(p.stdout.readline())
+            if m.get("id") == 2:
+                break
+        by = {t["name"]: t for t in m["result"]["tools"]}
+        props = ((by["gil_start"].get("inputSchema") or {}).get("properties") or {})
+        # 칸 자체는 없앨 수 없었다 — 레일의 마지막 확인이 정당하게 쓴다(없애 봤더니 빨개졌다).
+        # 그러니 **값을 그 자리에서 말한다**: 부르면 화면이 한 장 뜬다.
+        self.assertIn("화면이 한 장", props.get("status", {}).get("description", ""),
+                      "확인용 칸이 제 값을 안 말한다 — 에이전트는 공짜인 줄 안다")
+
+        # ㄴ) 규칙이 첫 호출 전에 로드되는 자리에 있다.
+        instr = got.get("instructions", "")
+        self.assertIn("부를 때마다", instr, "화면을 여는 툴의 비용을 안 가르친다")
+        self.assertIn("확인하려고 부르지 마라", instr, "엿보지 말라고 말하지 않는다")
+
     def test_the_screen_says_when_it_is_a_stale_shell(self):
         """**고친 것과 뜬 것이 다를 수 있다 — 그러면 그 사실을 말해야 한다.**
 
@@ -12926,9 +12973,8 @@ class TestNobodyTypesAPathToStart(GilFixture):
         m = re.search(r"이 서버 (\S+)", text)
         return m.group(1) if m else "dev"
 
-    def test_calling_start_twice_does_not_stack_two_screens(self):
-        """**같은 화면을 두 번 열지 않는다** (상현님 실사용: "카드가 두번 나왔어 — ux 적으로
-        너무 헷갈릴 포인트").
+    def test_calling_start_twice_says_the_screen_is_already_there(self):
+        """**같은 화면을 두 번 열지 않는다** (상현님 실사용: "카드가 두번 나왔어").
 
         에이전트가 gil_start 를 두 번 부르는 것 자체는 정상이다 — 레일이 "끝날 때까지 반복해서
         불러라"고 가르친다. 잘못은 **부를 때마다 화면을 새로 여는 것**이다: 사람 앞에 같은
@@ -12946,19 +12992,7 @@ class TestNobodyTypesAPathToStart(GilFixture):
 
         bad2, out2 = call("gil_start", {})
         self.assertFalse(bad2, out2)
-        ui2 = (self.last_result.get("_meta") or {}).get("ui") or {}
-        self.assertIsNone(ui2.get("resourceUri"),
-                          "두 번째 호출이 카드를 또 연다 — 같은 질문이 사람 앞에 둘 선다")
         self.assertIn("이미 떠 있다", out2, "이미 떠 있다는 사실을 안 말한다:\n" + out2)
-
-        # **다른 툴도 열면 안 된다.** 실사용에서 두 번째 두 장은 gil_start 가 아니라 **다른
-        # 툴**이 열었다 — 화면을 여는 것은 결과의 resourceUri 하나이고 그걸 다는 툴이 여럿이다.
-        # 그래서 막는 자리는 툴이 아니라 **나가는 모든 결과가 지나는 한 자리**여야 한다.
-        for other in ("gil_status", "gil_handoff"):
-            bad3, out3 = call(other, {})
-            ui3 = (self.last_result.get("_meta") or {}).get("ui") or {}
-            self.assertIsNone(ui3.get("resourceUri"),
-                              other + " 가 시작 화면 위에 카드를 또 연다")
 
     def test_outside_the_starting_moment_every_status_still_draws_its_card(self):
         """**막는 것은 "사람이 아직 안 누른 시작 화면"뿐이다.**
