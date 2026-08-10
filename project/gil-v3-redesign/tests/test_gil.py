@@ -5655,7 +5655,12 @@ class TestMCPAppsCard(GilFixture):
     def test_it_answers_with_a_card_even_when_it_cannot_find_the_repo(self):
         """**오류가 아니라 카드로 답한다.** 앱에 isError 를 주면 화면은 "카드가 없다"만 적고
         사람은 이유를 모른다 — 실측으로 그 화면을 봤다(13번). 화면은 언제나 무언가를 말해야
-        하고, 못 하는 것은 못 한다고 말해야 한다."""
+        하고, 못 하는 것은 못 한다고 말해야 한다.
+
+        그리고 이제 그 화면은 **말만 하지 않고 길을 준다**(gil-app SPEC §4.1): 저장소를 못
+        찾은 자리가 곧 시작하는 자리다. 옛 시험은 "어느 저장소를 볼지 모른다"는 **문구**를
+        박고 있었는데, 지키려는 것은 문구가 아니라 ㄱ) 오류가 아니라 카드고 ㄴ) 그 카드가
+        지금 선 자리를 밝히고 ㄷ) 사람이 다음으로 갈 수 있다는 것이다."""
         self._cycle()
         _, call = self._session([("tools/call", {"name": "gil_status_card", "arguments": {}})],
                                 cwd="/")
@@ -5663,7 +5668,10 @@ class TestMCPAppsCard(GilFixture):
         self.assertFalse(r.get("isError"), "앱에 오류를 돌려주면 화면이 이유를 못 적는다")
         text = r["content"][0]["text"]
         self.assertTrue(text.lstrip().startswith("<div"), text[:80])
-        self.assertIn("어느 저장소를 볼지 모른다", text)
+        # 지금 선 자리를 밝힌다 — 안 밝히면 "왜 못 찾았나"를 다시 추측하게 된다.
+        self.assertIn("지금 선 자리", text, text[:200])
+        # 그리고 막다른 길이 아니다.
+        self.assertIn("data-act=\"start-here\"", text, "못 찾았다고만 말하고 길을 안 준다")
 
     def test_the_server_remembers_the_repo_the_model_gave_it(self):
         """앱의 조회엔 인자가 없을 수 있다 — 그때는 앞선 호출에서 정해진 자리를 쓴다.
@@ -12759,6 +12767,158 @@ class TestTheScreenAsksForTheRoomItNeeds(GilFixture):
         self.assertIn("getBoundingClientRect", rs,
                       "칸 높이만 보고한다 — 채우는 모드에서 그 값은 곧 칸의 높이라 "
                       "'딱 맞다'는 말이 되어 영영 안 자란다")
+
+
+
+class TestNobodyTypesAPathToStart(GilFixture):
+    """**어디에 만들까 — 이 제품에서 제일 비싼 질문이다** (gil-app SPEC §4.1).
+
+    MVP 표면(Claude Desktop 일반 채팅)은 **roots 를 주지 않는다**(2026-08-10 실측). 그래서
+    거의 모든 첫 화면이 "저장소를 못 찾았다"이고, 옛 카드는 거기서 *"에이전트가 repo 인자와
+    함께 다시 불러라"* 라고만 말했다 — 즉 **비개발자가 절대경로를 대야** 했다. 그건 이 사람들이
+    답할 수 있는 질문이 아니고, 흐름은 거기서 끝난다.
+
+    그래서 그 화면이 **시작하는 화면**이 된다: gil 이 자리를 제안하고, 사람은 이름만 적고,
+    버튼을 누른다. 문법이 지켜 온 "어디에 만들지는 언제나 사람이 정한 것이 되게"는 그대로다 —
+    사람이 이름을 적고 누르는 것이 곧 정하는 것이다. 도구가 정하는 것은 **기본값의 자리**뿐이고
+    그건 언제나 눈에 보인다.
+    """
+
+    def _serve(self, home, cwd, full=False):
+        import json, subprocess
+        env = dict(os.environ, HOME=home, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1")
+        env.pop("GIL_UI_PROBE", None)
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=cwd, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, env=env)
+        self.addCleanup(p.terminate)
+        send = lambda o: (p.stdin.write(json.dumps(o) + "\n"), p.stdin.flush())
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                try:
+                    m = json.loads(ln.strip())
+                except ValueError:
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "x"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "t", "version": "0"}}})
+        pump(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        self._n = 10
+
+        def call(name, args):
+            self._n += 1
+            send({"jsonrpc": "2.0", "id": self._n, "method": "tools/call",
+                  "params": {"name": name, "arguments": args}})
+            r = pump(self._n)
+            if "error" in r:
+                return True, r["error"].get("message", "")
+            res = r["result"]
+            txt = res["content"][0]["text"] if res.get("content") else ""
+            return bool(res.get("isError")), txt
+
+        def tools():
+            self._n += 1
+            send({"jsonrpc": "2.0", "id": self._n, "method": "tools/list", "params": {}})
+            got = pump(self._n)["result"]["tools"]
+            return got if full else [t["name"] for t in got]
+
+        return call, tools
+
+    def _fresh(self):
+        import tempfile
+        return tempfile.mkdtemp(prefix="gilhome-"), tempfile.mkdtemp(prefix="notarepo-")
+
+    def test_the_first_screen_asks_for_a_name_not_a_path(self):
+        """저장소를 못 찾은 것은 **막다른 길이 아니라 첫 칸**이다."""
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd)
+        bad, card = call("gil_status_card", {})
+        self.assertFalse(bad, card)
+        self.assertIn("data-start-name", card, "이름을 적을 칸이 없다 — 사람은 경로를 대야 한다")
+        self.assertIn('data-act="start-here"', card, "누를 자리가 없다")
+        # **자리를 제안한다.** 제안이 없으면 결국 사람이 경로를 치게 된다.
+        self.assertIn("data-start-preview", card, "어디에 생기는지 안 보여준다")
+        self.assertIn("~/", card, "기본 자리를 제안하지 않는다")
+
+    def test_a_name_is_enough(self):
+        """이름 하나로 자리가 정해지고 세계가 선다 — 경로는 아무도 치지 않는다."""
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd)
+        bad, out = call("gil_start_here", {"name": "타이타닉 생존자 분석"})
+        self.assertFalse(bad, out)
+        made = [d for d in (os.path.join(home, "gil", "타이타닉-생존자-분석"),
+                            os.path.join(home, "Documents", "gil", "타이타닉-생존자-분석"))
+                if os.path.isdir(d)]
+        self.assertTrue(made, "폴더가 안 생겼다:\n" + out)
+        self.assertTrue(os.path.isdir(os.path.join(made[0], ".git")), "저장소가 안 섰다")
+
+    def test_it_will_not_build_in_a_place_that_holds_projects(self):
+        """**프로젝트를 담는 자리에는 프로젝트를 세우지 않는다** — 화면에서도 같다.
+
+        `/` 와 홈 자신에 세우면 그 아래 전부가 한 저장소가 된다. 그리고 화면이 만드는 자리는
+        홈 안이어야 한다 — 남의 디스크 아무 데나 폴더를 만드는 버튼을 두지 않는다.
+        """
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd)
+        for place, why in [("/", "루트"), ("/etc", "홈 밖"), ("~/..", "홈 위")]:
+            bad, msg = call("gil_start_here", {"name": "x", "place": place})
+            self.assertTrue(bad, why + " 에 세우는 것을 안 막았다: " + msg)
+            self.assertIn("거부", msg)
+
+    def test_an_empty_name_is_refused_because_a_folder_gets_that_name(self):
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd)
+        bad, msg = call("gil_start_here", {"name": "   "})
+        self.assertTrue(bad, msg)
+        self.assertIn("이름", msg)
+
+    def test_the_humans_button_is_declared_as_the_apps_not_the_models(self):
+        """**사람이 누르는 자리는 에이전트의 것이 아니다** — 다만 그건 벽이 아니라 선언이다.
+
+        `visibility: ["app"]` 은 지키는 호스트가 모델의 목록에서 빼 주는 **힌트**다. 날
+        프로토콜의 tools/list 에는 그대로 보인다 — 이 시험을 처음 쓸 때 "목록에서 빠져
+        있어야 한다"로 적었다가 빨개졌고, **잡힌 것이 옳다**(같은 과장을 주석에서 한 번
+        고친 적이 있다). 얻는 것은 "못 한다"가 아니라 "무심코 부르지 않는다"이다.
+
+        그러니 재는 것은 **선언**이다. 그리고 안내가 그 자리에서 "이건 사람이 누르는 것"
+        이라고 말하는지까지 함께 본다 — 선언만 있고 설명이 없으면 에이전트는 그냥 부른다.
+        """
+        home, cwd = self._fresh()
+        _, tools = self._serve(home, cwd, full=True)
+        by = {t["name"]: t for t in tools()}
+        self.assertIn("gil_start", by, "시작하는 툴이 사라졌다")
+        here = by.get("gil_start_here")
+        self.assertIsNotNone(here, "화면의 버튼이 도는 자리가 없다")
+        vis = (((here.get("_meta") or {}).get("ui") or {}).get("visibility") or [])
+        self.assertEqual(list(vis), ["app"],
+                         "사람의 버튼이 앱 전용으로 선언되지 않았다: " + repr(vis))
+        desc = here.get("description", "")
+        self.assertIn("사람", desc, "설명이 '사람이 누르는 자리'라고 말하지 않는다")
+        self.assertIn("gil_start", desc, "에이전트가 대신 갈 길(gil_start)을 안 가리킨다")
+
+    def test_the_screen_and_the_server_fold_the_name_the_same_way(self):
+        """화면이 미리 보여준 자리와 서버가 만드는 자리가 갈리면, 사람은 **자기가 본 것과
+        다른 곳**에 폴더가 생긴 것을 나중에 알게 된다. 접는 규칙은 두 곳에 있지만 결과는
+        같아야 한다 — 그래서 규칙 자체를 여기서 못박는다."""
+        home, cwd = self._fresh()
+        call, _ = self._serve(home, cwd)
+        # 공백은 하이픈으로, 경로를 벗어나게 하는 글자는 사라진다.
+        bad, out = call("gil_start_here", {"name": "a b/c"})
+        self.assertFalse(bad, out)
+        self.assertIn("a-bc", out, "접는 규칙이 화면의 미리보기와 다르다:\n" + out)
 
 
 class TestWhatWeDeclareToTheHostIsTheSpecsShape(GilFixture):

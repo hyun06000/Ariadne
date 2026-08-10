@@ -44,6 +44,8 @@ type inStart struct {
 }
 
 func registerStartTools(s *mcp.Server) {
+	// 화면의 버튼이 도는 자리 — 사람이 누른 것만 온다(mcp_start_here.go).
+	registerStartHereTool(s)
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "gil_start",
 		Description: "**새 프로젝트를 시작할 때 부르는 첫 툴이다.** 사람이 \"gil 프로젝트 시작하자\"고 " +

@@ -231,10 +231,41 @@ func cardResult(card string) *mcp.CallToolResult {
 
 // uiNoRepoCard — 어느 저장소인지 모를 때의 **카드**(오류가 아니다).
 func uiNoRepoCard(detail string) string {
-	return `<div class="card"><div class="crumb">gil</div>` +
-		`<div class="repo">` + esc(detail) + `</div>` +
-		`<div class="panel"><div class="lbl">어느 저장소를 볼지 모른다</div>` +
-		`<div class="none">이 화면은 인자를 실을 수 없는 자리에서 열렸고, 호스트가 열린 폴더를 ` +
-		`알려주지 않았다(roots 미지원). 에이전트가 <code>gil_status</code> 를 repo 인자와 함께 ` +
-		`한 번 부르면, 그 뒤로 이 화면도 그 저장소를 본다.</div></div></div>`
+	// **저장소를 못 찾은 것은 막다른 길이 아니라 첫 칸이다.**
+	//
+	// 옛 카드는 여기서 "어느 저장소를 볼지 모른다"고만 말하고, 에이전트에게 repo 인자를
+	// 실어 다시 부르라고 시켰다. 그런데 MVP 표면(Desktop 일반 채팅)은 roots 를 안 주므로
+	// **거의 모든 첫 화면이 이 자리**이고, 그러면 비개발자가 절대경로를 말해야 한다.
+	// 거기서 흐름이 끝난다 — 그건 이 사람들이 답할 수 있는 질문이 아니다.
+	//
+	// 그래서 이 화면이 **시작하는 화면**이 된다: gil 이 자리를 제안하고, 사람은 이름만
+	// 적고, 버튼을 누른다. 경로는 아무도 치지 않는다.
+	root := defaultPlaceRoot()
+	if root == "" {
+		// 홈을 모르면 제안할 수 없다 — 그때는 사실대로 못 한다고 말한다.
+		return `<div class="card"><div class="crumb">gil</div>` +
+			`<div class="repo">` + esc(detail) + `</div>` +
+			`<div class="panel"><div class="lbl">어느 저장소를 볼지 모른다</div>` +
+			`<div class="none">홈 폴더를 알 수 없어 만들 자리를 제안하지 못한다. ` +
+			`저장소의 절대경로를 <code>repo</code> 인자에 실어 불러라.</div></div></div>`
+	}
+	short := shortenHome(root)
+	return `<div class="card" data-start="1">` +
+		`<div class="crumb">새 프로젝트를 시작합니다</div>` +
+		`<div class="row"><div class="lbl">무엇에 대한 기록인가요</div>` +
+		`<input class="ivin" data-start-name placeholder="예: 타이타닉 생존자 분석" ` +
+		`data-root="` + esc(short) + `"></div>` +
+		`<div class="row"><div class="lbl">여기에 만듭니다</div>` +
+		`<div class="repo" data-start-preview>` + esc(short) + `/…</div></div>` +
+		`<div class="acts">` +
+		`<button class="btn primary" data-act="start-here" ` +
+		`data-arm="이 폴더를 만듭니다 — 한 번 더">여기에 시작한다</button></div>` +
+		`<details class="startmore"><summary>다른 자리에 만들기</summary>` +
+		`<input class="ivin" data-start-place value="` + esc(short) + `">` +
+		`<div class="none">폴더가 없으면 만들어집니다. 홈 폴더 안이어야 합니다 — ` +
+		`바깥에 만들려면 그 경로를 <code>repo</code> 인자에 실어 부릅니다.</div></details>` +
+		// 진단은 남긴다. 없애면 "왜 저장소를 못 찾았나"를 다시 추측하게 된다.
+		`<div class="foot">지금 선 자리: <code>` + esc(detail) + `</code> — ` +
+		`이미 만들어 둔 저장소가 있으면 그 경로를 <code>repo</code> 인자에 실어 불러라.</div>` +
+		`</div>`
 }

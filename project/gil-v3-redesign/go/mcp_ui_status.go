@@ -424,6 +424,36 @@ func statusCardShellHTML() string {
   function scheduleRefresh(){ clearTimeout(refreshTimer); refreshTimer=setTimeout(refresh,350); }
   document.addEventListener("input",function(){ lastInput=Date.now(); },true);
 
+  // **만들 자리를 치는 동안 보여준다.** 경로를 아무도 안 치는 대신, 어디에 생기는지는
+  // 누르기 **전에** 눈에 보여야 한다 — 안 보이면 그건 사람이 정한 것이 아니라 도구가
+  // 정하고 사람이 승인한 것이 된다(그 둘은 다르다).
+  //
+  // 접는 것은 화면이 하고 **판정은 서버가 다시 한다**(placeSlug). 화면이 만든 경로를 그대로
+  // 믿고 만들면, 화면과 서버가 갈릴 때 사람이 본 것과 다른 자리에 폴더가 생긴다.
+  function slugPreview(s){
+    // 같은 규칙을 서버가 다시 써다(placeSlug) — 화면은 미리 보여 주기만 한다.
+    var out="";
+    var t=String(s||"").trim();
+    for(var i=0;i<t.length;i++){
+      var ch=t.charAt(i), code=t.charCodeAt(i);
+      if(ch==="/"||ch==="\\"||ch===":") continue;   // 경로를 벗어나게 하는 글자
+      if(code<32) continue;                       // 제어문자
+      out += /\s/.test(ch) ? "-" : ch;
+    }
+    return out.replace(/^[-.]+|[-.]+$/g,"");
+  }
+  document.addEventListener("input",function(ev){
+    var el=ev.target;
+    if(!el || !(el.hasAttribute&&(el.hasAttribute("data-start-name")||el.hasAttribute("data-start-place")))) return;
+    var box=el.closest("[data-start]"); if(!box) return;
+    var nameEl=box.querySelector("[data-start-name]");
+    var placeEl=box.querySelector("[data-start-place]");
+    var out=box.querySelector("[data-start-preview]"); if(!out) return;
+    var root=(placeEl&&placeEl.value||"").trim() || (nameEl&&nameEl.getAttribute("data-root")) || "";
+    var slug=slugPreview(nameEl&&nameEl.value);
+    out.textContent=root.replace(/\/+$/,"")+"/"+(slug||"…");
+  },true);
+
   function fetchCard(){
     if(fetching || drawn || fetches>=4) return;
     fetching=true; fetches++;
@@ -490,6 +520,29 @@ func statusCardShellHTML() string {
     if(b.getAttribute("data-act")==="refetch"){ drawn=false; fetches=0; fetchCard(); return; }
     // **여기가 사람의 제스처다.** 정본이 요구하는 것도, 우리가 한 번도 안 해 본 것도 이것이다.
     if(b.getAttribute("data-act")==="mode"){ askFullscreen(); return; }
+    // **어디에 만들까 — 사람이 이름만 정하고 경로는 아무도 치지 않는다.**
+    if(b.getAttribute("data-act")==="start-here"){
+      var box=b.closest("[data-start]"); if(!box) return;
+      var nameEl=box.querySelector("[data-start-name]");
+      var name=(nameEl&&nameEl.value||"").trim();
+      // **빈 이름으로는 안 보낸다.** 그 이름으로 폴더가 생기고, 빈 이름은 자리를 못 만든다.
+      if(!name){ say("이름을 한 줄 적어 주세요 — 그 이름으로 폴더가 생깁니다.");
+        if(nameEl) nameEl.focus(); return; }
+      var placeEl=box.querySelector("[data-start-place]");
+      var a={name:name};
+      var place=(placeEl&&placeEl.value||"").trim();
+      if(place) a.place=place;
+      var i=++id;
+      pending[i]=function(res,err){
+        if(err){ say("세우지 못했다: "+String((err&&(err.message||err.code))||err)); return; }
+        var txt=(res&&res.content&&res.content[0]&&res.content[0].text)||"";
+        if(res&&res.isError){ say("거부됐다 — "+txt.split("\n")[0]); return; }
+        say("세웠다. 화면을 다시 가져온다."); drawn=false; fetches=0; fetchCard();
+      };
+      send({id:i,method:"tools/call",params:{name:"gil_start_here",arguments:a}});
+      say("세우는 중…");
+      return;
+    }
     // **인터뷰 제출.** 사람이 폼에 적은 것을 그대로 모아 보낸다 — 화면은 답을 고치지도,
     // 채우지도 않는다(그 순간 기준이 사람의 문장이 아니게 된다).
     if(b.getAttribute("data-act")==="interview-submit"){
@@ -1047,6 +1100,9 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 .modebar{display:flex;gap:8px;align-items:center;margin:0 auto 8px;max-width:720px;
  justify-content:flex-end}
 .modenote{font-size:12px;color:var(--dim)}
+.startmore{margin-top:10px;font-size:13px;color:var(--dim)}
+.startmore summary{cursor:pointer}
+.startmore .ivin{margin-top:6px}
 html[data-fit="fixed"] .modebar{margin:0 0 6px}
 .acts{display:flex;gap:8px;margin-top:10px}
 .btn{display:inline-block;border-radius:7px;padding:5px 14px;font:13px/1.4 inherit;
