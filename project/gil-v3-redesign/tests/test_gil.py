@@ -5220,9 +5220,23 @@ class TestStatusJSON(GilFixture):
         blocks = re.findall(r"\{(--bg:[^}]*)\}", shell)
         self.assertEqual(len(blocks), 3, blocks)
         self.assertEqual(blocks[1], blocks[2], "어두운 팔레트 두 벌이 갈렸다")
-        # 색 변수는 **가져다 쓰지 않는다** — 이름을 모르는 채 우리 --bg 에 꽂으면 배경이
-        # 아닌 값이 배경이 되어 카드가 통째로 안 읽힌다. 모르는 것은 안 한다.
-        self.assertNotIn("styles.variables", shell)
+        # 색 변수는 **이제 쓴다** — 규범(SEP-1865)이 이름을 표준화했기 때문이다
+        # (`--color-background-primary`·`--color-text-primary`·`--font-sans` …).
+        # 옛 시험은 "안 쓴다"를 단언했는데, 그건 **이름을 모르던 시절의 결정**이었다.
+        #
+        # 지켜야 하는 것은 그 결정이 아니라 그 아래의 **안전 성질**이다: 이름을 모르는 값을
+        # 우리 변수(--bg 등)에 꽂으면 배경이 아닌 값이 배경이 되어 카드가 통째로 안 읽힌다.
+        # 그래서 우리 변수는 **명시적으로 짝지은 것에서만** 온다.
+        self.assertIn("styles.variables", shell, "호스트가 준 색·글꼴을 안 읽는다")
+        body = shell.partition("function applyHostStyles(")[2].partition("\n  }")[0]
+        self.assertTrue(body.strip(), "applyHostStyles 를 못 읽었다 — 이 시험이 눈이 먼다")
+        self.assertIn('"--color-background-primary":"--bg"', body,
+                      "규범의 이름과 우리 이름을 짝지은 표가 없다")
+        # 우리 변수에 값을 꽂는 자리는 **그 표를 도는 한 곳**뿐이어야 한다.
+        ours = re.findall(r'setProperty\(\s*"(--(?:bg|fg|dim|line|card|panel|acc)[a-z-]*)"', body)
+        self.assertEqual(ours, [],
+                         "우리 변수 이름을 직접 꽂는 자리가 있다 — 표를 거치지 않으면 "
+                         "모르는 값이 배경이 될 수 있다: " + repr(ours))
 
     # ── 본문은 보고서다 — 날것으로 찍으면 가장 정보가 많은 칸이 가장 안 읽힌다 ────────
 
@@ -5668,7 +5682,12 @@ class TestMCPAppsCard(GilFixture):
         html = rd["result"]["contents"][0]["text"]
         self.assertIn("ui/notifications/tool-input", html)
         self.assertIn("learnRepo", html)
-        self.assertIn("arguments: repo ?", html, "배운 저장소를 조회에 싣지 않는다")
+        # **표현이 아니라 사실을 잰다.** 옛 시험은 `arguments: repo ?` 라는 그때의 한 줄을
+        # 박아 뒀는데, 배선을 바꾸자(인자를 객체로 조립) 사실은 그대로인데 시험만 빨개졌다.
+        # 재야 하는 것은 "조회가 배운 저장소를 싣는가"다.
+        fetch = html.partition("function fetchCard(")[2].partition("\n  }")[0]
+        self.assertIn("gil_status_card", fetch, "조회 통로를 못 읽었다 — 이 시험이 눈이 먼다")
+        self.assertIn("repo", fetch, "배운 저장소를 조회에 싣지 않는다")
 
 
 class TestMCPRoots(GilFixture):
@@ -12425,6 +12444,164 @@ class TestTheGraphHasItsOwnDoor(GilFixture):
         self.assertIn("체인", r.stdout, "아무것도 안 그렸다:\n" + r.stdout[:400])
 
 
+class TestTheScreenAsksForTheRoomItNeeds(GilFixture):
+    """**두 화면은 다른 일을 하니 다른 자리를 청한다** (상현님 제안, 2026-08-10).
+
+    인라인 카드는 **대화와 함께 스크롤돼 올라간다.** 사람이 3번 문항을 쓰다 1번을 다시 보려면
+    위로 올려야 하고, 승인 버튼은 대화가 길어지면 화면 밖으로 나간다. 브라우저 뷰어가 주던
+    값 하나가 정확히 "창이 계속 거기 있다"였고 — 그건 그림이 아니라 **자리**였다.
+
+      · 상태 카드 → `pip`(곁에 둔다). 일하는 동안 계속 보고, 거기서 답하고 승인한다.
+      · 전체맵   → `fullscreen`(크게 보고 닫는다). 빈 저장소에서도 226KB 짜리 그림이다.
+
+    **지키는 것 셋** — 이 셋이 없으면 이 기능은 이 세션이 내내 고친 병의 새 얼굴이 된다:
+      ① 호스트가 목록에 넣은 모드만 청한다(규범: 지원 안 하는 모드를 청하면 안 된다).
+      ② 답할 것이 있을 때만 청한다 — 사람이 안 시켰는데 화면이 옆으로 튀어나가면 방해다.
+      ③ 한 번만 청한다 — 사람이 도로 인라인으로 돌려놨는데 다시 밀면 그건 싸움이다."""
+
+    def shell(self):
+        p = subprocess.Popen(GIL_CMD + ["mcp", "serve"], cwd=self.repo, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env={**os.environ, "GIL_NO_VIEWER": "1", "GIL_NO_VERSION_CHECK": "1"})
+        self.addCleanup(p.terminate)
+
+        def send(o):
+            p.stdin.write(json.dumps(o) + "\n")
+            p.stdin.flush()
+
+        def pump(want):
+            while True:
+                ln = p.stdout.readline()
+                if not ln:
+                    return None
+                try:
+                    m = json.loads(ln.strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if m.get("method"):
+                    if "id" in m:
+                        send({"jsonrpc": "2.0", "id": m["id"],
+                              "error": {"code": -32601, "message": "x"}})
+                    continue
+                if m.get("id") == want:
+                    return m
+
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "t", "version": "0"}}})
+        pump(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        out = {}
+        for name, uri in (("status", "ui://gil/status"), ("graph", "ui://gil/graph")):
+            send({"jsonrpc": "2.0", "id": 2, "method": "resources/read", "params": {"uri": uri}})
+            r = pump(2)
+            self.assertIsNotNone(r, f"{name} 껍데기를 못 받았다")
+            out[name] = r["result"]["contents"][0]["text"]
+        return out
+
+    def test_each_screen_asks_for_the_mode_that_fits_its_job(self):
+        sh = self.shell()
+        self.assertIn('"pip"', sh["status"], "상태 카드가 곁에 서는 모드를 아예 선언 안 한다")
+        self.assertIn('params:{mode:"pip"}', sh["status"], "상태 카드가 곁에 서기를 안 청한다")
+        self.assertIn('params:{mode:"fullscreen"}', sh["graph"], "전체맵이 크게 서기를 안 청한다")
+        self.assertNotIn('"pip"', sh["graph"],
+                         "전체맵이 곁에 두는 모드를 선언한다 — 그건 한 번 보고 닫는 그림이다")
+
+    def test_it_never_asks_for_a_mode_the_host_did_not_offer(self):
+        """**추측으로 켜면 없는 화면을 가리키는 그 병이 된다.**"""
+        for name, sh in self.shell().items():
+            i = sh.find("request-display-mode")
+            self.assertGreater(i, 0, f"{name}: 청하는 자리가 없다")
+            # **낱말이 몇 글자 앞에 있나를 세지 않는다** — 그건 배선을 조금만 옮겨도 빨개지는
+            # 판정이고, 이 세션에서 그 실수를 이미 여러 번 했다. 재야 하는 것은 데이터 흐름이다:
+            #   ㄱ) 호스트가 밝힌 목록을 **어딘가에서 받아 두고**
+            #   ㄴ) 청하는 함수가 그 목록에 있는지 보고 **없으면 되돌아간다**
+            self.assertIn("availableDisplayModes", sh,
+                          f"{name}: 호스트가 무엇을 여는지 아예 안 읽는다")
+            fstart = sh.rfind("function ", 0, i)
+            self.assertGreater(fstart, 0, f"{name}: 청하는 함수를 못 찾았다")
+            fn = sh[fstart:i]
+            self.assertIn("indexOf(", fn,
+                          f"{name}: 호스트가 준 목록에 들어 있는지 안 보고 청한다")
+            self.assertIn("return", fn,
+                          f"{name}: 목록에 없을 때 되돌아가지 않는다 — 추측으로 청한다")
+
+    def test_the_status_card_only_asks_when_a_human_is_needed(self):
+        """사람이 안 시켰는데 화면이 옆으로 튀어나가면 그건 도움이 아니라 방해다."""
+        sh = self.shell()["status"]
+        body = sh.partition("function maybeAside(")[2].partition("\n  }")[0]
+        self.assertTrue(body.strip(), "maybeAside 를 못 읽었다 — 이 시험이 눈이 먼다")
+        self.assertIn("data-needs-human", body, "답할 것이 있는지 안 보고 청한다")
+        self.assertIn("askedAside", body, "한 번만 청한다는 규칙이 없다 — 사람과 싸운다")
+
+    def test_the_card_marks_when_it_needs_a_human(self):
+        """껍데기는 카드 내용을 모른다(레이아웃은 Go 에만 있다) — 그래서 카드가 표시한다."""
+        self.gil("init", "--name", "clew")
+        self.gil("intake", "sd", "--ask", "-",
+                 input=json.dumps([{"q": "무엇을 하려 하십니까", "type": "text"}],
+                                  ensure_ascii=False))
+        waiting = self.gil("status", "--card").stdout
+        self.assertIn("data-needs-human", waiting, "기다리는 질문이 있는데 표식이 없다")
+
+    def test_it_fills_a_fixed_container_instead_of_reporting_its_height(self):
+        """좁은 칸(pip)은 크기가 고정일 수 있다 — 그때는 채우고 **안에서** 구른다."""
+        sh = self.shell()["status"]
+        self.assertIn("containerDimensions", sh, "호스트가 준 칸 크기를 안 읽는다")
+        self.assertIn('data-fit="fixed"', sh, "고정 칸에서 채우는 규칙이 없다")
+
+
+class TestWhatWeDeclareToTheHostIsTheSpecsShape(GilFixture):
+    """**안 도는 선언은 선언이 아니다** (MCP Apps 규범 SEP-1865 대조, 2026-08-10).
+
+    우리는 리소스의 `_meta.ui.csp` 에 `connect-src`·`resource-src` 를 적어 뒀다 — CSP 지시어
+    이름을 그대로 옮긴 것이다. 그런데 규범의 필드는 `connectDomains`·`resourceDomains`·
+    `frameDomains`·`baseUriDomains` 다. **호스트는 모르는 키를 무시하고 기본 CSP 를 건다.**
+    즉 그 선언은 한 글자도 효과가 없었고, 화면이 뜬 것은 기본값이 인라인 스크립트를 허용해서지
+    우리가 선언해서가 아니었다.
+
+    이건 눈으로는 안 보이는 종류다 — 오타가 아니라 **다른 어휘**라 읽으면 그럴듯하고, 화면은
+    멀쩡히 뜨니 아무도 의심하지 않는다. 그래서 시험이 규범의 이름을 알고 있어야 한다.
+
+    같은 이유로 확장 ID·MIME 도 함께 못박는다: 이 셋 중 하나만 어긋나도 호스트는 우리를
+    **앱 리소스로 안 본다**(읽기는 성공하고 렌더만 안 되는, 판정이 세 번 뒤집혔던 그 증상)."""
+
+    GO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go")
+
+    def _ui_src(self):
+        return open(os.path.join(self.GO, "mcp_ui.go"), encoding="utf-8").read()
+
+    def test_the_extension_id_and_mime_are_the_specs(self):
+        src = self._ui_src()
+        self.assertIn('"io.modelcontextprotocol/ui"', src, "확장 ID 가 규범의 것이 아니다")
+        self.assertIn('"text/html;profile=mcp-app"', src, "MIME 이 규범의 것이 아니다")
+
+    def test_the_csp_keys_are_the_specs_field_names(self):
+        """CSP 지시어 이름(`connect-src`)이 아니라 **규범의 필드 이름**이어야 한다."""
+        src = self._ui_src()
+        blk = src.partition("func uiResourceMeta()")[2].partition("\n}")[0]
+        self.assertTrue(blk.strip(), "uiResourceMeta 를 못 읽었다 — 이 시험이 눈이 먼다")
+        for field in ("connectDomains", "resourceDomains", "frameDomains", "baseUriDomains"):
+            self.assertIn(field, blk, f"규범의 CSP 필드 {field} 가 없다")
+        for wrong in ("connect-src", "resource-src", "frame-src", "base-uri"):
+            self.assertNotIn(wrong, blk,
+                             f"CSP 지시어 이름({wrong})을 필드 이름 자리에 적었다 — "
+                             "호스트가 무시하고 기본값을 건다(선언이 안 돈다)")
+
+    def test_the_card_really_calls_nothing_outside(self):
+        """빈 목록으로 선언했으면 **실제로도 안 불러야** 한다 — 선언과 실물이 갈리면 어느 쪽이
+        사실인지 알 수 없다. 그림은 data: 만 싣는다(markdown.go 가 바깥 주소를 거부한다)."""
+        self.gil("init", "--name", "clew")
+        self.gil("chain", "a", "--purpose", "P", "--reference", "-",
+                 "--criterion", "C", input="기준")
+        p = os.path.join(self.repo, "g.html")
+        self.gil("graph", "--html", "--out", p)
+        with open(p, encoding="utf-8") as f:
+            page = f.read()
+        for pat in ('src="http', "src='http", 'href="http://', "@import"):
+            self.assertNotIn(pat, page, f"화면이 바깥({pat})을 부른다 — 자기완결이 아니다")
+
+
 class TestTheRetirementCleansUpAfterItself(GilFixture):
     """**은퇴한 것이 남긴 자리를 은퇴시킨 쪽이 치운다** (2026-08-10).
 
@@ -13942,8 +14119,13 @@ class TestTheCardKeepsUpAndKeepsWhatWasWritten(GilFixture):
         # **그 자리만 본다.** 첫 그리기 폴백(setTimeout ... if(!drawn) fetchCard())은 정당하다 —
         # 아직 안 그려졌을 때 한 번 더 시도하는 것이고, 그걸 없애면 첫 화면이 안 뜬다.
         # 고쳐야 했던 것은 **툴 결과 알림 갈래**다.
-        i = sh.index('m.method==="ui/notifications/tool-result"', sh.index("addEventListener(\"message\""))
-        branch = sh[i:i + 900]
+        # **고정 폭으로 자르지 않는다.** 처음엔 여기서 900자를 떼어 봤는데, 그 사이에 다른
+        # 갈래(host-context-changed)가 들어오자 정작 볼 블록이 창 밖으로 밀려 빨개졌다 —
+        # 재는 자리를 위치로 잡으면 배선이 조금만 움직여도 시험이 거짓말을 한다.
+        # 갈래는 **그 갈래의 여는 중괄호부터 닫는 중괄호까지**다.
+        marker = 'if(m.method==="ui/notifications/tool-result"){'
+        i = sh.index(marker)
+        branch = sh[i:sh.index("\n    }", i)]
         self.assertIn("scheduleRefresh()", branch,
                       "툴 결과가 와도 다시 안 가져온다 — 화면이 처음 상태로 멈춘다")
         self.assertNotIn("if(!drawn) fetchCard()", branch,

@@ -78,8 +78,15 @@ func registerGilStatusUI(s *mcp.Server) {
 		_ = out
 		// 모델에게는 **줄인 텍스트**를 준다(카드와 같은 사실). JSON 을 통째로 주면 그것이
 		// 그대로 대화에 실린다 — tipSignature 로 이미 한 번 값을 치른 자리다.
+		lines := statusLines(st)
+		// **도구가 자기 표면에 대해 아는 것을 말한다.** 이 줄이 없으면 에이전트는 "곁에
+		// 띄워 드릴까요"를 말할 근거가 없고, 근거 없이 말하면 없는 화면을 가리키게 된다.
+		// 아직 화면이 안 떴으면 아무 말도 안 한다(모르는 것은 말하지 않는다).
+		if ln := uiHostLine(); ln != "" {
+			lines = append(lines, ln)
+		}
 		res := &mcp.CallToolResult{
-			Content:           []mcp.Content{&mcp.TextContent{Text: strings.Join(statusLines(st), "\n")}},
+			Content:           []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}},
 			StructuredContent: map[string]any{"tipSignature": tipSignatureDigest()},
 		}
 		// **선언된 URI 그대로**(변형 URI 는 호스트의 UI 리소스 목록에 없다 — 읽기는 되고
@@ -150,6 +157,10 @@ func statusCardShellHTML() string {
   // 호스트마다 있고 없고가 다르고, 없으면 예외도 없이 그냥 안 된다(뷰어는 브라우저 위라
   // 그걸 쓸 수 있었다). lastInput: 마지막 타건 시각 — 쓰는 중에는 다시 그리지 않는다.
   var drafts={}, lastInput=0, holdTimer=null, refreshTimer=null;
+  // HOST: 호스트가 핸드셰이크에서 밝힌 것. 지금까지 theme 한 칸만 읽고 나머지를 **버렸다** —
+  // 그래서 이 화면이 풀스크린으로 설 수 있는지, 곁에 띄울 수 있는지(pip), 호스트가 제 색을
+  // 알려주는지를 우리가 몰랐다. 모르면 짓지 못한다: 먼저 받아 두고, 받은 것 안에서만 청한다.
+  var HOST={modes:[],mode:"",dims:null,vars:0,caps:[]};
   var VER=` + jsString(gilVersion) + `, seen=[], repo="", PROBE=` + probeJS + `;
   function slot(){ return document.getElementById("gil-card"); }
   function send(m){ if(host!==window) host.postMessage(Object.assign({jsonrpc:"2.0"},m),"*"); }
@@ -236,6 +247,34 @@ func statusCardShellHTML() string {
     harvest();
     var s=slot(); if(!s) return;
     s.innerHTML=html; restore(); drawn=true; reportSize();
+    maybeAside();
+  }
+
+  // ── 답할 것이 있으면 곁에 선다 ────────────────────────────────────────────
+  //
+  // 인라인 카드는 **대화와 함께 스크롤돼 올라간다.** 사람이 3번 문항을 쓰다가 1번을 다시
+  // 보려면 위로 올려야 하고, 승인 버튼은 대화가 길어지면 화면 밖으로 나간다. 브라우저
+  // 뷰어가 주던 값 하나가 정확히 "창이 계속 거기 있다"였고, 그건 그림이 아니라 **자리**였다.
+  //
+  // 지키는 것 셋:
+  //   ① **호스트가 목록에 넣은 모드만 청한다**(규범: 지원 안 하는 모드를 청하면 안 된다).
+  //      목록이 비면 아무것도 안 한다 — 추측으로 켜면 없는 화면을 가리키는 그 병이 된다.
+  //   ② **답할 것이 있을 때만.** 사람이 안 시켰는데 화면이 옆으로 튀어나가면 그건 방해다.
+  //   ③ **한 번만.** 사람이 도로 인라인으로 돌려놨는데 우리가 다시 밀면 그건 싸움이다.
+  var askedAside=false;
+  function maybeAside(){
+    if(askedAside) return;
+    var s=slot(); if(!s) return;
+    if(!s.querySelector('[data-needs-human]')) return;
+    if(HOST.modes.indexOf("pip")<0) return;      // 이 호스트는 곁에 못 띄운다 — 조용히 인라인
+    if(HOST.mode==="pip"||HOST.mode==="fullscreen") return;
+    askedAside=true;
+    var i=++id;
+    pending[i]=function(res,err){
+      // **돌아온 값을 믿는다** — 청한 것과 다를 수 있다(규범).
+      if(!err&&res&&res.mode){ HOST.mode=res.mode; applyContainer(); reportSize(); }
+    };
+    send({id:i,method:"ui/request-display-mode",params:{mode:"pip"}});
   }
 
   // ── 화면이 스스로 따라간다 ──────────────────────────────────────────────────
@@ -272,8 +311,13 @@ func statusCardShellHTML() string {
       s.innerHTML=fail("응답에 카드가 없다: "+String(res&&Object.keys(res).join(",")));
       reportSize();
     };
-    send({id:i,method:"tools/call",params:{name:"gil_status_card",
-      arguments: repo ? {repo:repo} : {}}});
+    var a={};
+    if(repo) a.repo=repo;
+    // **이 화면이 선 표면을 서버에 알린다.** iframe↔호스트 프레임은 서버에 오지 않으니,
+    // 호스트가 무엇을 지원한다고 답했는지는 화면이 적어 보내야만 알 수 있다. 그걸 알아야
+    // 도구가 사람에게 "곁에 띄울 수 있다"를 말할 수 있고, 없으면 조용히 인라인으로 남는다.
+    a.host=JSON.stringify({modes:HOST.modes,mode:HOST.mode,vars:HOST.vars,caps:HOST.caps});
+    send({id:i,method:"tools/call",params:{name:"gil_status_card",arguments:a}});
   }
 
   // **실패는 막다른 길이 아니어야 한다.** 조회는 네 번에서 멈추는데(fetches>=4), 그 뒤 다시
@@ -415,6 +459,18 @@ func statusCardShellHTML() string {
   window.addEventListener("message",function(e){
     var m=e.data; note(m); if(!m) return;
     if(m.method==="ui/notifications/tool-input"||m.method==="ui/notifications/tool-result") learnRepo(m);
+    // 렌더 **뒤**에 테마·표시모드·칸 크기가 바뀔 수 있다(규범: host-context-changed).
+    // 안 들으면 사람이 앱을 어둡게 바꿔도 카드만 밝은 채로 남는다.
+    if(m.method==="ui/notifications/host-context-changed"){
+      var hc=(m.params)||{};
+      if(hc.theme==="dark"||hc.theme==="light") document.documentElement.setAttribute("data-theme",hc.theme);
+      if(hc.styles) applyHostStyles(hc);
+      if(hc.availableDisplayModes) HOST.modes=hc.availableDisplayModes;
+      if(hc.displayMode) HOST.mode=hc.displayMode;
+      if(hc.containerDimensions){ HOST.dims=hc.containerDimensions; applyContainer(); }
+      reportSize();
+      return;
+    }
     // 응답이 **어떤 모양으로 와도** 받는다: 우리 id 에 대한 답이거나, 툴 결과 알림이거나.
     var res=null;
     if(m.id!==undefined && pending[m.id]){ var cb=pending[m.id]; delete pending[m.id];
@@ -441,12 +497,56 @@ func statusCardShellHTML() string {
       var hc=(res&&res.hostContext)||{};
       var t=hc.theme||(hc.styles&&hc.styles.theme)||(res&&res.theme)||"";
       if(t==="dark"||t==="light") document.documentElement.setAttribute("data-theme",t);
+      applyHostStyles(hc);
     }catch(_){}
+  }
+
+  // **호스트가 제 색·글꼴을 알려주면 그것을 쓴다.**
+  //
+  // 옛 주석은 "색 변수는 가져다 쓰지 않는다 — 이름을 모르는 채 우리 --bg 에 꽂으면 배경이
+  // 아닌 값이 배경이 되어 카드가 통째로 안 읽힌다" 였다. 그때는 맞았다. **지금은 이름을
+  // 안다** — 규범이 변수 집합을 표준화했다(--color-background-*·--font-sans·--border-radius-*).
+  // 그래서 이름을 아는 것만 골라 우리 변수에 잇는다. 안 오면 지금 팔레트가 그대로 답이다.
+  function applyHostStyles(hc){
+    var v=(hc&&hc.styles&&hc.styles.variables)||null;
+    if(!v) return;
+    HOST.vars=Object.keys(v).length;
+    var map={
+      "--color-background-primary":"--bg", "--color-background-secondary":"--card",
+      "--color-background-tertiary":"--panel", "--color-text-primary":"--fg",
+      "--color-text-secondary":"--dim", "--color-border-primary":"--line",
+      "--font-sans":"--font-sans"
+    };
+    var root=document.documentElement;
+    for(var k in map){ if(v[k]) root.style.setProperty(map[k], v[k]); }
+    // 규범이 준 변수를 그대로도 심어 둔다 — 카드 조각이 직접 쓸 수 있게.
+    for(var k2 in v){ if(k2.indexOf("--")===0) root.style.setProperty(k2, v[k2]); }
+  }
+
+  // **호스트가 밝힌 것을 기억한다.** 지원 안 하는 모드를 청하면 안 된다는 것이 규범이라,
+  // 청하기 전에 이 목록을 본다. 목록이 비면 아무것도 안 청한다(추측으로 켜지 않는다).
+  function learnHost(res){
+    try{
+      var hc=(res&&res.hostContext)||{}, hcap=(res&&res.hostCapabilities)||{};
+      HOST.modes=hc.availableDisplayModes||[];
+      HOST.mode=hc.displayMode||"";
+      HOST.dims=hc.containerDimensions||null;
+      HOST.caps=Object.keys(hcap);
+      applyContainer();
+    }catch(_){}
+  }
+
+  // **좁은 칸에서 사는 법.** 호스트가 크기를 고정했으면(height/width) 그 칸을 채우고 안에서
+  // 구른다 — 우리가 원하는 높이를 보고해 봐야 소용이 없다. 유연하면 지금처럼 자란다.
+  function applyContainer(){
+    var d=HOST.dims||{};
+    var fixed=(typeof d.height==="number")||(typeof d.width==="number");
+    document.documentElement.setAttribute("data-fit", fixed?"fixed":"flex");
   }
 
   var hs=++id;
   pending[hs]=function(res,err){
-    if(!err){ applyTheme(res); notify("ui/notifications/initialized",{}); }
+    if(!err){ learnHost(res); applyTheme(res); notify("ui/notifications/initialized",{}); }
     reportSize(); fetchCard();
   };
   send({id:hs,method:"ui/initialize",params:{
@@ -454,7 +554,11 @@ func statusCardShellHTML() string {
     appInfo:{name:"gil-status-card",version:VER},
     clientInfo:{name:"gil-status-card",version:VER},
     capabilities:{},
-    appCapabilities:{availableDisplayModes:["inline","fullscreen"]}}});
+    // **곁에 두는 모드(pip)까지 선언한다.** 상태 카드는 한 번 보고 닫는 화면이 아니라
+    // 일하는 동안 곁에 두는 화면이다 — 인라인은 대화와 함께 스크롤돼 올라가서, 사람이
+    // 3번 문항을 쓰다 1번을 다시 보려면 위로 올려야 한다. 선언은 "할 수 있다"일 뿐이고,
+    // 실제로 청할지는 호스트가 답한 목록을 보고 정한다(learnHost).
+    appCapabilities:{availableDisplayModes:["inline","fullscreen","pip"]}}});
   setTimeout(function(){ if(!drawn) fetchCard(); },900);
   if(PROBE){ setTimeout(function(){ report("2s"); },2000);
              setTimeout(function(){ report("6s"); },6000); }
@@ -740,6 +844,12 @@ func statusCardDocHead() string {
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){` + cardVarsDark + `}}
 :root[data-theme="dark"]{` + cardVarsDark + `}
 *{box-sizing:border-box}
+/* **좁은 칸에서 사는 법**(규범 containerDimensions). 호스트가 크기를 고정했으면 우리가
+   원하는 높이를 보고해 봐야 소용없다 — 칸을 채우고 **안에서** 구른다. 유연하면 지금처럼
+   자란다(그때는 페이지가 스크롤을 안 만들어야 호스트가 높이를 그대로 준다). */
+html[data-fit="fixed"],html[data-fit="fixed"] body{height:100%;overflow:hidden}
+html[data-fit="fixed"] body{display:flex;padding:10px}
+html[data-fit="fixed"] .card{overflow-y:auto;flex:1 1 auto;max-width:none}
 body{margin:0;padding:16px;background:var(--bg);color:var(--fg);
  font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 .card{max-width:720px;border:1px solid var(--line);border-radius:12px;
@@ -826,7 +936,11 @@ code{background:var(--code);border-radius:5px;padding:1px 5px;
 // statusCardBodyHTML — **카드 조각 하나.** 앱이 이걸 받아 그려 넣는다.
 func statusCardBodyHTML(st statusOut) string {
 	var b strings.Builder
-	b.WriteString(`<div class="card">`)
+	// **카드가 "지금 사람이 나설 자리가 있다"를 스스로 표시한다.** 껍데기는 카드 내용을
+	// 모른다(레이아웃은 Go 에만 있다) — 그런데 곁에 띄울지(pip) 정하려면 그걸 알아야 한다.
+	// 판정은 여기 한 자리에서 하고, 껍데기는 표식만 읽는다.
+	needs := st.Waiting != nil || len(st.OpenInterviews) > 0 || len(st.PendingPrunes) > 0
+	b.WriteString(`<div class="card"` + map[bool]string{true: ` data-needs-human="1"`}[needs] + `>`)
 
 	// **기다리는 인터뷰는 HEAD 와 무관하게, 전부, 맨 위에 선다.**
 	//

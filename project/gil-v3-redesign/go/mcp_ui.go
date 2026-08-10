@@ -46,15 +46,25 @@ func tipSignatureDigest() string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// uiResourceMeta — 리소스 수준 `_meta.ui`(규범 2026-01-26).
+// uiResourceMeta — 리소스 수준 `_meta.ui`(규범 SEP-1865).
 //
-// 우리는 이걸 아예 안 달고 있었다. 규범은 리소스의 _meta.ui 에 csp·permissions·prefersBorder
-// 를 정의하는데, 없으면 **앱 리소스로 안 보는 호스트가 있을 수 있다** — 읽기는 성공하고
-// 렌더는 안 되는 지금 증상과 모양이 같다. 우리 화면은 자기완결이라 바깥을 하나도 안 부른다:
-// 그 사실을 빈 csp 로 **명시**한다(선언이 없는 것과, 필요 없다고 선언한 것은 다르다).
+// 우리 화면은 자기완결이라 바깥을 하나도 안 부른다 — 스크립트·스타일은 인라인이고, 그림은
+// `data:` 만 싣는다(markdown.go 의 mdImage 가 바깥 주소를 거부하고 그 사실을 화면에 적는다).
+// 그 사실을 **빈 목록으로 명시**한다: 선언이 없는 것과 "필요 없다"고 선언한 것은 다르다.
+//
+// **키 이름은 규범이 정한 그대로여야 한다.** 우리는 오래 `connect-src`·`resource-src` 라고
+// 적어 뒀는데(CSP 지시어 이름을 그대로 옮긴 것이다), 규범의 필드는 `connectDomains`·
+// `resourceDomains`·`frameDomains`·`baseUriDomains` 다. 호스트는 모르는 키를 **무시하고
+// 기본 CSP 를 건다** — 즉 우리 선언은 한 글자도 효과가 없었다. 화면이 뜬 것은 기본 CSP 가
+// 인라인 스크립트를 허용하기 때문이지 우리가 선언해서가 아니다. 안 도는 선언은 선언이 아니다.
 func uiResourceMeta() mcp.Meta {
 	return mcp.Meta{"ui": map[string]any{
-		"csp":           map[string]any{"connect-src": []string{}, "resource-src": []string{}},
+		"csp": map[string]any{
+			"connectDomains":  []string{},
+			"resourceDomains": []string{},
+			"frameDomains":    []string{},
+			"baseUriDomains":  []string{},
+		},
 		"prefersBorder": false,
 	}}
 }
@@ -200,14 +210,34 @@ func injectUIBridge(html, sig string) string {
     appInfo:{name:"gil-graph",version:` + jsString(gilVersion) + `},
     clientInfo:{name:"gil-graph",version:` + jsString(gilVersion) + `},
     capabilities:{}, appCapabilities:{availableDisplayModes:["inline","fullscreen"]}}});
+  // (전체맵은 pip 를 선언하지 않는다 — 곁에 두고 보는 그림이 아니다.)
   // 응답을 받으면 **initialized** 를 보낸다 — 규범이 "이 알림 전에는 호스트가 뷰에 아무것도
   // 보내지 않는다"고 정한 관문이다(그래서 이걸 빼면 화면이 서지 않는다).
   window.addEventListener("message",function(e){
     var m=e.data;
     if(m && m.id===1 && m.result && m.result.protocolVersion){
       notify("ui/notifications/initialized",{}); reportSize();
+      askBig(m.result);
     }
   });
+
+  // (1b) **이 그림은 크게 봐야 하는 것이다.** 상태 카드와 일이 다르다: 상태 카드는 곁에 두고
+  // 일하는 동안 계속 보는 것이고, 전체맵은 한 번 크게 펼쳐 보고 닫는 것이다. 빈 저장소에서도
+  // 226KB 짜리 그림이라, 인라인 칸에 눌러 넣으면 사람은 스크롤로 그것을 더듬게 된다.
+  //
+  // **호스트가 목록에 넣은 모드만 청한다**(규범: 지원 안 하는 모드를 청하면 안 된다).
+  // 목록이 비면 아무것도 안 한다 — 추측으로 켜면 없는 화면을 가리키는 그 병이 된다.
+  // 그리고 돌아온 값을 믿는다: 청한 것과 다를 수 있다.
+  function askBig(res){
+    try{
+      var hc=(res&&res.hostContext)||{};
+      var modes=hc.availableDisplayModes||[];
+      if(modes.indexOf("fullscreen")<0) return;
+      if(hc.displayMode==="fullscreen") return;
+      var i=++id;
+      send({id:i,method:"ui/request-display-mode",params:{mode:"fullscreen"}});
+    }catch(_){}
+  }
 
   // (2) 크기 보고 — 내용이 바뀌면(카드 펼침 등) 다시 알린다.
   function reportSize(){
