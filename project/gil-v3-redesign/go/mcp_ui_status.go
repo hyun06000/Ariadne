@@ -15,7 +15,6 @@ package main
 import (
 	"context"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -146,8 +145,10 @@ func statusCardShellHTML() string {
 	// 호스트가 무엇으로 답했는지, 프레임이 실제로 섰는지는 이 길 말고는 볼 수 없었다. 그런데
 	// 켜 둔 채로 릴리스하면 **모든 세션이 매번 두 번씩** 진단 호출을 하고, 그 호출이 사람의
 	// 도구 목록과 프레임 로그에 남는다. 도구가 자기를 진단하는 비용을 사용자가 늘 치를 이유는
-	// 없다. 필요할 때 켠다: `GIL_UI_PROBE=1`(MCP 서버 프로세스의 환경변수).
-	probe := os.Getenv("GIL_UI_PROBE") == "1"
+	// 없다. 필요할 때 켠다 — 두 창구가 있다(uiProbeOn): `GIL_UI_PROBE=1` 환경변수, 또는
+	// 그 저장소의 `.git/gil/ui-probe` 파일. 호스트가 서버의 env 를 제가 정해 버리는 표면에서는
+	// 뒤엣것이 유일하게 사람 손이 닿는 스위치다.
+	probe := uiProbeOn()
 	probeJS := "false"
 	if probe {
 		probeJS = "true"

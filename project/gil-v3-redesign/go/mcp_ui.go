@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -188,6 +189,31 @@ func registerGilUI(s *mcp.Server) {
 	})
 }
 
+// uiProbeOn — 계기를 켰나. **두 창구를 둔다.**
+//
+// 환경변수는 사람이 손댈 수 없는 자리가 있다: 호스트가 서버를 띄우면서 env 를 제가 정하고
+// (실측: Claude Code 의 mcp-config 는 `"env":{}` 로 생성된다), 그 설정 파일은 사람이 고치는
+// 것이 아니다. 그러면 "필요할 때 켠다"는 말이 그 표면에서 **거짓**이 된다 — 켤 수 있는 손이
+// 없으니까. 그래서 저장소 안에도 스위치를 둔다: `.git/gil/ui-probe` 파일이 있으면 켜진다.
+//
+// 왜 `.git` 안인가. 커밋되지 않는 자리라 남의 클론에 계기가 따라가지 않는다(gil 이 다른
+// 세션-지역 표식을 두는 자리와 같다). 그리고 저장소마다 따로 켠다 — 한 서버를 여러 저장소가
+// 나눠 쓰므로 프로세스 전역으로 켜면 재려던 자리가 아닌 곳까지 계기가 붙는다.
+func uiProbeOn() bool {
+	if os.Getenv("GIL_UI_PROBE") == "1" {
+		return true
+	}
+	if d := gitDirAbs(); d != "" {
+		if _, err := os.Stat(filepath.Join(d, "gil", "ui-probe")); err == nil {
+			return true
+		}
+	}
+	// **집에는 두지 않는다.** 한 번 그렇게 지었다가 시험이 잡았다: 홈에 스위치를 두면 이
+	// 기계의 **모든 저장소**가 켜지고, 재려던 자리가 아닌 곳(시험 픽스처까지)에 계기가 붙는다.
+	// 바로 위 문단이 그러지 말라고 적은 그것을 그대로 했던 것이다. 계기는 재려는 자리에서만.
+	return false
+}
+
 // injectUIBridge — 정적 HTML 에 MCP Apps 브리지를 얹는다.
 //
 // 하는 일 셋. (1) ui/initialize 핸드셰이크 — 호스트에게 "나 떴다"고 알린다. (2) 크기 보고 —
@@ -195,7 +221,7 @@ func registerGilUI(s *mcp.Server) {
 // 화면을 그릴 때의 서명과 다르면, 그래프가 그 뒤로 움직였다는 뜻이니 배너로 밝힌다.
 func injectUIBridge(html, sig string) string {
 	probeJS := "false"
-	if os.Getenv("GIL_UI_PROBE") == "1" {
+	if uiProbeOn() {
 		probeJS = "true"
 	}
 	bridge := `<div id="gil-stale-banner" hidden>이 화면은 그 뒤 움직인 그래프를 아직 못 봤다 —
