@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -185,8 +186,9 @@ func startNeedsPlace() bool {
 func startPlaceOnScreenText() string {
 	return "시작하는 화면을 열었다 — 사람이 거기서 정한다.\n\n" +
 		"  \"위에 뜬 화면에서 이 기록에 붙일 이름을 적고 [여기에 시작한다] 를 눌러 주세요.\"\n" +
-		"  gil 이 그 폴더를 만들고 세계를 세운다(기본 자리: " + shortenHome(defaultPlaceRoot()) + "/<이름>).\n" +
-		"  사람이 누르고 나면 gil_start 를 다시 불러 다음 칸(이름·정체성)으로 간다."
+		"  gil 이 그 폴더를 만들고 세계를 세운다(기본 자리: " + shortenHome(defaultPlaceRoot()) + "/<이름>).\n\n" +
+		"  **이제 gil_start_wait 를 불러 그 자리에서 기다려라.** 사람이 누르는 순간 이어진다.\n" +
+		"  gil_start 를 다시 부르지 마라 — 부를 때마다 카드가 한 장씩 더 뜬다."
 }
 
 // startScreenOpen — 시작하는 화면을 **이미 열었나.** 에이전트가 gil_start 를 두 번 부르는
@@ -194,3 +196,41 @@ func startPlaceOnScreenText() string {
 // 같은 질문이 둘 선다. 어디에 적어야 할지 알 수 없고, 한쪽에 적은 것은 다른 쪽이 모른다.
 // 세계가 서면 내린다 — 그 화면의 일이 끝났으니까.
 var startScreenOpen bool
+
+// ── 사람이 누를 때까지 기다린다 ──────────────────────────────────────────────
+//
+// 왜 기다리게 하나(상현님). 호스트는 **화면을 선언한 툴을 부를 때마다** 카드를 한 장 그린다.
+// 서버가 그걸 막을 방법은 없다 — 그러니 지렛대는 "몇 번 부르나" 하나뿐이고, 기다리면 한 번으로
+// 끝난다. 에이전트가 "아직인가?" 하고 다시 부르는 순간 카드가 또 한 장 서기 때문이다.
+//
+// **왜 gil_start 안에서 안 기다리나.** 카드는 툴이 **반환될 때** 그려진다. 그 안에서 기다리면
+// 화면 자체가 안 뜨고, 그러면 사람은 누를 것이 없는데 도구는 눌리기를 기다린다 — 설계로 만든
+// 교착이다. 그래서 여는 호출과 기다리는 호출을 가른다(인터뷰가 이미 그 모양이다).
+//
+// 그리고 **기다리는 툴은 화면을 선언하지 않는다** — 선언하면 그 호출이 또 한 장을 그린다.
+var startPressed = make(chan struct{}, 1)
+
+// signalStartPressed — 사람이 [여기에 시작한다] 를 눌렀다. 기다리는 쪽이 있으면 깨운다.
+func signalStartPressed() {
+	select {
+	case startPressed <- struct{}{}:
+	default: // 아무도 안 기다린다 — 신호를 쌓아 두지 않는다(다음 대기가 옛 신호에 속지 않게)
+	}
+}
+
+// waitStartPressed — 눌릴 때까지 기다린다. true=눌렸다, false=시간이 다 됐다.
+func waitStartPressed(d time.Duration) bool {
+	// 묵은 신호를 먼저 버린다 — 앞선 판의 누름을 이번 누름으로 읽으면 안 된다.
+	select {
+	case <-startPressed:
+	default:
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-startPressed:
+		return true
+	case <-t.C:
+		return false
+	}
+}

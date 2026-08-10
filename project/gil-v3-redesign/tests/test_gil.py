@@ -12888,6 +12888,96 @@ class TestNobodyTypesAPathToStart(GilFixture):
         self.assertIn("여기에 시작한다", out, "그 화면에 있는 버튼을 안 가리킨다:\n" + out)
         self.assertNotIn("답을 제출한다", out, "인터뷰 폼의 버튼을 가리킨다:\n" + out)
 
+    def test_it_waits_for_the_press_instead_of_asking_again(self):
+        """**부르는 횟수가 유일한 지렛대다 — 그러니 기다리게 한다** (상현님).
+
+        호스트는 화면을 선언한 툴을 부를 때마다 카드를 한 장 그린다. 서버는 그걸 못 막는다.
+        그래서 에이전트가 "아직인가?" 하고 다시 부르는 것을 없애야 하고, 그 방법은 **붙잡아
+        두는 것**이다.
+
+        **여는 호출 안에서 기다릴 수는 없다**: 카드는 툴이 **반환될 때** 그려지므로, 그 안에서
+        기다리면 화면이 안 뜨고 사람은 누를 것이 없는데 도구는 눌리기를 기다린다 — 설계로 만든
+        교착이다. 그래서 여는 툴과 기다리는 툴을 가른다.
+
+        그리고 **기다리는 툴은 화면을 선언하지 않는다** — 선언하면 그 호출이 또 한 장을 그리고,
+        그게 바로 없애려던 그것이다.
+
+        안내만으로는 안 된다(#82): 에이전트는 "기다리겠다"고 말하고 턴을 끝내고, 사람이 눌러도
+        아무도 안 읽는다. **규칙은 instructions 에, 시간은 블로킹 툴에.**"""
+        home, cwd = self._fresh()
+        import json, subprocess, threading, time
+        env = dict(os.environ, HOME=home, GIL_NO_VIEWER="1", GIL_NO_VERSION_CHECK="1")
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=cwd, text=True, bufsize=1,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, env=env)
+        self.addCleanup(p.terminate)
+        lock, got = threading.Lock(), {}
+
+        def send(o):
+            with lock:
+                p.stdin.write(json.dumps(o) + "\n")
+                p.stdin.flush()
+
+        def reader():
+            for ln in p.stdout:
+                try:
+                    m = json.loads(ln.strip())
+                except ValueError:
+                    continue
+                if m.get("method") and "id" in m:
+                    send({"jsonrpc": "2.0", "id": m["id"],
+                          "error": {"code": -32601, "message": "x"}})
+                    continue
+                if m.get("id") is not None:
+                    got[m["id"]] = m
+
+        threading.Thread(target=reader, daemon=True).start()
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18",
+                         "capabilities": {"extensions": {"io.modelcontextprotocol/ui": {}}},
+                         "clientInfo": {"name": "claude-ai", "version": "0.1.0"}}})
+        time.sleep(0.8)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        # ① 여는 호출은 **즉시 반환한다** — 안 그러면 카드가 안 뜬다.
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+              "params": {"name": "gil_start", "arguments": {}}})
+        for _ in range(40):
+            if 2 in got:
+                break
+            time.sleep(0.25)
+        self.assertIn(2, got, "여는 호출이 안 돌아왔다 — 그러면 화면이 아예 안 뜬다")
+        opened = got[2]["result"]["content"][0]["text"]
+        self.assertIn("gil_start_wait", opened, "기다리는 자리를 안 가리킨다:\n" + opened)
+
+        # ② 기다리는 호출은 **붙잡고 있다.**
+        send({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+              "params": {"name": "gil_start_wait", "arguments": {"timeout": "60"}}})
+        time.sleep(1.5)
+        self.assertNotIn(3, got, "기다리라는 툴이 그냥 돌아왔다 — 붙잡는 것이 이 툴의 전부다")
+
+        # ③ 사람이 누르면 **그 자리에서** 깨어난다.
+        send({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+              "params": {"name": "gil_start_here", "arguments": {"name": "타이타닉 생존자"}}})
+        for _ in range(80):
+            if 3 in got:
+                break
+            time.sleep(0.25)
+        self.assertIn(3, got, "사람이 눌렀는데 기다리던 쪽이 안 깨어났다")
+        woke = got[3]["result"]["content"][0]["text"]
+        self.assertIn("사람이 눌렀다", woke, woke[:200])
+
+        # ④ 기다리는 툴은 **화면을 선언하지 않는다** — 선언하면 이 호출이 카드를 또 그린다.
+        send({"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}})
+        for _ in range(40):
+            if 5 in got:
+                break
+            time.sleep(0.25)
+        by = {t["name"]: t for t in got[5]["result"]["tools"]}
+        ui = ((by["gil_start_wait"].get("_meta") or {}).get("ui") or {})
+        self.assertIsNone(ui.get("resourceUri"),
+                          "기다리는 툴이 화면을 선언한다 — 부르는 순간 카드가 한 장 더 뜬다")
+
     def test_it_does_not_invite_a_peek_call_that_costs_a_card(self):
         """**화면을 여는 툴은 부를 때마다 카드가 한 장씩 뜬다 — 서버는 그걸 못 막는다.**
 
