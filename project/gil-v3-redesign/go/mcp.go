@@ -13,13 +13,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -182,7 +186,7 @@ func cmdMCP(args []string) {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err == nil {
 			defer f.Close()
-			transport = &mcp.LoggingTransport{Transport: transport, Writer: f}
+			transport = &mcp.LoggingTransport{Transport: transport, Writer: newFrameLog(f)}
 		} else {
 			// **조용히 넘기지 않는다.** 계기를 달라고 켠 것인데 열리지 않았다면, 그 사실이
 			// 어딘가에 남아야 한다 — 안 그러면 "로그가 비었다"를 "프레임이 안 왔다"로 읽는다.
@@ -193,6 +197,74 @@ func cmdMCP(args []string) {
 		mcpMode = false
 		die("gil mcp: 서버 종료: " + err.Error())
 	}
+}
+
+// frameLogWriter — 프레임 로그의 **모든 줄에 누가·언제를 붙인다.**
+//
+// 왜. 한 기계에서 여러 표면이 같은 서버 설정을 물려받는다 — 확장(`.mcpb`) 하나를 Desktop
+// 일반 채팅과 로컬 에이전트 모드가 함께 쓰고, 둘 다 같은 GIL_MCP_LOG 를 물려받아 **한 파일에**
+// 쌓는다. 그런데 stdio MCP 세션은 요청 id 가 세션마다 0 부터 다시 시작하므로, 구분자가 없으면
+// 두 세션의 프레임이 한 흐름으로 읽힌다.
+//
+// 그걸로 실제로 오독했다(2026-08-11): 일반 채팅이 남긴 `["inline","fullscreen"]` 을 로컬
+// 에이전트 모드의 값으로 읽을 뻔했다. 갈라 준 것은 로그가 아니라 그 자리에서 툴을 한 번 불러
+// 전후를 대조한 것이다 — **계기에 구분자가 없으면 계기가 오독을 만든다.**
+//
+// 접두는 셋이다: pid(stdio 세션 하나 = 프로세스 하나) · 클라이언트 이름 · 시각. 이름은
+// 처음부터 알 수 없고 initialize 프레임을 **지나가며** 알게 되므로, 알기 전에는 `?` 로 적는다 —
+// 모르는 것을 아는 척하지 않는다.
+type frameLogWriter struct {
+	w           io.Writer
+	mu          sync.Mutex
+	pid         string
+	client      string
+	atLineStart bool
+}
+
+// clientNameRe — initialize 가 실어 보내는 clientInfo.name. 호스트가 만든 JSON 이라
+// 공백이 있을 수 있어 느슨하게 읽는다.
+var clientNameRe = regexp.MustCompile(`"clientInfo"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"`)
+
+func newFrameLog(w io.Writer) *frameLogWriter {
+	return &frameLogWriter{w: w, pid: strconv.Itoa(os.Getpid()), client: "?", atLineStart: true}
+}
+
+// Write — 줄이 시작될 때만 접두를 붙인다. 한 프레임이 여러 번에 나뉘어 와도(io.Writer 는
+// 그것을 막지 않는다) 접두가 줄 가운데 끼지 않는다.
+func (f *frameLogWriter) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.client == "?" {
+		if m := clientNameRe.FindSubmatch(p); m != nil {
+			f.client = string(m[1])
+		}
+	}
+	// io.Writer 의 규약은 **부른 쪽이 준 길이**를 돌려주는 것이다 — 접두 때문에 실제로 더
+	// 많이 썼어도 그건 우리 사정이다. 여기서 실제 바이트 수를 돌려주면 부른 쪽이 "덜 썼다"고
+	// 읽고 다시 쓰려 든다.
+	total := len(p)
+	for len(p) > 0 {
+		if f.atLineStart {
+			if _, err := io.WriteString(f.w, "["+f.pid+" "+f.client+" "+
+				time.Now().Format("2006-01-02T15:04:05.000")+"] "); err != nil {
+				return 0, err
+			}
+			f.atLineStart = false
+		}
+		i := bytes.IndexByte(p, '\n')
+		if i < 0 {
+			if _, err := f.w.Write(p); err != nil {
+				return 0, err
+			}
+			break
+		}
+		if _, err := f.w.Write(p[:i+1]); err != nil {
+			return 0, err
+		}
+		f.atLineStart = true
+		p = p[i+1:]
+	}
+	return total, nil
 }
 
 // text — 툴 결과를 사람·LLM 이 읽는 텍스트로. gil 의 출력은 언제나 "다음에 무엇을 하라"는

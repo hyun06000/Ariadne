@@ -13906,18 +13906,18 @@ class _MCPClient:
     거기에 답하는 클라이언트가 없으면 그 경로는 밟히지 않는다. 그래서 답하는 쪽까지 짓는다.
     """
 
-    def __init__(self, repo, answers):
+    def __init__(self, repo, answers, client_name="gil-test", env_extra=None):
         self.p = subprocess.Popen(
             GIL_CMD + ["mcp", "serve"], cwd=repo, text=True, bufsize=1,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env={**os.environ, "GIL_NO_VIEWER": "1"})
+            env={**os.environ, "GIL_NO_VIEWER": "1", **(env_extra or {})})
         self.answers = list(answers)
         self.forms = []          # 사람에게 실제로 뜬 폼들(무엇을 물었는지 검사할 수 있게)
         self._id = 0
         self.init = self._rpc("initialize", {
             "protocolVersion": "2025-06-18",
             "capabilities": {"elicitation": {}},
-            "clientInfo": {"name": "gil-test", "version": "0"}})
+            "clientInfo": {"name": client_name, "version": "0"}})
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def _send(self, obj):
@@ -15892,3 +15892,78 @@ class TestEveryToolIsAnnotated(GilFixture):
         for name in ("gil_status", "gil_log", "gil_handoff", "gil_fsck"):
             self.assertTrue(by.get(name, {}).get("readOnlyHint"),
                             name + ": 읽기만 하는데 읽기 전용이 아니라고 선언됐다")
+
+
+class TestFrameLogTellsWhichSessionWrote(GilFixture):
+    """**한 로그 파일에 여러 표면이 쓴다 — 그러면 누가 썼는지가 줄마다 적혀야 한다.**
+
+    왜 이 시험이 생겼나(2026-08-11 실측). 확장(`.mcpb`) 하나를 Claude Desktop 일반 채팅과
+    로컬 에이전트 모드가 **함께** 쓴다. 둘 다 같은 `GIL_MCP_LOG` 를 물려받으므로 프레임이
+    한 파일에 섞여 쌓이는데, stdio MCP 세션은 요청 id 가 세션마다 0 부터 다시 시작한다.
+    그래서 구분자가 없으면 두 세션의 프레임이 **한 흐름으로 읽힌다.**
+
+    그걸로 실제로 오독했다: 일반 채팅이 남긴 표시 모드 `["inline","fullscreen"]` 을 로컬
+    에이전트 모드의 값으로 읽을 뻔했다(갈라 준 것은 로그가 아니라 그 자리에서 툴을 한 번 불러
+    전후를 대조한 것이었다). **계기에 구분자가 없으면 계기가 오독을 만든다.**
+
+    재는 것은 형식이 아니라 규칙이다: ① 모든 줄이 자기 세션을 밝힌다 ② 세션마다 값이 다르다
+    ③ 한 세션의 줄만 골라내면 그 세션의 것만 남는다.
+    """
+
+    PREFIX = re.compile(r"^\[(\d+) (\S+) (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3})\] (read|write): ")
+
+    def _log_lines(self, path):
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return [l for l in fh.read().splitlines() if l.strip()]
+
+    def test_every_frame_line_says_who_wrote_it(self):
+        log = os.path.join(self.repo, "frames.log")
+        c = _MCPClient(self.repo, [], client_name="surface-one",
+                       env_extra={"GIL_MCP_LOG": log})
+        try:
+            c.tools()
+        finally:
+            c.close()
+        lines = self._log_lines(log)
+        self.assertTrue(lines, "프레임 로그가 비었다 — 계기가 아예 안 켜졌다")
+        bad = [l[:120] for l in lines if not self.PREFIX.match(l)]
+        self.assertEqual(bad, [], "접두 없이 쌓인 줄이 있다(누가·언제를 모른다): " + str(bad))
+        self.assertTrue(any("surface-one" in l for l in lines),
+                        "클라이언트 이름이 한 줄도 안 적혔다 — 어느 표면인지 알 수 없다")
+
+    def test_two_surfaces_sharing_one_file_stay_separable(self):
+        """이 고침의 이유 그 자체. 두 세션이 같은 파일에 쓰고도 갈라져야 한다."""
+        log = os.path.join(self.repo, "frames.log")
+        a = _MCPClient(self.repo, [], client_name="claude-ai",
+                       env_extra={"GIL_MCP_LOG": log})
+        b = _MCPClient(self.repo, [], client_name="local-agent-mode-gil",
+                       env_extra={"GIL_MCP_LOG": log})
+        try:
+            a.tools()
+            b.tools()
+        finally:
+            a.close()
+            b.close()
+
+        lines = self._log_lines(log)
+        seen = {}
+        for l in lines:
+            m = self.PREFIX.match(l)
+            self.assertIsNotNone(m, "접두 없는 줄: " + l[:120])
+            seen.setdefault(m.group(1), set()).add(m.group(2))
+
+        self.assertEqual(len(seen), 2,
+                         "두 세션이 썼는데 pid 가 %d 종류다 — 갈라지지 않는다" % len(seen))
+        # 한 pid 에는 한 클라이언트만 실린다 — 섞였다면 접두가 자기 세션을 못 밝힌 것이다.
+        for pid, names in seen.items():
+            self.assertEqual(len(names), 1,
+                             "pid %s 줄에 클라이언트가 여럿이다: %s" % (pid, names))
+        self.assertEqual({n for names in seen.values() for n in names},
+                         {"claude-ai", "local-agent-mode-gil"},
+                         "두 표면의 이름이 로그에 그대로 남지 않았다")
+
+        # ③ 한 세션의 줄만 골라내면 그 세션의 것만 남는다 — 이것이 오독을 막는 실제 동작이다.
+        only_a = [l for l in lines if " claude-ai " in l]
+        self.assertTrue(only_a, "한 표면의 줄을 골라낼 수 없다")
+        self.assertTrue(all("local-agent-mode-gil" not in l.split("] ")[0] for l in only_a),
+                        "한 표면으로 걸렀는데 다른 표면의 줄이 섞여 나온다")
