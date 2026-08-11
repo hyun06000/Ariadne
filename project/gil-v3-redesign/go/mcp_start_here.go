@@ -39,8 +39,8 @@ func registerStartHereTool(s *mcp.Server) {
 		Name:        "gil_start_here",
 		Annotations: toolAnn("gil_start_here"),
 		Description: "앱 전용 — 화면의 '여기에 시작한다' 버튼이 도는 자리다. 사람이 이름을 적고 " +
-			"직접 누른 것만 여기 온다(에이전트가 대신 부를 것이 아니다). 새 프로젝트를 시작하려면 " +
-			"gil_start 를 불러라 — 그러면 이 화면이 뜬다.",
+			"직접 누른 것만 여기 온다(에이전트가 대신 부르는 자리가 아니다). 이 화면을 띄우는 것은 " +
+			"gil_start 다.",
 		Meta: mcp.Meta{"ui": map[string]any{"visibility": []string{"app"}}},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inStartHere) (*mcp.CallToolResult, any, error) {
 		abs, err := placeFor(in.Name, in.Place)
@@ -91,8 +91,9 @@ func registerStartWaitTool(s *mcp.Server) {
 		Name:        "gil_start_wait",
 		Annotations: toolAnn("gil_start_wait"),
 		Description: "시작하는 화면에서 **사람이 [여기에 시작한다] 를 누를 때까지 기다린다.** " +
-			"gil_start 로 화면을 연 직후에 이걸 불러라 — 그러면 사람이 누르는 순간 그 자리에서 " +
-			"이어간다. **gil_start 를 다시 부르지 마라**: 부를 때마다 카드가 한 장씩 더 뜬다.",
+			"gil_start 로 화면을 연 직후에 쓰는 짝이며, 사람이 누르는 순간 그 자리에서 이어진다. " +
+			"기다리는 동안 gil_start 를 다시 부르면 **카드가 한 장씩 더 뜬다** — 화면은 툴 호출마다 " +
+			"그려지고 서버는 그것을 막을 수 없다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inStartWait) (*mcp.CallToolResult, any, error) {
 		secs := 300
 		if n := strings.TrimSpace(in.Timeout); n != "" {

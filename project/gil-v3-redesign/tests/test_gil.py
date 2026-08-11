@@ -13023,7 +13023,9 @@ class TestNobodyTypesAPathToStart(GilFixture):
         # ㄴ) 규칙이 첫 호출 전에 로드되는 자리에 있다.
         instr = got.get("instructions", "")
         self.assertIn("부를 때마다", instr, "화면을 여는 툴의 비용을 안 가르친다")
-        self.assertIn("확인하려고 부르지 마라", instr, "엿보지 말라고 말하지 않는다")
+        # 여기도 문구가 아니라 내용을 잰다(위 ①과 같은 이유).
+        self.assertIn("카드가 한 장씩 뜬다", instr, "부르면 카드가 는다고 말하지 않는다")
+        self.assertIn("호출 횟수", instr, "지렛대가 호출 횟수뿐이라는 것을 말하지 않는다")
 
     def test_the_screen_says_when_it_is_a_stale_shell(self):
         """**고친 것과 뜬 것이 다를 수 있다 — 그러면 그 사실을 말해야 한다.**
@@ -13127,7 +13129,11 @@ class TestNobodyTypesAPathToStart(GilFixture):
         p.stdin.flush()
         got = json.loads(p.stdout.readline())["result"]
         instr = got.get("instructions", "")
-        for rule in ("절대경로를 묻지 마라", "대신 누르지 마라", "git init"):
+        # **문구가 아니라 다루는 것을 단언한다.** 처음엔 "절대경로를 묻지 마라" 같은 명령형
+        # 문장을 그대로 찾았는데, 등재 심사에 맞춰 설명을 서술형으로 옮기자 규칙은 그대로
+        # 있는데 이 시험만 빨개졌다. 시험이 **규칙의 존재**가 아니라 **그때의 표현**을
+        # 재고 있었던 것이다 — 그러면 문장을 다듬을 때마다 시험이 거짓 경보를 낸다.
+        for rule in ("절대경로", "버튼", "git init"):
             self.assertIn(rule, instr,
                           "상시 규칙이 첫 호출 전에 로드되는 자리에 없다: " + rule)
         # 그리고 그 규칙이 응답에 **또** 적혀 있으면 안 된다 — 두 자리는 갈린다.
@@ -15836,6 +15842,39 @@ class TestEveryToolIsAnnotated(GilFixture):
                                  t["name"] + ": 분류 안 된 툴이 읽기 전용으로 샜다")
                 self.assertTrue(a.get("destructiveHint"),
                                 t["name"] + ": 분류 안 된 툴이 안전한 것으로 샜다")
+
+    def test_no_tool_description_orders_claude_around(self):
+        """**심사가 기각하는 것은 "지시"다** — 그리고 우리는 그걸 잃지 않고 옮길 수 있다.
+
+        커넥터 디렉터리 기준: *"사용자가 요청하지 않은 도구를 부르라고 지시하거나, Claude 가
+        다른 도구를 부르는 것을 방해하거나, 툴의 기능과 무관하게 행동을 지시하면 기각한다.
+        툴이 무엇을 하는지 서술하라. Claude 가 어떻게 행동할지 말하지 마라."*
+
+        이 저장소에서 이건 단순한 서류 문제가 아니다 — 안내가 다음 수를 가리켜야 세션이
+        우회하지 않는다는 것을 여러 번 값을 치르고 배웠다. 그런데 **가리키는 것은 남기고
+        명령형만 뺄 수 있다**: "…을 불러라" → "…할 때 쓰는 툴이다". 실제로 행동을 붙잡는
+        것은 설명이 아니라 블로킹 툴과 instructions 이므로, 잃는 것이 없다.
+
+        **소스가 아니라 프로토콜을 본다** — 심사도 사람도 tools/list 를 읽지 소스를 안 읽는다.
+        그리고 열거하지 않는다: 툴 이름을 적어 두면 새 툴이 늘 때 이 시험이 뒤늦는다.
+        """
+        pat = re.compile(r"불러라|치지 마라|하지 마라|해라|마라|적어라|실어라|물어라|"
+                         r"써라|골라라|넣어라|밟아라|보내라|남겨라|기다려라")
+        bad = []
+        for t in self._tools():
+            hits = sorted(set(pat.findall(t["description"])))
+            if hits:
+                bad.append(f"{t['name']}: {hits}")
+        self.assertEqual(bad, [], "툴 설명이 Claude 에게 행동을 지시한다 — "
+                                  "무엇을 하는 툴인지로 바꿔라:\n  " + "\n  ".join(bad))
+
+    def test_titles_are_readable_before_you_know_gil(self):
+        """**title 은 gil 을 모르는 사람이 처음 보는 글자다** — 디렉터리 목록, 권한 확인 창,
+        툴 목록의 한 줄. 설명은 이 도구를 쓰는 사람이 읽으니 한국어로 두지만, 이 자리는
+        영어로 세운다(상현님 판단). 한국어가 섞이면 목록에서 무엇인지 알 수 없는 항목이 된다."""
+        bad = [t["name"] for t in self._tools()
+               if any(ord(c) > 127 for c in (t.get("annotations") or {}).get("title", ""))]
+        self.assertEqual(bad, [], "title 에 비ASCII 가 섞였다 — 이 자리는 영어다: " + str(bad))
 
     def test_the_ones_that_delete_always_ask(self):
         """**지우는 것은 자동 승인되면 안 된다.** 이건 심사 항목이기 이전에 안전장치다 —

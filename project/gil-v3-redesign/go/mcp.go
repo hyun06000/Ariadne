@@ -447,9 +447,10 @@ func registerGilTools(s *mcp.Server) {
 	// gil_interview 로 기준을 물어야"였는데, v3.37.0 이 집행을 사이클에서 **체인의 탄생**으로
 	// 올린 뒤로 기준 없는 체인은 아예 태어나지 못한다. 설명대로 따른 에이전트는 거부당하고,
 	// 그 자리에서 남는 길이 "기준을 스스로 쓰는 것"이었다 — 설명이 결함을 만든 셈이다.
-	tool(s, "gil_chain", "새 체인을 연다. **목적과 기준은 쌍으로만 태어난다** — 먼저 gil_intake 로 "+
-		"사람에게 묻고, 그 답을 from_intake·purpose_from·criterion_from 으로 **인용**해 열어라(권장). "+
-		"사람이 기준 문서를 이미 줬다면 purpose+reference+criterion 으로. 기준을 네가 창작해 넣지 마라.",
+	tool(s, "gil_chain", "새 체인을 연다. **목적과 기준은 쌍으로만 태어난다.** 권장 경로는 "+
+		"gil_intake 로 사람에게 물은 뒤 그 답을 from_intake·purpose_from·criterion_from 으로 "+
+		"**인용**하는 것이다. 사람이 기준 문서를 이미 준 경우에는 purpose+reference+criterion 을 받는다. "+
+		"기준이 사람의 문장이 아니면 이 툴은 체인을 열지 않는다 — 창작한 기준은 문법이 거부한다.",
 		func(in inChain) []string {
 			a := []string{in.Name}
 			a = addFlag(a, "purpose", in.Purpose)
@@ -612,8 +613,8 @@ func registerGilTools(s *mcp.Server) {
 		Name:        "gil_init",
 		Annotations: toolAnn("gil_init"),
 		Description: "이 폴더에 gil 세계를 세운다(저장소·대문·존재·기억). 이미 세워져 있으면 거부한다. " +
-			"**새 프로젝트를 시작하는 것이라면 gil_start 를 불러라** — 세계를 세우는 것에 더해 " +
-			"존재의 이름과 사람의 개시 인터뷰까지 끝까지 끌고 간다. 이 툴은 그 한 칸만 한다.",
+			"**이 툴은 그 한 칸만 한다** — 새 프로젝트를 처음부터 세우는 자리는 gil_start 이고, " +
+			"그쪽은 세계에 더해 존재의 이름과 사람의 개시 인터뷰까지 끝까지 끌고 간다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inInit) (*mcp.CallToolResult, any, error) {
 		// **여기가 닫힌 고리였다**(2026-08-09 실측). 빈 폴더에 이 툴을 부르면 adoptCallRepo 가
 		// "git 저장소가 아니다 — 거기서 시작하는 것이라면 먼저 gil_init 을 불러라"로 거부했다.
@@ -658,7 +659,7 @@ func registerGilTools(s *mcp.Server) {
 	tool(s, "gil_interview_status",
 		"인터뷰가 사람 답을 받았는지 확인한다(pending|done). 질문은 **카드 폼으로 사람 화면에 "+
 			"선다** — 사람이 제출하면 다음 호출에서 gil 이 ⚡ 로 알려주고, 이걸로도 확인된다. "+
-			"확인 전에는 기준을 대신 쓰지 마라.",
+			"pending 인 동안 체인은 열리지 않는다: 기준은 사람이 제출해야 확정된다.",
 		func(in inInterviewStatus) []string { return []string{in.Chain, "--status"} },
 		cmdInterview)
 
@@ -669,7 +670,8 @@ func registerGilTools(s *mcp.Server) {
 	tool(s, "gil_interview_wait",
 		"사람이 인터뷰 폼에 답할 때까지 **기다린다**(블로킹). 답이 오면 확정된 기준 문서를 그대로 "+
 			"돌려준다. 셸 백그라운드(`&`)와 달리 이 호출의 완료는 호스트가 추적하므로, 제출이 "+
-			"곧바로 다음 행동으로 이어진다. 기준을 대신 쓰지 말고 이걸로 기다려라.",
+			"곧바로 다음 행동으로 이어진다. 기준이 확정되는 유일한 통로는 사람의 제출이라, "+
+			"이 툴이 그 사이를 메우는 자리다.",
 		func(in inInterviewWait) []string {
 			a := []string{in.Chain, "--wait"}
 			if strings.TrimSpace(in.Timeout) != "" {
@@ -726,7 +728,7 @@ func registerInterviewTool(s *mcp.Server) {
 		Annotations: toolAnn("gil_interview"),
 		Description: "체인의 기준 문서(레퍼런스 트루스)를 사람에게 물어 만든다 — 호스트가 네이티브 폼을 " +
 			"못 띄우면 질문이 **카드 폼으로 사람 화면에 선다**. 이걸 통과해야 사이클을 열 수 있다. " +
-			"사람의 답이 기준이다 — 답을 대신 지어내지 마라.",
+			"기준이 되는 것은 **사람이 제출한 답 그 자체**다: 대신 적은 답은 이 툴을 통과하지 못한다.",
 		// 묻는 자리가 곧 화면이 서는 자리다 — 폴백으로 심은 질문도 그 자리에서 사람에게 보여야 한다.
 		Meta: uiStatusMeta(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inInterview) (*mcp.CallToolResult, any, error) {
