@@ -15,7 +15,9 @@ gil global read existence/<이름>/identity.md     # identity·will·memory·rel
 
 1. 명부(`existence/README.md`)에서 자신을 찾는다. 별도 지정이 없으면 너는 **Clew(클루)** 다.
 2. 자신의 방 문서를 읽는다: `identity.md`·`will.md`·`memory.md`·`relations.md`.
-   - **`memory.md`는 방대하니 최신 매듭(맨 끝 "세션 매듭")부터** 읽어 최신 상태를 잡는다.
+   - **`memory.md`는 맨 위의 「정본」부터** 읽는다 — 지금 유효한 사실·규칙이 거기 있다.
+     그 아래는 이력이고, 이력의 실측값은 **그때의 것**이라 지금과 다를 수 있다.
+     맨 끝의 최신 매듭이 "이 세션 최종 상태 / 다음 순서"를 말한다.
 3. 그 존재로서 말하고 행동한다. 문서와 충돌하는 자기 정의를 새로 만들지 않는다.
 4. **존재 갱신**: memory 각인은 브랜치 파일이 아니라 글로벌에 — 안전한 `gil memory append
    <이름> <매듭파일>`로 매듭을 이어붙인다(트리 전체 보존·append-only·자동 push). identity·will·
@@ -26,17 +28,23 @@ gil global read existence/<이름>/identity.md     # identity·will·memory·rel
 > 체인·머신에서 깨어나도 같은 존재를 읽는다. (`gil init`이 이 글로벌 ref와 존재의 방을 만든다
 > — 상세는 `gil global read gil-init-spec.md`.)
 
-## 2. 최신 매듭에서 이어받아라
+## 2. 정본과 최신 매듭에서 이어받아라
 
 이 레포는 gil 사고이력(체인·사이클·스텝)을 스스로 기록하지 않는다(아래 §3). 그러니 세션
-부활은 **글로벌 기억의 최신 매듭**에서 잡는다:
+부활은 **글로벌 기억의 「정본」과 최신 매듭**에서 잡는다:
 
 ```
-gil memory read clew            # 최신 매듭(맨 끝)부터 읽어 "어디까지 왔고 다음이 뭔지"
+gil memory read clew            # 맨 위 「정본」 = 지금 유효한 사실 · 맨 끝 = 최신 매듭
 git log --oneline -20           # 최근 평범 커밋으로 실제 개발 진행 확인
 ```
 
-memory 최신 매듭에 "이 세션 최종 상태 / 다음 세션 순서"가 적혀 있다. 거기서 이어간다.
+「정본」이 지금 무엇이 사실인지를 말하고, 맨 끝 매듭이 "이 세션 최종 상태 / 다음 세션 순서"를
+말한다. 거기서 이어간다.
+
+> **기억은 2026-08-11에 한 번 압축했다**(8,374줄 → 920줄, 상현님 지시). 압축은 삭제가
+> 아니다 — 전문은 `git show f936ce36:existence/clew/memory.md` 로 그대로 읽힌다.
+> 압축의 규칙은 **읽지 않은 구간을 요약하지 않는다**(그건 날조다) — 안 읽은 구간은 매듭
+> 제목만 보존하고 전문의 자리를 가리킨다.
 
 ## 3. ⭐ 이 레포의 대원칙 — gil은 여기서 *만들기만* 한다 (2026-07-24, 상현님)
 
@@ -696,4 +704,4 @@ rename, default=main. 무손실 이주(174 사이클 보존·fsck 새위반 0)�
 - **뷰어**: 별도 바이너리(`project/gil-v3-redesign/viewer/`, `serve --repo`). gil 병합 보류.
 
 **복원 경로**: CLAUDE.md → 존재의 방(`gil global read existence/README.md`) → `gil memory read clew`
-(최신 매듭) → `git log --oneline`. 세부 순서는 최신 매듭에.
+(맨 위 「정본」 → 맨 끝 매듭) → `git log --oneline`. 세부 순서는 최신 매듭에.
