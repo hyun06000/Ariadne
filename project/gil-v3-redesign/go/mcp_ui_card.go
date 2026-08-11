@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -68,6 +69,12 @@ var mcpUIHost struct {
 	// 이 칸이 없던 동안, 한 서버를 여러 표면(Code·Cowork·채팅)이 나눠 쓰는 바람에 읽은
 	// 표시모드가 **어느 표면의 것인지 알 수 없었다** — 마지막에 보고한 화면이 앞의 값을
 	// 덮으니까. 출처 없는 값은 잰 것이 아니다.
+	//
+	// **다만 이 둘로는 표면이 안 갈린다**(실측 2026-08-11, Desktop `1.26832.0`): Cowork 와
+	// Desktop 안의 Claude Code 는 userAgent·platform 이 **한 글자도 다르지 않다**(둘 다 같은
+	// Electron 껍데기다). 그런데 여는 모드는 다르다 — Cowork 는 inline·fullscreen, Code 는
+	// inline 뿐. 그러니 출처를 적는 것만으로는 부족하고, **아래 At 으로 "언제 것인가"까지
+	// 말해야** 낡은 표면의 값을 지금 사실로 읽지 않는다.
 	UA   string `json:"ua"`
 	Plat string `json:"plat"`
 	// **크게 보기는 곁에 세우기와 따로 적는다.** 둘은 청하는 방식부터 다르다 — pip 은 화면이
@@ -89,6 +96,15 @@ var mcpUIHost struct {
 	// (규범 허용), 서버를 새로 깔아도 사람 화면에는 옛 껍데기가 남을 수 있다.
 	Ver   string `json:"ver"`
 	known bool
+	// At — 이 보고가 **언제** 온 것인가.
+	//
+	// 왜 시각이 필요한가(실측 2026-08-11). 한 MCP 연결을 **표면 둘이 나눠 쓴다** — Cowork 와
+	// Desktop 안의 Claude Code 가 같은 연결(같은 clientInfo)로 붙는다. 게다가 카드를 그리는
+	// 연결은 툴을 부른 연결과 **다를 수 있다**: Cowork 에서 부른 gil_status 의 카드는 앱
+	// 렌더러 쪽 연결이 그렸고, 이 연결은 그 보고를 아예 못 받았다. 그러니 여기 남은 마지막
+	// 보고가 **지금 사람이 보는 화면의 것이라는 보장이 없다.** 시각이 없으면 그 사실을
+	// 말할 방법이 없고, 말하지 않으면 다음 수가 남의 표면 값 위에 선다.
+	At time.Time `json:"-"`
 }
 
 // uiShellStale — 화면의 껍데기가 이 서버의 판과 다른가("" = 같거나 모른다).
@@ -106,7 +122,26 @@ func uiShellStale() string {
 		"확장을 다시 설치하거나 대화를 새로 열어야 새 껍데기를 읽는다."
 }
 
+// humanAge — 경과를 사람이 읽는 단위로. 정밀할 필요가 없다 — 이 값이 답하는 질문은
+// "지금 것인가, 아까 것인가" 하나다.
+func humanAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return itoa(int(d.Seconds())) + "초"
+	case d < time.Hour:
+		return itoa(int(d.Minutes())) + "분"
+	default:
+		return itoa(int(d.Hours())) + "시간"
+	}
+}
+
 // uiHostLine — 이 표면에 대해 **아는 것만** 한 줄로. 모르면 빈 값(모르는 것은 말하지 않는다).
+//
+// **보고가 없다고 카드가 없는 것이 아니다**(실측 2026-08-11). Cowork 에서 카드는 분명히
+// 떴는데 이 연결은 보고를 한 건도 못 받았다 — 그 카드를 그린 것이 앱 렌더러 쪽의 **다른
+// 연결**이었기 때문이다. 그래서 known 이 아닐 때는 **침묵한다**. "카드가 안 떴다"고 말하면
+// 그건 우리가 못 본 것을 없다고 말하는 것이고, 그 말을 읽은 세션은 있는 화면을 두고
+// 대화로 우회한다(그 병으로 하루에 아홉 자리를 고친 적이 있다).
 func uiHostLine() string {
 	// **카드가 안 떴어도 말할 수 있는 것이 하나 있다.** 호스트가 MCP Apps 확장을 선언하지
 	// 않았다면 카드는 영영 안 뜬다 — 그건 핸드셰이크에 이미 와 있는 사실이라, 화면의 보고를
@@ -143,10 +178,21 @@ func uiHostLine() string {
 	} else {
 		s += " · 그 화면은 자기가 어디인지 안 밝혔다"
 	}
+	// **전칭으로 말하지 않는다.** 이 값은 마지막으로 보고한 **화면 하나**의 것이지 호스트
+	// 전체의 성질이 아니다 — 같은 연결을 Cowork 와 Desktop 안의 Claude Code 가 나눠 쓰고
+	// 여는 모드가 서로 다르다(실측 2026-08-11). "이 호스트가 여는 모드"라고 적으면, 그 말을
+	// 읽은 세션이 남의 표면 값을 자기 자리의 사실로 삼는다.
 	if len(mcpUIHost.Modes) > 0 {
-		s += " · 이 호스트가 여는 모드: " + strings.Join(mcpUIHost.Modes, "·")
+		s += " · 그 화면이 연 모드: " + strings.Join(mcpUIHost.Modes, "·")
 	} else {
-		s += " · 표시 모드는 호스트가 안 밝혔다"
+		s += " · 그 화면은 표시 모드를 안 밝혔다"
+	}
+	// **오래된 보고는 오래됐다고 말한다.** 방금 딸려 온 보고는 지금 화면의 것일 가능성이
+	// 높지만, 시간이 지난 값은 그 사이 사람이 옮겨 간 **다른 표면의 잔재**일 수 있다.
+	// 낡음을 안 밝히면 그 잔재가 지금 사실로 읽힌다.
+	if age := time.Since(mcpUIHost.At); !mcpUIHost.At.IsZero() && age > 30*time.Second {
+		s += " · ⚠ 이 보고는 " + humanAge(age) + " 전 것이다 — 같은 연결을 표면 둘이 나눠 쓸 수 " +
+			"있어(Cowork · Desktop 안의 Claude Code) 지금 사람이 보는 화면과 다를 수 있다"
 	}
 	// **호스트가 할 수 있다고 밝힌 것.** 규범의 hostCapabilities — openLinks·downloadFile·
 	// serverTools·serverResources·logging·sandbox·updateModelContext·message·sampling.
@@ -213,6 +259,7 @@ func registerGilCardTool(s *mcp.Server) {
 			// 못 읽어도 죽지 않는다 — 이건 사실을 더하는 칸이지 관문이 아니다.
 			if json.Unmarshal([]byte(h), &mcpUIHost) == nil {
 				mcpUIHost.known = true
+				mcpUIHost.At = time.Now()
 			}
 		}
 		if in.Probe != "" {

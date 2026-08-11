@@ -382,7 +382,7 @@ func statusCardShellHTML() string {
     if(!hsOK){ HOST.why="핸드셰이크가 안 됐다 — 관문(initialized) 전에는 청하지 않는다"; return; }
     if(HOST.mode==="pip"||HOST.mode==="fullscreen"){ HOST.why="이미 제 자리에 서 있다"; return; }
     if(HOST.modes.length && HOST.modes.indexOf("pip")<0){ // 안 한다고 밝혔다
-      HOST.why="호스트가 여는 모드 목록에 pip 이 없다"; return; }
+      HOST.why="이 화면이 받은 모드 목록에 pip 이 없다"; return; }
     askedAside=true; HOST.asked="pip";
     var i=++id;
     pending[i]=function(res,err){
@@ -436,7 +436,7 @@ func statusCardShellHTML() string {
     var el=document.getElementById("gil-mode"); if(!el) return;
     var st=fsState();
     if(!st.show){
-      if(!HOST.fsWhy) HOST.fsWhy="호스트가 여는 모드 목록에 fullscreen 이 없다";
+      if(!HOST.fsWhy) HOST.fsWhy="이 화면이 받은 모드 목록에 fullscreen 이 없다";
       if(!el.hidden){ el.hidden=true; el.innerHTML=""; reportSize(); }
       return;
     }

@@ -13906,7 +13906,14 @@ class _MCPClient:
     거기에 답하는 클라이언트가 없으면 그 경로는 밟히지 않는다. 그래서 답하는 쪽까지 짓는다.
     """
 
-    def __init__(self, repo, answers, client_name="gil-test", env_extra=None):
+    # UI_CAPS — **카드를 그리는 호스트**를 흉내 낼 때 쓴다. 기본 capabilities 는 elicitation
+    # 뿐이라, 그대로 두면 gil 이 "이 호스트는 MCP Apps 를 선언하지 않았다"는 (옳은) 길로 가서
+    # 카드 관련 자리를 아예 안 밟는다.
+    UI_CAPS = {"elicitation": {},
+               "extensions": {"io.modelcontextprotocol/ui":
+                              {"mimeTypes": ["text/html;profile=mcp-app"]}}}
+
+    def __init__(self, repo, answers, client_name="gil-test", env_extra=None, caps=None):
         self.p = subprocess.Popen(
             GIL_CMD + ["mcp", "serve"], cwd=repo, text=True, bufsize=1,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -13916,7 +13923,7 @@ class _MCPClient:
         self._id = 0
         self.init = self._rpc("initialize", {
             "protocolVersion": "2025-06-18",
-            "capabilities": {"elicitation": {}},
+            "capabilities": {"elicitation": {}} if caps is None else caps,
             "clientInfo": {"name": client_name, "version": "0"}})
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
@@ -15967,3 +15974,64 @@ class TestFrameLogTellsWhichSessionWrote(GilFixture):
         self.assertTrue(only_a, "한 표면의 줄을 골라낼 수 없다")
         self.assertTrue(all("local-agent-mode-gil" not in l.split("] ")[0] for l in only_a),
                         "한 표면으로 걸렀는데 다른 표면의 줄이 섞여 나온다")
+
+
+class TestOneScreensReportIsNotTheWholeHost(GilFixture):
+    """**표시 모드는 화면 하나의 사실이지 호스트의 성질이 아니다** (실측 2026-08-11).
+
+    왜 이 시험이 생겼나. 한 MCP 연결을 **표면 둘이 나눠 쓴다** — Claude Desktop 의 Cowork 와
+    그 앱 안의 Claude Code 가 같은 clientInfo 로 붙는다. 그런데 여는 모드는 다르다:
+    Cowork 는 `inline`·`fullscreen`, Code 는 `inline` 뿐. 게다가 두 표면의
+    `userAgent`·`platform` 은 **한 글자도 다르지 않아서**(같은 Electron 껍데기) 출처를
+    적는 것만으로는 갈리지 않는다.
+
+    그 위에서 안내가 "이 호스트가 여는 모드: inline" 이라고 **전칭으로** 말하고 있었다.
+    Cowork 에서 그 말을 읽은 세션은 **남의 표면 값**을 자기 자리의 사실로 삼는다 —
+    있는 풀스크린을 없다고 알고 다음 수를 정한다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        with open(os.path.join(self.repo, "seed.txt"), "w") as fh:
+            fh.write("x")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "seed")
+
+    def _line(self, cli):
+        out, err = cli.call("gil_status", repo=self.repo)
+        return out or err
+
+    def test_display_mode_is_attributed_to_the_screen_that_reported_it(self):
+        c = _MCPClient(self.repo, [], caps=_MCPClient.UI_CAPS)
+        try:
+            c.call("gil_status_card", host=json.dumps({
+                "modes": ["inline", "fullscreen"], "mode": "inline",
+                "ua": "UA-X", "plat": "desktop"}))
+            line = self._line(c)
+        finally:
+            c.close()
+        self.assertIn("inline·fullscreen", line, "보고된 모드가 안 실렸다: " + line)
+        # 주장의 주어가 화면이어야 한다 — 호스트가 아니라.
+        self.assertNotIn("이 호스트가 여는 모드", line,
+                         "표시 모드를 호스트 전체의 성질로 단언한다(한 연결에 표면이 둘이다): " + line)
+        self.assertIn("그 화면이 연 모드", line, "모드가 어느 화면의 것인지 안 밝힌다: " + line)
+
+    def test_no_report_never_becomes_no_card(self):
+        """**보고가 없다고 카드가 없는 것이 아니다.**
+
+        Cowork 에서 카드는 분명히 떴는데 이 연결은 보고를 한 건도 못 받았다 — 그 카드를
+        그린 것이 앱 렌더러 쪽의 **다른 연결**이었기 때문이다. 못 본 것을 없다고 말하면,
+        그 말을 읽은 세션은 있는 화면을 두고 대화로 우회한다.
+
+        **이 시험은 결함을 잡은 것이 아니라 회귀를 막는 것이다.** 고치기 전 바이너리로
+        돌려도 통과한다 — 지금 코드는 이미 침묵한다. 다만 그 침묵이 **의도된 것임을**
+        아무 데도 안 적어 두면, 다음에 누군가 "보고가 없으면 카드가 없다고 알려주자"고
+        고칠 때 아무것도 막지 않는다. Cowork 실측이 그 침묵의 값을 뒤늦게 밝혔다."""
+        c = _MCPClient(self.repo, [], caps=_MCPClient.UI_CAPS)
+        try:
+            line = self._line(c)   # 카드 보고를 한 번도 안 준 상태
+        finally:
+            c.close()
+        for claim in ("카드가 안 떴다", "카드가 뜨지 않는다", "카드가 없다"):
+            self.assertNotIn(claim, line,
+                             "보고가 없을 뿐인데 카드가 없다고 단정한다: " + line)
