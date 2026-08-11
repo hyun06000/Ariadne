@@ -1,0 +1,105 @@
+//! Node 의 종류와 상태.
+//!
+//! 종류는 `gil-spec.yaml` 이 이름으로 부르는 것과 같은 집합이다.
+//! `cycle_entry`·`cycle_exit` 은 `step_kinds` 에 없다 — Grammar 의 시작과 끝을 가리키는
+//! **경계 표식**이지 Step 이 아니다(제 close_requires 도, 제 규칙도 갖지 않는다).
+
+use std::fmt;
+
+use serde::Deserialize;
+
+/// Node 의 종류. 다섯 Step Kind + 경계 표식 둘.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeKind {
+    CycleEntry,
+    Define,
+    Hypothesis,
+    Verify,
+    Analysis,
+    Outcome,
+    CycleExit,
+}
+
+impl NodeKind {
+    /// 모든 종류. 시험이 전수로 훑을 때 쓴다.
+    pub const ALL: [NodeKind; 7] = [
+        NodeKind::CycleEntry,
+        NodeKind::Define,
+        NodeKind::Hypothesis,
+        NodeKind::Verify,
+        NodeKind::Analysis,
+        NodeKind::Outcome,
+        NodeKind::CycleExit,
+    ];
+
+    /// `gil-spec.yaml` 에 적히는 이름.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NodeKind::CycleEntry => "cycle_entry",
+            NodeKind::Define => "define",
+            NodeKind::Hypothesis => "hypothesis",
+            NodeKind::Verify => "verify",
+            NodeKind::Analysis => "analysis",
+            NodeKind::Outcome => "outcome",
+            NodeKind::CycleExit => "cycle_exit",
+        }
+    }
+
+    /// Grammar 의 시작과 끝을 가리키는 표식인가.
+    ///
+    /// 경계 표식은 열고 닫는 대상이 아니라 자리를 가리키는 이름이다.
+    pub fn is_boundary(self) -> bool {
+        matches!(self, NodeKind::CycleEntry | NodeKind::CycleExit)
+    }
+}
+
+impl fmt::Display for NodeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Node 의 상태. v0.1 은 이 둘만 쓴다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeStatus {
+    Open,
+    Closed,
+}
+
+impl fmt::Display for NodeStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            NodeStatus::Open => "open",
+            NodeStatus::Closed => "closed",
+        })
+    }
+}
+
+/// 종류와 상태를 함께 가진 Node 하나.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Node {
+    pub kind: NodeKind,
+    pub status: NodeStatus,
+}
+
+impl Node {
+    pub fn open(kind: NodeKind) -> Self {
+        Node { kind, status: NodeStatus::Open }
+    }
+
+    pub fn closed(kind: NodeKind) -> Self {
+        Node { kind, status: NodeStatus::Closed }
+    }
+
+    /// Cycle 의 시작 자리.
+    ///
+    /// 경계 표식이라 여닫는 대상이 아니다 — 첫 Define 은 언제나 여기서 갈라진다.
+    pub fn cycle_entry() -> Self {
+        Node { kind: NodeKind::CycleEntry, status: NodeStatus::Closed }
+    }
+
+    pub fn is_closed(self) -> bool {
+        self.status == NodeStatus::Closed
+    }
+}

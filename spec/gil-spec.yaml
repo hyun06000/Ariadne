@@ -1,0 +1,55 @@
+step_kinds:
+  define:
+    allowed_parents:
+      - cycle_entry
+    allowed_children:
+      - hypothesis
+    close_requires:
+      - problem
+      - success_condition
+
+  hypothesis:
+    allowed_parents:
+      - define
+      - analysis
+    allowed_children:
+      - verify
+    close_requires:
+      - hypothesis
+      - rationale
+      - guardrail
+
+  verify:
+    allowed_parents:
+      - hypothesis
+    allowed_children:
+      - analysis
+    close_requires:
+      - execution
+      - result
+  analysis:
+    allowed_parents:
+      - verify
+    allowed_children:
+      - hypothesis
+      - outcome
+    close_requires:
+      - hypothesis_fit
+      - problem_solved
+      - success_condition_met
+      - guardrail_triggered
+      - interpretation
+  outcome:
+    allowed_parents:
+      - analysis
+    allowed_children:
+      - cycle_exit
+    close_requires:
+      - verdict
+      - lesson
+      - next_direction
+    field_constraints:
+      verdict:
+        allowed_values:
+          - success
+          - failure
