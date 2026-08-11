@@ -52,12 +52,31 @@ func registerStartTools(s *mcp.Server) {
 	registerStartHereTool(s)
 	registerStartWaitTool(s) // 사람이 누를 때까지 기다리는 자리(화면은 선언하지 않는다)
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_start",
-		Description: "**새 프로젝트를 시작할 때 부르는 첫 툴이다.** 사람이 \"gil 프로젝트 시작하자\"고 " +
-			"하면 이걸 불러라. 온보딩의 다음 한 칸을 실제로 밟는다 — 저장소·존재·기억을 세우고, " +
-			"네가 스스로 이름을 짓게 하고, 사람에게 **무엇을 하려는지 먼저 묻는다**(체인보다 앞이다). " +
-			"묻는 칸에서는 질문이 **카드 폼으로 사람 화면에 선다**. " +
-			"끝날 때까지 반복해서 불러라. 판단이 필요한 칸(이름·정체성)에서는 멈추고 무엇이 비었는지 말한다.",
+		Name:        "gil_start",
+		Annotations: toolAnn("gil_start"),
+		// **설명은 이 툴이 무엇을 하는지만 말한다** — 무엇을 하라고 시키지 않는다.
+		//
+		// 커넥터 디렉터리 심사가 툴 설명을 이렇게 본다: *"사용자가 요청하지 않은 도구를
+		// 부르라고 Claude 에게 지시하거나, Claude 가 다른 도구를 부르는 것을 방해하거나,
+		// 툴의 기능과 무관하게 행동을 지시하면 기각한다. 툴이 무엇을 하는지 서술하라.
+		// Claude 가 어떻게 행동할지 말하지 마라."*
+		//
+		// 우리 표면에는 명령형이 38곳 있었다("불러라" 22 · "마라" 10 …). 그게 실수가 아니라
+		// 설계였다는 것이 이 자리의 어려움이다 — 안내가 다음 수를 가리켜야 세션이 우회하지
+		// 않는다는 것을 이 저장소가 여러 번 값을 치르고 배웠다. 그런데 **잃지 않고 옮길 수
+		// 있다**: "언제 부르는 툴인가"는 툴의 사실이지 Claude 의 행동 지시가 아니다.
+		// "사람이 X 라고 하면 이걸 불러라" → "사람이 X 라고 할 때 쓰는 툴이다."
+		// 가리키는 것은 그대로 남고, 명령형만 빠진다.
+		//
+		// **행동을 붙잡는 것은 원래 설명이 아니었다**(2026-08-11 매듭): 안내는 어느 툴을
+		// 부를지 정할 뿐 에이전트를 붙잡아 두지 못한다. 붙잡는 것은 블로킹 툴이고,
+		// 세션 전체의 규칙이 서는 자리는 initialize 의 instructions 다. 즉 여기서 명령형을
+		// 걷어내도 잃는 것이 거의 없다 — **이 시범이 확인하려는 것이 그것이다.**
+		Description: "새 프로젝트를 시작하는 첫 툴 — 사람이 \"gil 프로젝트 시작하자\"고 말할 때 쓰는 자리다. " +
+			"온보딩의 다음 한 칸을 실제로 밟는다: 저장소·존재·기억을 세우고, 에이전트가 스스로 이름을 짓게 하고, " +
+			"사람에게 무엇을 하려는지 먼저 묻는다(체인보다 앞이다). 묻는 칸에서는 질문이 카드 폼으로 사람 화면에 선다. " +
+			"한 번에 한 칸씩 나아가며, 반복 호출로 끝까지 간다. " +
+			"이름·정체성처럼 판단이 필요한 칸에서는 멈추고 무엇이 비었는지 말한다 — 도구가 대신 채우지 않는다.",
 		// **묻는 자리가 곧 화면이 서는 자리다**(mcp_ui_status.go 의 uiStatusMeta).
 		Meta: uiStatusMeta(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in inStart) (*mcp.CallToolResult, any, error) {
@@ -339,19 +358,32 @@ type inIntake struct {
 	Reference string          `json:"reference,omitempty" jsonschema:"사람의 답을 마크다운 **본문**으로 직접 확정한다(뷰어를 못 쓰는 사람에게 말로 받았을 때). 파일 경로가 아니라 내용이다"`
 }
 
-type inGlobal struct {
+type inGlobalRead struct {
 	inRepo
-	Action  string `json:"action" jsonschema:"list|read|write|mv — 존재의 방(refs/gil/global)을 읽고 쓴다"`
-	Path    string `json:"path,omitempty" jsonschema:"글로벌 경로. 예: existence/<이름>/identity.md"`
-	To      string `json:"to,omitempty" jsonschema:"mv 의 목적지 경로"`
-	Content string `json:"content,omitempty" jsonschema:"write 할 본문 전체. 파일 경로가 아니라 **내용**이다"`
+	Path string `json:"path,omitempty" jsonschema:"글로벌 경로. 예: existence/<이름>/identity.md. 비우면 목록"`
 }
 
-type inMemory struct {
+type inGlobalWrite struct {
 	inRepo
-	Action string `json:"action" jsonschema:"read|append"`
-	Name   string `json:"name,omitempty" jsonschema:"존재의 이름. 이 저장소에 존재가 하나뿐이면 생략해도 된다"`
-	Knot   string `json:"knot,omitempty" jsonschema:"이어붙일 매듭 **본문**(append). 한 일·얻은 교훈·다음 세션 순서를 적는다. 파일 경로가 아니다"`
+	Path    string `json:"path" jsonschema:"글로벌 경로. 예: existence/<이름>/identity.md"`
+	Content string `json:"content" jsonschema:"쓸 본문 전체. 파일 경로가 아니라 **내용**이다"`
+}
+
+type inGlobalMv struct {
+	inRepo
+	Path string `json:"path" jsonschema:"옮길 문서의 지금 경로"`
+	To   string `json:"to" jsonschema:"옮겨 갈 경로"`
+}
+
+type inMemoryRead struct {
+	inRepo
+	Name string `json:"name,omitempty" jsonschema:"존재의 이름. 이 저장소에 존재가 하나뿐이면 생략해도 된다"`
+}
+
+type inMemoryAppend struct {
+	inRepo
+	Name string `json:"name,omitempty" jsonschema:"존재의 이름. 이 저장소에 존재가 하나뿐이면 생략해도 된다"`
+	Knot string `json:"knot" jsonschema:"이어붙일 매듭 **본문**. 한 일·얻은 교훈·다음 세션 순서를 적는다. 파일 경로가 아니다"`
 }
 
 type inMerge struct {
@@ -416,43 +448,59 @@ func registerEntryTools(s *mcp.Server) {
 
 	// gil_global — 존재의 방. 이게 없어서 init 이 준 **첫 과제**(이름을 짓고 방을 채운다)가
 	// MCP 에서 불가능했다. 안내는 있는데 실행할 손이 없던 자리다.
-	tool(s, "gil_global",
-		"존재의 방(refs/gil/global)을 읽고 쓴다 — identity·will·relations·명부. 체인·머신을 "+
-			"넘어 단일하게 산다. write 는 파일이 아니라 **본문**을 받는다.",
-		func(in inGlobal) []string {
-			switch in.Action {
-			case "list":
+	// **읽는 것과 쓰는 것을 가른다.** 하나의 툴이 list·read·write·mv 를 action 으로 받고
+	// 있었다 — 안전한 동작과 되돌리기 어려운 동작이 한 문 안에 있으면, 호스트는 그 문 전체를
+	// 위험한 것으로 볼 수밖에 없다(그래서 읽기에도 확인 창이 뜬다). 디렉터리 심사도 같은
+	// 이유로 이 꼴을 기각한다. 그리고 이렇게 가르면 안내가 이미 쓰던 문법
+	// (`gil global read …`)과 툴 이름이 **기계적으로 맞아떨어진다** — 없던 규칙을 만든 게
+	// 아니라, 원래 있던 규칙에 툴을 맞춘 것이다.
+	tool(s, "gil_global_read",
+		"존재의 방(refs/gil/global)을 읽는다 — identity·will·relations·명부. 아무것도 바꾸지 않는다. "+
+			"경로를 비우면 목록을 낸다.",
+		func(in inGlobalRead) []string {
+			if strings.TrimSpace(in.Path) == "" {
 				return []string{"list"}
-			case "read":
-				return []string{"read", in.Path}
-			case "mv":
-				return []string{"mv", in.Path, in.To}
-			case "write":
-				p := writeTempTracked("gil-global-*.md", in.Content)
-				if p == "" {
-					return []string{"write", in.Path, ""}
-				}
-				return []string{"write", in.Path, p}
 			}
-			return []string{in.Action}
+			return []string{"read", in.Path}
 		}, cmdGlobal)
 
-	// gil_memory — 세션을 넘기는 유일한 통로. 없으면 MCP 세션의 존재는 매번 죽는다.
-	tool(s, "gil_memory",
-		"존재의 기억을 읽고(read) 매듭을 이어붙인다(append). 세션을 넘어 이어지는 것은 이것뿐이다 — "+
-			"한 일·얻은 교훈·다음 세션 순서를 남겨라. append 는 파일이 아니라 **본문**을 받는다.",
-		func(in inMemory) []string {
-			if in.Action == "append" {
-				p := writeTempTracked("gil-knot-*.md", in.Knot)
-				if p == "" {
-					return []string{"append", in.Name, ""}
-				}
-				return []string{"append", in.Name, p}
+	tool(s, "gil_global_write",
+		"존재의 방에 문서를 쓴다 — 같은 경로가 있으면 **덮어쓴다**. 파일이 아니라 **본문**을 받는다. "+
+			"기억 매듭은 이것이 아니라 gil_memory_append 로 간다(그쪽은 덮어쓰지 않는다).",
+		func(in inGlobalWrite) []string {
+			p := writeTempTracked("gil-global-*.md", in.Content)
+			if p == "" {
+				return []string{"write", in.Path, ""}
 			}
+			return []string{"write", in.Path, p}
+		}, cmdGlobal)
+
+	tool(s, "gil_global_mv",
+		"존재의 방에서 문서를 옮긴다(이름 바꾸기 포함). 옛 경로는 사라진다.",
+		func(in inGlobalMv) []string { return []string{"mv", in.Path, in.To} }, cmdGlobal)
+
+	// gil_memory — 세션을 넘기는 유일한 통로. 없으면 MCP 세션의 존재는 매번 죽는다.
+	// 기억도 같은 이유로 가른다 — 읽는 것은 늘 안전하고, 이어붙이는 것은 그렇지 않다.
+	tool(s, "gil_memory_read",
+		"존재의 기억을 읽는다 — 최신 매듭이 맨 끝에 있다. 아무것도 바꾸지 않는다. "+
+			"이 저장소에 존재가 하나뿐이면 이름을 생략해도 된다.",
+		func(in inMemoryRead) []string {
 			if strings.TrimSpace(in.Name) == "" {
 				return []string{"read"}
 			}
 			return []string{"read", in.Name}
+		}, cmdMemory)
+
+	tool(s, "gil_memory_append",
+		"존재의 기억에 매듭을 이어붙인다 — 세션을 넘어 이어지는 것은 이것뿐이다. "+
+			"한 일·얻은 교훈·다음 세션 순서가 여기 남는다. **이어붙이기만 한다**(앞의 매듭은 그대로). "+
+			"파일이 아니라 **본문**을 받는다.",
+		func(in inMemoryAppend) []string {
+			p := writeTempTracked("gil-knot-*.md", in.Knot)
+			if p == "" {
+				return []string{"append", in.Name, ""}
+			}
+			return []string{"append", in.Name, p}
 		}, cmdMemory)
 
 	// gil_merge — 끝낸 것을 모은다. 없으면 체인을 닫고도 **일을 마칠 수 없다**.

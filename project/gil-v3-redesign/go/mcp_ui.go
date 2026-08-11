@@ -154,7 +154,8 @@ func registerGilUI(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_graph",
+		Name:        "gil_graph",
+		Annotations: toolAnn("gil_graph"),
 		Description: "사고 그래프를 호스트 화면에 띄운다(체인>사이클>스텝 관전 뷰). 사람이 " +
 			"'그래프 보여줘'라고 하거나, 지금까지의 사고 흐름을 눈으로 확인해야 할 때 부른다.",
 		Meta: mcp.Meta{"ui": map[string]any{

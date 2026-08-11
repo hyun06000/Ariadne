@@ -42,7 +42,8 @@ func (i inPruneAct) repoArg() string { return i.Repo }
 // 문의)가 이 응답에는 안 붙는다 — 응답이 사람 화면으로 가기 때문이다.
 func registerPruneCardTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_prune_approve",
+		Name:        "gil_prune_approve",
+		Annotations: toolAnn("gil_prune_approve"),
 		Description: "앱 전용 — 사람이 카드에서 누른 삭제 승인. 모델이 부를 것이 아니다" +
 			"(삭제 판단은 사람이 한다). 승인만으로는 아무것도 지워지지 않는다.",
 		Meta: mcp.Meta{"ui": map[string]any{"visibility": []string{"app"}}},
@@ -51,7 +52,8 @@ func registerPruneCardTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_prune_withdraw",
+		Name:        "gil_prune_withdraw",
+		Annotations: toolAnn("gil_prune_withdraw"),
 		Description: "앱 전용 — 사람이 카드에서 삭제 요청을 거둔다. 아무것도 지우지 않고 " +
 			"요청만 걷는다.",
 		Meta: mcp.Meta{"ui": map[string]any{"visibility": []string{"app"}}},

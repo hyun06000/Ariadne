@@ -189,7 +189,8 @@ func (i inInterviewSubmit) repoArg() string { return i.Repo }
 // (예방은 미끄러짐을 막고, 판정은 탐지가 한다).
 func registerInterviewSubmitTool(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_interview_submit",
+		Name:        "gil_interview_submit",
+		Annotations: toolAnn("gil_interview_submit"),
 		Description: "앱 전용 — 사람이 카드 폼에 적은 인터뷰 답을 확정한다. 모델이 부를 것이 " +
 			"아니다(답은 사람이 쓴다). 인터뷰를 여는 것은 gil_interview·gil_intake 다.",
 		Meta: mcp.Meta{"ui": map[string]any{"visibility": []string{"app"}}},

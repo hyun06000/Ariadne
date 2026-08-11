@@ -56,8 +56,24 @@ var mcpSurface = map[string]string{
 	"status":      "gil_status",
 	"context":     "gil_context",
 	"handoff":     "gil_handoff",
-	"global":      "gil_global",
-	"memory":      "gil_memory",
+	// **하위 명령이 곧 툴이다** — 그리고 이것이 원래 약속이었다.
+	//
+	// initialize 의 instructions 가 에이전트에게 이렇게 가르친다: *"안내에 `gil <명령>` 으로
+	// 적힌 다음 수는 이 표면에서 `gil_<명령>` 툴이다(공백을 밑줄로)."* 그 규칙 덕분에 안내
+	// 수백 줄을 고쳐 쓰지 않고도 옳아졌다. 그런데 **이 두 명령에서만 규칙이 깨져 있었다**:
+	// 안내는 `gil memory append` 라고 적는데 실제 툴은 `gil_memory`(action="append")였다.
+	// 규칙대로 `gil_memory_append` 를 찾은 에이전트는 없는 툴을 찾은 것이다.
+	// 읽기/쓰기를 가르는 것이 심사 조건이기도 하지만, 그 전에 **약속을 지키는 일**이었다.
+	//
+	// 조회는 **긴 키를 먼저** 본다(surfaceTool) — 그래야 `gil global write` 가 쓰기 툴로 가고,
+	// 하위 명령 없이 `gil global` 이라고만 적힌 줄은 읽기 툴로 떨어진다(안전한 쪽).
+	"global":        "gil_global_read",
+	"global read":   "gil_global_read",
+	"global write":  "gil_global_write",
+	"global mv":     "gil_global_mv",
+	"memory":        "gil_memory_read",
+	"memory read":   "gil_memory_read",
+	"memory append": "gil_memory_append",
 }
 
 // terminalOnly — **일부러** MCP 에 안 세우는 명령과 그 이유.
@@ -137,7 +153,7 @@ func surfaceCmd(cmd string) string {
 	if !mcpMode {
 		return "gil " + cmd
 	}
-	if t, ok := mcpSurface[cmd]; ok {
+	if t, ok := surfaceTool(cmd); ok {
 		return t + " 툴"
 	}
 	if where, ok := humanOnly[cmd]; ok {
@@ -147,6 +163,24 @@ func surfaceCmd(cmd string) string {
 		return "`gil " + cmd + "` (이 표면엔 툴이 없다 — " + why + ")"
 	}
 	return "`gil " + cmd + "` (이 표면엔 툴이 없다 — 사람이 터미널에서)"
+}
+
+// surfaceTool — 이 명령이 이 표면에서 어느 툴인가. **긴 이름을 먼저 본다.**
+//
+// 하위 명령이 있는 것(global read/write/mv · memory read/append)은 하위 명령까지가 툴
+// 이름이다. 짧은 키로만 찾으면 `gil global write` 가 읽기 툴을 가리키게 되는데, 그건 단순히
+// 틀린 게 아니라 **틀린 방향으로 틀린다** — 쓰려던 사람에게 읽기를 주면 그 사람은 아무것도
+// 안 쓰고 다 됐다고 생각한다. 반대로 하위 명령 없이 `gil global` 이라고만 적힌 줄은 읽기로
+// 떨어진다(모르면 안전한 쪽).
+func surfaceTool(cmd string) (string, bool) {
+	if t, ok := mcpSurface[cmd]; ok {
+		return t, true
+	}
+	if head, _, found := strings.Cut(cmd, " "); found {
+		t, ok := mcpSurface[head]
+		return t, ok
+	}
+	return "", false
 }
 
 // surfaceCall — 명령과 **인자까지** 이 표면의 문법으로.
@@ -166,7 +200,7 @@ func surfaceCall(cmd, cliArgs, mcpArgs string) string {
 	if where, ok := humanOnly[cmd]; ok {
 		return where
 	}
-	tool, ok := mcpSurface[cmd]
+	tool, ok := surfaceTool(cmd)
 	if !ok {
 		why, known := terminalOnly[cmd]
 		if !known {

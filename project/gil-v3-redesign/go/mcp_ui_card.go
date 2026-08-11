@@ -203,7 +203,8 @@ func (i inCardArgs) repoArg() string { return i.Repo }
 // registerGilCardTool — 앱 전용 카드 공급 툴.
 func registerGilCardTool(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_status_card",
+		Name:        "gil_status_card",
+		Annotations: toolAnn("gil_status_card"),
 		Description: "앱 전용 — 상태 카드의 HTML 조각을 낸다. 사람이나 모델이 부를 것이 아니다" +
 			"(화면이 자기 내용을 가져오는 통로다). 사람에게 상태를 보여주려면 gil_status 를 부른다.",
 		Meta: mcp.Meta{"ui": map[string]any{"visibility": []string{"app"}}},

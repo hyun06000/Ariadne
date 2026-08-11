@@ -98,4 +98,22 @@ The old folder-based v2 is preserved on the `legacy` / `legacy-main` branches; `
 converts a v2 history into the v3 commit graph. The spec lives in
 [project/gil-v3-redesign/SPEC.md](project/gil-v3-redesign/SPEC.md).
 
+## Privacy Policy
+
+gil runs entirely on your own machine. There is no gil server, no account, and no telemetry —
+nothing you write is transmitted to us, because there is nowhere for it to go.
+
+- **Collected:** nothing by us. gil reads and writes only the git repository you point it at
+  (chain/cycle/step commits, your interview answers, the existence records in `refs/gil/global`),
+  plus local diagnostic files you explicitly enable (`GIL_MCP_LOG`, `GIL_UI_PROBE` — both off
+  by default).
+- **Network:** one unauthenticated request to GitHub's public releases endpoint to check for a
+  newer version, at most about once per repository per hour, carrying no information about you.
+- **Storage & retention:** everything stays on your disk, under your control. Deleting the
+  repository deletes everything gil wrote.
+- **Third-party sharing:** none. No analytics, no crash reporting, no third-party SDKs.
+- **Contact:** <https://github.com/hyun06000/Ariadne/issues>
+
+Full text: [PRIVACY.md](PRIVACY.md)
+
 License: [MIT](LICENSE)

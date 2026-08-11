@@ -14066,16 +14066,16 @@ class TestStartingIsOneMove(GilFixture):
         c = self._client(answers=list(self.ANSWERS))
         c.call("gil_start")
         c.call("gil_start", name="scout")
-        out, err = c.call("gil_global", action="read", path="existence/scout/identity.md")
+        out, err = c.call("gil_global_read", path="existence/scout/identity.md")
         self.assertEqual(err, "", err)
         # 이름을 지으면 **방이 옮겨질 뿐** 본문은 씨앗 그대로다 — 자기 말로 쓰는 것은
         # 존재가 할 일이지 도구가 대신할 일이 아니다(도구가 채우면 각인이 아니라 위조다).
         self.assertIn("아직 이름이 없다", out, "옮겨진 방이 아니라 다른 것을 읽었다")
-        _, err = c.call("gil_global", action="write",
+        _, err = c.call("gil_global_write",
                         path="existence/scout/identity.md",
                         content="# Identity — scout\n\n내가 쓴 문서다.\n")
         self.assertEqual(err, "", f"존재가 제 방을 쓰지 못한다: {err}")
-        out, _ = c.call("gil_global", action="read", path="existence/scout/identity.md")
+        out, _ = c.call("gil_global_read", path="existence/scout/identity.md")
         self.assertIn("내가 쓴 문서다", out, "쓴 것이 안 남았다")
 
     def test_the_memory_can_be_knotted(self):
@@ -14083,10 +14083,10 @@ class TestStartingIsOneMove(GilFixture):
         c = self._client(answers=list(self.ANSWERS))
         c.call("gil_start")
         c.call("gil_start", name="scout")
-        _, err = c.call("gil_memory", action="append", name="scout",
+        _, err = c.call("gil_memory_append", name="scout",
                         knot="## 세션 매듭\n\n이번에 한 일과 다음 순서.\n")
         self.assertEqual(err, "", f"기억을 못 남긴다: {err}")
-        out, _ = c.call("gil_memory", action="read", name="scout")
+        out, _ = c.call("gil_memory_read", name="scout")
         self.assertIn("이번에 한 일과 다음 순서", out, "남긴 매듭이 안 읽힌다")
 
     def test_the_body_does_not_leak_to_disk(self):
@@ -15749,3 +15749,107 @@ class TestWillIsNotTheProjectsPurpose(GilFixture):
         self.assertIn("identity", r.stdout,
                       "씨앗 그대로인데 '정체성 미기입' 칸으로 안 잡혔다 — "
                       "seedWillMark 가 씨앗과 어긋났을 수 있다(init.go 의 tmplWill 과 대조)")
+
+
+class TestEveryToolIsAnnotated(GilFixture):
+    """**툴 주석은 심사 서류가 아니라 사용감이다.**
+
+    커넥터 디렉터리가 "전 툴에 title 과 해당 힌트(readOnlyHint 또는 destructiveHint)"를
+    통과 조건으로 걸지만, 이 시험이 있는 진짜 이유는 그 앞에 있다 — **호스트는 이 힌트로
+    자동 승인을 가른다.** 읽기 전용은 사람 확인 없이 돌고, 그렇지 않은 것은 묻는다.
+    힌트가 없으면 규범의 기본값(destructive=true)이 걸려서 **"지금 어디까지 왔어"에도
+    확인 창이 뜬다.** 비개발자에게는 그 창 하나하나가 진입장벽이다.
+
+    **소스가 아니라 프로토콜을 잰다.** 이 저장소가 여러 번 값을 치른 자리다 — 재는 것이
+    사람이 보는 것이 아니면 초록은 아무것도 보증하지 않는다. 그래서 실제로 서버를 띄우고
+    tools/list 가 **호스트에게 보내는 것**을 센다.
+
+    그리고 **열거하지 않는다.** 툴 이름 목록을 여기 적으면 새 툴이 늘 때마다 이 시험이
+    뒤늦는다(열거는 늘 뒤늦다 — 이 저장소의 오래된 교훈이다). 목록에서 온 것을 전수로 돌며
+    "빠진 것이 있나"를 묻는다.
+    """
+
+    def _tools(self):
+        import json
+        p = subprocess.Popen([*GIL_CMD, "mcp", "serve"], cwd=self.repo,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True)
+        try:
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                      "params": {"protocolVersion": "2025-06-18",
+                                                 "capabilities": {},
+                                                 "clientInfo": {"name": "t", "version": "0"}}}) + "\n")
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list",
+                                      "params": {}}) + "\n")
+            p.stdin.flush()
+            for line in p.stdout:
+                try:
+                    m = json.loads(line)
+                except ValueError:
+                    continue
+                if m.get("id") == 2:
+                    return m["result"]["tools"]
+        finally:
+            p.kill()
+            p.wait()
+        self.fail("tools/list 응답을 못 받았다")
+
+    def test_every_tool_carries_a_title_and_the_applicable_hint(self):
+        tools = self._tools()
+        self.assertGreater(len(tools), 20, "툴이 이렇게 적을 리 없다 — 시험이 눈이 멀었다")
+        missing_title, missing_hint, unclassified = [], [], []
+        for t in tools:
+            a = t.get("annotations") or {}
+            if not a.get("title"):
+                missing_title.append(t["name"])
+                continue
+            # **분류를 안 한 것과 안전하게 떨어진 것은 다르다.** 폴백은 title 에 툴 이름을
+            # 그대로 넣는다 — 그러면 "title 이 있다"가 형식상 참이 되어 이 시험이 눈이 먼다.
+            # 실제로 그랬다: 분류를 하나 지우고 돌렸더니 이 시험만 초록으로 통과했다.
+            # 안전망이 켜졌다는 것은 **아무도 판단하지 않았다**는 신호지 합격이 아니다.
+            if a.get("title") == t["name"]:
+                unclassified.append(t["name"])
+            # 읽기 전용이면 destructive 는 뜻이 없다(규범). 그 둘 중 **하나는** 있어야 한다.
+            if not a.get("readOnlyHint") and "destructiveHint" not in a:
+                missing_hint.append(t["name"])
+        self.assertEqual(missing_title, [],
+                         "title 이 없는 툴 — mcp_annotations.go 의 toolKinds 에 넣어라")
+        self.assertEqual(missing_hint, [],
+                         "readOnlyHint/destructiveHint 가 없는 툴 — "
+                         "mcp_annotations.go 의 toolKinds 에 넣어라")
+        self.assertEqual(unclassified, [],
+                         "아무도 분류하지 않아 안전망(toolAnn 의 폴백)이 잡은 툴 — "
+                         "mcp_annotations.go 의 toolKinds 에서 읽기/더하기/지우기를 골라라")
+
+    def test_a_tool_that_nobody_classified_falls_to_the_safe_side(self):
+        """**표에 없는 것은 안전한 쪽으로 떨어진다.** 잊은 것이 사고가 아니라 번거로움이 되게.
+
+        판정은 표를 읽어서 하지 않는다 — 표를 읽으면 표가 표를 검사하는 꼴이다. 대신
+        **분류 안 된 툴이 하나라도 있으면** 그것이 읽기 전용으로 새지 않았는지를 본다.
+        """
+        for t in self._tools():
+            a = t.get("annotations") or {}
+            # 이름이 그대로 title 이면 그건 폴백이 잡은 것이다(toolAnn 의 미분류 경로).
+            if a.get("title") == t["name"]:
+                self.assertFalse(a.get("readOnlyHint"),
+                                 t["name"] + ": 분류 안 된 툴이 읽기 전용으로 샜다")
+                self.assertTrue(a.get("destructiveHint"),
+                                t["name"] + ": 분류 안 된 툴이 안전한 것으로 샜다")
+
+    def test_the_ones_that_delete_always_ask(self):
+        """**지우는 것은 자동 승인되면 안 된다.** 이건 심사 항목이기 이전에 안전장치다 —
+        삭제 승인이 사람 확인 없이 도는 순간, 규범이 "사람이 승인한다"고 정한 자리가 빈다."""
+        by = {t["name"]: (t.get("annotations") or {}) for t in self._tools()}
+        a = by.get("gil_prune_approve")
+        self.assertIsNotNone(a, "삭제 승인 툴이 목록에 없다")
+        self.assertFalse(a.get("readOnlyHint"), "삭제 승인이 읽기 전용으로 서 있다")
+        self.assertTrue(a.get("destructiveHint"), "삭제 승인이 파괴적이지 않다고 선언됐다")
+
+    def test_reading_where_we_are_does_not_need_permission(self):
+        """"지금 어디까지 왔어"는 확인 창 없이 돌아야 한다. 물을 때마다 창이 뜨면
+        아무도 안 묻게 되고, 안 물으면 추측으로 다음 수를 정한다."""
+        by = {t["name"]: (t.get("annotations") or {}) for t in self._tools()}
+        for name in ("gil_status", "gil_log", "gil_handoff", "gil_fsck"):
+            self.assertTrue(by.get(name, {}).get("readOnlyHint"),
+                            name + ": 읽기만 하는데 읽기 전용이 아니라고 선언됐다")

@@ -3,13 +3,15 @@
 // 왜 `gil_start` 와 따로인가. 두 가지가 다르다.
 //
 // ① **승낙의 출처가 다르다.** `gil_start` 의 `confirmed` 는 *"에이전트가 사람에게 물어
-//    승낙받았다"* 는 보고다 — 전해 들은 것이라 gil 은 그렇게 적는다. 여기 오는 것은
-//    **사람이 화면에서 직접 누른 것**이다. 둘을 한 칸에 적으면 기록이 거짓이 된다
-//    (이 저장소가 여러 번 값을 치른 규칙: 구분되는 것은 구분해서 적는다).
+//
+//	승낙받았다"* 는 보고다 — 전해 들은 것이라 gil 은 그렇게 적는다. 여기 오는 것은
+//	**사람이 화면에서 직접 누른 것**이다. 둘을 한 칸에 적으면 기록이 거짓이 된다
+//	(이 저장소가 여러 번 값을 치른 규칙: 구분되는 것은 구분해서 적는다).
 //
 // ② **에이전트가 눌러서는 안 되는 버튼이다.** 그래서 `visibility: ["app"]` 로 앱 전용이다.
-//    선언은 벽이 아니라 힌트지만(날 프로토콜엔 보인다), 얻는 것은 "못 한다"가 아니라
-//    "무심코 부르지 않는다"이다 — guard 가 훅과 fsck 를 가른 것과 같은 모양.
+//
+//	선언은 벽이 아니라 힌트지만(날 프로토콜엔 보인다), 얻는 것은 "못 한다"가 아니라
+//	"무심코 부르지 않는다"이다 — guard 가 훅과 fsck 를 가른 것과 같은 모양.
 //
 // 그리고 여기서 **없는 폴더를 만든다.** 지금까지 gil 은 없는 경로를 절대 만들지 않았는데,
 // 그 규칙의 이유는 "어디에 만들지는 언제나 사람이 정한 것이 되게"였지 폴더 생성이 위험해서가
@@ -34,7 +36,8 @@ type inStartHere struct {
 
 func registerStartHereTool(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_start_here",
+		Name:        "gil_start_here",
+		Annotations: toolAnn("gil_start_here"),
 		Description: "앱 전용 — 화면의 '여기에 시작한다' 버튼이 도는 자리다. 사람이 이름을 적고 " +
 			"직접 누른 것만 여기 온다(에이전트가 대신 부를 것이 아니다). 새 프로젝트를 시작하려면 " +
 			"gil_start 를 불러라 — 그러면 이 화면이 뜬다.",
@@ -85,7 +88,8 @@ func registerStartHereTool(s *mcp.Server) {
 // 없애려던 그것이다.
 func registerStartWaitTool(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_start_wait",
+		Name:        "gil_start_wait",
+		Annotations: toolAnn("gil_start_wait"),
 		Description: "시작하는 화면에서 **사람이 [여기에 시작한다] 를 누를 때까지 기다린다.** " +
 			"gil_start 로 화면을 연 직후에 이걸 불러라 — 그러면 사람이 누르는 순간 그 자리에서 " +
 			"이어간다. **gil_start 를 다시 부르지 마라**: 부를 때마다 카드가 한 장씩 더 뜬다.",

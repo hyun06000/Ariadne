@@ -10,8 +10,9 @@
 // gold 합계까지 똑같고 sha 만 다른 평가셋 파일이 8개 나왔다 — 산문으로는 결정되지 않는다.
 //
 // 그래서 좌표를 **트레일러(필드)로** 받는다. 산문이 아니라 필드라야 기계가 대조한다:
-//   Gil-Dataset: gold_eval_md.jsonl@sha256:013f5b73…   (어디서)
-//   Gil-Subject: gemma-26b-awq@rev:abc123#adapter=none (무엇을)
+//
+//	Gil-Dataset: gold_eval_md.jsonl@sha256:013f5b73…   (어디서)
+//	Gil-Subject: gemma-26b-awq@rev:abc123#adapter=none (무엇을)
 package main
 
 import (

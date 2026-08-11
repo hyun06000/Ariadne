@@ -55,7 +55,8 @@ func registerGilStatusUI(s *mcp.Server) {
 	}, read)
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_status",
+		Name:        "gil_status",
+		Annotations: toolAnn("gil_status"),
 		Description: "지금 어디까지 왔는지를 카드로 보여준다 — 체인·사이클·스텝, 사람의 판단이 " +
 			"필요한 곳, 다음 단계. 사람이 '어디까지 왔어'·'뭐 하는 중이야'라고 묻거나 스텝을 하나 " +
 			"끝냈을 때 부른다. 전체 그래프가 필요할 때만 gil_graph 를 쓴다(이건 가볍고 그건 무겁다).",

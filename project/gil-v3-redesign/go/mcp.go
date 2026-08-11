@@ -272,7 +272,7 @@ func tool[In any](s *mcp.Server, name, desc string, argv func(In) []string, run 
 // **묻는 자리가 곧 화면이 서는 자리여야 한다.** 사람에게 물어 놓고 물음을 어디에도 안
 // 띄우면, 그 물음은 대화로 새거나(옮겨쓰기) 그냥 사라진다.
 func toolUI[In any](s *mcp.Server, name, desc string, meta mcp.Meta, argv func(In) []string, run func([]string)) {
-	mcp.AddTool(s, &mcp.Tool{Name: name, Description: desc, Meta: meta},
+	mcp.AddTool(s, &mcp.Tool{Name: name, Description: desc, Meta: meta, Annotations: toolAnn(name)},
 		func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 			// 호출이 저장소를 실어 왔으면 거기로 옮긴다 — roots 를 안 주는 호스트의 유일한 길.
 			// 본문을 파일로 나르느라 만든 임시 파일은 이 호출이 끝날 때 지운다(mcp_start.go) —
@@ -609,7 +609,8 @@ func registerGilTools(s *mcp.Server) {
 	// gil_init 은 requireReady 게이트 밖에 산다 — 이게 바로 그 준비를 하는 툴이다.
 	// 세팅을 터미널로 내몰면 "프롬프트만으로 완주"가 깨진다(비개발자는 터미널을 안 쓴다).
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_init",
+		Name:        "gil_init",
+		Annotations: toolAnn("gil_init"),
 		Description: "이 폴더에 gil 세계를 세운다(저장소·대문·존재·기억). 이미 세워져 있으면 거부한다. " +
 			"**새 프로젝트를 시작하는 것이라면 gil_start 를 불러라** — 세계를 세우는 것에 더해 " +
 			"존재의 이름과 사람의 개시 인터뷰까지 끝까지 끌고 간다. 이 툴은 그 한 칸만 한다.",
@@ -721,7 +722,8 @@ type interviewQMCP struct {
 
 func registerInterviewTool(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "gil_interview",
+		Name:        "gil_interview",
+		Annotations: toolAnn("gil_interview"),
 		Description: "체인의 기준 문서(레퍼런스 트루스)를 사람에게 물어 만든다 — 호스트가 네이티브 폼을 " +
 			"못 띄우면 질문이 **카드 폼으로 사람 화면에 선다**. 이걸 통과해야 사이클을 열 수 있다. " +
 			"사람의 답이 기준이다 — 답을 대신 지어내지 마라.",

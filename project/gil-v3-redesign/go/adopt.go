@@ -23,7 +23,7 @@ import (
 
 func cmdAdopt(args []string) {
 	fs := newFlags("gil adopt")
-	over := fs.strList("over")   // 진 형제(스텝 id) — 생략하면 경합의 나머지 전부
+	over := fs.strList("over")     // 진 형제(스텝 id) — 생략하면 경합의 나머지 전부
 	reason := fs.str("reason", "") // 왜 이 가지가 이겼나 — 비교의 근거
 	pos := fs.parse(args)
 	if len(pos) < 1 {

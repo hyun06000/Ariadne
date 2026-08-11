@@ -118,7 +118,6 @@ const (
 	repoSourceEnv      = "호스트가 준 CLAUDE_PROJECT_DIR"
 )
 
-
 // mcpClient — 초기화 때 호스트가 밝힌 자기 이름. 어느 호스트에서 어긋났는지가 곧 단서다.
 var mcpClient string
 
