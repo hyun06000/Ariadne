@@ -212,6 +212,17 @@ Node를 닫기 위해서는 해당 Node Kind에서 요구하는 Report가 충족
 
 새 Node를 열 수 있는지는 현재 닫힌 Node의 Kind에 의해 결정된다.
 
+## 진행이 멈춘 상태
+
+Cycle 내부의 진행이 Exit에 닿기 전에 멈출 수 있다. 이 상태는 Success도 Failure도 아니며,
+그 자체로 잘못된 상태도 아니다.
+
+판정은 Outcome이 닫히면서만 이루어지므로, Outcome에 닿지 않고 멈춘 진행에는 판정이 없다.
+멈춘 자리에서 나중에 작업을 이어갈 수 있어야 한다.
+
+멈춘 진행을 명시적으로 끝내는 행위(abort / cancel / abandon)는 GIL v0.1에서 정의하지
+않는다. 그런 종료 상태를 위해 Open / Closed 외의 상태를 추가하지 않는다.
+
 ---
 
 # 9. Step Kind
@@ -382,6 +393,12 @@ Analysis 결과 기존 가설을 수정하거나 새로운 가설을 수립해�
 
 Outcome은 하나의 실험 계보를 일단락하고 다음 진행 방향을 결정하는 Step이다.
 
+여기서 "계보"는 마지막 Hypothesis / Verify / Analysis 묶음 하나가 아니라, **Cycle Entry에서
+Outcome에 이르기까지 그 Cycle 내부에서 이어진 전체 Lineage**다.
+
+한 Cycle 안에서 Analysis가 새로운 Hypothesis로 되돌아가 가설을 여러 번 세웠다면, Outcome은
+그중 마지막 것만 판정하지 않는다. 그 Cycle 안에서 이어진 모든 시도를 종합해 판정한다.
+
 Outcome은 기본적으로 판정되지 않은 상태로 열린다.
 
 자율 실행 모드에서는 AI가 스스로 Outcome을 닫을 수 있다.
@@ -433,9 +450,11 @@ Analysis의 `success_condition_met`이 충족되었다는 것이 곧바로 Outco
 
 **Lesson**
 
-이번 Lineage를 통해 무엇을 배웠는지.
+이번 Lineage를 통해 무엇을 배웠는지. 여기서 Lineage는 Cycle Entry에서 이 Outcome까지
+이어진 Cycle 내부 전체 경로다 — 마지막 시도 하나가 아니다.
 
-성공뿐 아니라 실패에서 얻은 교훈도 반드시 기록한다.
+성공뿐 아니라 실패에서 얻은 교훈도 반드시 기록한다. 중간에 버려진 가설에서 얻은 것도
+같은 Lineage의 일부다.
 
 **Next Direction**
 
@@ -503,6 +522,14 @@ Step
 Report의 형식은 Step Kind에 의해 결정된다.
 
 필수 Report 항목을 충족하지 못한 Step은 닫을 수 없다.
+
+## 필수 항목은 최소 집합이다
+
+각 Step Kind가 요구하는 필수 항목은 **Report 전체의 schema가 아니라, 그 Kind의 Node가
+닫히기 위해 반드시 존재해야 하는 최소 항목의 집합**이다.
+
+따라서 필수 항목 외의 항목이 Report에 더 있어도 된다. 그것 때문에 Node를 닫지 못하지는
+않는다.
 
 ---
 
@@ -733,6 +760,7 @@ GIL에서 과거로 돌아간다는 것은 같은 장소를 다시 방문하는 
 - Chain / Cycle Report의 정확한 Schema
 - Knowledge Compression 알고리즘
 - 인간 승인 정책의 상세 규칙
+- 멈춘 진행의 명시적 종료(abort / cancel / abandon)
 - 다중 부모를 가진 Graph의 Lineage 정의
 - Relation의 실제 실행 프로토콜
 - 동시 작업 및 Merge
