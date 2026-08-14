@@ -320,6 +320,151 @@ fn lineage_is_recoverable_by_following_parents() {
     assert_eq!(lineage, ids, "[#1, #2, #3, #4, #5] 가 복원되어야 한다");
 }
 
+// ── 계보 조회 ──────────────────────────────────────────────────────────────
+
+/// §9 의 시나리오 — 가설을 두 번 세우고 마지막 Outcome 을 **열어 둔 채** 선다.
+fn walk_with_an_open_outcome() -> Walk {
+    let mut walk = Walk::start(spec());
+    for kind in [
+        NodeKind::Define,
+        NodeKind::Hypothesis,
+        NodeKind::Verify,
+        NodeKind::Analysis,
+        NodeKind::Hypothesis,
+        NodeKind::Verify,
+        NodeKind::Analysis,
+    ] {
+        step(&mut walk, kind);
+    }
+    walk.open(NodeKind::Outcome).unwrap();
+    walk
+}
+
+#[test]
+fn lineage_runs_from_the_root_to_an_open_target() {
+    let walk = walk_with_an_open_outcome();
+    let target = walk.current().unwrap();
+
+    let lineage = walk.lineage(target).expect("열린 Node 도 볼 수 있어야 한다");
+
+    assert_eq!(
+        lineage.iter().map(|node| node.id).collect::<Vec<_>>(),
+        walk.nodes().iter().map(|node| node.id).collect::<Vec<_>>(),
+        "뿌리에서 목표까지 차례로"
+    );
+    assert_eq!(
+        lineage.iter().map(|node| node.kind).collect::<Vec<_>>(),
+        vec![
+            NodeKind::Define,
+            NodeKind::Hypothesis,
+            NodeKind::Verify,
+            NodeKind::Analysis,
+            NodeKind::Hypothesis,
+            NodeKind::Verify,
+            NodeKind::Analysis,
+            NodeKind::Outcome,
+        ]
+    );
+
+    let (last, ancestors) = lineage.split_last().expect("비어 있지 않다");
+    for node in ancestors {
+        assert_eq!(node.status, NodeStatus::Closed, "{} 가 닫혀 있지 않다", node.id);
+        assert!(node.report.is_some(), "{} 의 확정 Report 가 없다", node.id);
+    }
+    assert_eq!(last.id, target);
+    assert_eq!(last.status, NodeStatus::Open);
+    assert!(
+        last.report.is_none(),
+        "열린 Node 의 Report 를 확정된 것처럼 보여서는 안 된다"
+    );
+}
+
+#[test]
+fn lineage_stops_at_the_target() {
+    // 만든 것 전부가 아니라 **그 Node 까지**다. 뒤에 난 Node 는 계보가 아니다.
+    let walk = walk_with_an_open_outcome();
+    let third = walk.nodes()[2].id;
+
+    let lineage = walk.lineage(third).unwrap();
+
+    assert_eq!(
+        lineage.iter().map(|node| node.id).collect::<Vec<_>>(),
+        walk.nodes()[..3]
+            .iter()
+            .map(|node| node.id)
+            .collect::<Vec<_>>()
+    );
+    assert!(lineage.len() < walk.nodes().len(), "전부를 돌려줬다");
+}
+
+#[test]
+fn the_lineage_of_the_root_is_the_root_alone() {
+    let walk = walk_with_an_open_outcome();
+    let root = walk.nodes()[0].id;
+
+    let lineage = walk.lineage(root).unwrap();
+
+    assert_eq!(lineage.len(), 1);
+    assert_eq!(lineage[0].id, root);
+    assert_eq!(lineage[0].parent, None);
+}
+
+#[test]
+fn the_same_target_gives_the_same_lineage_every_time() {
+    let walk = walk_with_an_open_outcome();
+    let target = walk.nodes()[6].id; // 닫힌 Node
+
+    let first = walk.lineage(target).unwrap();
+    let second = walk.lineage(target).unwrap();
+
+    assert_eq!(first.len(), second.len());
+    for (a, b) in first.iter().zip(second.iter()) {
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.kind, b.kind);
+        assert_eq!(a.status, b.status);
+        assert_eq!(a.report, b.report, "{} 의 확정 Report 가 달라졌다", a.id);
+    }
+}
+
+#[test]
+fn inspecting_a_lineage_changes_nothing() {
+    let mut walk = walk_with_an_open_outcome();
+    let before = snapshot(&walk);
+
+    for node in walk.nodes().iter().map(|node| node.id).collect::<Vec<_>>() {
+        walk.lineage(node).unwrap();
+    }
+    assert_eq!(snapshot(&walk), before);
+
+    // 이름을 태우지도 않는다 — 조회 뒤에 연 Node 가 다음 이름을 받는다.
+    let mut untouched = walk_with_an_open_outcome();
+    let report = full_report(walk.rules(), NodeKind::Outcome);
+    walk.close(report.clone()).unwrap();
+    untouched.close(report).unwrap();
+    walk.open(NodeKind::CycleExit).unwrap();
+    untouched.open(NodeKind::CycleExit).unwrap();
+    assert_eq!(
+        walk.nodes().iter().map(|n| n.id).collect::<Vec<_>>(),
+        untouched.nodes().iter().map(|n| n.id).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_node_this_graph_does_not_have_is_refused() {
+    // 이름은 걷기마다 따로 매겨진다. 긴 걷기의 이름을 짧은 걷기에 물어 본다.
+    let long = walk_with_an_open_outcome();
+    let stranger = long.nodes().last().unwrap().id;
+
+    let mut short = Walk::start(spec());
+    step(&mut short, NodeKind::Define);
+
+    let err = short
+        .lineage(stranger)
+        .expect_err("없는 Node 를 조용히 넘기면 안 된다");
+    assert_eq!(err, WalkError::UnknownNode(stranger));
+    assert!(err.to_string().contains(&stranger.to_string()), "{err}");
+}
+
 // ── nodes 와 history ───────────────────────────────────────────────────────
 
 #[test]

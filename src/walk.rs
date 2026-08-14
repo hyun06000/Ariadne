@@ -9,7 +9,10 @@
 //!
 //! 판정은 전부 [`RuleSet`] 에 넘긴다. 같은 규칙을 여기서 다시 구현하지 않는다.
 //!
-//! 아직 없는 것: 되돌아가기 · 분기 · 계보 API · 저장 · Artifact · Chain · Cycle.
+//! 계보는 **읽기만** 한다([`Walk::lineage`]) — `parent` 사슬을 뿌리부터 훑을 뿐,
+//! 자리를 옮기지 않는다.
+//!
+//! 아직 없는 것: 되돌아가기 · 분기 · 저장 · Artifact · Journey · Chain · Cycle.
 
 use std::fmt;
 
@@ -148,6 +151,32 @@ impl Walk {
         self.nodes.iter().find(|node| node.id == id)
     }
 
+    /// 이 Node 까지의 **구조적 계보**를 뿌리부터 차례로 본다.
+    ///
+    /// `parent` 사슬만 따라간다 — 만든 순서도, 형제 가지도, Journey 도 아니다.
+    /// 읽기만 하므로 걷기의 어떤 값도 바뀌지 않고, **열려 있는 Node 도 볼 수 있다**
+    /// (그 자리는 `status = Open`·`report = None` 인 채로 그대로 보인다).
+    pub fn lineage(&self, target: NodeId) -> Result<Vec<&StepNode>, WalkError> {
+        let mut path = Vec::new();
+        let mut cursor = Some(target);
+
+        while let Some(id) = cursor {
+            let node = self.node(id).ok_or(WalkError::UnknownNode(id))?;
+            path.push(node);
+            cursor = node.parent;
+
+            // 부모는 언제나 자신보다 먼저 난 Node 라 사슬은 반드시 끝난다.
+            // 그래도 돌아 나가지 못하는 일이 없도록 길이로 못을 박는다.
+            assert!(
+                path.len() <= self.nodes.len(),
+                "parent 사슬이 Node 수보다 길다 — 이 Step Graph 에 순환이 있다"
+            );
+        }
+
+        path.reverse();
+        Ok(path)
+    }
+
     /// 닫힌 Node 들을 만든 순서대로 본다.
     ///
     /// 따로 쌓아 두는 것이 아니라 [`Walk::nodes`] 를 걸러 보는 **시야**다 —
@@ -194,6 +223,8 @@ pub enum WalkError {
     NothingToClose,
     /// 끝 경계를 이미 지났다.
     AlreadyFinished,
+    /// 이 Step Graph 에 그런 이름의 Node 가 없다.
+    UnknownNode(NodeId),
 }
 
 impl From<GrammarError> for WalkError {
@@ -212,6 +243,9 @@ impl fmt::Display for WalkError {
             WalkError::AlreadyFinished => {
                 write!(f, "끝 경계를 이미 지났다 — 이 걷기에서는 더 열 수 없다")
             }
+            WalkError::UnknownNode(id) => {
+                write!(f, "{id} 은(는) 이 Step Graph 에 없는 Node 다")
+            }
         }
     }
 }
@@ -220,7 +254,9 @@ impl std::error::Error for WalkError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             WalkError::Grammar(err) => Some(err),
-            WalkError::NothingToClose | WalkError::AlreadyFinished => None,
+            WalkError::NothingToClose
+            | WalkError::AlreadyFinished
+            | WalkError::UnknownNode(_) => None,
         }
     }
 }
