@@ -780,7 +780,14 @@ Revisit은 Closed → Closed 로 유지한다(§7). 그래서 Report를 쓸 수 
 §10은 Existence에만 `E0 → E5` 축을 준다. Knowledge·Memory·Relations·Will의 버전 축과
 저장 위치는 열려 있다. 이것이 정해지기 전까지 §17의 Journey 항목은 원칙이지 불변식이 아니다.
 
-**④ Closed의 조건이 v0.1보다 강해졌다.**
+**④ revisit 뒤의 첫 Node 를 무엇이 Hypothesis 로 강제하는가.**
+모든 reasoning branch 는 새로운 Hypothesis 에서 시작한다. 그런데 revisit 으로 과거 Node 에
+선 다음, **기존 Grammar 만으로는 그 원칙이 지켜지지 않는다** — 예를 들어 Analysis 로
+되돌아가면 Grammar 는 `hypothesis` 뿐 아니라 `outcome` 도 열 수 있다고 말한다.
+따라서 **revisit 을 실행한 상태와 그 다음 `open` 사이**에서 이 원칙을 어떻게 강제할지
+정해야 한다. `revisit` 을 구현하는 Step 의 요구사항으로 남긴다.
+
+**⑤ Closed의 조건이 v0.1보다 강해졌다.**
 §7은 Artifact·Existence version 확정까지 요구하는데, `GIL Specification v0.1` §16의 close
 조건은 필수 Report 항목뿐이다. Artifact가 도입되는 단계에서 두 문서를 맞춰야 한다.
 

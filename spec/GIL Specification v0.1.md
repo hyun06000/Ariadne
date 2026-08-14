@@ -458,18 +458,77 @@ Analysis의 `success_condition_met`이 충족되었다는 것이 곧바로 Outco
 
 **Next Direction**
 
-다음에는 어디로 진행해야 하는지.
+다음에는 어디로 진행해야 하는지. 자유 서술이 아니라 **구조로 적는다.**
 
-계속 앞으로 진행해야 하는지, 이전 사고 단계로 돌아가야 하는지를 판단한다.
+```text
+next_direction.action           revisit | close_cycle
+next_direction.reason           왜 그 방향인지 (비워 둘 수 없다)
+next_direction.target_node_id   action 이 revisit 일 때만, 그때는 필수
+```
 
-되돌아가는 경우 최소한 다음 가능성을 판단한다.
+따라서 Outcome 의 Report 는 다음 항목으로 이루어진다.
 
-- Analysis의 결과를 기반으로 새로운 Hypothesis를 수립한다.
-- Define 수준으로 돌아가 문제를 다시 정의한 뒤 새로운 Hypothesis를 수립한다.
+```text
+verdict
+lesson
+next_direction.action
+next_direction.reason
+next_direction.target_node_id   (revisit 일 때만)
+```
 
-Outcome의 판단과 실제 그래프 이동은 서로 다른 행위다.
+verdict 와 action 은 다음처럼 맞물린다.
 
-Outcome은 다음 방향을 제시하지만 실제 이동은 별도로 이루어진다.
+```text
+success  →  close_cycle 만
+failure  →  revisit | close_cycle
+```
+
+`success` 는 현재 Cycle 이 결론에 닿았다는 뜻이므로 Cycle Exit 방향으로만 진행한다.
+
+**verdict 와 action 은 서로 다른 것을 말한다.** verdict 는 이 Cycle 의 **의미적 판정**이고,
+action 은 **구조적으로 다음에 무엇을 하는가**다. 그래서 `success + close_cycle` 과
+`failure + close_cycle` 은 같은 action 이지만 서로 다른 종결이며, 이를 가르려고 별도의
+action 을 두지 않는다.
+
+### revisit 이 고르는 것
+
+`revisit` 은 **현재 Cycle 안의 과거 Closed ancestor 중, 새로운 Hypothesis 를 열 수 있는
+branch point** 를 고르는 것이다.
+
+- 대상은 그 Outcome 의 Lineage 위에 있어야 한다 — 형제·자손·무관한 Node 는 고를 수 없다.
+- 대상은 이미 닫혀 있어야 한다.
+- 대상의 Kind 가 Grammar 상 `hypothesis` 를 자식으로 가질 수 있어야 한다.
+
+무엇이 옳은 복귀점인지는 **Agent 가 Lineage 를 읽고 판단한다.** 도구는 그 선택이
+구조적으로 가능한지만 본다.
+
+### Define 으로 되돌아간다는 것
+
+`Define` 으로 revisit 하는 것은 **Define 을 고치거나 다시 정의한다는 뜻이 아니다.**
+기존 Define 을 그대로 둔 채 **새로운 Hypothesis 를 세운다**는 뜻이다.
+같은 문제 정의와 같은 성공 조건 아래에서 다른 가설을 시도하는 것이다.
+
+```text
+Define
+├─ Hypothesis A  → … → 반증
+└─ Hypothesis B
+```
+
+Define 자체가 더 이상 유효하지 않다고 판단되면, 같은 Cycle 안에서 Define 을 다시 만들지
+않는다. 그때는
+
+```text
+verdict = failure
+action  = close_cycle
+```
+
+으로 이 Cycle 안에서의 탐색을 끝낸다. 문제 정의를 다시 세우는 일은 이 Cycle 의 몫이 아니다.
+
+### 판단과 이동은 다른 행위다
+
+Outcome 의 판단과 실제 그래프 이동은 서로 다른 행위다.
+
+Outcome 은 다음 방향을 **확정해 기록**할 뿐이고, 실제 이동은 별도로 이루어진다.
 
 ---
 

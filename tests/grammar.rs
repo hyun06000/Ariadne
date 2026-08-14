@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use gil::{GrammarError, Node, NodeKind, Report, RuleSet};
 
 mod common;
-use common::{full_report, spec};
+use common::{allowed_here, full_report, spec};
 
 /// 명세에 **적혀 있는** 변 전부를 모은다.
 ///
@@ -102,6 +102,63 @@ step_kinds:
         message.contains("lesson") && message.contains("close_requires"),
         "어느 칸이 허공인지 말해야 한다: {message}"
     );
+}
+
+#[test]
+fn a_constraint_that_constrains_nothing_is_refused() {
+    let empty = "
+step_kinds:
+  define:
+    allowed_parents: [cycle_entry]
+    allowed_children: []
+    close_requires: [problem]
+    field_constraints:
+      problem: {}
+";
+    let err = RuleSet::from_yaml_str(empty).expect_err("아무것도 안 거는 제약은 거절해야 한다");
+    assert!(err.to_string().contains("problem"), "{err}");
+}
+
+#[test]
+fn a_narrowing_that_points_at_nothing_is_refused() {
+    // 가르는 칸이 Report 에 없으면 그 표는 한 번도 안 쓰인다.
+    let dangling = "
+step_kinds:
+  define:
+    allowed_parents: [cycle_entry]
+    allowed_children: []
+    close_requires: [problem]
+    field_constraints:
+      problem:
+        allowed_values: [a, b]
+        allowed_values_when:
+          verdict:
+            success: [a]
+";
+    let err = RuleSet::from_yaml_str(dangling).expect_err("허공을 가르는 표는 거절해야 한다");
+    assert!(err.to_string().contains("verdict"), "{err}");
+}
+
+#[test]
+fn a_narrowing_that_widens_the_allowed_values_is_refused() {
+    // 좁히는 표가 본래 허용값에 없는 것을 허락하면 규칙 둘이 서로를 부정한다.
+    let widening = "
+step_kinds:
+  define:
+    allowed_parents: [cycle_entry]
+    allowed_children: []
+    close_requires: [problem, success_condition]
+    field_constraints:
+      success_condition:
+        allowed_values: [yes, no]
+      problem:
+        allowed_values: [a, b]
+        allowed_values_when:
+          success_condition:
+            yes: [c]
+";
+    let err = RuleSet::from_yaml_str(widening).expect_err("넓히는 표는 거절해야 한다");
+    assert!(err.to_string().contains("allowed_values"), "{err}");
 }
 
 #[test]
@@ -288,10 +345,11 @@ fn every_value_the_spec_allows_is_accepted() {
     let rules = spec();
     let mut checked = 0;
     for (kind, step) in rules.step_kinds() {
-        for (field, constraint) in &step.field_constraints {
-            for value in &constraint.allowed_values {
-                let mut report = full_report(&rules, kind);
-                report.insert(field.clone(), value.clone());
+        for field in step.field_constraints.keys() {
+            let base = full_report(&rules, kind);
+            // 다른 칸 때문에 좁혀진 뒤의 허용값을 쓴다.
+            for value in allowed_here(&rules, kind, field, &base) {
+                let report = base.clone().with(field.clone(), value.clone());
                 rules.validate_close(kind, &report).unwrap_or_else(|err| {
                     panic!("{kind}.{field} = {value:?} 는 명세가 허락한 값인데 거절됐다: {err}")
                 });
@@ -309,28 +367,36 @@ fn a_value_the_spec_does_not_allow_is_refused() {
     let mut checked = 0;
 
     for (kind, step) in rules.step_kinds() {
-        for (field, constraint) in &step.field_constraints {
-            assert!(!constraint.allowed_values.iter().any(|v| v == outsider));
+        for field in step.field_constraints.keys() {
+            let base = full_report(&rules, kind);
+            let allowed = allowed_here(&rules, kind, field, &base);
+            if allowed.is_empty() {
+                continue; // 값을 열거하지 않는 칸이다(예: non_empty 만 거는 칸).
+            }
+            assert!(!allowed.iter().any(|v| v == outsider));
 
-            let mut report = full_report(&rules, kind);
-            report.insert(field.clone(), outsider);
-
+            let report = base.with(field.clone(), outsider);
             let err = rules
                 .validate_close(kind, &report)
                 .expect_err(&format!("{kind}.{field} 가 아무 값이나 받았다"));
 
-            assert_eq!(
-                err,
+            match &err {
                 GrammarError::FieldValueNotAllowed {
-                    kind,
-                    field: field.clone(),
-                    value: outsider.to_string(),
-                    allowed: constraint.allowed_values.clone(),
+                    kind: k,
+                    field: f,
+                    value,
+                    allowed: reported,
+                    ..
+                } => {
+                    assert_eq!(*k, kind);
+                    assert_eq!(f, field);
+                    assert_eq!(value, outsider);
+                    assert_eq!(reported, &allowed, "거절이 지금 올 수 있는 값을 말해야 한다");
                 }
-            );
-            // 거절이 갈 곳을 말한다.
-            for allowed in &constraint.allowed_values {
-                assert!(err.to_string().contains(allowed), "{err}");
+                other => panic!("거절 이유가 값 위반이어야 한다: {other:?}"),
+            }
+            for value in &allowed {
+                assert!(err.to_string().contains(value), "{err}");
             }
             checked += 1;
         }
@@ -345,13 +411,14 @@ fn allowed_values_are_case_sensitive() {
     let mut checked = 0;
 
     for (kind, step) in rules.step_kinds() {
-        for (field, constraint) in &step.field_constraints {
-            for value in &constraint.allowed_values {
+        for field in step.field_constraints.keys() {
+            let base = full_report(&rules, kind);
+            for value in allowed_here(&rules, kind, field, &base) {
                 let shouted = value.to_uppercase();
-                if shouted == *value {
+                if shouted == value {
                     continue; // 대소문자가 없는 값이면 잴 것이 없다.
                 }
-                let report = full_report(&rules, kind).with(field.clone(), shouted.clone());
+                let report = base.clone().with(field.clone(), shouted.clone());
                 assert!(
                     rules.validate_close(kind, &report).is_err(),
                     "{kind}.{field} 가 {shouted:?} 를 받았다 — 값은 대소문자를 구분한다"
@@ -381,6 +448,84 @@ fn pending_is_not_a_verdict_it_is_an_outcome_still_open() {
             .validate_open(Node::open(NodeKind::Outcome), NodeKind::CycleExit)
             .is_err()
     );
+}
+
+#[test]
+fn a_field_that_must_not_be_empty_refuses_blank_values() {
+    let rules = spec();
+    let mut checked = 0;
+
+    for (kind, step) in rules.step_kinds() {
+        for (field, constraint) in &step.field_constraints {
+            if !constraint.non_empty {
+                continue;
+            }
+            for blank in ["", "   ", "\n"] {
+                let report = full_report(&rules, kind).with(field.clone(), blank);
+                let err = rules
+                    .validate_close(kind, &report)
+                    .expect_err(&format!("{kind}.{field} 가 빈 값으로 닫혔다"));
+                assert_eq!(
+                    err,
+                    GrammarError::EmptyReportField {
+                        kind,
+                        field: field.clone()
+                    }
+                );
+                assert!(err.to_string().contains(field), "{err}");
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "non_empty 를 건 칸이 없다 — 이 시험이 눈멀었다");
+}
+
+#[test]
+fn one_field_can_narrow_what_another_field_may_hold() {
+    // 명세가 그렇게 적어 둔 쌍을 전부 훑는다 — 이름을 코드에 적지 않는다.
+    let rules = spec();
+    let mut checked = 0;
+
+    for (kind, step) in rules.step_kinds() {
+        for (field, constraint) in &step.field_constraints {
+            for (deciding_field, table) in &constraint.allowed_values_when {
+                for (deciding_value, narrowed) in table {
+                    let base = full_report(&rules, kind)
+                        .with(deciding_field.clone(), deciding_value.clone());
+
+                    // 좁혀진 값은 통과한다.
+                    for value in narrowed {
+                        let report = base.clone().with(field.clone(), value.clone());
+                        rules.validate_close(kind, &report).unwrap_or_else(|err| {
+                            panic!("{deciding_field}={deciding_value} 일 때 {field}={value} 가 거절됐다: {err}")
+                        });
+                    }
+
+                    // 좁혀서 떨어져 나간 값은 거절되고, 왜 좁혀졌는지를 말한다.
+                    for value in constraint.allowed_values.iter().filter(|v| !narrowed.contains(v))
+                    {
+                        let report = base.clone().with(field.clone(), value.clone());
+                        let err = rules.validate_close(kind, &report).expect_err(&format!(
+                            "{deciding_field}={deciding_value} 인데 {field}={value} 가 통과했다"
+                        ));
+                        match &err {
+                            GrammarError::FieldValueNotAllowed { narrowed_by, .. } => {
+                                assert_eq!(
+                                    narrowed_by.as_ref().map(|(f, v)| (f.as_str(), v.as_str())),
+                                    Some((deciding_field.as_str(), deciding_value.as_str())),
+                                    "왜 좁혀졌는지를 말해야 한다"
+                                );
+                            }
+                            other => panic!("거절 이유가 값 위반이어야 한다: {other:?}"),
+                        }
+                        assert!(err.to_string().contains(deciding_field), "{err}");
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "좁혀서 떨어지는 값이 하나도 없다 — 이 시험이 눈멀었다");
 }
 
 #[test]

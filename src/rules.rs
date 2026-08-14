@@ -31,8 +31,38 @@ pub struct StepRules {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldConstraint {
-    /// 이 칸이 가질 수 있는 값 전부. 여기 없는 값으로는 닫히지 않는다.
+    /// 이 칸이 가질 수 있는 값 전부. 비어 있으면 값을 열거하지 않는다는 뜻이다.
+    #[serde(default)]
     pub allowed_values: Vec<String>,
+    /// 참이면 빈 값(공백뿐인 값 포함)으로는 닫을 수 없다.
+    #[serde(default)]
+    pub non_empty: bool,
+    /// **다른 칸의 값에 따라** 허용값이 좁아지는 경우.
+    ///
+    /// `{ 가르는_칸: { 그_칸의_값: [좁혀진 허용값…] } }`.
+    /// 가르는 칸의 값이 표에 없으면 좁히지 않는다(`allowed_values` 가 그대로 쓰인다).
+    #[serde(default)]
+    pub allowed_values_when: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+}
+
+impl FieldConstraint {
+    /// 다른 칸의 값까지 본 뒤 **지금 이 Report 에서** 이 칸이 가질 수 있는 값.
+    ///
+    /// 좁히는 근거가 있었다면 (가르는 칸, 그 값) 을 함께 돌려준다 — 거절할 때 이유를 말하려고.
+    pub fn allowed_here<'a>(
+        &'a self,
+        lookup: impl Fn(&str) -> Option<&'a str>,
+    ) -> (&'a [String], Option<(&'a str, &'a str)>) {
+        for (deciding_field, table) in &self.allowed_values_when {
+            let Some(deciding_value) = lookup(deciding_field) else {
+                continue;
+            };
+            if let Some(narrowed) = table.get(deciding_value) {
+                return (narrowed, Some((deciding_field, deciding_value)));
+            }
+        }
+        (&self.allowed_values, None)
+    }
 }
 
 /// `gil-spec.yaml` 한 벌.
@@ -127,12 +157,64 @@ impl RuleSet {
     /// 걸어 둔 사람은 걸렸다고 믿는다. 조용히 안 도는 규칙은 없는 규칙보다 나쁘다.
     fn check_constraints_point_at_real_fields(&self) -> Result<(), SpecError> {
         for (kind, rules) in self.step_kinds() {
-            for field in rules.field_constraints.keys() {
+            for (field, constraint) in &rules.field_constraints {
                 if !rules.close_requires.contains(field) {
                     return Err(SpecError::Inconsistent(format!(
                         "{kind}.field_constraints 가 {field} 에 값 제약을 걸었는데 \
                          {kind}.close_requires 에는 {field} 가 없다"
                     )));
+                }
+                if constraint.allowed_values.is_empty()
+                    && !constraint.non_empty
+                    && constraint.allowed_values_when.is_empty()
+                {
+                    return Err(SpecError::Inconsistent(format!(
+                        "{kind}.field_constraints 의 {field} 가 아무것도 제약하지 않는다"
+                    )));
+                }
+                self.check_narrowing(kind, field, constraint, rules)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 값을 좁히는 표가 실재하는 칸과 실재하는 값을 가리키는지 본다.
+    fn check_narrowing(
+        &self,
+        kind: NodeKind,
+        field: &str,
+        constraint: &FieldConstraint,
+        rules: &StepRules,
+    ) -> Result<(), SpecError> {
+        for (deciding_field, table) in &constraint.allowed_values_when {
+            if !rules.close_requires.contains(deciding_field) {
+                return Err(SpecError::Inconsistent(format!(
+                    "{kind}.{field} 의 허용값을 {deciding_field} 가 가르는데 \
+                     {kind}.close_requires 에 {deciding_field} 가 없다 — 가를 값이 늘 비어 있다"
+                )));
+            }
+            let deciding_values = rules
+                .field_constraints
+                .get(deciding_field)
+                .map(|c| c.allowed_values.as_slice())
+                .unwrap_or(&[]);
+
+            for (deciding_value, narrowed) in table {
+                if !deciding_values.is_empty() && !deciding_values.contains(deciding_value) {
+                    return Err(SpecError::Inconsistent(format!(
+                        "{kind}.{field} 이(가) {deciding_field}={deciding_value} 일 때를 적었는데 \
+                         {deciding_field} 는 그 값을 가질 수 없다"
+                    )));
+                }
+                for value in narrowed {
+                    if !constraint.allowed_values.is_empty()
+                        && !constraint.allowed_values.contains(value)
+                    {
+                        return Err(SpecError::Inconsistent(format!(
+                            "{kind}.{field} 이(가) {deciding_field}={deciding_value} 일 때 \
+                             {value} 를 허락하는데 그 값은 {field}.allowed_values 에 없다"
+                        )));
+                    }
                 }
             }
         }

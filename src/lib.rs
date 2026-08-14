@@ -60,4 +60,4 @@ pub use node::{Node, NodeKind, NodeStatus};
 pub use report::Report;
 pub use rules::{FieldConstraint, RuleSet, SpecError, StepRules};
 pub use validate::GrammarError;
-pub use walk::{NodeId, StepNode, Walk, WalkError};
+pub use walk::{NextDirectionError, NodeId, StepNode, Walk, WalkError};

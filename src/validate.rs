@@ -72,12 +72,26 @@ impl RuleSet {
             let Some(value) = report.get(field) else {
                 continue; // close_requires 에 있으면 위에서 이미 걸렀다.
             };
-            if !constraint.allowed_values.iter().any(|allowed| allowed == value) {
+
+            if constraint.non_empty && value.trim().is_empty() {
+                return Err(GrammarError::EmptyReportField {
+                    kind,
+                    field: field.clone(),
+                });
+            }
+
+            let (allowed, narrowed_by) = constraint.allowed_here(|other| report.get(other));
+            if allowed.is_empty() {
+                continue; // 값을 열거하지 않는 칸이다.
+            }
+            if !allowed.iter().any(|candidate| candidate == value) {
                 return Err(GrammarError::FieldValueNotAllowed {
                     kind,
                     field: field.clone(),
                     value: value.to_string(),
-                    allowed: constraint.allowed_values.clone(),
+                    allowed: allowed.to_vec(),
+                    narrowed_by: narrowed_by
+                        .map(|(f, v)| (f.to_string(), v.to_string())),
                 });
             }
         }
@@ -101,12 +115,16 @@ pub enum GrammarError {
     },
     /// 닫는 데 필요한 Report 칸이 빠졌다.
     MissingReportFields { kind: NodeKind, missing: Vec<String> },
+    /// 비어 있으면 안 되는 칸이 비었다.
+    EmptyReportField { kind: NodeKind, field: String },
     /// 칸은 있는데 그 값이 명세가 허락한 것이 아니다.
     FieldValueNotAllowed {
         kind: NodeKind,
         field: String,
         value: String,
         allowed: Vec<String>,
+        /// 허용값이 다른 칸 때문에 좁혀졌다면 그 (칸, 값).
+        narrowed_by: Option<(String, String)>,
     },
 }
 
@@ -140,16 +158,29 @@ impl fmt::Display for GrammarError {
                 "{kind} 을(를) 닫으려면 Report 에 다음 칸이 있어야 한다 (빠진 것: {})",
                 missing.join(", ")
             ),
+            GrammarError::EmptyReportField { kind, field } => write!(
+                f,
+                "{kind} 의 {field} 는 비워 둘 수 없다 — 나중에 이유를 되짚을 수 있어야 한다"
+            ),
             GrammarError::FieldValueNotAllowed {
                 kind,
                 field,
                 value,
                 allowed,
-            } => write!(
-                f,
-                "{kind} 의 {field} 에 {value:?} 는 쓸 수 없다 — 여기 올 수 있는 값: {}",
-                allowed.join(", ")
-            ),
+                narrowed_by,
+            } => {
+                write!(
+                    f,
+                    "{kind} 의 {field} 에 {value:?} 는 쓸 수 없다 — 여기 올 수 있는 값: {}",
+                    allowed.join(", ")
+                )?;
+                match narrowed_by {
+                    Some((deciding_field, deciding_value)) => {
+                        write!(f, " ({deciding_field} 가 {deciding_value:?} 이기 때문이다)")
+                    }
+                    None => Ok(()),
+                }
+            }
         }
     }
 }

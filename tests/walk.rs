@@ -5,10 +5,13 @@
 //! 여기서도 **길은 코드에 적지 않는다**. 어디로 갈 수 있는지는 `spec/gil-spec.yaml` 이
 //! 말하고, 시험은 그 말을 따라 걷는다.
 
-use gil::{GrammarError, NodeId, NodeKind, NodeStatus, Report, StepNode, Walk, WalkError};
+use gil::{
+    GrammarError, NextDirectionError, Node, NodeId, NodeKind, NodeStatus, Report, StepNode, Walk,
+    WalkError,
+};
 
 mod common;
-use common::{full_report, spec};
+use common::{allowed_here, full_report, spec};
 
 /// 걷기의 전부 — 실패한 연산 뒤에도 이 셋이 그대로여야 한다.
 fn snapshot(walk: &Walk) -> (Option<NodeId>, Vec<StepNode>, bool) {
@@ -463,6 +466,294 @@ fn a_node_this_graph_does_not_have_is_refused() {
         .expect_err("없는 Node 를 조용히 넘기면 안 된다");
     assert_eq!(err, WalkError::UnknownNode(stranger));
     assert!(err.to_string().contains(&stranger.to_string()), "{err}");
+}
+
+// ── 다음 방향 ──────────────────────────────────────────────────────────────
+
+const ACTION: &str = "next_direction.action";
+const TARGET: &str = "next_direction.target_node_id";
+const REASON: &str = "next_direction.reason";
+
+/// 열린 Outcome 앞에서, 다음 방향만 갈아 끼울 수 있는 Report.
+fn outcome_report(walk: &Walk) -> Report {
+    full_report(walk.rules(), NodeKind::Outcome)
+}
+
+fn first_of_kind(walk: &Walk, kind: NodeKind) -> NodeId {
+    walk.nodes()
+        .iter()
+        .find(|node| node.kind == kind)
+        .unwrap_or_else(|| panic!("{kind} 가 걷기에 없다"))
+        .id
+}
+
+fn expect_next_direction_error(walk: &mut Walk, report: Report) -> NextDirectionError {
+    match walk.close(report) {
+        Err(WalkError::NextDirection(err)) => err,
+        other => panic!("다음 방향이 거절돼야 한다: {other:?}"),
+    }
+}
+
+#[test]
+fn a_failure_may_point_back_at_an_ancestor_that_can_branch() {
+    // 명세가 "여기서 hypothesis 를 열 수 있다"고 말하는 조상만 복귀점이 된다.
+    let rules = spec();
+    let can_branch: Vec<NodeKind> = NodeKind::ALL
+        .into_iter()
+        .filter(|kind| {
+            rules
+                .validate_open(Node::closed(*kind), NodeKind::Hypothesis)
+                .is_ok()
+        })
+        .collect();
+    assert!(!can_branch.is_empty(), "복귀점이 될 Kind 가 없다");
+
+    let mut checked = 0;
+    for kind in can_branch {
+        let mut walk = walk_with_an_open_outcome();
+        let target = first_of_kind(&walk, kind);
+        let report = outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "revisit")
+            .with(TARGET, target.to_string().trim_start_matches('#'))
+            .with(REASON, "여기까지는 유효하다");
+
+        walk.close(report)
+            .unwrap_or_else(|err| panic!("{kind} 로 되돌아가는 것이 거절됐다: {err}"));
+        checked += 1;
+    }
+    assert!(checked >= 2, "define 과 analysis 둘 다 재 봐야 한다");
+}
+
+#[test]
+fn an_ancestor_that_cannot_open_a_hypothesis_is_refused() {
+    let rules = spec();
+    let cannot_branch: Vec<NodeKind> = NodeKind::ALL
+        .into_iter()
+        .filter(|kind| !kind.is_boundary())
+        .filter(|kind| {
+            rules
+                .validate_open(Node::closed(*kind), NodeKind::Hypothesis)
+                .is_err()
+        })
+        .collect();
+
+    let mut checked = 0;
+    for kind in cannot_branch {
+        let mut walk = walk_with_an_open_outcome();
+        // 닫힌 조상만 여기까지 온다 — 열려 있는 자리는 앞 검사에서 먼저 걸린다.
+        let Some(target) = walk
+            .nodes()
+            .iter()
+            .find(|node| node.kind == kind && node.status == NodeStatus::Closed)
+            .map(|node| node.id)
+        else {
+            continue;
+        };
+        let report = outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "revisit")
+            .with(TARGET, target.to_string().trim_start_matches('#'))
+            .with(REASON, "여기로 돌아가고 싶다");
+
+        let err = expect_next_direction_error(&mut walk, report);
+        assert_eq!(
+            err,
+            NextDirectionError::TargetCannotBranch { target, kind },
+            "{kind} 는 복귀점이 될 수 없다"
+        );
+        assert!(err.to_string().contains("가설"), "{err}");
+        checked += 1;
+    }
+    assert!(checked >= 2, "hypothesis 와 verify 둘 다 재 봐야 한다");
+}
+
+#[test]
+fn a_successful_cycle_may_only_close_the_cycle() {
+    let mut walk = walk_with_an_open_outcome();
+    let target = first_of_kind(&walk, NodeKind::Analysis);
+
+    // 이 좁힘은 명세가 적어 둔 것이다 — 시험이 코드에 다시 적지 않는다.
+    let succeeded = outcome_report(&walk).with("verdict", "success");
+    assert_eq!(
+        allowed_here(walk.rules(), NodeKind::Outcome, ACTION, &succeeded),
+        vec!["close_cycle".to_string()],
+        "success 는 Cycle 을 닫는 쪽으로만 간다"
+    );
+
+    // success + revisit 은 문법이 막는다(값이 좁혀진다).
+    let report = outcome_report(&walk)
+        .with("verdict", "success")
+        .with(ACTION, "revisit")
+        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(REASON, "돌아가고 싶다");
+    let err = walk.close(report).expect_err("success + revisit 이 통과했다");
+    assert!(
+        matches!(
+            err,
+            WalkError::Grammar(GrammarError::FieldValueNotAllowed { .. })
+        ),
+        "{err:?}"
+    );
+
+    // success + close_cycle 은 통과한다.
+    let report = outcome_report(&walk)
+        .with("verdict", "success")
+        .with(ACTION, "close_cycle")
+        .with(REASON, "성공적으로 결론났다");
+    walk.close(report).expect("success + close_cycle 은 유효하다");
+}
+
+#[test]
+fn a_failure_may_also_close_the_cycle() {
+    let mut walk = walk_with_an_open_outcome();
+    let report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "close_cycle")
+        .with(REASON, "이 Cycle 안에는 유효한 분기점이 없다");
+    walk.close(report).expect("failure + close_cycle 은 유효하다");
+}
+
+#[test]
+fn a_revisit_without_a_target_is_refused() {
+    let mut walk = walk_with_an_open_outcome();
+    let mut report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "revisit")
+        .with(REASON, "돌아가겠다");
+    report.remove(TARGET);
+
+    assert_eq!(
+        expect_next_direction_error(&mut walk, report),
+        NextDirectionError::TargetMissing
+    );
+}
+
+#[test]
+fn closing_the_cycle_with_a_target_is_refused() {
+    let mut walk = walk_with_an_open_outcome();
+    let target = first_of_kind(&walk, NodeKind::Analysis);
+    let report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "close_cycle")
+        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(REASON, "닫겠다");
+
+    assert_eq!(
+        expect_next_direction_error(&mut walk, report),
+        NextDirectionError::TargetNotAllowed("close_cycle".to_string())
+    );
+}
+
+#[test]
+fn a_target_this_graph_does_not_have_is_refused() {
+    let long = walk_with_an_open_outcome();
+    let stranger = long.nodes().last().unwrap().id;
+
+    // 짧은 걷기에는 그 이름이 없다.
+    let mut short = Walk::start(spec());
+    for kind in [
+        NodeKind::Define,
+        NodeKind::Hypothesis,
+        NodeKind::Verify,
+        NodeKind::Analysis,
+    ] {
+        step(&mut short, kind);
+    }
+    short.open(NodeKind::Outcome).unwrap();
+
+    let report = outcome_report(&short)
+        .with("verdict", "failure")
+        .with(ACTION, "revisit")
+        .with(TARGET, stranger.to_string().trim_start_matches('#'))
+        .with(REASON, "저기로 돌아가겠다");
+
+    assert_eq!(
+        expect_next_direction_error(&mut short, report),
+        NextDirectionError::UnknownTarget(stranger)
+    );
+}
+
+#[test]
+fn a_target_that_is_not_a_node_name_is_refused() {
+    let mut walk = walk_with_an_open_outcome();
+    let report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "revisit")
+        .with(TARGET, "네 번째")
+        .with(REASON, "돌아가겠다");
+
+    assert_eq!(
+        expect_next_direction_error(&mut walk, report),
+        NextDirectionError::TargetUnreadable("네 번째".to_string())
+    );
+}
+
+#[test]
+fn the_outcome_cannot_point_back_at_itself() {
+    // 자기 자신은 조상이 아니고, 아직 닫히지도 않았다.
+    let mut walk = walk_with_an_open_outcome();
+    let itself = walk.current().unwrap();
+    let report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "revisit")
+        .with(TARGET, itself.to_string().trim_start_matches('#'))
+        .with(REASON, "제자리로 돌아가겠다");
+
+    assert_eq!(
+        expect_next_direction_error(&mut walk, report),
+        NextDirectionError::TargetIsOpen(itself)
+    );
+}
+
+#[test]
+fn a_rejected_next_direction_leaves_the_outcome_open() {
+    let mut walk = walk_with_an_open_outcome();
+    let outcome = walk.current().unwrap();
+    let before = snapshot(&walk);
+
+    let bad_reports = vec![
+        outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "revisit")
+            .with(REASON, "target 이 없다"),
+        outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "revisit")
+            .with(TARGET, "999")
+            .with(REASON, "없는 Node 다"),
+        outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "revisit")
+            .with(
+                TARGET,
+                first_of_kind(&walk, NodeKind::Verify)
+                    .to_string()
+                    .trim_start_matches('#'),
+            )
+            .with(REASON, "분기할 수 없는 자리다"),
+        outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "close_cycle")
+            .with(TARGET, "1")
+            .with(REASON, "닫는데 target 을 적었다"),
+        outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "close_cycle")
+            .with(REASON, "   "),
+    ];
+
+    for report in bad_reports {
+        assert!(walk.close(report).is_err());
+        assert_eq!(snapshot(&walk), before, "거절이 상태를 건드렸다");
+        assert_eq!(walk.current(), Some(outcome));
+        assert_eq!(
+            walk.node(outcome).unwrap().status,
+            NodeStatus::Open,
+            "거절 뒤에도 Outcome 은 열린 채다"
+        );
+        assert!(walk.node(outcome).unwrap().report.is_none());
+    }
 }
 
 // ── nodes 와 history ───────────────────────────────────────────────────────

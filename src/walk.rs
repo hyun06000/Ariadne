@@ -127,9 +127,74 @@ impl Walk {
         }
 
         self.rules.validate_close(self.nodes[at].kind, &report)?;
+        self.check_next_direction(id, &report)?;
 
         self.nodes[at].status = NodeStatus::Closed;
         self.nodes[at].report = Some(report);
+        Ok(())
+    }
+
+    /// Report 가 적어 둔 다음 방향이 **이 그래프에서 구조적으로 가능한가**.
+    ///
+    /// 문법은 어떤 칸이 있어야 하고 어떤 값이 올 수 있는지까지만 안다.
+    /// `target_node_id` 는 이 걷기 안에서만 뜻이 있는 이름이라 여기서 본다.
+    ///
+    /// 고른 target 이 **옳은가**는 보지 않는다 — 그건 계보를 읽은 Agent 의 판단이다.
+    fn check_next_direction(&self, source: NodeId, report: &Report) -> Result<(), WalkError> {
+        let Some(action) = report.get(NEXT_ACTION) else {
+            return Ok(()); // 이 Kind 는 다음 방향을 적지 않는다.
+        };
+        let target = report.get(NEXT_TARGET);
+
+        if action != ACTION_REVISIT {
+            // 되돌아가지 않는 방향에는 갈 곳이 없어야 한다.
+            return match target {
+                Some(_) => Err(NextDirectionError::TargetNotAllowed(action.to_string()).into()),
+                None => Ok(()),
+            };
+        }
+
+        let Some(target) = target else {
+            return Err(NextDirectionError::TargetMissing.into());
+        };
+        let target: NodeId = target
+            .parse::<u32>()
+            .map(NodeId)
+            .map_err(|_| NextDirectionError::TargetUnreadable(target.to_string()))?;
+
+        // ① 이 그래프에 있는 Node 인가
+        let node = self
+            .node(target)
+            .ok_or(NextDirectionError::UnknownTarget(target))?;
+
+        // ② 닫혀 있는가 — 되돌아갈 곳은 확정된 자리여야 한다
+        if node.status != NodeStatus::Closed {
+            return Err(NextDirectionError::TargetIsOpen(target).into());
+        }
+
+        // ③ 지금 자리의 조상인가 (자기 자신은 조상이 아니다)
+        let lineage = self.lineage(source)?;
+        let is_ancestor = lineage
+            .iter()
+            .filter(|node| node.id != source)
+            .any(|node| node.id == target);
+        if !is_ancestor {
+            return Err(NextDirectionError::TargetNotAnAncestor(target).into());
+        }
+
+        // ④ 거기서 새 가설을 열 수 있는가 — 갈래는 언제나 Hypothesis 에서 시작한다
+        if self
+            .rules
+            .validate_open(Node::closed(node.kind), NodeKind::Hypothesis)
+            .is_err()
+        {
+            return Err(NextDirectionError::TargetCannotBranch {
+                target,
+                kind: node.kind,
+            }
+            .into());
+        }
+
         Ok(())
     }
 
@@ -214,6 +279,66 @@ impl Walk {
     }
 }
 
+/// Report 가 다음 방향을 적을 때 쓰는 칸 이름.
+///
+/// 문법(`gil-spec.yaml`)이 어떤 Kind 가 이 칸들을 요구하는지 정한다. 여기서는 그 값을
+/// 이 걷기의 자리로 옮겨 읽기 위해 이름만 안다.
+const NEXT_ACTION: &str = "next_direction.action";
+const NEXT_TARGET: &str = "next_direction.target_node_id";
+const ACTION_REVISIT: &str = "revisit";
+
+/// 적어 둔 다음 방향이 이 그래프에서 성립하지 않는 이유.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextDirectionError {
+    /// 되돌아가겠다면서 갈 곳을 적지 않았다.
+    TargetMissing,
+    /// 되돌아가지 않는 방향인데 갈 곳을 적었다.
+    TargetNotAllowed(String),
+    /// 갈 곳이 Node 이름으로 읽히지 않는다.
+    TargetUnreadable(String),
+    /// 이 그래프에 없는 Node 다.
+    UnknownTarget(NodeId),
+    /// 아직 열려 있는 자리로는 되돌아갈 수 없다.
+    TargetIsOpen(NodeId),
+    /// 지금 자리의 조상이 아니다 — 형제·자손·무관한 Node 로는 되돌아갈 수 없다.
+    TargetNotAnAncestor(NodeId),
+    /// 거기서는 새 가설을 열 수 없다.
+    TargetCannotBranch { target: NodeId, kind: NodeKind },
+}
+
+impl fmt::Display for NextDirectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NextDirectionError::TargetMissing => write!(
+                f,
+                "{ACTION_REVISIT} 인데 {NEXT_TARGET} 이(가) 없다 — 어디로 돌아갈지 적어야 한다"
+            ),
+            NextDirectionError::TargetNotAllowed(action) => write!(
+                f,
+                "{action:?} 에는 {NEXT_TARGET} 을(를) 적을 수 없다 — 돌아갈 자리가 없는 방향이다"
+            ),
+            NextDirectionError::TargetUnreadable(value) => {
+                write!(f, "{NEXT_TARGET} 의 {value:?} 는 Node 이름으로 읽히지 않는다")
+            }
+            NextDirectionError::UnknownTarget(target) => {
+                write!(f, "{target} 은(는) 이 Step Graph 에 없는 Node 다")
+            }
+            NextDirectionError::TargetIsOpen(target) => write!(
+                f,
+                "{target} 은(는) 아직 열려 있다 — 확정된 자리로만 되돌아갈 수 있다"
+            ),
+            NextDirectionError::TargetNotAnAncestor(target) => write!(
+                f,
+                "{target} 은(는) 지금 자리의 조상이 아니다 — 걸어온 길 위의 자리로만 되돌아간다"
+            ),
+            NextDirectionError::TargetCannotBranch { target, kind } => write!(
+                f,
+                "{target} 은(는) {kind} 라 새 가설을 열 수 없다 — 갈래는 언제나 가설에서 시작한다"
+            ),
+        }
+    }
+}
+
 /// 걷기가 거절한 이유.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WalkError {
@@ -225,11 +350,19 @@ pub enum WalkError {
     AlreadyFinished,
     /// 이 Step Graph 에 그런 이름의 Node 가 없다.
     UnknownNode(NodeId),
+    /// Report 가 적어 둔 다음 방향이 이 그래프에서 성립하지 않는다.
+    NextDirection(NextDirectionError),
 }
 
 impl From<GrammarError> for WalkError {
     fn from(err: GrammarError) -> Self {
         WalkError::Grammar(err)
+    }
+}
+
+impl From<NextDirectionError> for WalkError {
+    fn from(err: NextDirectionError) -> Self {
+        WalkError::NextDirection(err)
     }
 }
 
@@ -246,6 +379,7 @@ impl fmt::Display for WalkError {
             WalkError::UnknownNode(id) => {
                 write!(f, "{id} 은(는) 이 Step Graph 에 없는 Node 다")
             }
+            WalkError::NextDirection(err) => write!(f, "{err}"),
         }
     }
 }
@@ -254,9 +388,12 @@ impl std::error::Error for WalkError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             WalkError::Grammar(err) => Some(err),
+            WalkError::NextDirection(err) => Some(err),
             WalkError::NothingToClose
             | WalkError::AlreadyFinished
             | WalkError::UnknownNode(_) => None,
         }
     }
 }
+
+impl std::error::Error for NextDirectionError {}

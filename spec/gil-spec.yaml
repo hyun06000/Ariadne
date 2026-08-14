@@ -47,9 +47,23 @@ step_kinds:
     close_requires:
       - verdict
       - lesson
-      - next_direction
+      - next_direction.action
+      - next_direction.reason
     field_constraints:
       verdict:
         allowed_values:
           - success
           - failure
+      next_direction.action:
+        allowed_values:
+          - revisit
+          - close_cycle
+        allowed_values_when:
+          verdict:
+            success:
+              - close_cycle
+            failure:
+              - revisit
+              - close_cycle
+      next_direction.reason:
+        non_empty: true
