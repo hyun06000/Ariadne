@@ -556,7 +556,12 @@ Step C는 무에서 생성되지 않는다.
 
 A와 B에서 축적된 사고와 경험을 상속받은 상태에서 생성된다.
 
-따라서 특정 Node에서 사용할 수 있는 지식은 기본적으로 해당 Lineage를 따라 축적된 Report들로부터 구성된다.
+따라서 Lineage는 그 Node의 **구조적 배경**을 이룬다 — 이 Node가 어디에서 났고, 그 지점에서
+무엇이 이미 확정되어 있었는가.
+
+다만 Lineage가 그 Node에서 쓸 수 있는 지식의 **전부는 아니다.** Agent 는 자신의 Lineage 에
+없는 가지에서도 배울 수 있고, 그 지식은 사라지지 않는다. Lineage 와 Knowledge 의 관계는
+[GIL Time Model v0.2](GIL_Time_Model_v0.2.md) 가 정의한다.
 
 ---
 
@@ -564,7 +569,15 @@ A와 B에서 축적된 사고와 경험을 상속받은 상태에서 생성된�
 
 GIL에서 Knowledge는 반드시 독립된 사실 객체로 저장될 필요가 없다.
 
-Lineage를 따라 축적된 Report들의 내용 자체가 해당 Node가 상속받은 지식을 구성한다.
+Report의 내용 자체가 Knowledge의 재료다. Lineage를 따라 축적된 Report들은 그 재료의 중요한
+원천이지만, **Knowledge가 Lineage로 한정되지는 않는다.**
+
+Agent는 자신의 Lineage에 속하지 않는 가지에서도 배운다. 되돌아가 다른 가지를 열더라도 그
+사이에 얻은 교훈은 사라지지 않는다. 즉 **Knowledge는 Lineage와 독립적으로 누적될 수 있다.**
+
+구조적 계보(Lineage)와 누적된 지식(Knowledge)을 가르는 모델은
+[GIL Time Model v0.2](GIL_Time_Model_v0.2.md) 가 정의한다 — 거기서 Knowledge는 Lineage가
+아니라 Journey에 속한다.
 
 성공 Report뿐 아니라 실패 Report 역시 Knowledge의 일부다.
 
@@ -736,7 +749,7 @@ GIL에서 과거로 돌아간다는 것은 같은 장소를 다시 방문하는 
 
 **7. Failure는 삭제되지 않으며 지식의 일부가 된다.**
 
-**8. Knowledge는 Lineage의 Report를 통해 다음 사고로 상속된다.**
+**8. Knowledge는 Report를 통해 다음 사고로 상속되며, Lineage에 한정되지 않고 누적된다.**
 
 **9. Artifact의 과거 상태로 돌아가더라도 이미 획득한 Knowledge는 잃지 않는다.**
 
