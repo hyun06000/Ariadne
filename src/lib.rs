@@ -61,7 +61,7 @@ mod validate;
 mod walk;
 
 pub use node::{Node, NodeKind, NodeStatus};
-pub use report::Report;
+pub use report::{Report, ReportSyntaxError};
 pub use rules::{BUILTIN_SPEC, FieldConstraint, RuleSet, SpecError, StepRules};
 pub use story::story;
 pub use store::{FORMAT, StoreError, WALK_PATH, load, save};

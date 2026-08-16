@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gil::{NodeKind, Report, RuleSet, StoreError, Walk, load, save, story};
-use serde_norway::Value;
 
 fn main() -> ExitCode {
     match run() {
@@ -155,11 +154,13 @@ fn where_now(walk: &Walk) -> String {
         return out;
     }
 
-    let allowed = walk
-        .rules()
-        .allowed_children_of(here.map(|node| node.kind).unwrap_or(NodeKind::CycleEntry));
-    let names: Vec<&str> = allowed.iter().map(|kind| kind.as_str()).collect();
-    out.push_str(&format!("다음: 열 수 있는 것 — {}\n", names.join(", ")));
+    // 문법에게 묻지 않는다 — **여는 그 판정**에게 묻는다. 두 자리에 물으면 갈린다.
+    let openable = walk.openable_here();
+    let names: Vec<&str> = openable.iter().map(|kind| kind.as_str()).collect();
+    match names.is_empty() {
+        true => out.push_str("다음: 여기서 열 수 있는 것이 없다\n"),
+        false => out.push_str(&format!("다음: 열 수 있는 것 — {}\n", names.join(", "))),
+    }
     out
 }
 
@@ -182,57 +183,8 @@ fn read_report() -> Result<Report, String> {
         .read_to_string(&mut text)
         .map_err(|err| format!("stdin 을 읽지 못했다: {err}"))?;
 
-    if text.trim().is_empty() {
-        // 빈 Report 도 그대로 넘긴다 — 무엇이 빠졌는지는 문법이 말한다(여기서 짐작하지 않는다).
-        return Ok(Report::new());
-    }
-
-    let value: Value = serde_norway::from_str(&text)
-        .map_err(|err| format!("Report 가 YAML 로 읽히지 않는다: {err}\n\n{}", close_example()))?;
-
-    let mut report = Report::new();
-    flatten("", &value, &mut report)?;
-    Ok(report)
-}
-
-/// 중첩된 맵은 점으로 이어 붙인다 — `next_direction: {action: …}` 이 곧
-/// `next_direction.action` 이다. 명세가 칸을 그 이름으로 부르기 때문이다.
-fn flatten(prefix: &str, value: &Value, report: &mut Report) -> Result<(), String> {
-    match value {
-        Value::Mapping(map) => {
-            for (key, value) in map {
-                let Some(key) = key.as_str() else {
-                    return Err(format!("칸의 이름은 글자여야 한다: {key:?}"));
-                };
-                let name = match prefix.is_empty() {
-                    true => key.to_string(),
-                    false => format!("{prefix}.{key}"),
-                };
-                flatten(&name, value, report)?;
-            }
-            Ok(())
-        }
-        Value::Null => {
-            report.insert(prefix, "");
-            Ok(())
-        }
-        Value::String(text) => {
-            report.insert(prefix, text.as_str());
-            Ok(())
-        }
-        Value::Number(number) => {
-            report.insert(prefix, number.to_string());
-            Ok(())
-        }
-        Value::Bool(flag) => {
-            report.insert(prefix, flag.to_string());
-            Ok(())
-        }
-        other => Err(format!(
-            "{prefix:?} 의 값이 한 덩어리 글이 아니다 — v0 의 Report 는 칸마다 글 하나다 \
-             (받은 것: {other:?})"
-        )),
-    }
+    // 빈 글도 그대로 넘긴다 — 무엇이 빠졌는지는 문법이 말한다(여기서 짐작하지 않는다).
+    Report::parse(&text).map_err(|err| format!("{err}\n\n{}", close_example()))
 }
 
 // ── 안내 ───────────────────────────────────────────────────────────────────
@@ -243,12 +195,15 @@ fn kinds_line() -> String {
 }
 
 fn close_example() -> String {
-    "닫는 꼴:\n  \
+    "닫는 꼴 — 적은 글자가 그대로 값이 된다. 주석도, 인용도, 형 변환도 없다.\n\n  \
      gil close <<'EOF'\n  \
-     problem: 무엇을 풀려는가\n  \
-     success_condition: 무엇이 되면 풀린 것인가\n  \
-     EOF\n\n\
-     중첩해서 적어도 된다 — `next_direction: {action: revisit, target_node_id: 4}`."
+     problem: 줄 끝까지 그대로다 — #7 도 3.10 도 그냥 글자다\n  \
+     next_direction:\n  \
+     \x20 action: revisit          (들여쓰면 이름이 점으로 이어진다)\n  \
+     interpretation: |\n  \
+     \x20 여러 줄은 이렇게 연다.\n  \
+     \x20 여기서도 #7 은 #7 이다.\n  \
+     EOF"
         .to_string()
 }
 

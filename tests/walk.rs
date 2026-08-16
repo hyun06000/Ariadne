@@ -761,6 +761,74 @@ fn walk_decided_to_revisit() -> (Walk, NodeId, NodeId) {
     (walk, target, outcome)
 }
 
+/// 안내가 실행과 갈리지 않는가 — 실사용 보고 #123 이 재라고 한 것.
+///
+/// 안내를 믿은 Agent 가 한 번 실패하고서야 옳은 수를 알게 되면, 그 안내는 없는 것보다 나쁘다.
+fn offered_is_what_opens(walk: &Walk, where_at: &str) {
+    let offered = walk.openable_here();
+    for kind in NodeKind::ALL {
+        let opens = walk.clone().open(kind).is_ok();
+        assert_eq!(
+            offered.contains(&kind),
+            opens,
+            "{where_at}: {kind} 을(를) 안내는 {}, 실행은 {}",
+            if offered.contains(&kind) { "된다 하고" } else { "안 된다 하는데" },
+            if opens { "된다" } else { "안 된다" },
+        );
+    }
+}
+
+#[test]
+fn what_is_offered_is_exactly_what_opens() {
+    let mut walk = Walk::start(spec());
+    offered_is_what_opens(&walk, "시작 경계");
+
+    for kind in [
+        NodeKind::Define,
+        NodeKind::Hypothesis,
+        NodeKind::Verify,
+        NodeKind::Analysis,
+    ] {
+        walk.open(kind).unwrap();
+        offered_is_what_opens(&walk, &format!("{kind} 를 연 채"));
+        step_close(&mut walk, kind);
+        offered_is_what_opens(&walk, &format!("{kind} 를 닫은 뒤"));
+    }
+}
+
+#[test]
+fn after_a_revisit_only_a_new_hypothesis_is_offered() {
+    // 되돌아온 자리가 Analysis 라 문법만 보면 Outcome 도 열린다. 실행은 아니다.
+    let (mut walk, _, _) = walk_decided_to_revisit();
+    walk.revisit().expect("적어 둔 되돌아감을 실행한다");
+
+    offered_is_what_opens(&walk, "되돌아온 직후");
+    assert_eq!(
+        walk.openable_here(),
+        vec![NodeKind::Hypothesis],
+        "되돌아온 자리에서 가설 말고 다른 것을 안내한다"
+    );
+}
+
+#[test]
+fn a_finished_walk_offers_nothing() {
+    let mut walk = walk_with_an_open_outcome();
+    step_close(&mut walk, NodeKind::Outcome);
+    assert!(!walk.openable_here().is_empty(), "끝 경계는 안내돼야 한다");
+
+    walk.open(NodeKind::CycleExit).unwrap();
+    offered_is_what_opens(&walk, "끝 경계를 지난 뒤");
+    assert!(walk.openable_here().is_empty());
+}
+
+#[test]
+fn asking_what_can_be_opened_changes_nothing() {
+    let (walk, _, _) = walk_decided_to_revisit();
+    let before = snapshot(&walk);
+    let _ = walk.openable_here();
+    assert_eq!(snapshot(&walk), before, "물어보는 것이 걷기를 바꿨다");
+}
+
 #[test]
 fn a_recorded_revisit_moves_the_walk_to_its_target() {
     let (mut walk, target, outcome) = walk_decided_to_revisit();

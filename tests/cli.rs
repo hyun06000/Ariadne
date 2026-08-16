@@ -172,6 +172,84 @@ fn a_report_may_be_written_the_way_the_spec_names_its_fields() {
 }
 
 #[test]
+fn what_status_offers_can_actually_be_opened() {
+    // 실사용 보고 #123 — status 가 `outcome` 을 안내했고, 그대로 쳤더니 종료 코드 1이었다.
+    // 안내를 믿은 Agent 가 한 번 실패하고서야 옳은 수를 알게 되면 그 안내는 없느니만 못하다.
+    let dir = scratch("cli-status-truth");
+    walk_to_a_revisit(&dir);
+    ok(&dir, &["revisit"], None);
+
+    let said = ok(&dir, &["status"], None);
+    let offered: Vec<&str> = said
+        .lines()
+        .find(|line| line.starts_with("다음: 열 수 있는 것"))
+        .unwrap_or_else(|| panic!("무엇을 열 수 있는지 말하지 않는다:\n{said}"))
+        .rsplit_once("— ")
+        .expect("안내는 목록을 낸다")
+        .1
+        .split(", ")
+        .collect();
+
+    assert!(!offered.is_empty(), "빈 목록을 안내한다");
+    for kind in offered {
+        // 안내한 것은 하나도 빠짐없이 실제로 열려야 한다.
+        let out = run(&dir, &["open", kind], None);
+        assert!(
+            out.status.success(),
+            "status 가 {kind} 를 안내했는데 실제로는 거절됐다:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// `#5 Outcome` 이 `#4` 로 되돌아가겠다고 적고 닫힌 자리까지 걷는다.
+fn walk_to_a_revisit(dir: &Path) {
+    ok(dir, &["start"], None);
+    ok(dir, &["open", "define"], None);
+    ok(dir, &["close"], Some(DEFINE));
+    ok(dir, &["open", "hypothesis"], None);
+    ok(dir, &["close"], Some(HYPOTHESIS));
+    ok(dir, &["open", "verify"], None);
+    ok(dir, &["close"], Some("execution: 걸어 봤다\nresult: 안 됐다\n"));
+    ok(dir, &["open", "analysis"], None);
+    ok(
+        dir,
+        &["close"],
+        Some(
+            "hypothesis_fit: 어긋났다\nproblem_solved: 아니다\nsuccess_condition_met: 아니다\n\
+             guardrail_triggered: 아니다\ninterpretation: 표현이 모자랐다\n",
+        ),
+    );
+    ok(dir, &["open", "outcome"], None);
+    ok(
+        dir,
+        &["close"],
+        Some(
+            "verdict: failure\nlesson: 갈래를 다시 세운다\n\
+             next_direction:\n  action: revisit\n  target_node_id: 4\n  reason: 가설부터 다시\n",
+        ),
+    );
+}
+
+#[test]
+fn a_sentence_with_a_node_name_in_it_survives_the_close() {
+    // 실사용 보고 #124 — `#7` 부터 문장 끝까지 조용히 사라졌고 close 는 성공했다.
+    let dir = scratch("cli-hash");
+    let sentence = "기존 Walk의 #7 verify open 상태를 찾아 작업을 이어갈 수 있었다";
+    ok(&dir, &["start"], None);
+    ok(&dir, &["open", "define"], None);
+    ok(
+        &dir,
+        &["close"],
+        Some(&format!("problem: {sentence}\nsuccess_condition: 3.10 그대로\n")),
+    );
+
+    let told = ok(&dir, &["story"], None);
+    assert!(told.contains(sentence), "문장이 잘렸다:\n{told}");
+    assert!(told.contains("3.10"), "숫자처럼 보이는 값이 바뀌었다:\n{told}");
+}
+
+#[test]
 fn a_command_gil_does_not_know_points_at_the_ones_it_does() {
     let dir = scratch("cli-unknown");
     let said = refused(&dir, &["fly"], None);
