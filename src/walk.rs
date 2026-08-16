@@ -18,7 +18,10 @@
 //! 그렇게 난 첫 가설은 제 출처([`StepNode::revisit_from`])를 지닌다 — 어느 결정이 이 갈래를
 //! 낳았는지를 실행 순서에서 되짚지 않기 위해서다.
 //!
-//! 아직 없는 것: 임의 이동 · 저장 · Artifact · Journey · Chain · Cycle.
+//! [`Walk::restore`] 는 저장에서 되살릴 때만 쓰는 문이다. 그리로 들어온 값은 **걸어서 만든
+//! 것이 아니므로** 불변식을 처음부터 다시 잰다 — 자세한 것은 [`Walk::check_restored`] 에 있다.
+//!
+//! 아직 없는 것: 임의 이동 · Artifact · Journey · Chain · Cycle.
 
 use std::fmt;
 
@@ -35,6 +38,21 @@ use crate::validate::GrammarError;
 /// 자리(`nodes` 의 인덱스)와 섞이지 않도록 일부러 newtype 이다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(u32);
+
+impl NodeId {
+    /// 저장이 파일에 적힌 수를 이름으로 되돌릴 때만 쓴다.
+    ///
+    /// 이 문으로 만든 이름은 **아직 아무것도 보증하지 않는다** — 실재하는지는
+    /// [`Walk::check_restored`] 가 판정한다.
+    pub(crate) fn from_raw(raw: u32) -> Self {
+        NodeId(raw)
+    }
+
+    /// 저장이 이름을 파일에 적을 때만 쓴다.
+    pub(crate) fn raw(self) -> u32 {
+        self.0
+    }
+}
 
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -71,6 +89,17 @@ pub struct StepNode {
     pub report: Option<Report>,
 }
 
+/// 저장이 되살려 온 걷기의 값들 — [`Walk::restore`] 의 입구.
+///
+/// **저장 형식이 아니라 걷기의 상태다.** 디스크에 어떤 꼴로 눕는지는 `store` 만 안다.
+pub(crate) struct WalkState {
+    pub nodes: Vec<StepNode>,
+    pub current: Option<NodeId>,
+    pub finished: bool,
+    pub next_id: u32,
+    pub pending_revisit: Option<NodeId>,
+}
+
 /// 한 Cycle 안의 Step 을 걸어 온 자리.
 #[derive(Debug, Clone)]
 pub struct Walk {
@@ -97,6 +126,179 @@ impl Walk {
             next_id: 1,
             pending_revisit: None,
         }
+    }
+
+    /// 저장이 읽어 온 값으로 걷기를 다시 세운다.
+    ///
+    /// **이 값들은 걸어서 만들어진 것이 아니다.** 파일은 [`Walk`] 의 메서드를 거치지 않는
+    /// **두 번째 통로**이고, 손으로 고칠 수 있다. 그래서 여기서 불변식을 처음부터 다시 잰다 —
+    /// 통과하지 못하면 걷기는 태어나지 않는다.
+    pub(crate) fn restore(rules: RuleSet, state: WalkState) -> Result<Walk, RestoreError> {
+        let walk = Walk {
+            rules,
+            nodes: state.nodes,
+            current: state.current,
+            finished: state.finished,
+            next_id: state.next_id,
+            pending_revisit: state.pending_revisit,
+        };
+        walk.check_restored()?;
+        Ok(walk)
+    }
+
+    /// 되살아난 값이 **걸어서 만들 수 있는 것**인지 판정한다.
+    ///
+    /// 재는 것은 걷기가 스스로 지키는 불변식뿐이다. 문법은 [`RuleSet`] 에게 다시 묻고,
+    /// 다음 방향은 [`Walk::check_next_direction`] 에게 다시 묻는다 — 판정은 한 자리에서만 난다.
+    fn check_restored(&self) -> Result<(), RestoreError> {
+        let mut seen: Vec<NodeId> = Vec::with_capacity(self.nodes.len());
+
+        for node in &self.nodes {
+            if seen.contains(&node.id) {
+                return Err(RestoreError::DuplicateNode(node.id));
+            }
+            // 이름은 발급된 것이어야 한다 — next_id 보다 크면 다음 Node 가 이름을 훔친다.
+            if node.id.raw() >= self.next_id {
+                return Err(RestoreError::NameBeyondNextId {
+                    node: node.id,
+                    next_id: self.next_id,
+                });
+            }
+
+            // Step 으로 실린 것은 Step Kind 여야 한다. 경계 표식은 지나가는 자리지
+            // 기록에 남는 Node 가 아니다 — 실려 있으면 그 파일은 걷기가 만든 것이 아니다.
+            if !self.rules.declares(node.kind) {
+                return Err(RestoreError::NotAStepKind {
+                    node: node.id,
+                    kind: node.kind,
+                });
+            }
+
+            // 부모는 **먼저 난 Node** 여야 한다. 이 한 줄이 순환을 원리적으로 막는다.
+            let parent = match node.parent {
+                None => Node::cycle_entry(),
+                Some(parent) => {
+                    if !seen.contains(&parent) {
+                        return Err(RestoreError::ParentNotEarlier {
+                            node: node.id,
+                            parent,
+                        });
+                    }
+                    let parent = self.node(parent).expect("방금 앞에서 본 Node 다");
+                    // 부모의 상태를 그대로 넘긴다 — 닫힌 척 물으면 거짓 통과가 난다.
+                    Node {
+                        kind: parent.kind,
+                        status: parent.status,
+                    }
+                }
+            };
+            // 경계 표식이 Step 으로 실려 있으면 여기서 걸린다(제 규칙이 없어 전이가 없다).
+            self.rules
+                .validate_open(parent, node.kind)
+                .map_err(|source| RestoreError::Grammar {
+                    node: node.id,
+                    source,
+                })?;
+
+            if let Some(from) = node.revisit_from {
+                // 갈래의 첫 Node 는 언제나 가설이다.
+                if node.kind != NodeKind::Hypothesis {
+                    return Err(RestoreError::RevisitFromOnNonHypothesis {
+                        node: node.id,
+                        kind: node.kind,
+                    });
+                }
+                if !seen.contains(&from) {
+                    return Err(RestoreError::RevisitFromNotEarlier {
+                        node: node.id,
+                        from,
+                    });
+                }
+                if self.node(from).expect("방금 앞에서 본 Node 다").status != NodeStatus::Closed {
+                    return Err(RestoreError::RevisitFromOpen {
+                        node: node.id,
+                        from,
+                    });
+                }
+            }
+
+            match (node.status, &node.report) {
+                (NodeStatus::Open, Some(_)) => {
+                    return Err(RestoreError::ReportOnOpenNode(node.id));
+                }
+                (NodeStatus::Closed, None) => {
+                    return Err(RestoreError::ClosedWithoutReport(node.id));
+                }
+                (NodeStatus::Closed, Some(report)) => {
+                    self.rules.validate_close(node.kind, report).map_err(|source| {
+                        RestoreError::Grammar {
+                            node: node.id,
+                            source,
+                        }
+                    })?;
+                }
+                (NodeStatus::Open, None) => {
+                    // 열린 Node 아래로는 아무것도 열 수 없으니, 열린 것은 서 있는 자리뿐이다.
+                    if self.current != Some(node.id) {
+                        return Err(RestoreError::OpenNodeNotCurrent {
+                            node: node.id,
+                            current: self.current,
+                        });
+                    }
+                }
+            }
+
+            seen.push(node.id);
+        }
+
+        if let Some(current) = self.current
+            && self.node(current).is_none()
+        {
+            return Err(RestoreError::UnknownCurrent(current));
+        }
+
+        // 다음 방향은 그래프 전체(조상 관계)를 봐야 판정된다 — 전부 실린 뒤에 잰다.
+        for node in &self.nodes {
+            if let Some(report) = &node.report {
+                self.check_next_direction(node.id, report)
+                    .map_err(|source| RestoreError::NextDirection {
+                        node: node.id,
+                        source: Box::new(source),
+                    })?;
+            }
+        }
+
+        if let Some(pending) = self.pending_revisit {
+            let source = self
+                .node(pending)
+                .ok_or(RestoreError::UnknownPendingRevisit(pending))?;
+            // 되돌아옴은 **적힌 것을 밟은** 결과다. 그 자리에 그 결정이 없으면 위조다.
+            let declared = source
+                .report
+                .as_ref()
+                .and_then(|report| declared_revisit_target(report).ok())
+                .flatten();
+            if declared.is_none() || declared != self.current {
+                return Err(RestoreError::PendingRevisitNotDeclared {
+                    pending,
+                    current: self.current,
+                });
+            }
+        }
+
+        // 끝 경계는 지나갈 수 있는 자리에서만 지나간다.
+        if self.finished
+            && self
+                .rules
+                .validate_open(self.here(), NodeKind::CycleExit)
+                .is_err()
+        {
+            return Err(RestoreError::FinishedFromNowhere {
+                current: self.current,
+            });
+        }
+
+        Ok(())
     }
 
     /// 지금 자리에서 다음 Node 를 연다.
@@ -166,18 +368,13 @@ impl Walk {
             let report = node.report.as_ref().ok_or(WalkError::NothingToRevisit)?;
 
             // 여기에 되돌아가겠다는 결정이 적혀 있는가. 적혀 있지 않으면 실행할 것이 없다.
-            if report.get(NEXT_ACTION) != Some(ACTION_REVISIT) {
+            let Some(target) = declared_revisit_target(report)? else {
                 return Err(WalkError::NothingToRevisit);
-            }
+            };
 
             // 갈 곳의 구조적 적법성(조상인가·거기서 가설을 열 수 있는가)은 이 Outcome 을
             // 닫을 때 이미 봤다. 여기서는 **실행에 필요한 것만** 다시 본다 —
             // 그 이름이 실재하고 여전히 닫혀 있는가.
-            let target = report.get(NEXT_TARGET).ok_or(NextDirectionError::TargetMissing)?;
-            let target: NodeId = target
-                .parse::<u32>()
-                .map(NodeId)
-                .map_err(|_| NextDirectionError::TargetUnreadable(target.to_string()))?;
             let target_node = self
                 .node(target)
                 .ok_or(NextDirectionError::UnknownTarget(target))?;
@@ -222,26 +419,9 @@ impl Walk {
     ///
     /// 고른 target 이 **옳은가**는 보지 않는다 — 그건 계보를 읽은 Agent 의 판단이다.
     fn check_next_direction(&self, source: NodeId, report: &Report) -> Result<(), WalkError> {
-        let Some(action) = report.get(NEXT_ACTION) else {
-            return Ok(()); // 이 Kind 는 다음 방향을 적지 않는다.
+        let Some(target) = declared_revisit_target(report)? else {
+            return Ok(()); // 되돌아가는 방향이 아니다 — 볼 자리가 없다.
         };
-        let target = report.get(NEXT_TARGET);
-
-        if action != ACTION_REVISIT {
-            // 되돌아가지 않는 방향에는 갈 곳이 없어야 한다.
-            return match target {
-                Some(_) => Err(NextDirectionError::TargetNotAllowed(action.to_string()).into()),
-                None => Ok(()),
-            };
-        }
-
-        let Some(target) = target else {
-            return Err(NextDirectionError::TargetMissing.into());
-        };
-        let target: NodeId = target
-            .parse::<u32>()
-            .map(NodeId)
-            .map_err(|_| NextDirectionError::TargetUnreadable(target.to_string()))?;
 
         // ① 이 그래프에 있는 Node 인가
         let node = self
@@ -343,6 +523,29 @@ impl Walk {
         &self.rules
     }
 
+    /// 아직 아무에게도 주지 않은 다음 이름 — 저장이 적어 두기 위해 읽는다.
+    ///
+    /// 이름을 되계산하지 않고 그대로 싣는다. 남은 이름은 지금까지 무엇이 났는지의 결과지
+    /// 실린 Node 로부터 다시 셀 수 있는 값이 아니다.
+    ///
+    /// **다만 지금은 그 차이를 잴 수 없다.** 이름은 판정을 통과한 뒤에만 발급되고 Node 는
+    /// 사라지지 않아서, `next_id` 는 언제나 `가장 큰 이름 + 1` 이다 — 다시 세는 구현과
+    /// 관측상 같다(돌연변이가 아무 시험도 못 빨갛게 만들었다, 2026-08-17).
+    ///
+    /// **언제 재게 되는가**: 이름이 소모되는 일이 생기는 순간 갈라진다 —
+    /// 발급 뒤에 실패하는 경로 · Node 를 지우는 연산 · 여러 걷기가 이름을 나눠 갖는 경우.
+    /// 그중 하나를 짓는 Step 에서 이 규칙을 함께 재라.
+    pub(crate) fn next_id(&self) -> u32 {
+        self.next_id
+    }
+
+    /// 되돌아온 직후인가 — 그렇다면 어디에서 왔는지. 저장이 읽는다.
+    ///
+    /// 이 값이 파일에 안 실리면 "되돌아온 뒤엔 가설만" 이라는 규칙이 프로세스 경계에서 증발한다.
+    pub(crate) fn pending_revisit(&self) -> Option<NodeId> {
+        self.pending_revisit
+    }
+
     /// 지금 서 있는 자리 — Grammar 에게 물을 때 쓰는 꼴.
     fn here(&self) -> Node {
         match self.current.and_then(|id| self.node(id)) {
@@ -367,6 +570,37 @@ impl Walk {
 const NEXT_ACTION: &str = "next_direction.action";
 const NEXT_TARGET: &str = "next_direction.target_node_id";
 const ACTION_REVISIT: &str = "revisit";
+
+/// 이 Report 가 **되돌아가겠다고 적었다면** 그 갈 곳의 이름.
+///
+/// `Ok(None)` 은 되돌아가는 방향이 아니라는 뜻이다 — 다음 방향을 아예 안 적는 Kind 도,
+/// 되돌아가지 않겠다고 적은 Report 도 여기로 온다.
+///
+/// **Report 에서 다음 방향을 읽는 자리는 여기 하나뿐이다.** 닫을 때·실행할 때·저장에서
+/// 되살릴 때가 같은 읽기를 쓴다 — 세 자리에 따로 적으면 한 자리가 낡는다.
+fn declared_revisit_target(report: &Report) -> Result<Option<NodeId>, NextDirectionError> {
+    let Some(action) = report.get(NEXT_ACTION) else {
+        return Ok(None); // 이 Kind 는 다음 방향을 적지 않는다.
+    };
+    let target = report.get(NEXT_TARGET);
+
+    if action != ACTION_REVISIT {
+        // 되돌아가지 않는 방향에는 갈 곳이 없어야 한다.
+        return match target {
+            Some(_) => Err(NextDirectionError::TargetNotAllowed(action.to_string())),
+            None => Ok(None),
+        };
+    }
+
+    let Some(target) = target else {
+        return Err(NextDirectionError::TargetMissing);
+    };
+    target
+        .parse::<u32>()
+        .map(NodeId)
+        .map(Some)
+        .map_err(|_| NextDirectionError::TargetUnreadable(target.to_string()))
+}
 
 /// 적어 둔 다음 방향이 이 그래프에서 성립하지 않는 이유.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -493,3 +727,132 @@ impl std::error::Error for WalkError {
 }
 
 impl std::error::Error for NextDirectionError {}
+
+/// 저장에서 되살린 값이 **걸어서 만들 수 있는 것이 아닌** 이유.
+///
+/// 전부 "걷기라면 절대 만들지 않는 꼴"이다. 그래서 이 오류가 났다는 것은 파일이
+/// 걷기 밖에서 고쳐졌거나 형식이 어긋났다는 뜻이다.
+#[derive(Debug)]
+pub enum RestoreError {
+    /// 같은 이름이 두 번 실렸다.
+    DuplicateNode(NodeId),
+    /// 아직 발급되지 않은 이름을 쓰고 있다 — 다음 Node 가 같은 이름을 받게 된다.
+    NameBeyondNextId { node: NodeId, next_id: u32 },
+    /// Step 이 아닌 것이 Step 으로 실렸다.
+    NotAStepKind { node: NodeId, kind: NodeKind },
+    /// 부모가 저보다 먼저 나지 않았다 — 없는 Node 이거나, 뒤에 난 Node 다.
+    ParentNotEarlier { node: NodeId, parent: NodeId },
+    /// 문법이 거절했다 — 이 자리에서 날 수 없는 Node 이거나, 이 Report 로 닫을 수 없다.
+    Grammar { node: NodeId, source: GrammarError },
+    /// 되돌아감의 출처를 가설이 아닌 Node 가 지녔다.
+    RevisitFromOnNonHypothesis { node: NodeId, kind: NodeKind },
+    /// 되돌아감의 출처가 저보다 먼저 나지 않았다.
+    RevisitFromNotEarlier { node: NodeId, from: NodeId },
+    /// 되돌아감의 출처가 아직 열려 있다.
+    RevisitFromOpen { node: NodeId, from: NodeId },
+    /// 열려 있는 Node 가 Report 를 지녔다.
+    ReportOnOpenNode(NodeId),
+    /// 닫혔다면서 Report 가 없다.
+    ClosedWithoutReport(NodeId),
+    /// 서 있는 자리가 아닌데 열려 있다 — 열린 Node 아래로는 아무것도 열 수 없으니
+    /// 걷기에 열린 Node 는 서 있는 자리 하나뿐이다.
+    OpenNodeNotCurrent {
+        node: NodeId,
+        current: Option<NodeId>,
+    },
+    /// 없는 Node 에 서 있다.
+    UnknownCurrent(NodeId),
+    /// 실린 Report 의 다음 방향이 이 그래프에서 성립하지 않는다.
+    NextDirection { node: NodeId, source: Box<WalkError> },
+    /// 없는 Node 에서 되돌아왔다고 적혀 있다.
+    UnknownPendingRevisit(NodeId),
+    /// 되돌아온 상태인데 그 결정이 출처에 적혀 있지 않다 — 밟지 않은 되돌아감이다.
+    PendingRevisitNotDeclared {
+        pending: NodeId,
+        current: Option<NodeId>,
+    },
+    /// 끝 경계를 지날 수 없는 자리에서 끝났다고 적혀 있다.
+    FinishedFromNowhere { current: Option<NodeId> },
+}
+
+/// 자리를 사람이 읽는 꼴로. 아무 데도 서 있지 않은 것도 하나의 자리다.
+fn where_at(id: Option<NodeId>) -> String {
+    match id {
+        Some(id) => id.to_string(),
+        None => "시작 경계".to_string(),
+    }
+}
+
+impl fmt::Display for RestoreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RestoreError::DuplicateNode(id) => {
+                write!(f, "{id} 이(가) 두 번 실렸다 — 이름은 하나의 Node 만 가리킨다")
+            }
+            RestoreError::NameBeyondNextId { node, next_id } => write!(
+                f,
+                "{node} 은(는) 아직 발급되지 않은 이름이다 (다음 이름은 #{next_id})"
+            ),
+            RestoreError::NotAStepKind { node, kind } => {
+                write!(f, "{node} 의 {kind} 은(는) Step 이 아니라 지나가는 자리다")
+            }
+            RestoreError::ParentNotEarlier { node, parent } => write!(
+                f,
+                "{node} 의 부모 {parent} 이(가) 저보다 먼저 나지 않았다 — 부모는 언제나 앞선다"
+            ),
+            RestoreError::Grammar { node, source } => write!(f, "{node}: {source}"),
+            RestoreError::RevisitFromOnNonHypothesis { node, kind } => write!(
+                f,
+                "{node} 은(는) {kind} 인데 되돌아감의 출처를 지녔다 — 갈래의 첫 Node 는 가설뿐이다"
+            ),
+            RestoreError::RevisitFromNotEarlier { node, from } => write!(
+                f,
+                "{node} 이(가) {from} 에서 났다는데 {from} 이(가) 저보다 먼저 나지 않았다"
+            ),
+            RestoreError::RevisitFromOpen { node, from } => write!(
+                f,
+                "{node} 의 출처 {from} 이(가) 아직 열려 있다 — 확정된 결정만 갈래를 낳는다"
+            ),
+            RestoreError::ReportOnOpenNode(id) => write!(
+                f,
+                "{id} 은(는) 열려 있는데 Report 를 지녔다 — Report 는 닫으면서 받는다"
+            ),
+            RestoreError::ClosedWithoutReport(id) => {
+                write!(f, "{id} 은(는) 닫혔다는데 Report 가 없다")
+            }
+            RestoreError::OpenNodeNotCurrent { node, current } => write!(
+                f,
+                "{node} 이(가) 열려 있는데 서 있는 자리는 {} 다 — 열린 Node 는 서 있는 자리뿐이다",
+                where_at(*current)
+            ),
+            RestoreError::UnknownCurrent(id) => {
+                write!(f, "{id} 에 서 있다는데 그런 Node 가 없다")
+            }
+            RestoreError::NextDirection { node, source } => write!(f, "{node}: {source}"),
+            RestoreError::UnknownPendingRevisit(id) => {
+                write!(f, "{id} 에서 되돌아왔다는데 그런 Node 가 없다")
+            }
+            RestoreError::PendingRevisitNotDeclared { pending, current } => write!(
+                f,
+                "{pending} 에서 {} 로 되돌아왔다는데 {pending} 에는 그 결정이 적혀 있지 않다 \
+                 — 되돌아감은 적힌 것을 밟는 것이다",
+                where_at(*current)
+            ),
+            RestoreError::FinishedFromNowhere { current } => write!(
+                f,
+                "{} 에서는 끝 경계를 지날 수 없는데 끝났다고 적혀 있다",
+                where_at(*current)
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RestoreError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            RestoreError::Grammar { source, .. } => Some(source),
+            RestoreError::NextDirection { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}

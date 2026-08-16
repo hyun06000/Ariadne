@@ -11,7 +11,7 @@ use gil::{
 };
 
 mod common;
-use common::{allowed_here, full_report, spec};
+use common::{ACTION, REASON, TARGET, allowed_here, full_report, spec, step, step_close};
 
 /// 걷기의 전부 — 실패한 연산 뒤에도 이 셋이 그대로여야 한다.
 fn snapshot(walk: &Walk) -> (Option<NodeId>, Vec<StepNode>, bool) {
@@ -43,24 +43,6 @@ fn next_kind(walk: &Walk) -> NodeKind {
         .copied()
         .find(|kind| !walked.contains(kind))
         .unwrap_or(allowed[0])
-}
-
-/// 이미 열려 있는 Node 를 명세가 받아들이는 Report 로 닫는다.
-fn step_close(walk: &mut Walk, kind: NodeKind) {
-    let report = full_report(walk.rules(), kind);
-    walk.close(report)
-        .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
-}
-
-/// 한 Step 을 온전히 걷는다 — 열고, 명세가 받아들이는 Report 로 닫는다.
-fn step(walk: &mut Walk, kind: NodeKind) -> NodeId {
-    walk.open(kind)
-        .unwrap_or_else(|err| panic!("{kind} 를 열지 못했다: {err}"));
-    let id = walk.current().expect("연 뒤에는 서 있는 자리가 있다");
-    let report = full_report(walk.rules(), kind);
-    walk.close(report)
-        .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
-    id
 }
 
 /// `#1 → … → #5` 까지 걷는다(설계에서 예로 든 시나리오 그대로).
@@ -476,10 +458,6 @@ fn a_node_this_graph_does_not_have_is_refused() {
 }
 
 // ── 다음 방향 ──────────────────────────────────────────────────────────────
-
-const ACTION: &str = "next_direction.action";
-const TARGET: &str = "next_direction.target_node_id";
-const REASON: &str = "next_direction.reason";
 
 /// 열린 Outcome 앞에서, 다음 방향만 갈아 끼울 수 있는 Report.
 fn outcome_report(walk: &Walk) -> Report {

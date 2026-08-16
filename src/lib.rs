@@ -4,14 +4,16 @@
 //!
 //! 1. `gil-spec.yaml` 을 읽는다.
 //! 2. 그 규칙으로 Node 의 **여는 전이**와 **닫는 조건**을 판정한다.
-//! 3. 그 판정 위에서 **한 Cycle 안의 Step 을 메모리에서 걷는다**([`Walk`]) —
-//!    Node 마다 이름([`NodeId`])이 붙고, 부모는 **태어날 때 기록**된다.
+//! 3. 그 판정 위에서 **한 Cycle 안의 Step 을 걷는다**([`Walk`]) — Node 마다 이름([`NodeId`])이
+//!    붙고, 부모는 **태어날 때 기록**되며, 적어 둔 되돌아감을 밟아 갈래를 낸다.
+//! 4. 그 걷기를 **디스크에 눕히고 다시 세운다**([`save`]·[`load`]) — Agent 의 한 턴은 한
+//!    프로세스라, 저장이 없으면 연 것을 다음 턴에 닫지 못한다.
 //!
 //! 규칙은 코드에 있지 않다 — 전부 `gil-spec.yaml` 에 있다. 여기 있는 것은 그 파일을
 //! 읽는 절차와, 읽은 값을 그대로 적용하는 판정뿐이다.
 //!
-//! 아직 없는 것(다음 Step 의 몫): git · Artifact · Knowledge 상속 · Lineage ·
-//! Chain/Cycle 상태 머신 · Existence · 되돌아가기 · 저장.
+//! 아직 없는 것(다음 Step 의 몫): git · Artifact · Knowledge 상속 · Cycle 을 넘는 계보 ·
+//! Chain/Cycle 상태 머신 · Existence.
 //!
 //! ```
 //! use gil::{Node, NodeKind, Report, RuleSet};
@@ -53,11 +55,13 @@
 mod node;
 mod report;
 mod rules;
+mod store;
 mod validate;
 mod walk;
 
 pub use node::{Node, NodeKind, NodeStatus};
 pub use report::Report;
 pub use rules::{FieldConstraint, RuleSet, SpecError, StepRules};
+pub use store::{FORMAT, StoreError, WALK_PATH, load, save};
 pub use validate::GrammarError;
-pub use walk::{NextDirectionError, NodeId, StepNode, Walk, WalkError};
+pub use walk::{NextDirectionError, NodeId, RestoreError, StepNode, Walk, WalkError};
