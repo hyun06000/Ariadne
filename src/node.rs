@@ -46,6 +46,14 @@ impl NodeKind {
         }
     }
 
+    /// 사람이 적어 준 이름을 종류로 읽는다. 모르는 이름이면 `None`.
+    ///
+    /// 이름의 목록을 여기 다시 적지 않는다 — [`NodeKind::ALL`] 과 [`NodeKind::as_str`] 이
+    /// 이미 그것을 안다. 종류가 늘면 이 함수는 고치지 않아도 함께 는다.
+    pub fn parse(name: &str) -> Option<NodeKind> {
+        NodeKind::ALL.into_iter().find(|kind| kind.as_str() == name)
+    }
+
     /// Grammar 의 시작과 끝을 가리키는 표식인가.
     ///
     /// 경계 표식은 열고 닫는 대상이 아니라 자리를 가리키는 이름이다.

@@ -72,7 +72,22 @@ pub struct RuleSet {
     step_kinds: BTreeMap<NodeKind, StepRules>,
 }
 
+/// 바이너리에 함께 실린 명세 — 저장소를 떠나 설치된 뒤에도 규칙은 같은 파일에서 온다.
+///
+/// 옮겨 적은 사본이 아니라 `spec/gil-spec.yaml` **그 파일**이다. 사본을 두면 한쪽이 낡는다.
+pub const BUILTIN_SPEC: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/spec/gil-spec.yaml"
+));
+
 impl RuleSet {
+    /// 함께 실린 명세로 한 벌 만든다.
+    ///
+    /// 설치된 `gil` 은 저장소 곁에 서 있지 않다 — 규칙을 찾아 헤매는 대신 지니고 다닌다.
+    pub fn builtin() -> Result<Self, SpecError> {
+        RuleSet::from_yaml_str(BUILTIN_SPEC)
+    }
+
     /// 문자열에서 읽는다. 읽고 나서 스스로 앞뒤가 맞는지 확인한다.
     pub fn from_yaml_str(yaml: &str) -> Result<Self, SpecError> {
         let set: RuleSet = serde_norway::from_str(yaml).map_err(SpecError::Parse)?;

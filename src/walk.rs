@@ -89,6 +89,13 @@ pub struct StepNode {
     pub report: Option<Report>,
 }
 
+impl StepNode {
+    /// 이 Node 가 닫혔는가. 상태의 뜻은 이 크레이트가 정한다 — 밖에서 다시 정하지 않게.
+    pub fn is_closed(&self) -> bool {
+        self.status == NodeStatus::Closed
+    }
+}
+
 /// 저장이 되살려 온 걷기의 값들 — [`Walk::restore`] 의 입구.
 ///
 /// **저장 형식이 아니라 걷기의 상태다.** 디스크에 어떤 꼴로 눕는지는 `store` 만 안다.

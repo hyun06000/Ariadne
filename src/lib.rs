@@ -56,12 +56,14 @@ mod node;
 mod report;
 mod rules;
 mod store;
+mod story;
 mod validate;
 mod walk;
 
 pub use node::{Node, NodeKind, NodeStatus};
 pub use report::Report;
-pub use rules::{FieldConstraint, RuleSet, SpecError, StepRules};
+pub use rules::{BUILTIN_SPEC, FieldConstraint, RuleSet, SpecError, StepRules};
+pub use story::story;
 pub use store::{FORMAT, StoreError, WALK_PATH, load, save};
 pub use validate::GrammarError;
 pub use walk::{NextDirectionError, NodeId, RestoreError, StepNode, Walk, WalkError};
