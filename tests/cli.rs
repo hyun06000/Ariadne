@@ -4,7 +4,7 @@
 //! Agent 의 한 턴은 한 프로세스라, 라이브러리 시험은 이 경계를 못 넘어 본다.
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 mod common;
@@ -247,6 +247,89 @@ fn a_sentence_with_a_node_name_in_it_survives_the_close() {
     let told = ok(&dir, &["story"], None);
     assert!(told.contains(sentence), "문장이 잘렸다:\n{told}");
     assert!(told.contains("3.10"), "숫자처럼 보이는 값이 바뀌었다:\n{told}");
+}
+
+// ── 어느 걷기를 이어 걷는가 ────────────────────────────────────────────────
+
+/// 뿌리 아래 깊은 자리 하나를 만든다 — Agent 가 실제로 오가는 꼴.
+fn below(root: &Path) -> PathBuf {
+    let deep = root.join("pkg").join("src");
+    std::fs::create_dir_all(&deep).expect("하위 폴더를 만들 수 있어야 한다");
+    deep
+}
+
+#[test]
+fn a_walk_is_continued_from_a_folder_below_it() {
+    // 실사용 보고 #125 — Agent 는 소스·시험·하위 패키지를 계속 오간다.
+    let root = scratch("cli-below");
+    let deep = below(&root);
+    ok(&root, &["start"], None);
+
+    ok(&deep, &["open", "define"], None);
+    ok(&deep, &["close"], Some(DEFINE));
+
+    // 뿌리에서 봐도 같은 걷기여야 한다 — 적은 것이 다른 데로 가지 않았다.
+    let told = ok(&root, &["story"], None);
+    assert!(told.contains("이야기가 설명 없이 읽히는가"), "적은 것이 딴 데로 갔다:\n{told}");
+}
+
+#[test]
+fn walking_from_below_does_not_leave_a_second_walk() {
+    // 걷기가 둘이 되면 사고의 기록이 조용히 갈린다 — 마찰이 아니라 사고다.
+    let root = scratch("cli-one-walk");
+    let deep = below(&root);
+    ok(&root, &["start"], None);
+    ok(&deep, &["open", "define"], None);
+
+    assert!(!deep.join(gil::WALK_PATH).exists(), "하위 폴더에 걷기가 또 생겼다");
+}
+
+#[test]
+fn starting_below_an_existing_walk_is_refused_and_says_where_it_is() {
+    let root = scratch("cli-start-below");
+    let deep = below(&root);
+    ok(&root, &["start"], None);
+
+    let said = refused(&deep, &["start"], None);
+    assert!(
+        said.contains(&root.join(gil::WALK_PATH).display().to_string()),
+        "이미 있는 걷기가 어디인지 말하지 않는다:\n{said}"
+    );
+    assert!(!deep.join(gil::WALK_PATH).exists(), "거절하면서 파일은 만들었다");
+}
+
+#[test]
+fn a_walk_that_is_not_here_says_where_it_is() {
+    // 어느 걷기를 보고 있는지 화면이 말하지 않으면, 남의 걷기를 보며 제 것이
+    // 망가졌다고 오진하게 된다.
+    let root = scratch("cli-which-walk");
+    let deep = below(&root);
+    ok(&root, &["start"], None);
+
+    let from_root = ok(&root, &["status"], None);
+    assert!(
+        !from_root.contains("걷기:"),
+        "여기 있는 걷기까지 자리를 밝힌다 — 예사로운 일에 줄을 쓰면 정작 알려야 할 때 안 읽힌다:\n{from_root}"
+    );
+
+    let from_below = ok(&deep, &["status"], None);
+    assert!(
+        from_below.contains(&root.join(gil::WALK_PATH).display().to_string()),
+        "다른 자리의 걷기를 이어 걸으면서 어느 것인지 말하지 않는다:\n{from_below}"
+    );
+}
+
+#[test]
+fn a_walk_above_is_not_borrowed_from_outside_the_project() {
+    // 위로 거슬러 오르는 것은 **가장 가까운 것 하나**다. 옆 프로젝트의 걷기를 끌어오면 안 된다.
+    let root = scratch("cli-sibling");
+    let mine = root.join("mine");
+    let theirs = root.join("theirs");
+    std::fs::create_dir_all(&mine).unwrap();
+    std::fs::create_dir_all(&theirs).unwrap();
+
+    ok(&mine, &["start"], None);
+    refused(&theirs, &["status"], None);
 }
 
 #[test]
