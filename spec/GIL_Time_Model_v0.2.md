@@ -298,6 +298,24 @@ Journey(now)
 
 이다.
 
+### Revisit이 세계에 남기는 자국
+
+Revisit 자체는 Journey 쪽에서 일어나는 사건이다. 기존 Node 는 하나도 바뀌지 않는다.
+
+다만 그 되돌아감이 **새로운 갈래를 낳으면**, 그 갈래의 첫 Node 에 어느 결정에서 났는지가
+고정된 참조로 남는다.
+
+```text
+Journey 쪽 사건:   #8 에서 #4 로 되돌아갔다
+        ↓ 그 결과 새 Node 가 생기면
+Node 에 고정된 출처:  #9.revisit_from = #8
+```
+
+이 값은 **Journey 자체가 아니다.** Journey 는 여전히 Node 에 매이지 않는 Agent 쪽 상태이고,
+여기 남는 것은 그 사건이 세계에 남긴 **불변의 자국** 하나뿐이다.
+
+그리고 이 자국은 **계보의 변이 아니다** — Lineage 는 `parent` 만 따라간다.
+
 ---
 
 ## 7. Revisit의 Closed → Closed 원칙

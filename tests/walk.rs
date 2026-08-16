@@ -1003,6 +1003,194 @@ fn a_target_on_the_branch_we_left_is_refused() {
     );
 }
 
+// ── 갈래의 출처 ────────────────────────────────────────────────────────────
+
+#[test]
+fn walking_straight_ahead_leaves_no_revisit_provenance() {
+    let mut walk = walk_with_an_open_outcome();
+    for node in walk.nodes() {
+        assert_eq!(
+            node.revisit_from, None,
+            "{} 는 평범하게 이어 걸어 났는데 출처가 붙었다",
+            node.id
+        );
+    }
+    // 열려 있는 Outcome 도 마찬가지다.
+    walk.open(NodeKind::CycleExit).unwrap_err();
+    assert!(walk.nodes().iter().all(|node| node.revisit_from.is_none()));
+}
+
+#[test]
+fn a_branch_born_of_a_revisit_records_where_it_came_from() {
+    let (mut walk, target, outcome) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+
+    let fresh = walk.node(walk.current().unwrap()).unwrap();
+    assert_eq!(fresh.kind, NodeKind::Hypothesis, "갈래는 가설에서 시작한다");
+    assert_eq!(fresh.parent, Some(target), "구조적 부모는 되돌아간 자리다");
+    assert_eq!(fresh.revisit_from, Some(outcome), "출처는 그 결정을 내린 Outcome 이다");
+    assert_ne!(
+        fresh.parent, fresh.revisit_from,
+        "두 변은 서로 다른 것을 가리킨다"
+    );
+}
+
+#[test]
+fn the_source_decision_and_the_new_parent_agree() {
+    // provenance 의 정합성 조건: 출처가 적어 둔 target 이 곧 새 Node 의 부모다.
+    let (mut walk, _, _) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+
+    let fresh = walk.node(walk.current().unwrap()).unwrap();
+    let source = walk.node(fresh.revisit_from.unwrap()).unwrap();
+
+    assert_eq!(source.status, NodeStatus::Closed, "출처는 닫힌 자리다");
+    let decision = source.report.as_ref().expect("닫힌 자리에는 Report 가 있다");
+    assert_eq!(decision.get(ACTION), Some("revisit"));
+    assert_eq!(
+        decision.get(TARGET).map(str::to_string),
+        fresh.parent.map(|id| id.to_string().trim_start_matches('#').to_string()),
+        "출처가 가리킨 target 과 새 Node 의 부모가 같아야 한다"
+    );
+}
+
+#[test]
+fn provenance_marks_the_birth_and_is_not_passed_down() {
+    let (mut walk, _, outcome) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+    let first = walk.current().unwrap();
+    step_close(&mut walk, NodeKind::Hypothesis);
+    for kind in [NodeKind::Verify, NodeKind::Analysis] {
+        step(&mut walk, kind);
+    }
+
+    let carriers: Vec<NodeId> = walk
+        .nodes()
+        .iter()
+        .filter(|node| node.revisit_from.is_some())
+        .map(|node| node.id)
+        .collect();
+    assert_eq!(carriers, vec![first], "출처는 갈래의 출생점에만 남는다");
+    assert_eq!(walk.node(first).unwrap().revisit_from, Some(outcome));
+
+    for node in walk.nodes().iter().filter(|node| node.id != first) {
+        assert_eq!(node.revisit_from, None, "{} 가 출처를 물려받았다", node.id);
+    }
+}
+
+#[test]
+fn provenance_is_not_a_lineage_edge() {
+    let (mut walk, target, outcome) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+    let fresh = walk.current().unwrap();
+
+    let lineage: Vec<NodeId> = walk
+        .lineage(fresh)
+        .unwrap()
+        .iter()
+        .map(|node| node.id)
+        .collect();
+
+    assert!(
+        !lineage.contains(&outcome),
+        "출처가 계보에 섞였다 — lineage 는 parent 만 따라간다: {lineage:?}"
+    );
+    // 계보는 되돌아간 자리까지의 길 + 자기 자신뿐이다.
+    let expected: Vec<NodeId> = walk
+        .lineage(target)
+        .unwrap()
+        .iter()
+        .map(|node| node.id)
+        .chain(std::iter::once(fresh))
+        .collect();
+    assert_eq!(lineage, expected);
+}
+
+#[test]
+fn provenance_is_written_once_and_the_branch_left_behind_is_untouched() {
+    let (mut walk, _, _) = walk_decided_to_revisit();
+    let before = walk.nodes().to_vec();
+
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+    let first = walk.current().unwrap();
+    step_close(&mut walk, NodeKind::Hypothesis);
+    step(&mut walk, NodeKind::Verify);
+
+    // 옛 갈래는 id·parent·status·report·revisit_from 까지 한 글자도 안 바뀐다.
+    for old in &before {
+        assert_eq!(walk.node(old.id).unwrap(), old, "{} 가 바뀌었다", old.id);
+    }
+    // 새 갈래의 출생점도 그 뒤 걸음 때문에 바뀌지 않는다.
+    assert!(walk.node(first).unwrap().revisit_from.is_some());
+}
+
+#[test]
+fn a_refused_open_records_no_provenance() {
+    let (mut walk, _, outcome) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    let before = snapshot(&walk);
+
+    assert!(walk.open(NodeKind::Outcome).is_err());
+    assert_eq!(snapshot(&walk), before, "거절이 반쯤 만든 Node 를 남겼다");
+    assert!(
+        walk.nodes().iter().all(|node| node.revisit_from.is_none()),
+        "거절이 출처를 남겼다"
+    );
+
+    // 되돌아온 상태가 살아 있어 정상적인 가설에서만 출처가 남는다.
+    walk.open(NodeKind::Hypothesis).unwrap();
+    assert_eq!(
+        walk.node(walk.current().unwrap()).unwrap().revisit_from,
+        Some(outcome)
+    );
+}
+
+#[test]
+fn each_branch_off_the_same_point_knows_its_own_origin() {
+    // 같은 자리로 두 번 되돌아가도 갈래마다 제 출처를 지닌다.
+    let (mut walk, target, first_outcome) = walk_decided_to_revisit();
+
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+    let first_branch = walk.current().unwrap();
+    step_close(&mut walk, NodeKind::Hypothesis);
+    for kind in [NodeKind::Verify, NodeKind::Analysis] {
+        step(&mut walk, kind);
+    }
+
+    // 두 번째 Outcome 도 같은 자리를 가리킨다.
+    walk.open(NodeKind::Outcome).unwrap();
+    let second_outcome = walk.current().unwrap();
+    let report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "revisit")
+        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(REASON, "이 갈래도 아니었다 — 같은 자리에서 다시 시작한다");
+    walk.close(report).unwrap();
+
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+    let second_branch = walk.current().unwrap();
+
+    assert_ne!(first_branch, second_branch);
+    assert_eq!(walk.node(first_branch).unwrap().parent, Some(target));
+    assert_eq!(walk.node(second_branch).unwrap().parent, Some(target));
+    assert_eq!(
+        walk.node(first_branch).unwrap().revisit_from,
+        Some(first_outcome)
+    );
+    assert_eq!(
+        walk.node(second_branch).unwrap().revisit_from,
+        Some(second_outcome),
+        "두 번째 갈래는 두 번째 결정에서 났다 — 순서로 짐작하지 않는다"
+    );
+}
+
 #[test]
 fn a_revisit_does_not_consume_a_name() {
     let (mut walk, _, _) = walk_decided_to_revisit();

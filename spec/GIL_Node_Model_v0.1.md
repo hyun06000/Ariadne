@@ -251,6 +251,36 @@ Lineage는 같은 레벨의 Graph에서 Node들이 이어지는 관계다.
 
 예를 들어 Cycle은 Chain의 `child`라기보다 Chain에 `contained`된다. 반면 같은 Cycle Graph에서 Cycle B는 Cycle A를 parent로 가질 수 있다.
 
+### 7.3 Provenance
+
+세 번째 관계가 하나 더 있다. **계보도 포함도 아니다.**
+
+```text
+revisit_from — 이 갈래를 낳은 결정이 어디에 적혀 있었는가
+```
+
+되돌아감으로 시작된 갈래의 **첫 Node** 는, 그 되돌아감을 결정한 Outcome 을 가리킨다.
+
+```text
+#9.parent       = #4     구조적 계승 — 계보가 따라가는 변
+#9.revisit_from = #8     생성의 출처 — 계보가 따라가지 않는 변
+```
+
+**`revisit_from` 은 두 번째 parent 가 아니다.** Lineage 재구성은 `parent` 만 따라간다.
+이 변을 따라가면 되돌아오며 버린 갈래가 계보에 섞인다.
+
+따라서 용어를 셋으로 구분한다.
+
+- `contains` — 계층 사이의 포함
+- `parent / child` — 같은 계층에서의 계보
+- `revisit_from` — 같은 계층에서의 **생성 출처**(계보 아님)
+
+이 값은 갈래의 출생점에만 남고 자손에게 전파되지 않으며, 한 번 정해지면 바뀌지 않는다.
+
+**이것은 지금 Step 레벨에서만 검증된 관계다.** 모든 계층이 공유하는 provenance 로
+일반화하지 않는다 — Cycle 이나 Chain 에 되돌아감이 실제로 도입될 때, 같은 모델이 그 자리에도
+맞는지 그때 다시 판단한다.
+
 ---
 
 ## 8. 계층적 캡슐화

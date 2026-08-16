@@ -15,6 +15,8 @@
 //! [`Walk::revisit`] 은 닫힌 Outcome 에 **이미 확정된** 되돌아감을 실행한다. 갈 곳을 새로
 //! 고르는 것이 아니라 적혀 있는 것을 밟는 것이고, 그래서 근거와 이동이 떨어지지 않는다.
 //! 되돌아온 자리에서는 **새 가설만** 열린다 — 갈래는 언제나 가설에서 시작한다.
+//! 그렇게 난 첫 가설은 제 출처([`StepNode::revisit_from`])를 지닌다 — 어느 결정이 이 갈래를
+//! 낳았는지를 실행 순서에서 되짚지 않기 위해서다.
 //!
 //! 아직 없는 것: 임의 이동 · 저장 · Artifact · Journey · Chain · Cycle.
 
@@ -56,6 +58,14 @@ pub struct StepNode {
     /// 자신도 Step 의 parent 가 될 수 없다. Cycle 사이의 계승은 Cycle Graph 가, 어느 Cycle 에
     /// 담겼는지는 Containment 가 따로 말한다(둘 다 아직 없다).
     pub parent: Option<NodeId>,
+    /// 이 Node 가 **되돌아감으로 시작된 갈래의 첫 Node** 라면, 그 갈래를 낳은 Outcome.
+    ///
+    /// **계보의 변이 아니다.** [`Walk::lineage`] 는 이것을 절대 타지 않는다 —
+    /// 두 번째 부모로 읽으면 버린 갈래가 계보에 섞인다.
+    ///
+    /// 태어날 때 한 번 정해지고 바뀌지 않으며, 자손에게 전파되지 않는다.
+    /// 평범하게 이어 걸어 난 Node 는 `None` 이다.
+    pub revisit_from: Option<NodeId>,
     pub status: NodeStatus,
     /// 닫히면서 받는다. 열려 있는 동안은 `None`.
     pub report: Option<Report>,
@@ -120,6 +130,9 @@ impl Walk {
             id,
             kind,
             parent: self.current,
+            // 되돌아옴이 걸려 있는 동안 열리는 것은 새 갈래의 첫 가설뿐이다(위에서 막았다).
+            // 그 자리에서만 출처가 남고, 바로 아래 줄에서 실행 상태는 풀린다.
+            revisit_from: self.pending_revisit,
             status: NodeStatus::Open,
             report: None,
         });
