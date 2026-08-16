@@ -12,7 +12,11 @@
 //! 계보는 **읽기만** 한다([`Walk::lineage`]) — `parent` 사슬을 뿌리부터 훑을 뿐,
 //! 자리를 옮기지 않는다.
 //!
-//! 아직 없는 것: 되돌아가기 · 분기 · 저장 · Artifact · Journey · Chain · Cycle.
+//! [`Walk::revisit`] 은 닫힌 Outcome 에 **이미 확정된** 되돌아감을 실행한다. 갈 곳을 새로
+//! 고르는 것이 아니라 적혀 있는 것을 밟는 것이고, 그래서 근거와 이동이 떨어지지 않는다.
+//! 되돌아온 자리에서는 **새 가설만** 열린다 — 갈래는 언제나 가설에서 시작한다.
+//!
+//! 아직 없는 것: 임의 이동 · 저장 · Artifact · Journey · Chain · Cycle.
 
 use std::fmt;
 
@@ -65,6 +69,11 @@ pub struct Walk {
     current: Option<NodeId>,
     finished: bool,
     next_id: u32,
+    /// 되돌아온 직후, 아직 새 가설을 열지 않았다면 **어디에서 되돌아왔는지**.
+    ///
+    /// GIL 의 개념이 아니라 이 걷기의 **실행 상태**다 — 새 갈래의 첫 Node 가 가설이 되도록
+    /// 붙잡아 두는 자리이고, 그 가설이 열리는 순간 풀린다.
+    pending_revisit: Option<NodeId>,
 }
 
 impl Walk {
@@ -76,6 +85,7 @@ impl Walk {
             current: None,
             finished: false,
             next_id: 1,
+            pending_revisit: None,
         }
     }
 
@@ -86,6 +96,12 @@ impl Walk {
     pub fn open(&mut self, kind: NodeKind) -> Result<(), WalkError> {
         if self.finished {
             return Err(WalkError::AlreadyFinished);
+        }
+
+        // 되돌아온 직후에는 새 가설만 연다. 문법은 여기서 다른 것도 허락하지만
+        // (되돌아간 자리가 Analysis 라면 Outcome 도 열린다), 되돌아간 뜻이 그것이 아니다.
+        if self.pending_revisit.is_some() && kind != NodeKind::Hypothesis {
+            return Err(WalkError::ExpectedHypothesis { opened: kind });
         }
 
         // 판정이 먼저다 — 거절되면 Node 도, 이름도 생기지 않는다.
@@ -108,6 +124,58 @@ impl Walk {
             report: None,
         });
         self.current = Some(id);
+        self.pending_revisit = None; // 새 갈래가 시작됐다.
+        Ok(())
+    }
+
+    /// 지금 자리에 **확정되어 있는** 되돌아감을 실행한다.
+    ///
+    /// 어디로 갈지는 부르는 쪽이 고르지 않는다 — 닫힌 Outcome 의 Report 에 이미 적혀 있고,
+    /// 그래서 *왜 그리로 갔는가* 와 실제 이동이 떨어지지 않는다.
+    ///
+    /// 그래프는 한 글자도 바뀌지 않는다. 바뀌는 것은 **서 있는 자리**와, 다음 한 번은 새
+    /// 가설이어야 한다는 실행 상태뿐이다.
+    pub fn revisit(&mut self) -> Result<(), WalkError> {
+        if self.finished {
+            return Err(WalkError::AlreadyFinished);
+        }
+
+        let source = self.current.ok_or(WalkError::NothingToRevisit)?;
+        let target = {
+            let node = self
+                .node(source)
+                .expect("current 는 언제나 실재하는 Node 를 가리킨다");
+
+            // 되돌아감은 닫힌 자리에서만 시작한다.
+            if node.status != NodeStatus::Closed {
+                return Err(WalkError::NothingToRevisit);
+            }
+            let report = node.report.as_ref().ok_or(WalkError::NothingToRevisit)?;
+
+            // 여기에 되돌아가겠다는 결정이 적혀 있는가. 적혀 있지 않으면 실행할 것이 없다.
+            if report.get(NEXT_ACTION) != Some(ACTION_REVISIT) {
+                return Err(WalkError::NothingToRevisit);
+            }
+
+            // 갈 곳의 구조적 적법성(조상인가·거기서 가설을 열 수 있는가)은 이 Outcome 을
+            // 닫을 때 이미 봤다. 여기서는 **실행에 필요한 것만** 다시 본다 —
+            // 그 이름이 실재하고 여전히 닫혀 있는가.
+            let target = report.get(NEXT_TARGET).ok_or(NextDirectionError::TargetMissing)?;
+            let target: NodeId = target
+                .parse::<u32>()
+                .map(NodeId)
+                .map_err(|_| NextDirectionError::TargetUnreadable(target.to_string()))?;
+            let target_node = self
+                .node(target)
+                .ok_or(NextDirectionError::UnknownTarget(target))?;
+            if target_node.status != NodeStatus::Closed {
+                return Err(NextDirectionError::TargetIsOpen(target).into());
+            }
+            target
+        };
+
+        self.current = Some(target);
+        self.pending_revisit = Some(source);
         Ok(())
     }
 
@@ -352,6 +420,10 @@ pub enum WalkError {
     UnknownNode(NodeId),
     /// Report 가 적어 둔 다음 방향이 이 그래프에서 성립하지 않는다.
     NextDirection(NextDirectionError),
+    /// 지금 자리에는 실행할 되돌아감이 적혀 있지 않다.
+    NothingToRevisit,
+    /// 되돌아온 직후인데 새 가설이 아닌 것을 열려 했다.
+    ExpectedHypothesis { opened: NodeKind },
 }
 
 impl From<GrammarError> for WalkError {
@@ -380,6 +452,15 @@ impl fmt::Display for WalkError {
                 write!(f, "{id} 은(는) 이 Step Graph 에 없는 Node 다")
             }
             WalkError::NextDirection(err) => write!(f, "{err}"),
+            WalkError::NothingToRevisit => write!(
+                f,
+                "지금 자리에 실행할 되돌아감이 없다 — 되돌아가겠다고 적어 둔 \
+                 닫힌 Outcome 에 서 있어야 한다"
+            ),
+            WalkError::ExpectedHypothesis { opened } => write!(
+                f,
+                "되돌아온 자리에서는 새 가설만 열 수 있다 — {opened} 이(가) 아니라 hypothesis 다"
+            ),
         }
     }
 }
@@ -391,7 +472,9 @@ impl std::error::Error for WalkError {
             WalkError::NextDirection(err) => Some(err),
             WalkError::NothingToClose
             | WalkError::AlreadyFinished
-            | WalkError::UnknownNode(_) => None,
+            | WalkError::UnknownNode(_)
+            | WalkError::NothingToRevisit
+            | WalkError::ExpectedHypothesis { .. } => None,
         }
     }
 }

@@ -45,6 +45,13 @@ fn next_kind(walk: &Walk) -> NodeKind {
         .unwrap_or(allowed[0])
 }
 
+/// 이미 열려 있는 Node 를 명세가 받아들이는 Report 로 닫는다.
+fn step_close(walk: &mut Walk, kind: NodeKind) {
+    let report = full_report(walk.rules(), kind);
+    walk.close(report)
+        .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
+}
+
 /// 한 Step 을 온전히 걷는다 — 열고, 명세가 받아들이는 Report 로 닫는다.
 fn step(walk: &mut Walk, kind: NodeKind) -> NodeId {
     walk.open(kind)
@@ -754,6 +761,261 @@ fn a_rejected_next_direction_leaves_the_outcome_open() {
         );
         assert!(walk.node(outcome).unwrap().report.is_none());
     }
+}
+
+// ── 되돌아감 ───────────────────────────────────────────────────────────────
+
+/// §11 의 시나리오 — `#1…#7` 을 걷고 `#8 Outcome` 을 **`#4` 로 되돌아가겠다고 적고** 닫는다.
+///
+/// 돌려주는 것은 (걷기, 되돌아갈 자리 `#4`, 그 결정을 적은 Outcome `#8`).
+fn walk_decided_to_revisit() -> (Walk, NodeId, NodeId) {
+    let mut walk = walk_with_an_open_outcome();
+    let outcome = walk.current().unwrap();
+    let target = first_of_kind(&walk, NodeKind::Analysis);
+
+    let report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "revisit")
+        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(REASON, "#4 까지는 유효하지만 그 뒤 가설이 반증됐다");
+    walk.close(report).expect("되돌아가겠다는 결정을 적고 닫는다");
+
+    (walk, target, outcome)
+}
+
+#[test]
+fn a_recorded_revisit_moves_the_walk_to_its_target() {
+    let (mut walk, target, outcome) = walk_decided_to_revisit();
+    assert_eq!(walk.current(), Some(outcome));
+    let graph_before = walk.nodes().to_vec();
+
+    walk.revisit().expect("적어 둔 되돌아감을 실행한다");
+
+    assert_eq!(walk.current(), Some(target), "서 있는 자리가 target 으로 옮겨간다");
+    assert_eq!(walk.nodes(), &graph_before[..], "되돌아감이 그래프를 건드렸다");
+    assert!(!walk.is_finished());
+}
+
+#[test]
+fn a_cycle_closing_outcome_has_nothing_to_revisit() {
+    for verdict in ["success", "failure"] {
+        let mut walk = walk_with_an_open_outcome();
+        let report = outcome_report(&walk)
+            .with("verdict", verdict)
+            .with(ACTION, "close_cycle")
+            .with(REASON, "이 Cycle 안에서는 더 갈 곳이 없다");
+        walk.close(report).unwrap();
+
+        assert_eq!(
+            walk.revisit(),
+            Err(WalkError::NothingToRevisit),
+            "{verdict} + close_cycle 에서 되돌아갔다"
+        );
+    }
+}
+
+#[test]
+fn an_open_outcome_cannot_revisit_yet() {
+    let mut walk = walk_with_an_open_outcome();
+    assert_eq!(walk.revisit(), Err(WalkError::NothingToRevisit));
+}
+
+#[test]
+fn only_a_place_that_recorded_a_revisit_can_revisit() {
+    // 갓 시작한 걷기 — 서 있는 자리가 없다.
+    let mut empty = Walk::start(spec());
+    assert_eq!(empty.revisit(), Err(WalkError::NothingToRevisit));
+
+    // Outcome 이 아닌 닫힌 자리 — 되돌아감을 적는 칸 자체가 없다.
+    let mut walk = Walk::start(spec());
+    for kind in [
+        NodeKind::Define,
+        NodeKind::Hypothesis,
+        NodeKind::Verify,
+        NodeKind::Analysis,
+    ] {
+        step(&mut walk, kind);
+        assert_eq!(walk.revisit(), Err(WalkError::NothingToRevisit), "{kind}");
+    }
+}
+
+#[test]
+fn a_finished_walk_cannot_revisit() {
+    let mut walk = walk_with_an_open_outcome();
+    let report = outcome_report(&walk)
+        .with("verdict", "success")
+        .with(ACTION, "close_cycle")
+        .with(REASON, "결론에 닿았다");
+    walk.close(report).unwrap();
+    walk.open(NodeKind::CycleExit).unwrap();
+
+    assert_eq!(walk.revisit(), Err(WalkError::AlreadyFinished));
+}
+
+#[test]
+fn after_a_revisit_only_a_new_hypothesis_may_open() {
+    let (mut walk, target, _) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    let before = snapshot(&walk);
+
+    for kind in NodeKind::ALL {
+        if kind == NodeKind::Hypothesis {
+            continue;
+        }
+        assert_eq!(
+            walk.open(kind),
+            Err(WalkError::ExpectedHypothesis { opened: kind }),
+            "되돌아온 자리에서 {kind} 가 열렸다"
+        );
+        assert_eq!(snapshot(&walk), before, "거절이 상태를 건드렸다");
+    }
+
+    // 거절이 반복돼도 되돌아온 상태는 풀리지 않는다 — 그 뒤에도 가설은 열린다.
+    assert_eq!(walk.current(), Some(target));
+    walk.open(NodeKind::Hypothesis)
+        .expect("거절 뒤에도 새 가설은 열려야 한다");
+}
+
+#[test]
+fn the_new_branch_hangs_off_the_revisit_target_not_the_last_node() {
+    let (mut walk, target, outcome) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+
+    let fresh = walk.node(walk.current().unwrap()).unwrap();
+
+    // ⭐ 직전에 실행한 Node 는 #8 인데, 구조적 부모는 #4 다.
+    assert_eq!(fresh.parent, Some(target), "새 갈래는 되돌아간 자리에서 난다");
+    assert_ne!(fresh.parent, Some(outcome), "직전 실행 Node 가 부모가 되면 안 된다");
+    assert_eq!(fresh.kind, NodeKind::Hypothesis);
+
+    // 되돌아온 상태는 풀렸다 — 이제 문법이 허락하는 대로 이어 걷는다.
+    let fresh_id = fresh.id;
+    step_close(&mut walk, NodeKind::Hypothesis);
+    walk.open(NodeKind::Verify)
+        .expect("갈래가 시작됐으니 평범하게 이어진다");
+    assert_eq!(walk.node(walk.current().unwrap()).unwrap().parent, Some(fresh_id));
+}
+
+#[test]
+fn the_new_branch_does_not_inherit_the_branch_it_left() {
+    let (mut walk, target, outcome) = walk_decided_to_revisit();
+    let abandoned: Vec<NodeId> = walk
+        .lineage(outcome)
+        .unwrap()
+        .iter()
+        .map(|node| node.id)
+        .filter(|id| *id > target) // #5 … #8
+        .collect();
+    assert_eq!(abandoned.len(), 4, "버린 갈래는 #5~#8 넷이다");
+
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+    let fresh = walk.current().unwrap();
+
+    let lineage: Vec<NodeId> = walk
+        .lineage(fresh)
+        .unwrap()
+        .iter()
+        .map(|node| node.id)
+        .collect();
+
+    // lineage(#9) = [#1, #2, #3, #4, #9]
+    let expected: Vec<NodeId> = walk
+        .lineage(target)
+        .unwrap()
+        .iter()
+        .map(|node| node.id)
+        .chain(std::iter::once(fresh))
+        .collect();
+    assert_eq!(lineage, expected);
+
+    for left in abandoned {
+        assert!(
+            !lineage.contains(&left),
+            "버린 갈래의 {left} 가 새 갈래의 계보에 들어왔다"
+        );
+    }
+}
+
+#[test]
+fn revisiting_leaves_the_branch_it_left_untouched() {
+    let (mut walk, _, outcome) = walk_decided_to_revisit();
+    let before = walk.nodes().to_vec();
+
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+
+    for old in &before {
+        let now = walk.node(old.id).expect("옛 Node 가 사라졌다");
+        assert_eq!(now, old, "{} 가 되돌아감 때문에 바뀌었다", old.id);
+    }
+    // 버린 갈래의 Outcome 도 제 결정을 그대로 갖고 있다.
+    assert_eq!(walk.node(outcome).unwrap().status, NodeStatus::Closed);
+    assert!(walk.node(outcome).unwrap().report.is_some());
+}
+
+#[test]
+fn a_target_on_the_branch_we_left_is_refused() {
+    // 앞선 Step 들이 미뤄 둔 시험 — 형제 가지는 이제 실제로 만들 수 있다.
+    let (mut walk, target, _) = walk_decided_to_revisit();
+    let sibling = walk
+        .nodes()
+        .iter()
+        .find(|node| node.kind == NodeKind::Analysis && node.id > target)
+        .expect("버린 갈래에도 Analysis 가 있다")
+        .id;
+
+    // 새 갈래를 Outcome 까지 걷는다.
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+    step_close(&mut walk, NodeKind::Hypothesis);
+    for kind in [NodeKind::Verify, NodeKind::Analysis] {
+        step(&mut walk, kind);
+    }
+    walk.open(NodeKind::Outcome).unwrap();
+
+    // 버린 갈래의 Analysis 는 닫혀 있고 가설도 열 수 있지만 — 이 자리의 조상이 아니다.
+    let sibling_node = walk.node(sibling).unwrap();
+    assert_eq!(sibling_node.status, NodeStatus::Closed);
+    assert!(
+        walk.rules()
+            .validate_open(Node::closed(sibling_node.kind), NodeKind::Hypothesis)
+            .is_ok()
+    );
+    assert!(
+        !walk
+            .lineage(walk.current().unwrap())
+            .unwrap()
+            .iter()
+            .any(|node| node.id == sibling)
+    );
+
+    let report = outcome_report(&walk)
+        .with("verdict", "failure")
+        .with(ACTION, "revisit")
+        .with(TARGET, sibling.to_string().trim_start_matches('#'))
+        .with(REASON, "저 갈래로 건너뛰겠다");
+
+    assert_eq!(
+        expect_next_direction_error(&mut walk, report),
+        NextDirectionError::TargetNotAnAncestor(sibling)
+    );
+}
+
+#[test]
+fn a_revisit_does_not_consume_a_name() {
+    let (mut walk, _, _) = walk_decided_to_revisit();
+    walk.revisit().unwrap();
+    walk.open(NodeKind::Hypothesis).unwrap();
+
+    // 이름에 구멍이 났다면 마지막 이름이 Node 수보다 커진다.
+    let fresh = walk.node(walk.current().unwrap()).unwrap();
+    assert_eq!(
+        fresh.id.to_string(),
+        format!("#{}", walk.nodes().len()),
+        "되돌아감이 이름을 태웠다"
+    );
 }
 
 // ── nodes 와 history ───────────────────────────────────────────────────────
