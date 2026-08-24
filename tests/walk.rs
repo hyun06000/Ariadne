@@ -5,17 +5,30 @@
 //! 여기서도 **길은 코드에 적지 않는다**. 어디로 갈 수 있는지는 `spec/gil-spec.yaml` 이
 //! 말하고, 시험은 그 말을 따라 걷는다.
 
-use gil::{
+use gil::{CycleKind, CycleRef, 
     GrammarError, NextDirectionError, Node, NodeId, NodeKind, NodeStatus, Report, StepNode, Walk,
     WalkError,
 };
 
 mod common;
+/// 이 걷기가 담긴 Cycle. Step 의 영구 주소가 소속 Cycle 을 지니므로 걷기도 그것을 안다.
+fn a_cycle() -> CycleRef {
+    "cycle:C2".parse().expect("cycle:C2 는 주소다")
+}
+
+/// 이 걷기를 연 존재. **여기서 재는 것은 걷기의 불변식뿐이라** 어느 존재인지는 상관없다 —
+/// 걷기는 Will 을 모른다. Will 과 Journey 는 [`Project`](gil::Project) 의 transaction 이 진다.
+fn an_existence() -> gil::ExistenceRef {
+    "existence:X1".parse().expect("existence:X1 은 주소다")
+}
+
 use common::{ACTION, REASON, TARGET, allowed_here, full_report, spec, step, step_close};
 
-/// 걷기의 전부 — 실패한 연산 뒤에도 이 셋이 그대로여야 한다.
-fn snapshot(walk: &Walk) -> (Option<NodeId>, Vec<StepNode>, bool) {
-    (walk.current(), walk.nodes().to_vec(), walk.is_finished())
+/// 걷기의 전부 — 실패한 연산 뒤에도 이 둘이 그대로여야 한다.
+///
+/// 끝났는지는 여기 없다. 그건 걷기의 사실이 아니라 그것을 담은 Cycle 의 사실이다.
+fn snapshot(walk: &Walk) -> (Option<NodeId>, Vec<StepNode>) {
+    (walk.current(), walk.nodes().to_vec())
 }
 
 fn kinds_of(nodes: &[StepNode]) -> Vec<NodeKind> {
@@ -34,7 +47,7 @@ fn next_kind(walk: &Walk) -> NodeKind {
         .and_then(|id| walk.node(id))
         .map(|node| node.kind)
         .unwrap_or(NodeKind::CycleEntry);
-    let allowed = walk.rules().allowed_children_of(here);
+    let allowed = walk.rules().allowed_children_of(CycleKind::Experiment, here);
     assert!(!allowed.is_empty(), "{here} 뒤에 갈 곳이 명세에 없다");
 
     let walked = kinds_of(walk.nodes());
@@ -47,7 +60,7 @@ fn next_kind(walk: &Walk) -> NodeKind {
 
 /// `#1 → … → #5` 까지 걷는다(설계에서 예로 든 시나리오 그대로).
 fn walk_to_second_hypothesis() -> Walk {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -64,7 +77,7 @@ fn walk_to_second_hypothesis() -> Walk {
 
 #[test]
 fn a_step_opens_and_closes_and_then_the_next_one_opens() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     assert!(walk.current().is_none(), "시작에는 서 있는 Node 가 없다");
     assert!(walk.nodes().is_empty());
 
@@ -74,7 +87,7 @@ fn a_step_opens_and_closes_and_then_the_next_one_opens() {
     assert!(at(&walk).report.is_none(), "열려 있는 동안 Report 는 없다");
     assert_eq!(walk.history().count(), 0, "열기만 해서는 닫힌 것이 없다");
 
-    let report = full_report(walk.rules(), NodeKind::Define);
+    let report = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Define);
     walk.close(report.clone()).unwrap();
     assert_eq!(walk.current(), Some(define), "닫아도 그 자리에 서 있다");
     assert_eq!(at(&walk).status, NodeStatus::Closed);
@@ -89,10 +102,10 @@ fn a_step_opens_and_closes_and_then_the_next_one_opens() {
 #[test]
 fn the_walk_begins_at_the_cycle_entry() {
     let rules = spec();
-    let opens_first = rules.allowed_children_of(NodeKind::CycleEntry);
+    let opens_first = rules.allowed_children_of(CycleKind::Experiment, NodeKind::CycleEntry);
 
     for kind in NodeKind::ALL {
-        let mut walk = Walk::start(spec());
+        let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
         let result = walk.open(kind);
         if opens_first.contains(&kind) {
             assert!(result.is_ok(), "{kind} 는 시작에서 열려야 한다");
@@ -104,7 +117,7 @@ fn the_walk_begins_at_the_cycle_entry() {
 
 #[test]
 fn an_open_node_blocks_opening_another() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     walk.open(NodeKind::Define).unwrap();
 
     let err = walk
@@ -119,8 +132,8 @@ fn an_open_node_blocks_opening_another() {
 
 #[test]
 fn closing_is_refused_when_nothing_is_open() {
-    let mut walk = Walk::start(spec());
-    let report = full_report(walk.rules(), NodeKind::Define);
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
+    let report = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Define);
 
     // ① 아직 아무것도 열지 않았다.
     assert_eq!(walk.close(report.clone()), Err(WalkError::NothingToClose));
@@ -135,7 +148,7 @@ fn closing_is_refused_when_nothing_is_open() {
 
 #[test]
 fn every_opened_node_gets_a_name_of_its_own() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -166,13 +179,13 @@ fn every_opened_node_gets_a_name_of_its_own() {
 fn a_failed_open_does_not_consume_a_name() {
     // 실패한 걷기와 깨끗한 걷기를 나란히 세운다. 실패가 이름을 태웠다면 두 줄기의
     // 이름이 어긋난다 — 구멍이 났는지를 `NodeId` 속을 들여다보지 않고 잰다.
-    let mut stumbled = Walk::start(spec());
+    let mut stumbled = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     step(&mut stumbled, NodeKind::Define);
     assert!(stumbled.open(NodeKind::Verify).is_err());
     assert!(stumbled.open(NodeKind::Outcome).is_err());
     stumbled.open(NodeKind::Hypothesis).unwrap();
 
-    let mut clean = Walk::start(spec());
+    let mut clean = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     step(&mut clean, NodeKind::Define);
     clean.open(NodeKind::Hypothesis).unwrap();
 
@@ -189,7 +202,7 @@ fn a_failed_open_does_not_consume_a_name() {
 
 #[test]
 fn the_first_step_comes_from_the_cycle_entry_boundary() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     walk.open(NodeKind::Define).unwrap();
     assert_eq!(
         at(&walk).parent,
@@ -202,7 +215,7 @@ fn the_first_step_comes_from_the_cycle_entry_boundary() {
 fn a_parent_of_none_marks_the_local_root_of_this_step_graph() {
     // `None` 은 고아가 아니라 이 Step Graph 의 뿌리다 — Cycle Entry Boundary 로 들어온 자리.
     let mut walk = walk_to_second_hypothesis();
-    let report = full_report(walk.rules(), NodeKind::Hypothesis);
+    let report = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Hypothesis);
     walk.close(report).unwrap();
     step(&mut walk, NodeKind::Verify);
 
@@ -227,12 +240,11 @@ fn a_parent_of_none_marks_the_local_root_of_this_step_graph() {
 fn every_parent_points_inside_this_step_graph() {
     // 계층이 다른 Node 나 바깥의 무엇도 Step 의 parent 가 되지 않는다.
     let mut walk = walk_to_second_hypothesis();
-    let report = full_report(walk.rules(), NodeKind::Hypothesis);
+    let report = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Hypothesis);
     walk.close(report).unwrap();
     step(&mut walk, NodeKind::Verify);
     step(&mut walk, NodeKind::Analysis);
     step(&mut walk, NodeKind::Outcome);
-    walk.open(NodeKind::CycleExit).unwrap();
 
     for node in walk.nodes() {
         let Some(parent) = node.parent else { continue };
@@ -250,7 +262,7 @@ fn every_parent_points_inside_this_step_graph() {
 
 #[test]
 fn a_node_records_its_parent_when_it_is_born() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     let define = step(&mut walk, NodeKind::Define);
 
     let standing_here = walk.current();
@@ -270,7 +282,7 @@ fn parents_are_written_once_and_never_recomputed() {
     let before: Vec<Option<NodeId>> = walk.nodes().iter().map(|node| node.parent).collect();
 
     // 걷기를 이어간다 — 뒤에 무엇이 오든 앞의 부모는 그대로여야 한다.
-    let report = full_report(walk.rules(), NodeKind::Hypothesis);
+    let report = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Hypothesis);
     walk.close(report).unwrap();
     step(&mut walk, NodeKind::Verify);
     step(&mut walk, NodeKind::Analysis);
@@ -316,7 +328,7 @@ fn lineage_is_recoverable_by_following_parents() {
 
 /// §9 의 시나리오 — 가설을 두 번 세우고 마지막 Outcome 을 **열어 둔 채** 선다.
 fn walk_with_an_open_outcome() -> Walk {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -420,7 +432,7 @@ fn the_same_target_gives_the_same_lineage_every_time() {
 
 #[test]
 fn inspecting_a_lineage_changes_nothing() {
-    let mut walk = walk_with_an_open_outcome();
+    let walk = walk_with_an_open_outcome();
     let before = snapshot(&walk);
 
     for node in walk.nodes().iter().map(|node| node.id).collect::<Vec<_>>() {
@@ -428,16 +440,23 @@ fn inspecting_a_lineage_changes_nothing() {
     }
     assert_eq!(snapshot(&walk), before);
 
-    // 이름을 태우지도 않는다 — 조회 뒤에 연 Node 가 다음 이름을 받는다.
-    let mut untouched = walk_with_an_open_outcome();
-    let report = full_report(walk.rules(), NodeKind::Outcome);
-    walk.close(report.clone()).unwrap();
+    // 이름을 태우지도 않는다 — 조회한 걷기와 안 한 걷기를 나란히 세워 이름 열을 대조한다.
+    let mut queried = walk_to_second_hypothesis();
+    let mut untouched = walk_to_second_hypothesis();
+    for node in queried.nodes().iter().map(|node| node.id).collect::<Vec<_>>() {
+        queried.lineage(node).unwrap();
+    }
+
+    let report = full_report(queried.rules(), CycleKind::Experiment, NodeKind::Hypothesis);
+    queried.close(report.clone()).unwrap();
     untouched.close(report).unwrap();
-    walk.open(NodeKind::CycleExit).unwrap();
-    untouched.open(NodeKind::CycleExit).unwrap();
+    queried.open(NodeKind::Verify).unwrap();
+    untouched.open(NodeKind::Verify).unwrap();
+
     assert_eq!(
-        walk.nodes().iter().map(|n| n.id).collect::<Vec<_>>(),
-        untouched.nodes().iter().map(|n| n.id).collect::<Vec<_>>()
+        queried.nodes().iter().map(|n| n.id).collect::<Vec<_>>(),
+        untouched.nodes().iter().map(|n| n.id).collect::<Vec<_>>(),
+        "계보를 조회한 것이 이름을 태웠다"
     );
 }
 
@@ -447,7 +466,7 @@ fn a_node_this_graph_does_not_have_is_refused() {
     let long = walk_with_an_open_outcome();
     let stranger = long.nodes().last().unwrap().id;
 
-    let mut short = Walk::start(spec());
+    let mut short = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     step(&mut short, NodeKind::Define);
 
     let err = short
@@ -461,7 +480,7 @@ fn a_node_this_graph_does_not_have_is_refused() {
 
 /// 열린 Outcome 앞에서, 다음 방향만 갈아 끼울 수 있는 Report.
 fn outcome_report(walk: &Walk) -> Report {
-    full_report(walk.rules(), NodeKind::Outcome)
+    full_report(walk.rules(), CycleKind::Experiment, NodeKind::Outcome)
 }
 
 fn first_of_kind(walk: &Walk, kind: NodeKind) -> NodeId {
@@ -487,7 +506,7 @@ fn a_failure_may_point_back_at_an_ancestor_that_can_branch() {
         .into_iter()
         .filter(|kind| {
             rules
-                .validate_open(Node::closed(*kind), NodeKind::Hypothesis)
+                .validate_open(CycleKind::Experiment, Node::closed(*kind), NodeKind::Hypothesis)
                 .is_ok()
         })
         .collect();
@@ -500,7 +519,7 @@ fn a_failure_may_point_back_at_an_ancestor_that_can_branch() {
         let report = outcome_report(&walk)
             .with("verdict", "failure")
             .with(ACTION, "revisit")
-            .with(TARGET, target.to_string().trim_start_matches('#'))
+            .with(TARGET, walk.step_ref(target).to_string())
             .with(REASON, "여기까지는 유효하다");
 
         walk.close(report)
@@ -518,7 +537,7 @@ fn an_ancestor_that_cannot_open_a_hypothesis_is_refused() {
         .filter(|kind| !kind.is_boundary())
         .filter(|kind| {
             rules
-                .validate_open(Node::closed(*kind), NodeKind::Hypothesis)
+                .validate_open(CycleKind::Experiment, Node::closed(*kind), NodeKind::Hypothesis)
                 .is_err()
         })
         .collect();
@@ -538,7 +557,7 @@ fn an_ancestor_that_cannot_open_a_hypothesis_is_refused() {
         let report = outcome_report(&walk)
             .with("verdict", "failure")
             .with(ACTION, "revisit")
-            .with(TARGET, target.to_string().trim_start_matches('#'))
+            .with(TARGET, walk.step_ref(target).to_string())
             .with(REASON, "여기로 돌아가고 싶다");
 
         let err = expect_next_direction_error(&mut walk, report);
@@ -561,7 +580,7 @@ fn a_successful_cycle_may_only_close_the_cycle() {
     // 이 좁힘은 명세가 적어 둔 것이다 — 시험이 코드에 다시 적지 않는다.
     let succeeded = outcome_report(&walk).with("verdict", "success");
     assert_eq!(
-        allowed_here(walk.rules(), NodeKind::Outcome, ACTION, &succeeded),
+        allowed_here(walk.rules(), CycleKind::Experiment, NodeKind::Outcome, ACTION, &succeeded),
         vec!["close_cycle".to_string()],
         "success 는 Cycle 을 닫는 쪽으로만 간다"
     );
@@ -570,7 +589,7 @@ fn a_successful_cycle_may_only_close_the_cycle() {
     let report = outcome_report(&walk)
         .with("verdict", "success")
         .with(ACTION, "revisit")
-        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(TARGET, walk.step_ref(target).to_string())
         .with(REASON, "돌아가고 싶다");
     let err = walk.close(report).expect_err("success + revisit 이 통과했다");
     assert!(
@@ -608,10 +627,13 @@ fn a_revisit_without_a_target_is_refused() {
         .with(REASON, "돌아가겠다");
     report.remove(TARGET);
 
-    assert_eq!(
-        expect_next_direction_error(&mut walk, report),
-        NextDirectionError::TargetMissing
+    let err = expect_next_direction_error(&mut walk, report);
+    assert!(
+        matches!(err, NextDirectionError::TargetMissing { .. }),
+        "{err}"
     );
+    // 어디로 돌아갈지 적어야 하는지뿐 아니라 **어떤 꼴로** 적는지도 말한다.
+    assert!(err.to_string().contains("step:C2/S"), "{err}");
 }
 
 #[test]
@@ -621,7 +643,7 @@ fn closing_the_cycle_with_a_target_is_refused() {
     let report = outcome_report(&walk)
         .with("verdict", "failure")
         .with(ACTION, "close_cycle")
-        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(TARGET, walk.step_ref(target).to_string())
         .with(REASON, "닫겠다");
 
     assert_eq!(
@@ -636,7 +658,7 @@ fn a_target_this_graph_does_not_have_is_refused() {
     let stranger = long.nodes().last().unwrap().id;
 
     // 짧은 걷기에는 그 이름이 없다.
-    let mut short = Walk::start(spec());
+    let mut short = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -650,7 +672,7 @@ fn a_target_this_graph_does_not_have_is_refused() {
     let report = outcome_report(&short)
         .with("verdict", "failure")
         .with(ACTION, "revisit")
-        .with(TARGET, stranger.to_string().trim_start_matches('#'))
+        .with(TARGET, short.step_ref(stranger).to_string())
         .with(REASON, "저기로 돌아가겠다");
 
     assert_eq!(
@@ -660,18 +682,55 @@ fn a_target_this_graph_does_not_have_is_refused() {
 }
 
 #[test]
-fn a_target_that_is_not_a_node_name_is_refused() {
+fn a_target_that_is_not_a_step_address_is_refused() {
+    // 되돌아갈 자리는 **typed StepRef** 다. bare 도, 화면 축약도, Cycle 없는 이름도 아니다.
+    let walk = walk_with_an_open_outcome();
+    let analysis = first_of_kind(&walk, NodeKind::Analysis);
+    let number = analysis.to_string().trim_start_matches('#').to_string();
+
+    for bare in [
+        number.clone(),
+        format!("#{number}"),
+        format!("S{number}"),
+        "네 번째".to_string(),
+        format!("step:C2/S1, step:C2/S{number}"),
+    ] {
+        let report = outcome_report(&walk)
+            .with("verdict", "failure")
+            .with(ACTION, "revisit")
+            .with(TARGET, bare.clone())
+            .with(REASON, "돌아가겠다");
+
+        let err = expect_next_direction_error(&mut walk.clone(), report);
+        assert!(
+            matches!(err, NextDirectionError::TargetUnreadable { .. }),
+            "{bare:?} 가 주소로 읽혔다: {err}"
+        );
+        // 그리고 **올바른 전체 주소**를 알려 준다.
+        assert!(
+            err.to_string().contains("step:C2/S"),
+            "무엇을 적어야 하는지 안 말한다: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_target_in_another_cycle_is_refused() {
     let mut walk = walk_with_an_open_outcome();
+    let analysis = first_of_kind(&walk, NodeKind::Analysis);
+    let elsewhere = format!("step:C9/S{}", analysis.to_string().trim_start_matches('#'));
     let report = outcome_report(&walk)
         .with("verdict", "failure")
         .with(ACTION, "revisit")
-        .with(TARGET, "네 번째")
+        .with(TARGET, elsewhere.clone())
         .with(REASON, "돌아가겠다");
 
-    assert_eq!(
-        expect_next_direction_error(&mut walk, report),
-        NextDirectionError::TargetUnreadable("네 번째".to_string())
+    let err = expect_next_direction_error(&mut walk, report);
+    assert!(
+        matches!(err, NextDirectionError::TargetOtherCycle { .. }),
+        "{err}"
     );
+    assert!(err.to_string().contains("step:C2/S"), "{err}");
 }
 
 #[test]
@@ -682,7 +741,7 @@ fn the_outcome_cannot_point_back_at_itself() {
     let report = outcome_report(&walk)
         .with("verdict", "failure")
         .with(ACTION, "revisit")
-        .with(TARGET, itself.to_string().trim_start_matches('#'))
+        .with(TARGET, walk.step_ref(itself).to_string())
         .with(REASON, "제자리로 돌아가겠다");
 
     assert_eq!(
@@ -705,22 +764,17 @@ fn a_rejected_next_direction_leaves_the_outcome_open() {
         outcome_report(&walk)
             .with("verdict", "failure")
             .with(ACTION, "revisit")
-            .with(TARGET, "999")
+            .with(TARGET, "step:C2/S999")
             .with(REASON, "없는 Node 다"),
         outcome_report(&walk)
             .with("verdict", "failure")
             .with(ACTION, "revisit")
-            .with(
-                TARGET,
-                first_of_kind(&walk, NodeKind::Verify)
-                    .to_string()
-                    .trim_start_matches('#'),
-            )
+            .with(TARGET, walk.step_ref(first_of_kind(&walk, NodeKind::Verify)).to_string())
             .with(REASON, "분기할 수 없는 자리다"),
         outcome_report(&walk)
             .with("verdict", "failure")
             .with(ACTION, "close_cycle")
-            .with(TARGET, "1")
+            .with(TARGET, "step:C2/S1")
             .with(REASON, "닫는데 target 을 적었다"),
         outcome_report(&walk)
             .with("verdict", "failure")
@@ -754,7 +808,7 @@ fn walk_decided_to_revisit() -> (Walk, NodeId, NodeId) {
     let report = outcome_report(&walk)
         .with("verdict", "failure")
         .with(ACTION, "revisit")
-        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(TARGET, walk.step_ref(target).to_string())
         .with(REASON, "#4 까지는 유효하지만 그 뒤 가설이 반증됐다");
     walk.close(report).expect("되돌아가겠다는 결정을 적고 닫는다");
 
@@ -780,7 +834,7 @@ fn offered_is_what_opens(walk: &Walk, where_at: &str) {
 
 #[test]
 fn what_is_offered_is_exactly_what_opens() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     offered_is_what_opens(&walk, "시작 경계");
 
     for kind in [
@@ -811,14 +865,18 @@ fn after_a_revisit_only_a_new_hypothesis_is_offered() {
 }
 
 #[test]
-fn a_finished_walk_offers_nothing() {
+fn a_walk_at_the_exit_offers_no_more_steps() {
+    // 끝 경계에 닿으면 걷기 안에서 열 것이 없다. 그 다음은 Step 이 아니라 Cycle 의 일이다.
     let mut walk = walk_with_an_open_outcome();
     step_close(&mut walk, NodeKind::Outcome);
-    assert!(!walk.openable_here().is_empty(), "끝 경계는 안내돼야 한다");
 
-    walk.open(NodeKind::CycleExit).unwrap();
-    offered_is_what_opens(&walk, "끝 경계를 지난 뒤");
-    assert!(walk.openable_here().is_empty());
+    assert!(walk.at_exit(), "닫힌 Outcome 은 끝 경계에 닿은 자리다");
+    offered_is_what_opens(&walk, "끝 경계에 닿은 자리");
+    assert!(
+        walk.openable_here().is_empty(),
+        "경계를 Step 인 것처럼 안내한다: {:?}",
+        walk.openable_here()
+    );
 }
 
 #[test]
@@ -839,7 +897,7 @@ fn a_recorded_revisit_moves_the_walk_to_its_target() {
 
     assert_eq!(walk.current(), Some(target), "서 있는 자리가 target 으로 옮겨간다");
     assert_eq!(walk.nodes(), &graph_before[..], "되돌아감이 그래프를 건드렸다");
-    assert!(!walk.is_finished());
+    assert!(!walk.at_exit(), "해석으로 되돌아왔으니 끝 경계가 아니다");
 }
 
 #[test]
@@ -869,11 +927,11 @@ fn an_open_outcome_cannot_revisit_yet() {
 #[test]
 fn only_a_place_that_recorded_a_revisit_can_revisit() {
     // 갓 시작한 걷기 — 서 있는 자리가 없다.
-    let mut empty = Walk::start(spec());
+    let mut empty = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     assert_eq!(empty.revisit(), Err(WalkError::NothingToRevisit));
 
     // Outcome 이 아닌 닫힌 자리 — 되돌아감을 적는 칸 자체가 없다.
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -886,16 +944,21 @@ fn only_a_place_that_recorded_a_revisit_can_revisit() {
 }
 
 #[test]
-fn a_finished_walk_cannot_revisit() {
+fn a_boundary_is_never_a_step() {
+    // 경계는 지나가는 자리다. Step 으로 열면 이름도 안 받고 기록에도 안 남는 대신,
+    // **거절된다** — 여는 척하는 자리를 남기면 그것으로 Cycle 을 닫으려 들게 된다.
     let mut walk = walk_with_an_open_outcome();
-    let report = outcome_report(&walk)
-        .with("verdict", "success")
-        .with(ACTION, "close_cycle")
-        .with(REASON, "결론에 닿았다");
-    walk.close(report).unwrap();
-    walk.open(NodeKind::CycleExit).unwrap();
+    step_close(&mut walk, NodeKind::Outcome);
+    let before = snapshot(&walk);
 
-    assert_eq!(walk.revisit(), Err(WalkError::AlreadyFinished));
+    for boundary in NodeKind::ALL.into_iter().filter(|kind| kind.is_boundary()) {
+        assert_eq!(
+            walk.open(boundary),
+            Err(WalkError::BoundaryIsNotAStep { kind: boundary }),
+            "{boundary} 를 Step 으로 열 수 있었다"
+        );
+    }
+    assert_eq!(snapshot(&walk), before, "거절이 걷기를 바꿨다");
 }
 
 #[test]
@@ -908,9 +971,14 @@ fn after_a_revisit_only_a_new_hypothesis_may_open() {
         if kind == NodeKind::Hypothesis {
             continue;
         }
+        // 경계는 되돌아옴과 무관하게 Step 이 아니다. 두 거절은 다른 이유이므로 갈라 잰다.
+        let expected = match kind.is_boundary() {
+            true => WalkError::BoundaryIsNotAStep { kind },
+            false => WalkError::ExpectedHypothesis { opened: kind },
+        };
         assert_eq!(
             walk.open(kind),
-            Err(WalkError::ExpectedHypothesis { opened: kind }),
+            Err(expected),
             "되돌아온 자리에서 {kind} 가 열렸다"
         );
         assert_eq!(snapshot(&walk), before, "거절이 상태를 건드렸다");
@@ -1026,7 +1094,7 @@ fn a_target_on_the_branch_we_left_is_refused() {
     assert_eq!(sibling_node.status, NodeStatus::Closed);
     assert!(
         walk.rules()
-            .validate_open(Node::closed(sibling_node.kind), NodeKind::Hypothesis)
+            .validate_open(CycleKind::Experiment, Node::closed(sibling_node.kind), NodeKind::Hypothesis)
             .is_ok()
     );
     assert!(
@@ -1040,7 +1108,7 @@ fn a_target_on_the_branch_we_left_is_refused() {
     let report = outcome_report(&walk)
         .with("verdict", "failure")
         .with(ACTION, "revisit")
-        .with(TARGET, sibling.to_string().trim_start_matches('#'))
+        .with(TARGET, walk.step_ref(sibling).to_string())
         .with(REASON, "저 갈래로 건너뛰겠다");
 
     assert_eq!(
@@ -1097,7 +1165,7 @@ fn the_source_decision_and_the_new_parent_agree() {
     assert_eq!(decision.get(ACTION), Some("revisit"));
     assert_eq!(
         decision.get(TARGET).map(str::to_string),
-        fresh.parent.map(|id| id.to_string().trim_start_matches('#').to_string()),
+        fresh.parent.map(|id| walk.step_ref(id).to_string()),
         "출처가 가리킨 target 과 새 Node 의 부모가 같아야 한다"
     );
 }
@@ -1215,7 +1283,7 @@ fn each_branch_off_the_same_point_knows_its_own_origin() {
     let report = outcome_report(&walk)
         .with("verdict", "failure")
         .with(ACTION, "revisit")
-        .with(TARGET, target.to_string().trim_start_matches('#'))
+        .with(TARGET, walk.step_ref(target).to_string())
         .with(REASON, "이 갈래도 아니었다 — 같은 자리에서 다시 시작한다");
     walk.close(report).unwrap();
 
@@ -1256,7 +1324,7 @@ fn a_revisit_does_not_consume_a_name() {
 
 #[test]
 fn history_is_a_view_of_the_closed_nodes_not_a_second_store() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     step(&mut walk, NodeKind::Define);
     walk.open(NodeKind::Hypothesis).unwrap();
 
@@ -1269,12 +1337,12 @@ fn history_is_a_view_of_the_closed_nodes_not_a_second_store() {
 
 #[test]
 fn history_keeps_the_closed_steps_and_their_reports_in_order() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     let mut given: Vec<(NodeKind, Report)> = Vec::new();
 
     for kind in [NodeKind::Define, NodeKind::Hypothesis, NodeKind::Verify] {
         walk.open(kind).unwrap();
-        let report = full_report(walk.rules(), kind).with("note", format!("{kind} 를 지났다"));
+        let report = full_report(walk.rules(), CycleKind::Experiment, kind).with("note", format!("{kind} 를 지났다"));
         walk.close(report.clone()).unwrap();
         given.push((kind, report));
     }
@@ -1291,12 +1359,12 @@ fn history_keeps_the_closed_steps_and_their_reports_in_order() {
 
 #[test]
 fn a_report_missing_a_required_field_does_not_close_the_node() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     walk.open(NodeKind::Define).unwrap();
     let define = walk.current().unwrap();
 
-    let mut report = full_report(walk.rules(), NodeKind::Define);
-    let dropped = walk.rules().rules(NodeKind::Define).unwrap().close_requires[0].clone();
+    let mut report = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Define);
+    let dropped = walk.rules().rules(CycleKind::Experiment, NodeKind::Define).unwrap().close_requires[0].clone();
     report.remove(&dropped);
 
     let err = walk.close(report).expect_err("칸이 빠졌는데 닫혔다");
@@ -1314,7 +1382,7 @@ fn a_report_missing_a_required_field_does_not_close_the_node() {
 
 #[test]
 fn a_report_that_breaks_a_field_constraint_does_not_close_the_node() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -1325,7 +1393,7 @@ fn a_report_that_breaks_a_field_constraint_does_not_close_the_node() {
     }
     walk.open(NodeKind::Outcome).unwrap();
 
-    let report = full_report(walk.rules(), NodeKind::Outcome).with("verdict", "pending");
+    let report = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Outcome).with("verdict", "pending");
     let err = walk.close(report).expect_err("명세에 없는 값으로 닫혔다");
     assert!(
         matches!(
@@ -1339,7 +1407,7 @@ fn a_report_that_breaks_a_field_constraint_does_not_close_the_node() {
 
 #[test]
 fn a_transition_the_grammar_refuses_is_refused_here_too() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     step(&mut walk, NodeKind::Define);
 
     let err = walk
@@ -1360,7 +1428,7 @@ fn a_transition_the_grammar_refuses_is_refused_here_too() {
 
 #[test]
 fn a_failed_operation_changes_nothing() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     step(&mut walk, NodeKind::Define);
     walk.open(NodeKind::Hypothesis).unwrap();
 
@@ -1371,13 +1439,13 @@ fn a_failed_operation_changes_nothing() {
     assert_eq!(snapshot(&walk), before);
 
     // ② 필수 칸이 빠진 Report 로 닫는다
-    let mut short = full_report(walk.rules(), NodeKind::Hypothesis);
+    let mut short = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Hypothesis);
     short.remove("guardrail");
     assert!(walk.close(short).is_err());
     assert_eq!(snapshot(&walk), before);
 
     // ③ 지금 열린 것과 다른 Kind 의 Report 로 닫는다
-    let wrong = full_report(walk.rules(), NodeKind::Define);
+    let wrong = full_report(walk.rules(), CycleKind::Experiment, NodeKind::Define);
     assert!(walk.close(wrong).is_err());
     assert_eq!(snapshot(&walk), before);
 }
@@ -1386,22 +1454,19 @@ fn a_failed_operation_changes_nothing() {
 
 #[test]
 fn the_whole_cycle_walks_from_entry_to_exit() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
 
     let mut guard = 0;
-    while !walk.is_finished() {
+    while !walk.at_exit() {
         guard += 1;
-        assert!(guard < 20, "걷기가 끝나지 않는다");
+        assert!(guard < 20, "걷기가 끝 경계에 닿지 않는다");
 
         let kind = next_kind(&walk);
         walk.open(kind)
             .unwrap_or_else(|err| panic!("{kind} 를 열지 못했다: {err}"));
-
-        if !kind.is_boundary() {
-            let report = full_report(walk.rules(), kind);
-            walk.close(report)
-                .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
-        }
+        let report = full_report(walk.rules(), CycleKind::Experiment, kind);
+        walk.close(report)
+            .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
     }
 
     assert_eq!(
@@ -1414,7 +1479,7 @@ fn the_whole_cycle_walks_from_entry_to_exit() {
             NodeKind::Outcome,
         ]
     );
-    assert!(walk.is_finished());
+    assert!(walk.at_exit());
     assert!(
         !walk.nodes().iter().any(|node| node.kind.is_boundary()),
         "경계는 Step 이 아니라 Node 가 되지 않는다"
@@ -1422,8 +1487,8 @@ fn the_whole_cycle_walks_from_entry_to_exit() {
 }
 
 #[test]
-fn the_cycle_exit_leaves_the_walk_standing_on_the_outcome() {
-    let mut walk = Walk::start(spec());
+fn reaching_the_exit_leaves_the_walk_standing_on_the_outcome() {
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     let mut outcome = None;
     for kind in [
         NodeKind::Define,
@@ -1436,9 +1501,8 @@ fn the_cycle_exit_leaves_the_walk_standing_on_the_outcome() {
     }
 
     let nodes_before = walk.nodes().to_vec();
-    walk.open(NodeKind::CycleExit).unwrap();
 
-    assert!(walk.is_finished(), "끝 경계를 지났다");
+    assert!(walk.at_exit(), "끝 경계에 닿았다");
     assert_eq!(walk.current(), outcome, "서 있는 자리는 마지막 Outcome 이다");
     assert_eq!(
         at(&walk).kind,
@@ -1450,7 +1514,7 @@ fn the_cycle_exit_leaves_the_walk_standing_on_the_outcome() {
 
 #[test]
 fn analysis_can_open_a_second_hypothesis() {
-    let mut walk = Walk::start(spec());
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -1480,14 +1544,14 @@ fn analysis_can_open_a_second_hypothesis() {
         .collect();
     assert_ne!(hypotheses[0].id, hypotheses[1].id);
     assert_ne!(hypotheses[0].parent, hypotheses[1].parent);
-
-    walk.open(NodeKind::CycleExit).unwrap();
-    assert!(walk.is_finished());
+    assert!(walk.at_exit(), "두 갈래를 걷고도 끝 경계에 닿는다");
 }
 
 #[test]
-fn nothing_happens_after_the_walk_is_finished() {
-    let mut walk = Walk::start(spec());
+fn nothing_opens_after_the_walk_reaches_the_exit() {
+    // 끝 경계에 닿은 걷기는 스스로 멈춘다 — 그 뒤를 막는 것은 Cycle 의 몫이지만,
+    // 걷기 안에서도 더 열 것이 없다는 사실은 여기서 재야 한다.
+    let mut walk = Walk::start(spec(), a_cycle(), CycleKind::Experiment, an_existence());
     for kind in [
         NodeKind::Define,
         NodeKind::Hypothesis,
@@ -1497,15 +1561,10 @@ fn nothing_happens_after_the_walk_is_finished() {
     ] {
         step(&mut walk, kind);
     }
-    walk.open(NodeKind::CycleExit).unwrap();
 
     let after = snapshot(&walk);
     for kind in NodeKind::ALL {
-        assert_eq!(walk.open(kind), Err(WalkError::AlreadyFinished));
+        assert!(walk.open(kind).is_err(), "{kind} 가 끝 경계 뒤에서 열렸다");
     }
-    assert_eq!(
-        walk.close(full_report(walk.rules(), NodeKind::Outcome)),
-        Err(WalkError::AlreadyFinished)
-    );
     assert_eq!(snapshot(&walk), after);
 }

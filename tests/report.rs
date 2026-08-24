@@ -63,11 +63,14 @@ fn an_indented_field_joins_its_name_with_a_dot() {
         "verdict: failure\n\
          next_direction:\n  \
          action: revisit\n  \
-         target_node_id: 4\n  \
+         target_node_ref: step:C2/S4\n  \
          reason: 가설부터 다시\n",
     );
     assert_eq!(report.get("next_direction.action"), Some("revisit"));
-    assert_eq!(report.get("next_direction.target_node_id"), Some("4"));
+    assert_eq!(
+        report.get("next_direction.target_node_ref"),
+        Some("step:C2/S4")
+    );
     assert_eq!(report.get("next_direction.reason"), Some("가설부터 다시"));
     assert_eq!(report.get("verdict"), Some("failure"));
     assert!(!report.has("next_direction"), "가르는 이름이 칸으로도 남았다");
@@ -167,4 +170,45 @@ fn a_report_read_back_is_the_same_report() {
             .collect::<String>(),
     );
     assert_eq!(once, again);
+}
+
+#[test]
+fn the_dotted_form_and_the_nested_form_make_the_same_report() {
+    // 사람은 둘 중 무엇으로도 적는다 — 둘이 다른 Report 가 되면 같은 문법이 두 벌이 된다.
+    // GIL 이 골격과 예시를 내보일 때 쓰는 canonical 표기는 **dotted** 다.
+    let dotted = parse(
+        "verdict: success\n\
+         next_direction.action: close_cycle\n\
+         next_direction.reason: 여기서 끝난다\n",
+    );
+    let nested = parse(
+        "verdict: success\n\
+         next_direction:\n  \
+           action: close_cycle\n  \
+           reason: 여기서 끝난다\n",
+    );
+
+    assert_eq!(dotted, nested, "같은 것을 적었는데 다른 Report 가 됐다");
+    assert_eq!(nested.get("next_direction.action"), Some("close_cycle"));
+    let mut names: Vec<&str> = nested.field_names().collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        ["next_direction.action", "next_direction.reason", "verdict"],
+        "중간 이름 next_direction 이 빈 칸으로 남았다"
+    );
+}
+
+#[test]
+fn a_block_scalar_reads_the_same_however_its_name_was_written() {
+    // basis_refs 는 block scalar 다 — 이름을 접어 적어도 줄들은 그대로여야 한다.
+    let flat = parse("basis_refs: |\n  step:C1/S1\n  step:C1/S2\n");
+    let under = parse("synthesis:\n  basis_refs: |\n    step:C1/S1\n    step:C1/S2\n");
+
+    assert_eq!(flat.get("basis_refs"), Some("step:C1/S1\nstep:C1/S2"));
+    assert_eq!(
+        under.get("synthesis.basis_refs"),
+        flat.get("basis_refs"),
+        "접어 적었더니 줄이 달라졌다"
+    );
 }

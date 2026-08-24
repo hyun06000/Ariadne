@@ -25,6 +25,9 @@
 
 use std::fmt;
 
+use crate::cycle::CycleKind;
+use crate::refs::{CycleRef, ExistenceRef, JourneyRef, RefSyntaxError, StepRef};
+use crate::cycles::CycleId;
 use crate::node::{Node, NodeKind, NodeStatus};
 use crate::report::Report;
 use crate::rules::RuleSet;
@@ -85,6 +88,13 @@ pub struct StepNode {
     /// 평범하게 이어 걸어 난 Node 는 `None` 이다.
     pub revisit_from: Option<NodeId>,
     pub status: NodeStatus,
+    /// **누가 이 Node 를 열었는가.** Open 시 Current Existence 로 고정되고 lifetime 동안
+    /// 바뀌지 않는다(Node Model §2). 연 Existence 만 이 Node 를 닫을 수 있다.
+    pub existence: ExistenceRef,
+    /// **어느 Journey 판에서 닫았는가.** Close 시 확정된다.
+    ///
+    /// 열려 있는 동안은 `None` 이다 — 아직 닫지 않은 것에 닫은 판을 적어 둘 수 없다.
+    pub journey: Option<JourneyRef>,
     /// 닫히면서 받는다. 열려 있는 동안은 `None`.
     pub report: Option<Report>,
 }
@@ -102,7 +112,6 @@ impl StepNode {
 pub(crate) struct WalkState {
     pub nodes: Vec<StepNode>,
     pub current: Option<NodeId>,
-    pub finished: bool,
     pub next_id: u32,
     pub pending_revisit: Option<NodeId>,
 }
@@ -111,9 +120,23 @@ pub(crate) struct WalkState {
 #[derive(Debug, Clone)]
 pub struct Walk {
     rules: RuleSet,
+    /// **어느 Cycle 의 Step Graph 인가.**
+    ///
+    /// Step 의 이름은 이 걷기 안에서만 유일하고, 영구 주소는 `step:C2/S3` 처럼 소속 Cycle 을
+    /// 함께 지닌다(Node Model §2.1). 그 주소를 읽고 쓰는 자리가 여기이므로, 걷기는 제가 어느
+    /// Cycle 에 담겼는지 알아야 한다.
+    cycle: CycleRef,
+    /// **어느 Cycle Kind 의 문법을 따르는가.**
+    ///
+    /// Interview 와 Experiment 는 열 수 있는 Step 이 다르고, 같은 `outcome` 도 요구하는
+    /// Report 가 다르다.
+    kind: CycleKind,
+    /// **이 Cycle 을 연 존재.** 안에서 나는 Step 은 모두 같은 주인을 지닌다 — 열린 Cycle 이
+    /// 있는 동안 존재를 바꿀 수 없으므로(Existence Model §7), Cycle 하나의 Step 들이
+    /// 서로 다른 주인을 갖는 상태는 걸어서 만들 수 없다.
+    existence: ExistenceRef,
     nodes: Vec<StepNode>,
     current: Option<NodeId>,
-    finished: bool,
     next_id: u32,
     /// 되돌아온 직후, 아직 새 가설을 열지 않았다면 **어디에서 되돌아왔는지**.
     ///
@@ -124,12 +147,14 @@ pub struct Walk {
 
 impl Walk {
     /// Cycle 의 시작 경계에 선다. 아직 아무 Node 도 없다.
-    pub fn start(rules: RuleSet) -> Self {
+    pub fn start(rules: RuleSet, cycle: CycleRef, kind: CycleKind, existence: ExistenceRef) -> Self {
         Walk {
             rules,
+            cycle,
+            kind,
+            existence,
             nodes: Vec::new(),
             current: None,
-            finished: false,
             next_id: 1,
             pending_revisit: None,
         }
@@ -140,12 +165,20 @@ impl Walk {
     /// **이 값들은 걸어서 만들어진 것이 아니다.** 파일은 [`Walk`] 의 메서드를 거치지 않는
     /// **두 번째 통로**이고, 손으로 고칠 수 있다. 그래서 여기서 불변식을 처음부터 다시 잰다 —
     /// 통과하지 못하면 걷기는 태어나지 않는다.
-    pub(crate) fn restore(rules: RuleSet, state: WalkState) -> Result<Walk, RestoreError> {
+    pub(crate) fn restore(
+        rules: RuleSet,
+        cycle: CycleRef,
+        kind: CycleKind,
+        existence: ExistenceRef,
+        state: WalkState,
+    ) -> Result<Walk, RestoreError> {
         let walk = Walk {
             rules,
+            cycle,
+            kind,
+            existence,
             nodes: state.nodes,
             current: state.current,
-            finished: state.finished,
             next_id: state.next_id,
             pending_revisit: state.pending_revisit,
         };
@@ -174,7 +207,7 @@ impl Walk {
 
             // Step 으로 실린 것은 Step Kind 여야 한다. 경계 표식은 지나가는 자리지
             // 기록에 남는 Node 가 아니다 — 실려 있으면 그 파일은 걷기가 만든 것이 아니다.
-            if !self.rules.declares(node.kind) {
+            if !self.rules.declares(self.kind, node.kind) {
                 return Err(RestoreError::NotAStepKind {
                     node: node.id,
                     kind: node.kind,
@@ -201,7 +234,7 @@ impl Walk {
             };
             // 경계 표식이 Step 으로 실려 있으면 여기서 걸린다(제 규칙이 없어 전이가 없다).
             self.rules
-                .validate_open(parent, node.kind)
+                .validate_open(self.kind, parent, node.kind)
                 .map_err(|source| RestoreError::Grammar {
                     node: node.id,
                     source,
@@ -229,6 +262,29 @@ impl Walk {
                 }
             }
 
+            // 닫힌 Node 는 **어느 판에서 닫았는지**를 지닌다. 열린 Node 는 아직 닫지
+            // 않았으니 그 자리가 비어 있어야 한다(Node Model §2).
+            match (node.status, node.journey) {
+                (NodeStatus::Closed, None) => {
+                    return Err(RestoreError::ClosedWithoutJourney(node.id));
+                }
+                (NodeStatus::Open, Some(journey)) => {
+                    return Err(RestoreError::JourneyOnOpenNode {
+                        node: node.id,
+                        journey,
+                    });
+                }
+                _ => {}
+            }
+            // 한 Cycle 의 Step 은 모두 그 Cycle 의 주인을 지닌다.
+            if node.existence != self.existence {
+                return Err(RestoreError::StepOfAnotherExistence {
+                    node: node.id,
+                    owner: node.existence,
+                    cycle: self.existence,
+                });
+            }
+
             match (node.status, &node.report) {
                 (NodeStatus::Open, Some(_)) => {
                     return Err(RestoreError::ReportOnOpenNode(node.id));
@@ -237,7 +293,7 @@ impl Walk {
                     return Err(RestoreError::ClosedWithoutReport(node.id));
                 }
                 (NodeStatus::Closed, Some(report)) => {
-                    self.rules.validate_close(node.kind, report).map_err(|source| {
+                    self.rules.validate_close(self.kind, node.kind, report).map_err(|source| {
                         RestoreError::Grammar {
                             node: node.id,
                             source,
@@ -283,7 +339,7 @@ impl Walk {
             let declared = source
                 .report
                 .as_ref()
-                .and_then(|report| declared_revisit_target(report).ok())
+                .and_then(|report| declared_revisit_target(report, self.cycle).ok())
                 .flatten();
             if declared.is_none() || declared != self.current {
                 return Err(RestoreError::PendingRevisitNotDeclared {
@@ -293,28 +349,18 @@ impl Walk {
             }
         }
 
-        // 끝 경계는 지나갈 수 있는 자리에서만 지나간다.
-        if self.finished
-            && self
-                .rules
-                .validate_open(self.here(), NodeKind::CycleExit)
-                .is_err()
-        {
-            return Err(RestoreError::FinishedFromNowhere {
-                current: self.current,
-            });
-        }
-
         Ok(())
     }
 
     /// 지금 자리에서 다음 Node 를 연다.
     ///
     /// 새 Node 의 부모는 **여는 그 순간의 `current`** 이고, 그대로 기록된다.
-    /// 경계(`cycle_exit`)를 열면 그것은 지나가는 것이다 — Node 가 되지 않고 걷기가 끝난다.
+    ///
+    /// 경계(`cycle_entry`·`cycle_exit`)는 열리지 않는다 — Step 이 아니라 Cycle 의 자리이고,
+    /// 그 자리를 지나는 것은 Cycle 을 닫는 행위다.
     pub fn open(&mut self, kind: NodeKind) -> Result<(), WalkError> {
-        if self.finished {
-            return Err(WalkError::AlreadyFinished);
+        if kind.is_boundary() {
+            return Err(WalkError::BoundaryIsNotAStep { kind });
         }
 
         // 되돌아온 직후에는 새 가설만 연다. 문법은 여기서 다른 것도 허락하지만
@@ -324,14 +370,7 @@ impl Walk {
         }
 
         // 판정이 먼저다 — 거절되면 Node 도, 이름도 생기지 않는다.
-        self.rules.validate_open(self.here(), kind)?;
-
-        if kind.is_boundary() {
-            // 경계는 Step 이 아니다. 이름도 안 받고 기록에도 안 남으며,
-            // 서 있던 자리(current)는 그대로 둔다.
-            self.finished = true;
-            return Ok(());
-        }
+        self.rules.validate_open(self.kind, self.here(), kind)?;
 
         let id = NodeId(self.next_id);
         self.next_id += 1;
@@ -343,6 +382,10 @@ impl Walk {
             // 그 자리에서만 출처가 남고, 바로 아래 줄에서 실행 상태는 풀린다.
             revisit_from: self.pending_revisit,
             status: NodeStatus::Open,
+            // Open 시 고정되는 주인. 이 걷기가 담긴 Cycle 의 주인과 같다.
+            existence: self.existence,
+            // 닫은 판은 아직 없다 — 닫을 때 [`Walk::record_journey`] 가 적는다.
+            journey: None,
             report: None,
         });
         self.current = Some(id);
@@ -358,10 +401,6 @@ impl Walk {
     /// 그래프는 한 글자도 바뀌지 않는다. 바뀌는 것은 **서 있는 자리**와, 다음 한 번은 새
     /// 가설이어야 한다는 실행 상태뿐이다.
     pub fn revisit(&mut self) -> Result<(), WalkError> {
-        if self.finished {
-            return Err(WalkError::AlreadyFinished);
-        }
-
         let source = self.current.ok_or(WalkError::NothingToRevisit)?;
         let target = {
             let node = self
@@ -375,7 +414,7 @@ impl Walk {
             let report = node.report.as_ref().ok_or(WalkError::NothingToRevisit)?;
 
             // 여기에 되돌아가겠다는 결정이 적혀 있는가. 적혀 있지 않으면 실행할 것이 없다.
-            let Some(target) = declared_revisit_target(report)? else {
+            let Some(target) = declared_revisit_target(report, self.cycle)? else {
                 return Err(WalkError::NothingToRevisit);
             };
 
@@ -398,9 +437,6 @@ impl Walk {
 
     /// 지금 서 있는 Node 를 이 Report 로 닫는다. 자리는 그대로 남는다.
     pub fn close(&mut self, report: Report) -> Result<(), WalkError> {
-        if self.finished {
-            return Err(WalkError::AlreadyFinished);
-        }
         let Some(id) = self.current else {
             return Err(WalkError::NothingToClose);
         };
@@ -411,7 +447,7 @@ impl Walk {
             return Err(WalkError::NothingToClose);
         }
 
-        self.rules.validate_close(self.nodes[at].kind, &report)?;
+        self.rules.validate_close(self.kind, self.nodes[at].kind, &report)?;
         self.check_next_direction(id, &report)?;
 
         self.nodes[at].status = NodeStatus::Closed;
@@ -419,14 +455,30 @@ impl Walk {
         Ok(())
     }
 
+    /// 방금 닫은 자리에 **어느 판에서 닫았는지**를 새긴다.
+    ///
+    /// 판은 Journey 쪽의 것이라 걷기가 스스로 알 수 없다. 그래서 이 문은
+    /// [`Project`](crate::Project) 의 통합 transaction 에만 열려 있고, 닫은 직후에만 부른다 —
+    /// Report·Closed·판이 한 save 에 함께 들어가야 하기 때문이다(Existence Model §4).
+    pub(crate) fn record_journey(&mut self, id: NodeId, journey: JourneyRef) {
+        if let Some(at) = self.position_of(id) {
+            self.nodes[at].journey = Some(journey);
+        }
+    }
+
+    /// 이 걷기를 연 존재.
+    pub fn existence(&self) -> ExistenceRef {
+        self.existence
+    }
+
     /// Report 가 적어 둔 다음 방향이 **이 그래프에서 구조적으로 가능한가**.
     ///
     /// 문법은 어떤 칸이 있어야 하고 어떤 값이 올 수 있는지까지만 안다.
-    /// `target_node_id` 는 이 걷기 안에서만 뜻이 있는 이름이라 여기서 본다.
+    /// `target_node_ref` 는 이 Cycle 안에서만 뜻이 있는 주소라 여기서 본다.
     ///
     /// 고른 target 이 **옳은가**는 보지 않는다 — 그건 계보를 읽은 Agent 의 판단이다.
     fn check_next_direction(&self, source: NodeId, report: &Report) -> Result<(), WalkError> {
-        let Some(target) = declared_revisit_target(report)? else {
+        let Some(target) = declared_revisit_target(report, self.cycle)? else {
             return Ok(()); // 되돌아가는 방향이 아니다 — 볼 자리가 없다.
         };
 
@@ -453,7 +505,7 @@ impl Walk {
         // ④ 거기서 새 가설을 열 수 있는가 — 갈래는 언제나 Hypothesis 에서 시작한다
         if self
             .rules
-            .validate_open(Node::closed(node.kind), NodeKind::Hypothesis)
+            .validate_open(self.kind, Node::closed(node.kind), NodeKind::Hypothesis)
             .is_err()
         {
             return Err(NextDirectionError::TargetCannotBranch {
@@ -540,14 +592,36 @@ impl Walk {
             .filter(|node| node.status == NodeStatus::Closed)
     }
 
-    /// 끝 경계를 지났는가. 어디에 서 있는가와는 다른 물음이다.
-    pub fn is_finished(&self) -> bool {
-        self.finished
+    /// 이 걷기가 **끝 경계에 닿았는가** — 여기서 Cycle 을 닫을 수 있는가.
+    ///
+    /// 걷기 자신은 끝났는지 모른다. 끝냈다는 사실은 Cycle 이 갖는다([`Cycle::status`]).
+    /// 여기서 답하는 것은 자리뿐이고, 그 판정은 문법에게 묻는다.
+    ///
+    /// [`Cycle::status`]: crate::Cycle::status
+    pub fn at_exit(&self) -> bool {
+        self.rules
+            .validate_open(self.kind, self.here(), NodeKind::CycleExit)
+            .is_ok()
     }
 
     /// 이 걷기가 따르는 Grammar.
     pub fn rules(&self) -> &RuleSet {
         &self.rules
+    }
+
+    /// 이 걷기가 어느 Cycle Kind 의 문법을 따르는가.
+    pub fn kind(&self) -> CycleKind {
+        self.kind
+    }
+
+    /// 이 걷기가 담긴 Cycle.
+    pub fn cycle(&self) -> CycleRef {
+        self.cycle
+    }
+
+    /// 이 걷기 안의 Step 을 가리키는 **영구 주소** — `step:C2/S3`.
+    pub fn step_ref(&self, step: NodeId) -> StepRef {
+        StepRef::new(self.cycle, step.raw()).expect("발급된 Step 이름은 1 부터 센다")
     }
 
     /// 아직 아무에게도 주지 않은 다음 이름 — 저장이 적어 두기 위해 읽는다.
@@ -595,7 +669,7 @@ impl Walk {
 /// 문법(`gil-spec.yaml`)이 어떤 Kind 가 이 칸들을 요구하는지 정한다. 여기서는 그 값을
 /// 이 걷기의 자리로 옮겨 읽기 위해 이름만 안다.
 const NEXT_ACTION: &str = "next_direction.action";
-const NEXT_TARGET: &str = "next_direction.target_node_id";
+const NEXT_TARGET: &str = "next_direction.target_node_ref";
 const ACTION_REVISIT: &str = "revisit";
 
 /// 이 Report 가 **되돌아가겠다고 적었다면** 그 갈 곳의 이름.
@@ -605,7 +679,10 @@ const ACTION_REVISIT: &str = "revisit";
 ///
 /// **Report 에서 다음 방향을 읽는 자리는 여기 하나뿐이다.** 닫을 때·실행할 때·저장에서
 /// 되살릴 때가 같은 읽기를 쓴다 — 세 자리에 따로 적으면 한 자리가 낡는다.
-fn declared_revisit_target(report: &Report) -> Result<Option<NodeId>, NextDirectionError> {
+fn declared_revisit_target(
+    report: &Report,
+    cycle: CycleRef,
+) -> Result<Option<NodeId>, NextDirectionError> {
     let Some(action) = report.get(NEXT_ACTION) else {
         return Ok(None); // 이 Kind 는 다음 방향을 적지 않는다.
     };
@@ -619,25 +696,49 @@ fn declared_revisit_target(report: &Report) -> Result<Option<NodeId>, NextDirect
         };
     }
 
-    let Some(target) = target else {
-        return Err(NextDirectionError::TargetMissing);
+    let Some(raw) = target else {
+        return Err(NextDirectionError::TargetMissing { cycle });
     };
-    target
-        .parse::<u32>()
-        .map(NodeId)
-        .map(Some)
-        .map_err(|_| NextDirectionError::TargetUnreadable(target.to_string()))
+    let target: StepRef = raw
+        .parse()
+        .map_err(|source| NextDirectionError::TargetUnreadable {
+            value: raw.to_string(),
+            source,
+            suggestion: suggest(raw, cycle),
+        })?;
+    if target.cycle() != cycle {
+        return Err(NextDirectionError::TargetOtherCycle { target, cycle });
+    }
+    Ok(Some(NodeId::from_raw(target.step())))
+}
+
+/// 잘못 적은 값에서 **올바른 전체 주소**를 지어 준다.
+///
+/// `4` · `#4` · `S4` 는 전부 같은 것을 가리키려던 것이다. 무엇이 틀렸는지만 말하고 무엇을
+/// 적어야 하는지 말하지 않으면 사람은 한 번 더 틀린다.
+fn suggest(raw: &str, cycle: CycleRef) -> String {
+    let digits: String = raw.chars().filter(char::is_ascii_digit).collect();
+    match digits.parse::<u32>().ok().and_then(|n| StepRef::new(cycle, n)) {
+        Some(step) => step.to_string(),
+        None => format!("step:{}/S<번호>", cycle.id()),
+    }
 }
 
 /// 적어 둔 다음 방향이 이 그래프에서 성립하지 않는 이유.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NextDirectionError {
     /// 되돌아가겠다면서 갈 곳을 적지 않았다.
-    TargetMissing,
+    TargetMissing { cycle: CycleRef },
     /// 되돌아가지 않는 방향인데 갈 곳을 적었다.
     TargetNotAllowed(String),
-    /// 갈 곳이 Node 이름으로 읽히지 않는다.
-    TargetUnreadable(String),
+    /// 갈 곳이 Step 주소로 읽히지 않는다 — bare `4` · 화면 축약 `#4` · `S4` 가 여기로 온다.
+    TargetUnreadable {
+        value: String,
+        source: RefSyntaxError,
+        suggestion: String,
+    },
+    /// 다른 Cycle 의 Step 을 가리킨다.
+    TargetOtherCycle { target: StepRef, cycle: CycleRef },
     /// 이 그래프에 없는 Node 다.
     UnknownTarget(NodeId),
     /// 아직 열려 있는 자리로는 되돌아갈 수 없다.
@@ -651,17 +752,32 @@ pub enum NextDirectionError {
 impl fmt::Display for NextDirectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NextDirectionError::TargetMissing => write!(
+            NextDirectionError::TargetMissing { cycle } => write!(
                 f,
-                "{ACTION_REVISIT} 인데 {NEXT_TARGET} 이(가) 없다 — 어디로 돌아갈지 적어야 한다"
+                "{ACTION_REVISIT} 인데 {NEXT_TARGET} 이(가) 없다 — 어디로 돌아갈지 적어야 한다.\n\
+                 꼴: {NEXT_TARGET}: step:{}/S<번호>",
+                cycle.id()
             ),
             NextDirectionError::TargetNotAllowed(action) => write!(
                 f,
                 "{action:?} 에는 {NEXT_TARGET} 을(를) 적을 수 없다 — 돌아갈 자리가 없는 방향이다"
             ),
-            NextDirectionError::TargetUnreadable(value) => {
-                write!(f, "{NEXT_TARGET} 의 {value:?} 는 Node 이름으로 읽히지 않는다")
-            }
+            NextDirectionError::TargetUnreadable {
+                value,
+                source,
+                suggestion,
+            } => write!(
+                f,
+                "{NEXT_TARGET} 의 {value:?} 는 Step 주소로 읽히지 않는다 — {source}.\n\
+                 여기 적을 것: {NEXT_TARGET}: {suggestion}"
+            ),
+            NextDirectionError::TargetOtherCycle { target, cycle } => write!(
+                f,
+                "{NEXT_TARGET} 가 {target} 을(를) 가리키는데 그것은 다른 Cycle 의 자리다 — \
+                 되돌아감은 이 Cycle 안에서만 성립한다.\n\
+                 여기 적을 것: {NEXT_TARGET}: step:{}/S<번호>",
+                cycle.id()
+            ),
             NextDirectionError::UnknownTarget(target) => {
                 write!(f, "{target} 은(는) 이 Step Graph 에 없는 Node 다")
             }
@@ -688,8 +804,8 @@ pub enum WalkError {
     Grammar(GrammarError),
     /// 열려 있는 Node 가 없다 — 닫을 것이 없다.
     NothingToClose,
-    /// 끝 경계를 이미 지났다.
-    AlreadyFinished,
+    /// 경계를 Step 으로 열려 했다.
+    BoundaryIsNotAStep { kind: NodeKind },
     /// 이 Step Graph 에 그런 이름의 Node 가 없다.
     UnknownNode(NodeId),
     /// Report 가 적어 둔 다음 방향이 이 그래프에서 성립하지 않는다.
@@ -719,9 +835,10 @@ impl fmt::Display for WalkError {
             WalkError::NothingToClose => {
                 write!(f, "지금 열려 있는 Node 가 없어 닫을 것이 없다")
             }
-            WalkError::AlreadyFinished => {
-                write!(f, "끝 경계를 이미 지났다 — 이 걷기에서는 더 열 수 없다")
-            }
+            WalkError::BoundaryIsNotAStep { kind } => write!(
+                f,
+                "{kind} 은(는) Step 이 아니라 Cycle 의 경계다 — 여는 것이 아니라 지나가는 자리다"
+            ),
             WalkError::UnknownNode(id) => {
                 write!(f, "{id} 은(는) 이 Step Graph 에 없는 Node 다")
             }
@@ -745,7 +862,7 @@ impl std::error::Error for WalkError {
             WalkError::Grammar(err) => Some(err),
             WalkError::NextDirection(err) => Some(err),
             WalkError::NothingToClose
-            | WalkError::AlreadyFinished
+            | WalkError::BoundaryIsNotAStep { .. }
             | WalkError::UnknownNode(_)
             | WalkError::NothingToRevisit
             | WalkError::ExpectedHypothesis { .. } => None,
@@ -781,6 +898,16 @@ pub enum RestoreError {
     ReportOnOpenNode(NodeId),
     /// 닫혔다면서 Report 가 없다.
     ClosedWithoutReport(NodeId),
+    /// 닫혔다면서 어느 판에서 닫았는지가 없다.
+    ClosedWithoutJourney(NodeId),
+    /// 아직 열려 있는데 닫은 판이 적혀 있다.
+    JourneyOnOpenNode { node: NodeId, journey: JourneyRef },
+    /// 이 Cycle 의 주인이 아닌 존재가 연 Step 이 실려 있다.
+    StepOfAnotherExistence {
+        node: NodeId,
+        owner: ExistenceRef,
+        cycle: ExistenceRef,
+    },
     /// 서 있는 자리가 아닌데 열려 있다 — 열린 Node 아래로는 아무것도 열 수 없으니
     /// 걷기에 열린 Node 는 서 있는 자리 하나뿐이다.
     OpenNodeNotCurrent {
@@ -798,8 +925,44 @@ pub enum RestoreError {
         pending: NodeId,
         current: Option<NodeId>,
     },
-    /// 끝 경계를 지날 수 없는 자리에서 끝났다고 적혀 있다.
-    FinishedFromNowhere { current: Option<NodeId> },
+    /// 열려 있는 Cycle 이 Cycle Report 를 지녔다.
+    ReportOnOpenCycle,
+    /// 닫혔다는 Cycle 에 Cycle Report 가 없다.
+    CycleClosedWithoutReport,
+    /// 안의 Step Graph 가 끝 경계에 닿지 않았는데 Cycle 이 닫혀 있다.
+    CycleClosedTooEarly,
+    /// 실린 Cycle Report 가 이 Cycle 안에서 성립하지 않는다.
+    CycleReport { source: Box<crate::cycle::CycleError> },
+    /// 실린 Step Report 의 참조가 이 Cycle 안에서 성립하지 않는다 — 근거가 딛고 온 길 위에
+    /// 없거나, 승인되지 않은 Synthesis 로 success 를 닫아 두었다.
+    StepReport {
+        step: StepRef,
+        source: Box<crate::cycle::CycleError>,
+    },
+
+    // ── Cycle Graph 층 ────────────────────────────────────────────────────
+    /// Cycle 이 하나도 없다 — 걷기는 언제나 Cycle 하나에서 시작한다.
+    NoCycles,
+    /// 같은 Cycle 이름이 두 번 실렸다.
+    DuplicateCycle(CycleId),
+    /// 아직 발급되지 않은 Cycle 이름을 쓰고 있다.
+    CycleNameBeyondNextId { cycle: CycleId, next_id: u32 },
+    /// 뿌리가 둘이다 — 이 판의 Cycle Graph 는 한 갈래다.
+    SecondRoot(CycleId),
+    /// 뿌리 Cycle 이 Interview 가 아니다 — 프로젝트의 첫 Cycle 은 Interview 여야 한다.
+    RootCycleNotInterview { cycle: CycleId, kind: CycleKind },
+    /// 부모가 저보다 먼저 나지 않았다.
+    CycleParentNotEarlier { cycle: CycleId, parent: CycleId },
+    /// 부모가 자식을 열겠다고 적지 않았다 — 실패한 Cycle 은 자식을 만들지 않는다.
+    ParentDidNotOpenAChild {
+        cycle: CycleId,
+        parent: CycleId,
+        declared: Option<String>,
+    },
+    /// 서 있는 자리가 아닌데 열려 있다 — 한 번에 걷는 Cycle 은 하나다.
+    OpenCycleNotCurrent { cycle: CycleId, current: CycleId },
+    /// 없는 Cycle 에 서 있다.
+    UnknownCurrentCycle(CycleId),
 }
 
 /// 자리를 사람이 읽는 꼴로. 아무 데도 서 있지 않은 것도 하나의 자리다.
@@ -865,11 +1028,79 @@ impl fmt::Display for RestoreError {
                  — 되돌아감은 적힌 것을 밟는 것이다",
                 where_at(*current)
             ),
-            RestoreError::FinishedFromNowhere { current } => write!(
+            RestoreError::ReportOnOpenCycle => write!(
                 f,
-                "{} 에서는 끝 경계를 지날 수 없는데 끝났다고 적혀 있다",
-                where_at(*current)
+                "이 Cycle 은 열려 있는데 Cycle Report 를 지녔다 — Report 는 닫으면서 받는다"
             ),
+            RestoreError::CycleClosedWithoutReport => write!(
+                f,
+                "이 Cycle 은 닫혔다는데 Cycle Report 가 없다 — Report 는 닫힘의 필수 조건이다"
+            ),
+            RestoreError::CycleClosedTooEarly => write!(
+                f,
+                "안의 Outcome 이 닫히지 않았는데 Cycle 이 닫혀 있다"
+            ),
+            RestoreError::ClosedWithoutJourney(id) => write!(
+                f,
+                "{id} 이(가) 닫혔다는데 어느 Journey 판에서 닫았는지가 없다 — \
+                 닫힌 Node 는 그 결정을 만든 판을 지닌다"
+            ),
+            RestoreError::JourneyOnOpenNode { node, journey } => write!(
+                f,
+                "{node} 이(가) 아직 열려 있는데 {journey} 에서 닫았다고 적혀 있다"
+            ),
+            RestoreError::StepOfAnotherExistence { node, owner, cycle } => write!(
+                f,
+                "{node} 의 주인은 {owner} 인데 이 Cycle 의 주인은 {cycle} 다 — \
+                 열린 Cycle 이 있는 동안 존재를 바꾸지 않으므로 한 Cycle 의 Step 은 \
+                 모두 같은 주인을 지닌다"
+            ),
+            RestoreError::CycleReport { source } => write!(f, "Cycle Report: {source}"),
+            RestoreError::StepReport { step, source } => {
+                write!(f, "{step} 의 Report: {source}")
+            }
+            RestoreError::NoCycles => write!(f, "Cycle 이 하나도 없다 — 걷기는 Cycle 안에서만 산다"),
+            RestoreError::DuplicateCycle(id) => {
+                write!(f, "{id} 이(가) 두 번 실렸다 — 이름은 하나의 Cycle 만 가리킨다")
+            }
+            RestoreError::CycleNameBeyondNextId { cycle, next_id } => write!(
+                f,
+                "{cycle} 은(는) 아직 발급되지 않은 이름이다 (다음 이름은 {next_id})"
+            ),
+            RestoreError::SecondRoot(id) => write!(
+                f,
+                "{id} 이(가) 부모 없이 실렸는데 뿌리는 이미 있다 — 이 판의 Cycle Graph 는 한 갈래다"
+            ),
+            RestoreError::RootCycleNotInterview { cycle, kind } => write!(
+                f,
+                "뿌리 {cycle} 이(가) {kind} 다 — 프로젝트의 첫 Cycle 은 interview 여야 한다.\n\
+                 사용자의 요청을 곧바로 실험하지 않는다. Experiment 는 승인된 Synthesis 뒤에 \
+                 태어난다."
+            ),
+            RestoreError::CycleParentNotEarlier { cycle, parent } => write!(
+                f,
+                "{cycle} 의 부모 {parent} 이(가) 저보다 먼저 나지 않았다 — 부모는 언제나 앞선다"
+            ),
+            RestoreError::ParentDidNotOpenAChild {
+                cycle,
+                parent,
+                declared,
+            } => write!(
+                f,
+                "{cycle} 이(가) {parent} 아래에 났는데 {parent} 이(가) 적어 둔 다음 방향은 {} 다 \
+                 — 자식은 그렇게 하겠다고 적은 Cycle 아래에서만 난다",
+                match declared {
+                    Some(action) => format!("{action:?}"),
+                    None => "없다".to_string(),
+                }
+            ),
+            RestoreError::OpenCycleNotCurrent { cycle, current } => write!(
+                f,
+                "{cycle} 이(가) 열려 있는데 서 있는 자리는 {current} 다 — 한 번에 걷는 Cycle 은 하나다"
+            ),
+            RestoreError::UnknownCurrentCycle(id) => {
+                write!(f, "{id} 에 서 있다는데 그런 Cycle 이 없다")
+            }
         }
     }
 }
@@ -879,6 +1110,8 @@ impl std::error::Error for RestoreError {
         match self {
             RestoreError::Grammar { source, .. } => Some(source),
             RestoreError::NextDirection { source, .. } => Some(source.as_ref()),
+            RestoreError::CycleReport { source } => Some(source.as_ref()),
+            RestoreError::StepReport { source, .. } => Some(source.as_ref()),
             _ => None,
         }
     }

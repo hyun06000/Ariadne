@@ -8,23 +8,33 @@ use std::fmt;
 
 use serde::Deserialize;
 
-/// Node 의 종류. 다섯 Step Kind + 경계 표식 둘.
+/// Node 의 종류. Interview 셋 · Experiment 넷 · 둘이 함께 쓰는 `outcome` · 경계 표식 둘.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     CycleEntry,
+    // Interview Cycle 의 Step 들.
+    Question,
+    Interpretation,
+    Synthesis,
+    // Experiment Cycle 의 Step 들.
     Define,
     Hypothesis,
     Verify,
     Analysis,
+    /// 두 Cycle Kind 가 **함께 쓰는** 이름. 요구하는 Report 는 서로 다르고, 그 차이는
+    /// `gil-spec.yaml` 의 Cycle Kind 안에 적혀 있다.
     Outcome,
     CycleExit,
 }
 
 impl NodeKind {
     /// 모든 종류. 시험이 전수로 훑을 때 쓴다.
-    pub const ALL: [NodeKind; 7] = [
+    pub const ALL: [NodeKind; 10] = [
         NodeKind::CycleEntry,
+        NodeKind::Question,
+        NodeKind::Interpretation,
+        NodeKind::Synthesis,
         NodeKind::Define,
         NodeKind::Hypothesis,
         NodeKind::Verify,
@@ -37,6 +47,9 @@ impl NodeKind {
     pub fn as_str(self) -> &'static str {
         match self {
             NodeKind::CycleEntry => "cycle_entry",
+            NodeKind::Question => "question",
+            NodeKind::Interpretation => "interpretation",
+            NodeKind::Synthesis => "synthesis",
             NodeKind::Define => "define",
             NodeKind::Hypothesis => "hypothesis",
             NodeKind::Verify => "verify",
