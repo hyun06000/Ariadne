@@ -32,12 +32,24 @@ Node
 │
 ├── Report
 │
+├── Existence Provenance
+│   ├── existence_ref       // Open 시 고정
+│   └── journey_ref?        // Close 시 확정
+│
 ├── Artifact Snapshot
 │
 └── Subgraph?          // optional
 ```
 
 이 모델에서 `Subgraph`만 선택적이다.
+
+`existence_ref`는 Node가 Open될 때 Current Existence로 고정되며 Node lifetime 동안 바뀌지
+않는다. `journey_ref`는 같은 Existence가 Node를 Close할 때 확정한다. 따라서 Open Node를 다른
+Existence가 이어받거나 닫을 수 없다.
+
+Existence ownership과 Will ownership을 혼동하지 않는다. 모든 Node는 `existence_ref`를 갖지만,
+Current Will은 현재 실제 행동을 수행하는 가장 깊은 실행형 Open Node에만 대응한다. Chain과
+Cycle 같은 컨테이너 Node는 내부 Node가 수행되는 동안 별도의 Active Will을 점유하지 않는다.
 
 - Chain은 Cycle Graph를 가진다.
 - Cycle은 Step Graph를 가진다.
@@ -48,6 +60,51 @@ Chain.subgraph = Cycle Graph
 Cycle.subgraph = Step Graph
 Step.subgraph  = None
 ```
+
+### 2.1 프로젝트 로컬 ID와 typed reference
+
+모든 영구 ID는 프로젝트의 `.gil` 안에서 안정적이며, 같은 종류 안에서 유일하고 재사용하지
+않는다. reference는 대상의 종류를 문자열에 포함한다.
+
+```text
+chain:C1
+cycle:C2
+step:C2/S3
+existence:X1
+journey:X1@J7
+participant:U1
+relation:R1
+will:W4
+state:ES3
+knowledge:K18
+memory:M11
+snapshot:A1
+```
+
+- Chain ID와 Cycle ID는 각각 프로젝트 전체에서 유일하다.
+- Step ID는 소속 Cycle 안에서 유일하며, Step reference는 반드시 Cycle ID를 함께 가진다.
+- Will ID는 프로젝트 전체에서 유일하다. 한 Existence의 Journey 안에 저장되더라도 다른
+  Existence의 Will과 같은 ID를 재사용하지 않는다.
+- Cycle ID가 프로젝트 전체에서 유일하므로 Cycle reference에 아직 구현되지 않은 Chain 경로를
+  미리 넣지 않는다. 이후 Chain이 구현되어도 기존 Cycle reference를 다시 쓰지 않는다.
+- 객체 자신의 `id` 필드는 `C2`, `S3`, `W4` 같은 bare ID를 저장한다. 다른 객체를 가리키는
+  reference 필드와 API 입력만 kind prefix를 포함한다.
+- Kind prefix는 reference의 일부다. bare `C2`, `S3`, `#3`은 영구 reference가 아니다.
+- `#3` 같은 표기는 현재 Cycle이 자명한 화면에서만 허용하는 인간용 축약이다. 저장, Report의
+  구조적 참조와 API 입력에서는 `step:C2/S3`을 사용한다.
+- ID는 위치나 현재 순서를 뜻하지 않는다. revisit, parent 변경 없는 새 분기, renderer 변경과
+  Current 이동으로 다시 번호를 매기지 않는다.
+
+typed reference의 해석 범위는 현재 프로젝트의 `.gil` 하나다. v0은 다른 프로젝트의 같은
+문자열을 동일한 객체로 해석하지 않는다.
+
+ID의 숫자 부분은 ASCII 십진수의 canonical 표기만 허용한다. `C1`, `S3`, `X1`, `W4`, `U1`,
+`R1`, `K18`, `M11`, `A1`은 1부터 시작하며 선행 0을 허용하지 않는다. 초기 revision과 초기
+Existence State를 표현하는 `J0`, `ES0`만 0을 허용한다. 따라서 `C0`, `C02`, `J00`, 음수, 빈
+숫자와 공백이 섞인 값은 parse 단계에서 거절한다.
+
+`state:ES0`은 단지 parse 가능한 예약값이 아니라 최초 Existence와 함께 반드시 생성되는 빈
+초기 State다. `journey:X1@J0`은 항상 그것을 가리키며 null State를 허용하지 않는다.
 
 ---
 
@@ -96,6 +153,10 @@ Boundary의 역할은 **Node의 내부와 외부를 연결하는 접점**을 제
 
 따라서 Open / Close는 Boundary 그 자체라기보다 **Boundary를 통과하는 Node lifecycle의 상태 전이**다.
 
+실행형 Node는 Active Will과 함께 Open되고 `gil close`의 한 transaction에서 Will Done,
+Journey revision과 Node Close가 함께 확정된다. 중간 `ready-to-close` status나 phase를 저장하지
+않는다. 공통 Node state는 Open / Closed 둘을 유지한다.
+
 ---
 
 ## 4. Step
@@ -110,7 +171,6 @@ Step
 │ OPEN                │
 │                     │
 │ 사고 / 행동         │
-│ Artifact 변경       │
 │ Report 작성         │
 │                     │
 │ CLOSE               │
@@ -118,6 +178,11 @@ Step
 │ Exit                │
 └─────────────────────┘
 ```
+
+모든 Step이 Artifact를 변경할 수 있는 것은 아니다. Artifact 변경과 새 snapshot 확정은 Verify
+Step에서만 허용한다(`GIL Artifact Model v0.1` §5·§6). Verify Node는 도구가 생성한 `snapshot_ref`를 Report와 분리된 구조 필드로
+직접 저장한다. 다른 Closed Step의 Artifact Version은 가장 가까운 선행 Verify 또는 Cycle Entry의
+snapshot에서 유도한다.
 
 현재 GIL Grammar v0.1의 `define`, `hypothesis`, `verify`, `analysis`, `outcome`은 모두 Step의 Kind다.
 
@@ -262,8 +327,8 @@ revisit_from — 이 갈래를 낳은 결정이 어디에 적혀 있었는가
 되돌아감으로 시작된 갈래의 **첫 Node** 는, 그 되돌아감을 결정한 Outcome 을 가리킨다.
 
 ```text
-#9.parent       = #4     구조적 계승 — 계보가 따라가는 변
-#9.revisit_from = #8     생성의 출처 — 계보가 따라가지 않는 변
+step:C2/S9.parent       = step:C2/S4   구조적 계승 — 계보가 따라가는 변
+step:C2/S9.revisit_from = step:C2/S8   생성의 출처 — 계보가 따라가지 않는 변
 ```
 
 **`revisit_from` 은 두 번째 parent 가 아니다.** Lineage 재구성은 `parent` 만 따라간다.
@@ -371,7 +436,9 @@ Cycle Exit       Artifact C
 
 따라서 Artifact history 역시 계층적으로 탐색할 수 있다.
 
-Artifact 저장 방식, snapshot 엔진, Git/libgit2와의 매핑은 이 문서에서 정의하지 않는다.
+이 절은 Snapshot이 **Node에 귀속된다**는 구조만 말한다. Artifact Timeline의 계약은
+`GIL Artifact Model v0.1`이 갖고, 저장 방식과 snapshot 엔진은 그 문서 §14에 따라 후속 구현
+단계에서 정한다.
 
 ---
 
@@ -433,16 +500,20 @@ Cycle 객체와 일반화된 Graph 구조가 아직 존재하지 않는 상태�
 3. Open/Close는 별도 Node가 아니라 lifecycle state transition이다.
 4. Boundary는 Report나 Knowledge를 생성하지 않는다.
 5. Report는 Node 자체에 귀속된다.
-6. Chain은 Cycle Graph를 포함한다.
-7. Cycle은 Step Graph를 포함한다.
-8. Step은 Subgraph를 가지지 않는다.
-9. Containment와 Lineage는 서로 다른 관계다.
-10. 현재 `cycle_entry` / `cycle_exit`은 Cycle Boundary를 Step Graph에서 바라본 표현이다.
+6. Node를 Open한 Existence와 Close한 Existence는 같아야 한다.
+7. `existence_ref`는 Open 시 고정하고 `journey_ref`는 Close 시 확정한다.
+8. Current Will은 가장 깊은 실행형 Open Node 하나에만 대응한다.
+9. Chain은 Cycle Graph를 포함한다.
+10. Cycle은 Step Graph를 포함한다.
+11. Step은 Subgraph를 가지지 않는다.
+12. Containment와 Lineage는 서로 다른 관계다.
+13. 현재 `cycle_entry` / `cycle_exit`은 Cycle Boundary를 Step Graph에서 바라본 표현이다.
+14. 영구 reference는 종류를 포함하며, Cycle ID는 프로젝트 전체에서 유일하고 Step reference는
+    소속 Cycle ID를 포함한다.
 
 ### 아직 정의하지 않는 것
 
 - 공통 Node의 실제 Rust 타입 설계
-- Node ID 및 주소 체계
 - Chain/Cycle의 정확한 Open/Close Report schema
 - Cycle/Chain 상태 머신
 - Cycle/Chain의 Success/Failure 전파 규칙의 상세

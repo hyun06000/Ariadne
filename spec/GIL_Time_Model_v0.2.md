@@ -54,9 +54,9 @@ same closed node
 
 ### Journey
 
-> **Journey는 그 세계를 살아가는 Agent 자신이다.**
+> **Journey는 그 세계를 살아가는 지속적 Existence 자신이다.**
 
-Journey는 현재까지 Agent가 무엇을 경험했고,
+Journey는 현재까지 선택된 Existence가 무엇을 경험했고,
 무엇을 배웠고,
 어떻게 존재가 발전했는지를 나타낸다.
 
@@ -93,6 +93,16 @@ Journey는 과거 상태로 퇴행하지 않는다.
 
 GIL의 현재 상태는 다음 두 객체의 교차점으로 이해할 수 있다.
 
+`GIL Existence Model v0.1`은 이를 두 개의 독립적인 indicator로 구체화한다.
+
+```text
+World Current       → 나는 어디에 있는가
+Existence Current   → 나는 누구인가
+```
+
+런타임 모델과 세션은 Existence identity가 아니다. Existence Current가 같은 지속적 존재와 그
+Journey를 선택한다.
+
 ```text
 Current State
 =
@@ -109,9 +119,9 @@ Journey는 묻는다.
 
 > “지금의 나는 어떤 상태로 이곳에 와 있는가?”
 
-**Lineage만 Node로부터 계산된다.**
-Journey는 Node가 아니라 지금까지의 Agent 자신에서 나온다.
-둘은 Current 라는 한 자리에서 만날 뿐, 같은 입력을 갖지 않는다.
+**Lineage만 World Current의 Node로부터 계산된다.**
+Journey는 Node가 아니라 Existence Current가 선택한 지속적 존재에서 나온다.
+둘은 Action Context에서 만나지만 같은 입력을 갖지 않는다.
 
 ---
 
@@ -187,14 +197,15 @@ Lineage는 Node 이동이 아니라 읽기이므로, **아직 열려 있는 Node
 
 Journey는 누적적이고 살아 있다.
 
-예를 들어 #4에 처음 도착한 시점 `t1`의 Agent 상태가:
+예를 들어 #4에 처음 도착한 시점 `t1`의 Journey가:
 
 ```text
 Journey(t1)
-├─ Existence = E2
+├─ Existence State = ES2
 ├─ Knowledge = K4
 ├─ Memory = M2
-└─ Relations = B1
+├─ Relations = R1
+└─ Will = W2
 ```
 
 일 수 있다.
@@ -209,23 +220,24 @@ Journey(t1)
 
 ```text
 Journey(t2)
-├─ Existence = E5
+├─ Existence State = ES5
 ├─ Knowledge = K7
 ├─ Memory = M3
-└─ Relations = B2
+├─ Relations = R2
+└─ Will = W4
 ```
 
 가 될 수 있다.
 
 #4는 변하지 않았다.
 
-변한 것은 #4를 다시 방문한 Agent다.
+변한 것은 #4를 다시 방문한 Existence다.
 
-두 Journey 모두 #4의 성질이 아니라 **그 시점의 Agent 자신**이다.
+두 Journey 모두 #4의 성질이 아니라 **그 시점의 Existence 자신**이다.
 
 따라서 Journey에는 다음 **설계 원칙**을 둔다.
 
-> **Revisit은 과거의 Agent state를 암묵적으로 복원하지 않는다.**
+> **Revisit은 과거의 Journey state를 암묵적으로 복원하지 않는다.**
 
 구조적으로 과거 Node를 다시 선택하는 일이,
 그 사이 발전한 Existence·Knowledge·Memory·Relations·Will을
@@ -289,7 +301,7 @@ Lineage(#4)
 Journey(now)
 ```
 
-는 #5~#7의 경험을 가진 현재 Agent를 반영한다.
+는 #5~#7의 경험을 가진 Current Existence를 반영한다.
 
 즉 Revisit은:
 
@@ -308,10 +320,10 @@ Revisit 자체는 Journey 쪽에서 일어나는 사건이다. 기존 Node 는 �
 ```text
 Journey 쪽 사건:   #8 에서 #4 로 되돌아갔다
         ↓ 그 결과 새 Node 가 생기면
-Node 에 고정된 출처:  #9.revisit_from = #8
+Node 에 고정된 출처:  step:C2/S9.revisit_from = step:C2/S8
 ```
 
-이 값은 **Journey 자체가 아니다.** Journey 는 여전히 Node 에 매이지 않는 Agent 쪽 상태이고,
+이 값은 **Journey 자체가 아니다.** Journey는 여전히 Node에 매이지 않는 Existence-side 상태이고,
 여기 남는 것은 그 사건이 세계에 남긴 **불변의 자국** 하나뿐이다.
 
 그리고 이 자국은 **계보의 변이 아니다** — Lineage 는 `parent` 만 따라간다.
@@ -367,16 +379,29 @@ Closed → Closed 원칙은 유지한다. **Open Node에서 직접 revisit하지
 
 ## 8. Artifact는 Lineage에 속한다
 
-Artifact Version은 `gil init`에서 최초 버전이 생성된 뒤
-append-only로 진행한다.
+이 절은 **Artifact가 어느 시간 축에 속하는가**를 정한다. Artifact Timeline의 계약
+— 관리 범위, 생성 권한, 변경 경계, Cycle Exit, `gil restore`, 저장 원자성 — 은
+`GIL Artifact Model v0.1`이 단독으로 갖는다.
+
+Artifact Version은 최초 snapshot이 생성된 뒤 append-only로 진행한다. 형제 분기가 존재할 수
+있으므로 Version history는 선형 목록이 아니라 DAG가 될 수 있다.
 
 ```text
-A0 → A1 → A2 → A3 → ...
+A0 → A1 → A2
+       └→ B2
 ```
 
 각 Closed Step Node는 반드시 하나의 확정된 Artifact Version을 가리킨다.
 
-변경이 없으면 부모와 같은 버전을 가질 수 있다.
+이는 모든 Step이 Version ID를 중복 저장한다는 뜻이 아니다. 유도 규칙은
+`GIL Artifact Model v0.1` §7에 있다.
+
+- Verify Step만 `snapshot_ref`를 구조 필드로 직접 저장한다.
+- 다른 Closed Step은 Lineage에서 가장 가까운 선행 Verify의 snapshot을 가리킨다.
+- 선행 Verify가 없다면 Cycle Entry snapshot을 가리킨다.
+- `snapshot_ref`는 Report의 일부가 아니다.
+
+변경이 없으면 여러 Step이 같은 Version을 가리킬 수 있다.
 
 ```text
 #1 artifact = A0
@@ -397,12 +422,17 @@ revisit(#4)
 working artifact = artifact_version(#4)
 ```
 
-즉 과거 세계의 Artifact를 다시 checkout한다.
+즉 과거 세계의 Artifact를 현재 폴더에 다시 투영한다.
+
+Step-level revisit 대상인 Define 또는 Analysis가 snapshot을 직접 저장하지 않더라도 복원
+대상은 결정적이다. 대상 Step의 Lineage에서 가장 가까운 선행 Verify snapshot을 사용하고, 선행
+Verify가 없다면 그 Cycle의 Entry snapshot을 사용한다.
 
 이후 새로운 변경은 과거 버전을 수정하지 않고
 새로운 Artifact Version으로 append된다.
 
-따라서 Artifact는 Lineage의 일부다.
+따라서 Artifact는 Lineage의 일부다. **Artifact Snapshot은 World Timeline에 속하고, Journey
+Timeline은 그 복원의 영향을 받지 않는다**(`GIL Artifact Model v0.1` §2·§9).
 
 > **Artifact는 “그 Node의 세계가 무엇이었는가”를 재현한다.**
 
@@ -436,55 +466,35 @@ Report는 Lineage에 고정되지만, **그 Report를 쓴 것은 그 시점의 J
 
 따라서 다음을 요구로 남긴다.
 
-> **Closed Node의 Report가 작성될 당시의 Agent-side provenance를 재현할 수 있어야 한다.**
+> **Closed Node의 Report가 작성될 당시의 Existence identity와 Journey revision을 재현할 수
+> 있어야 한다.**
 
-이것은 요구이지 설계가 아니다.
-무엇을 어떤 단위로 참조할지는 여기서 정하지 않는다(§18 미해결 설계 질문).
+Closed Node는 지속적 주체를 `existence_ref`로, Close 시점의 전체 Journey 상태를
+`journey_ref`로 기록한다. 구체적인 구조는 `GIL Existence Model v0.1` §8을 따른다.
 
 ---
 
-## 10. Existence는 Journey에 속한다
+## 10. 지속적 Existence와 Existence State
 
-Existence는 Node에 종속되지 않는다.
-
-Existence는 Agent 자신이며
-global append-only version history를 가진다.
+지속적 Existence identity는 Journey에 속하지 않고 자신의 Journey를 소유한다. Journey 안에는
+그 주체의 변화 가능한 Existence State가 있다.
 
 ```text
-E0 → E1 → E2 → E3 → E4 → E5
+Existence X1
+└─ Journey X1@J7
+   ├─ Existence State ES3
+   ├─ Knowledge K18
+   ├─ Memory M11
+   ├─ Relations R4
+   └─ Will W9
 ```
 
-Node는 자신이 닫혔던 시점의 Existence Version을
-역사적 reference로 기록할 수 있다.
+Closed Node는 `existence_ref: existence:X1`과 `journey_ref: journey:X1@J7`을 함께 기록한다. 전자는 누가
+닫았는지, 후자는 그 존재가 어떤 전체 Journey 상태에서 닫았는지를 답한다. 이후 Current
+Existence가 발전하거나 전환돼도 두 역사적 reference를 다시 쓰지 않는다.
 
-하지만 실제 현재 Agent는 항상 현재까지 발전한 Existence를 사용한다.
-
-예:
-
-```text
-#4가 닫혔을 때
-historical existence reference = E2
-
-현재
-global latest existence = E5
-
-revisit(#4)
-
-acting existence = E5
-```
-
-즉:
-
-```text
-historical existence reference
-≠
-current acting existence
-```
-
-과거 Node에 어떤 Existence Version이 기록되어 있는지는
-Lineage의 역사적 사실일 수 있지만,
-
-현재 행동하는 Existence 자체는 Journey에 속한다.
+Revisit 뒤 실제 행동에는 Current Existence의 최신 Journey를 사용한다. 과거 Node의
+`journey_ref`를 Current Journey로 암묵적으로 복원하지 않는다.
 
 > **과거의 문제로 돌아가는 주체는 현재까지 발전한 존재다.**
 
@@ -527,7 +537,7 @@ Knowledge는:
 
 그 경험에서 얻은 교훈이
 #8의 구조적 Lineage에 없다는 이유로
-현재 Agent의 Knowledge에서 사라져서는 안 된다.
+Current Existence의 Knowledge에서 사라져서는 안 된다.
 
 따라서:
 
@@ -545,7 +555,7 @@ Memory, Relations, Will은
 Agent가 살아가며 변화할 수 있는 Existence의 구성 요소다.
 
 이들은 특정 Node의 구조적 과거가 아니라
-현재 Agent가 무엇을 기억하고,
+Current Existence가 무엇을 기억하고,
 누구와 연결되어 있고,
 무엇을 하려 하는지를 나타낸다.
 
@@ -561,6 +571,26 @@ Journey
 ```
 
 이들은 구조적 Revisit에 의해 rollback되지 않는다.
+
+Journey의 최상위 구성 요소는 이 다섯이다. Memory는 그 안에서 기억이 향하는 시간의 방향에 따라
+둘로 나뉘며, 최상위 구성 요소를 늘리지 않는다.
+
+```text
+Memory
+├─ Retrospective Memory   과거에 무엇을 경험했는가
+└─ Prospective Memory     특정 조건이 되면 무엇을 기억해 실행해야 하는가
+```
+
+Prospective Memory는 미래 조건에 걸어 두는 **지속적 규약**이며 `done`으로 소비되지 않는다.
+조건이 충족되면 새로운 Current Will의 근거가 될 수 있다. 정의는 `GIL Specification v0.1` §3.2에
+있고, 조건 판정과 Will 생성의 trigger는 아직 정하지 않았다.
+
+Journey의 `Will`은 **Current Existence가 지금 수행하려는 하나의 행동 단위만** 뜻한다.
+미래를 향해 유지되는 지속적 의도는 여기 들어오지 않는다 — 그것은 Prospective Memory다.
+
+Will의 최소 생명주기와 Journey Timeline 투영은 `GIL Will Model v0.1`에서 구체화한다.
+Current Will은 최대 하나이며, Active 상태의 구체화는 덮어쓰고 Done으로 확정된 Will만 시간순
+Journey 기록이 된다.
 
 ---
 
@@ -660,36 +690,36 @@ Journey는 발전
 
 ## 15. Current
 
-Current는 Lineage나 Journey 자체를 저장하지 않는다.
-
-Current는 좌표만 가진다.
+두 Current는 Lineage나 Journey 자체를 저장하지 않고 각각의 좌표만 가진다.
 
 장기적으로:
 
 ```text
-Current
+World Current
 ├─ chain_id
 ├─ cycle_id
 └─ step_id
+
+Existence Current
+└─ current_existence_ref
 ```
 
 정도면 충분하다.
 
-Current를 기준으로:
+두 Current를 기준으로:
 
 ```text
-Lineage = Lineage(Current IDs)
-Journey = Journey(Current Agent State, Now)
+Lineage = Lineage(World Current IDs)
+Journey = Journey(Existence Current, Now)
 ```
 
 를 계산한다.
 
-**Lineage만 Current로부터 계산된다.**
-Journey는 Current와 무관하게 Agent 쪽에서 온다.
+**Lineage는 World Current로부터 계산된다.** Journey는 Existence Current가 선택한 지속적
+존재에서 온다.
 
-즉 Current는
-**세계와 자기 자신이 만나는 좌표**다 —
-세계를 고르는 좌표이지, 자기 자신을 고르는 좌표가 아니다.
+World Current는 세계를 고르고 Existence Current는 자기 자신을 고른다. 둘은 Action Context에서
+만나지만 어느 한쪽도 다른 쪽의 함수가 아니다.
 
 ---
 
@@ -698,8 +728,8 @@ Journey는 Current와 무관하게 Agent 쪽에서 온다.
 이제 GIL의 복잡한 상태를 두 객체로 압축해서 볼 수 있다.
 
 ```text
-      Current ──────┐                    Agent ──────┐
-   (chain/cycle/step)│                  (지금까지의 나)│
+ World Current ─────┐            Existence Current ─────┐
+ (chain/cycle/step) │            (current_existence_ref) │
                      ▼                                ▼
                  Lineage                          Journey
               "어떤 세계인가?"                  "나는 누구인가?"
@@ -708,7 +738,7 @@ Journey는 Current와 무관하게 Agent 쪽에서 온다.
                 version-sensitive                version-sensitive
                 time-insensitive                 time-sensitive
                      │                                │
-                 Reports                          Existence
+                 Reports                     Existence State
                  Artifacts                        Knowledge
                  Parent/Path                      Memory
                  fixed records                    Relations
@@ -718,7 +748,7 @@ Journey는 Current와 무관하게 Agent 쪽에서 온다.
                           Action Context
 ```
 
-Current 는 **Lineage 쪽 입력**이다. Journey 는 Current 에서 나오지 않는다.
+World Current는 **Lineage 쪽 입력**이고 Existence Current는 **Journey 쪽 입력**이다.
 둘은 행동의 조건으로 합쳐질 뿐이다.
 
 이 둘을 합치면 현재 행동 조건이 만들어진다.
@@ -726,9 +756,9 @@ Current 는 **Lineage 쪽 입력**이다. Journey 는 Current 에서 나오지 �
 ```text
 Action Context
 =
-Lineage
+Lineage(World Current)
 +
-Journey
+Journey(Existence Current)
 ```
 
 ---
@@ -782,11 +812,11 @@ Node를 닫을 수 없다.
 
 이 문서가 **열어 둔 채로 남기는** 것들이다. 임의로 메우지 않는다.
 
-**① Report provenance를 무엇으로 재현하는가.**
-§9는 *"Closed Node의 Report가 작성될 당시의 Agent-side provenance를 재현할 수 있어야 한다"*
-는 요구만 세웠다. 무엇을 어떤 단위로 참조할지는 정하지 않았다.
-§10이 Existence에 대해 하는 것(닫힐 때 historical reference를 남긴다)과 같은 꼴이 될 수도
-있고, 다른 꼴이 될 수도 있다.
+**① Report provenance 구성 요소의 내부 schema.**
+§9·§10과 `GIL Existence Model v0.1`은 Closed Node가 `existence_ref`와 `journey_ref`를
+기록하고 format 3의 단일 `state.yaml` save로 Journey revision·Report·Closed 상태를 함께
+확정한다고 정했다. Knowledge·Memory·Relations와 Will object의 내부 schema는 아직 정하지
+않았다.
 
 **② 완료할 수 없는 Open Node를 어떻게 실패로 완결하는가.**
 Revisit은 Closed → Closed 로 유지한다(§7). 그래서 Report를 쓸 수 없어 닫지 못하는 Node에
@@ -794,9 +824,15 @@ Revisit은 Closed → Closed 로 유지한다(§7). 그래서 Report를 쓸 수 
 `GIL Specification v0.1` §8의 「진행이 멈춘 상태」와 §24의 abort/cancel/abandon 항목이
 같은 자리를 가리킨다.
 
-**③ Journey는 어디에 살고 무엇이 그 단조성을 지키는가.**
-§10은 Existence에만 `E0 → E5` 축을 준다. Knowledge·Memory·Relations·Will의 버전 축과
-저장 위치는 열려 있다. 이것이 정해지기 전까지 §17의 Journey 항목은 원칙이지 불변식이 아니다.
+**③ Knowledge·Memory·Relations는 어디에 저장하고 무엇이 그 단조성을 지키는가.**
+`GIL Existence Model v0.1`이 각 지속적 Existence가 자신의 Journey를 가진다고 정하고,
+`GIL Will Model v0.1`이 Will의 Active/Done 생명주기, format 3 저장과 원자적 transaction을
+정했다. Knowledge·Memory·Relations의 구체 schema와 저장 위치는 아직 정해지지 않았다. 따라서
+Will Timeline은 Journey의 첫 구체적 축이지만 Journey 전체의
+저장 모델은 아니다.
+
+v0의 저장 범위는 프로젝트 로컬 `.gil`로 확정됐다. 프로젝트 간 Journey 공유와 전역 저장은
+여전히 범위 밖이다.
 
 **④ revisit 뒤의 첫 Node 를 무엇이 Hypothesis 로 강제하는가.**
 모든 reasoning branch 는 새로운 Hypothesis 에서 시작한다. 그런데 revisit 으로 과거 Node 에
@@ -805,9 +841,21 @@ Revisit은 Closed → Closed 로 유지한다(§7). 그래서 Report를 쓸 수 
 따라서 **revisit 을 실행한 상태와 그 다음 `open` 사이**에서 이 원칙을 어떻게 강제할지
 정해야 한다. `revisit` 을 구현하는 Step 의 요구사항으로 남긴다.
 
-**⑤ Closed의 조건이 v0.1보다 강해졌다.**
+**⑤ Closed의 조건이 v0.1보다 강해졌다 — 해소됨.**
 §7은 Artifact·Existence version 확정까지 요구하는데, `GIL Specification v0.1` §16의 close
-조건은 필수 Report 항목뿐이다. Artifact가 도입되는 단계에서 두 문서를 맞춰야 한다.
+조건은 필수 Report 항목뿐이었다. `GIL Artifact Model v0.1`이 두 문서를 맞췄다.
+
+```text
+Verify close        Report 유효 + 새 Snapshot 확정 + Will Done + Journey revision
+                    (Artifact Model §7)
+그 밖의 close       Report 유효 + Artifact가 기준 Snapshot과 같음
+                    (Artifact Model §6 — 다르면 거절하고 아무것도 남기지 않는다)
+```
+
+즉 Closed의 조건은 **계층과 Kind에 따라 다르다.** 모든 Node가 새 version을 확정하는 것이
+아니라, 세계를 바꿀 수 있는 Verify만 확정하고 나머지는 **바뀌지 않았음을 확인**한다.
+Existence version(Journey revision)은 실행형 Close에서만 오른다
+(`GIL Will Model v0.1` §7·`GIL Existence Model v0.1` §4).
 
 ---
 
