@@ -210,7 +210,9 @@ v0에서 명령이 아직 구현되지 않았더라도 전체 Graph는 저장되
 
 ---
 
-## 7. M2에서의 최소 Context
+## 7. 구현 단계별 Context
+
+### 7.1 M2에서의 최소 Context
 
 M2에는 Chain과 Artifact snapshot이 아직 없다(Artifact는 M3에서 들어온다 —
 `GIL Artifact Model v0.1`). 따라서 첫 `gil context`는 다음으로 제한한다.
@@ -257,6 +259,26 @@ current_cycle_step_occurrences_in_context == current_cycle_step_count
 Hypothesis, Verify, Analysis와 내부 전환 과정을 펼치지 않으므로 Step Graph 확장이 아니다.
 `handoff_summary`는 다음 Cycle이 반드시 받아야 할 지식에 집중하며, 실험 목적·성공 기준·판정
 이유를 모두 다시 서술할 책임을 지지 않는다.
+
+### 7.2 M3 Artifact Context
+
+M3의 `gil context`는 전체 Snapshot registry나 파일 목록을 반복하지 않는다. 새 Agent가 지금
+행동을 이어 가는 데 필요한 세계 정보만 현재 위치 해상도로 투영한다.
+
+```text
+[현재 세계]
+  현재 위치에서 유도한 공개 SnapshotRef
+  작업 폴더가 그 세계와 같은지(clean / dirty)
+  현재 열린 Node가 변경을 확정할 수 있는 Verify인지
+  dirty인 비-Verify 자리라면 gil restore로 되돌릴 수 있다는 다음 행동
+```
+
+내부 manifest·blob 주소, Snapshot registry 전체, 모든 파일의 경로와 변경 목록, 이전 Cycle마다
+반복되는 Artifact 세부는 출력하지 않는다.
+
+`gil context`는 명시적으로 요청될 때 현재 폴더를 한 번 관측할 수 있다. 그러나 모든 `open`과
+`close`가 전체 Context를 되풀이하지는 않는다. 일상 명령은 현재 행동에 필요한 짧은 nudge를
+주고, 전체 onboarding은 새 세션이나 사용자가 요구한 때에만 `gil context`가 맡는다.
 
 ---
 

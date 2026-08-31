@@ -38,7 +38,8 @@ Project
 - 성공한 Node는 다음 자식 Node의 기반이 될 수 있다.
 - 실패한 Node는 자식을 만들지 않는다.
 - 실패는 삭제되지 않고 Report와 Knowledge로 Journey에 남는다.
-- 실패 뒤에는 과거의 유효한 분기점으로 revisit하여 형제 가지를 만든다.
+- 실패 뒤에는 과거의 유효한 분기점으로 revisit하여 그 아래에 새 가지를 만든다. 직접 부모로
+  돌아간 경우에만 실패 가지와 새 가지가 형제다.
 - revisit은 과거 Node를 다시 열거나 수정하지 않는다.
 
 failure는 막다른 오류가 아니다.
@@ -220,8 +221,8 @@ Interview A
 
 Interview Cycle은 일반적으로 Artifact를 변경하지 않는다.
 
-그러나 Artifact가 없다는 뜻은 아니다. Entry Snapshot 계승 규칙(`GIL Artifact Model v0.1` §7)에
-따라 Interview Cycle은 부모 Cycle Exit의 Artifact 상태를
+그러나 Artifact가 없다는 뜻은 아니다. Entry Snapshot 계승 규칙(`GIL Artifact Model v0.1`
+§7.1·§7.5)에 따라 Interview Cycle은 저를 연 전이가 준 Artifact 상태를
 그대로 상속하고, 변경하지 않았다면 같은 상태를 자신의 Exit로 전달한다.
 
 ```text
@@ -234,7 +235,8 @@ Interview Cycle은 Artifact 관점에서 투명할 수 있다.
 ### 실패한 Experiment 뒤의 Interview
 
 실패한 Cycle은 자식을 만들 수 없으므로 그 아래에 Interview를 열지 않는다. 과거의 유효한
-Closed ancestor로 revisit한 뒤 Interview 형제 가지를 만든다.
+Closed ancestor로 revisit한 뒤 그 아래에 새 Interview 가지를 만든다. 대상이 실패 Cycle의
+직접 부모일 때 그 Interview가 실패 Cycle의 형제가 된다.
 
 이때 실패한 Experiment의 Artifact 상태는 현재 상태로 채택되지 않지만, Report와 Knowledge는
 Journey에 남아 새 Interview에 전달된다.
@@ -337,26 +339,54 @@ Timeline 위에 선다. 그 계약의 규범 단일 진실 공급원은 `GIL Art
 
 | 무엇 | 어디 |
 |---|---|
-| 관리 범위와 제외 대상 | Artifact Model §3 |
+| **Artifact 정체성** (경로 + 바이트) · 경로 정규화 · 관리 대상 종류 | Artifact Model §3 |
 | 최초 기준 세계와 `gil start` | Artifact Model §4 |
-| Snapshot 생성 권한 (start와 Verify close 둘뿐) | Artifact Model §5 |
-| 비-Verify Step·Cycle close의 변경 거절 | Artifact Model §6 |
-| Verify close 트랜잭션과 `snapshot_ref` 유도 | Artifact Model §7 |
-| **Cycle Exit Snapshot 선택 규칙** | Artifact Model §7 |
-| `gil restore` | Artifact Model §8 |
+| Snapshot 확정 권한 (start와 Verify close 둘뿐) | Artifact Model §5 |
+| 비-Verify Step·Cycle close의 변경 거절 · manifest 비교 · 안정된 관측 | Artifact Model §6 |
+| **Cycle의 `entry_snapshot_ref`·`exit_snapshot_ref` 저장 계약** | Artifact Model §7.1·§7.2 |
+| Verify close 트랜잭션과 `snapshot_ref` 유도 | Artifact Model §7.3·§7.4 |
+| World Current Snapshot 유도 | Artifact Model §7.6 |
+| **Cycle Exit Snapshot 선택 규칙** | Artifact Model §7.5 |
+| `gil restore` — 목표 유도 · 원자성 · 멱등성 · 확인 계약 | Artifact Model §8 |
 | 저장과 원자성 경계 | Artifact Model §10 |
 
-여기서는 revisit이 그 위에서 성립하기 위해 필요한 것만 적는다.
+여기서는 **Cycle Graph가 지는 몫**만 적는다 — 어느 전이가 어느 세계에서 출발하는가.
+
+### 전이가 Entry Snapshot을 정한다
+
+모든 Cycle은 생성과 동시에 실재하는 `entry_snapshot_ref`를 지닌다. 그 값은 **그 Cycle을 연
+전이가 출발한 세계**다.
+
+| Cycle을 연 전이 | Entry Snapshot |
+|---|---|
+| 뿌리 (`gil start`) | 최초 기준 Snapshot |
+| `open_child` | 부모 Cycle의 Exit |
+| `revisit` | **revisit 대상 Cycle의 Exit** |
+| merge (미래) | 별도 merge 규칙 — 아직 없다 |
+
+> **구조적 `parent`와 갈래의 출처인 `revisit_from`을 같은 것으로 취급하지 않는다.**
+
+`open_child`에는 `revisit_from`이 없다. revisit으로 열린 Cycle의 구조적 부모와 Artifact
+세계의 출발점은 모두 revisit 대상이고, `revisit_from`만 버려진 실패 Cycle을 가리킨다. 이
+셋을 각자 제자리에 두어야 "누구의 사고와 세계를 이어받았는가"와 "어느 실패가 이 새 갈래를
+낳았는가"를 함께 답할 수 있다. 미래의 merge에서는 구조적 부모와 Entry 세계의 관계를 별도
+규칙으로 다시 정한다.
+
+### Cycle Exit
 
 ```text
-Verify Closed   → 새 확정 Snapshot (Artifact Model §5 — 바꿀 수 있는 유일한 경계)
+Verify Closed   → 세계를 확정한다 (Artifact Model §5 — 바꿀 수 있는 유일한 경계).
+                  바뀐 세계면 새 SnapshotRef, 그대로면 기존 것을 다시 가리킨다
 Cycle Exit      → 새 Snapshot을 만들지 않는다.
                   마지막 Outcome의 구조적 lineage에서 가장 최근에 확정된 Verify
-                  Snapshot을 기록하고, 없으면 Entry Snapshot을 계승한다.
+                  Snapshot을 기록하고, 없으면 그 Cycle의 Entry Snapshot을 계승한다.
 ```
 
 버려진 가지의 Snapshot이나 이름이 가장 큰 Snapshot을 고르지 않는다. 이는 `basis_refs`(§16)와
 `synthesis_ref`(§17)가 따르는 것과 **같은 계보 규칙**이다.
+
+Entry와 Exit이 같은 `SnapshotRef`일 수 있다 — 그 Cycle이 세계를 바꾸지 않았다는 뜻이며,
+Artifact를 건드리지 않는 Interview Cycle이 늘 그렇다.
 
 ### Staging은 GIL 상태가 아니다
 
@@ -387,7 +417,15 @@ Cycle revisit은 Step revisit과 같은 시간 규칙을 따른다.
 - 이미 생성된 Cycle의 존재
 ```
 
-revisit 뒤에 새 Cycle을 열면 기존 실패 Cycle과 형제 관계가 된다.
+revisit 뒤에 여는 새 Cycle의 구조적 부모는 **revisit 대상 Cycle**이다. 대상이 실패 Cycle의
+직접 부모라면 새 Cycle과 실패 Cycle은 형제 관계가 된다. 더 먼 조상을 대상으로 삼으면 새
+Cycle은 실패 Cycle의 형제가 아닐 수 있으므로, "형제"는 흔한 모양의 이름이지 일반 불변식이
+아니다.
+
+새 Cycle의 `entry_snapshot_ref`는 **revisit 대상 Cycle의 Exit Snapshot**이다. 실패 Cycle의
+Exit을 계승하지 않는다. 실패 Cycle이 확정한 Snapshot 객체와 Report·Knowledge·Done Will은
+그대로 남지만, 그 Artifact 모습은 새 시도의 현재 세계로 채택하지 않는다. 실패가 남긴 일부
+Artifact를 선택적으로 가져오는 일은 revisit이 아니라 미래의 명시적 이월 또는 merge의 몫이다.
 
 ### Revisit의 상태 경계
 
@@ -412,8 +450,9 @@ snapshot 사이의 차이일 뿐, Cycle Graph가 파일별 규칙을 소유하�
 - Existence와 현재까지 누적된 상태
 - 실행된 Cycle 기록과 승인된 Synthesis
 
-`.gil`이 Artifact tree에서 제외된다는 것과 복원이 그 안을 건드릴 수 없다는 것은
-`GIL Artifact Model v0.1` §3이 정한다.
+프로젝트 루트의 `.gil` 이 Artifact tree에서 제외된다는 것, 복원이 그 안을 건드릴 수 없다는
+것, 그리고 더 깊은 곳의 `.gil` 이 중첩 GIL 경계로 거절된다는 것은
+`GIL Artifact Model v0.1` §3.4가 정한다.
 
 ### Clean 세계 불변식
 
@@ -438,28 +477,39 @@ Cycle revisit의 정당한 순서는 다음과 같다.
 1. 현재 Verify snapshot 확정
 2. Analysis와 Outcome 작성
 3. Cycle Report 작성, 실패 Cycle 종료
-4. 대상 Closed ancestor의 Exit Snapshot 복원
-5. 대상 ancestor 아래에 새 형제 Cycle 시작
+4. `gil revisit`으로 대상 Closed ancestor를 Current로 삼고 그 Exit Snapshot 복원
+5. `pending_cycle_revisit`에 방금 닫은 실패 Cycle을 기록
+6. 별도의 `gil open <kind>`로 대상 ancestor 아래에 새 Cycle 시작
 ```
+
+Cycle-level revisit은 Step-level revisit과 같은 두 단계 구조를 따른다. `gil revisit` 자체는 새
+Cycle의 Kind를 고르거나 새 Cycle ID를 발급하지 않는다. 다음 `gil open <kind>`가 새 Cycle을
+만들며, 그때 `parent = revisit 대상`, `revisit_from = 실패 Cycle`,
+`entry_snapshot_ref = revisit 대상의 exit_snapshot_ref`를 기록하고 pending 상태를 비운다.
+
+같은 실패 Cycle에서 `gil revisit`을 두 번 실행할 수는 없다. 첫 실행 뒤 Current가 대상
+ancestor로 옮겨졌기 때문이다. 그러나 그 뒤 열린 새 Cycle도 실패하면, 그 **새 실패 Cycle**의
+Report가 같은 ancestor를 다시 대상으로 삼을 수 있다. 별도의 사용 횟수나 소진 플래그를 두지
+않는다.
 
 Step-level revisit도 같은 재귀 원리를 따른다. 현재 Step을 Report로 닫고 과거의 유효한 Step
 경계의 세계로 복원한 뒤 새 Hypothesis 형제 가지를 연다.
 
 내부 저장 엔진이 어떤 분기 기법을 쓰더라도 그것은 사용자가 직접 관리하는 별도 개념이 아니다.
-새 Hypothesis 또는 새 Cycle 형제 가지가 열릴 때 GIL Graph의 분기에 귀속되어 자동으로
+새 Hypothesis 또는 새 Cycle 가지가 열릴 때 GIL Graph의 분기에 귀속되어 자동으로
 생성되는 구현 세부이며, 그 어휘를 공개 표면에 노출하지 않는다
 (`GIL Artifact Model v0.1` §14).
 
-### 아직 실행할 수 없다
+### 실행 경계
 
-여기까지가 Cycle-level revisit의 **설계**다. 실행은 아직 짓지 않았다.
+Cycle Report의 `revisit`은 **기록할 수 있고 실행할 수 있는** 방향이다(`GIL Artifact Model
+v0.1` §11의 1번 상태).
 
-Cycle Report의 `revisit`은 **유효하게 기록할 수 있지만 현재 버전에서는 실행할 수 없는**
-방향이다(`GIL Artifact Model v0.1` §11의 2번 상태). 사용자와 에이전트에게 그것이 잘못된
-값이라고 말하지 않는다 — 방향은 정상적으로 기록되었고, 후속 전이가 아직 구현되지 않았을
-뿐이다.
+`gil revisit`은 선언된 Closed ancestor로 Current와 Artifact 세계를 옮기고
+`pending_cycle_revisit`을 남긴다. 이 명령만으로 새 Cycle을 만들지는 않는다. 이어지는
+`gil open <interview|experiment>`가 새 Cycle을 열고 pending을 `revisit_from`으로 옮긴다.
 
-이 실행은 M3가 Cycle Exit Snapshot을 확정한 뒤 M4가 짓는다.
+둘 중 어느 단계에서도 대상 Cycle이나 실패 Cycle을 다시 열거나 수정하지 않는다.
 
 ---
 
@@ -472,8 +522,9 @@ Cycle Report의 `revisit`은 **유효하게 기록할 수 있지만 현재 버�
 1. 현재 Chain의 승인된 방향
 2. 구조적 부모 Cycle의 Cycle Report
 3. 부모 이후 현재 Journey에서 닫힌 실패 Cycle Report들
-4. 구조적 부모 Cycle Exit의 Artifact 상태 — 새 Cycle의 Entry Snapshot이 된다
-   (`GIL Artifact Model v0.1` §7)
+4. 그 Cycle을 연 전이가 출발한 Artifact 세계 — 새 Cycle의 `entry_snapshot_ref`가 된다.
+   `open_child`면 구조적 부모의 Exit이고, `revisit`이면 revisit 대상의 Exit이다
+   (`GIL Artifact Model v0.1` §7.1)
 
 실패 Cycle Report는 항상 전달한다. 같은 실패를 반복할 수 있기 때문이다.
 
@@ -641,6 +692,26 @@ next_direction.reason:
 next_direction.target_cycle_ref:
   action이 revisit일 때 필수인 CycleRef
 ```
+
+`next_direction.target_cycle_ref`는 `action`에 따른 **조건부 필드**다. 따라서 모든 Cycle
+Report의 무조건적인 `close_requires`에는 넣지 않는다.
+
+```text
+action == revisit  → target_cycle_ref 필수
+action != revisit  → target_cycle_ref 금지
+```
+
+값은 반드시 `cycle:C2` 형태의 typed `CycleRef`여야 한다. bare ID·화면 축약·StepRef·SnapshotRef는
+받지 않는다. 대상을 기록할 때와 저장 상태를 복원할 때 다음을 모두 검사한다.
+
+- 같은 Project의 Cycle Graph에 실재한다.
+- Closed다.
+- 현재 실패 Cycle 자신의 구조적 Lineage 위에 있으며 자기 자신이 아니다.
+- 새 자식 Cycle을 가질 수 있는 유효한 분기점이다.
+- Lineage는 구조적 `parent`만 따르며 `revisit_from`을 따라가지 않는다.
+
+`target_cycle_ref`는 실패 Cycle을 닫는 순간에 방향의 근거와 함께 확정된다. 이후
+`gil revisit`은 Cycle ID나 Snapshot ID를 인수로 받지 않고 이 참조를 읽는다.
 
 Cycle Kind, verdict와 action은 다음처럼 맞물린다.
 

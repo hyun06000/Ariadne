@@ -26,8 +26,8 @@
 use std::fmt;
 
 use crate::cycle::CycleKind;
-use crate::refs::{CycleRef, ExistenceRef, JourneyRef, RefSyntaxError, StepRef};
-use crate::cycles::CycleId;
+use crate::refs::{CycleRef, ExistenceRef, JourneyRef, RefSyntaxError, SnapshotRef, StepRef};
+use crate::cycles::{CycleId, CycleTargetError};
 use crate::node::{Node, NodeKind, NodeStatus};
 use crate::report::Report;
 use crate::rules::RuleSet;
@@ -97,6 +97,17 @@ pub struct StepNode {
     pub journey: Option<JourneyRef>,
     /// 닫히면서 받는다. 열려 있는 동안은 `None`.
     pub report: Option<Report>,
+    /// **이 Verify 가 확정한 Artifact 세계.** Verify 가 아니면 언제나 `None`.
+    ///
+    /// Report 의 칸이 아니라 Node 의 **구조 필드**다(Artifact Model §7.2) — 세계를 확정한
+    /// 것은 사람이 적은 문장이 아니라 관측이라, 문법이 검사할 값이 아니다.
+    ///
+    /// ```text
+    /// 열린 Verify      None   아직 관측하지 않았다
+    /// 닫힌 Verify      Some   그때 관측한 세계
+    /// 그 밖의 Kind     None   세계를 확정할 권한이 없다(§5)
+    /// ```
+    pub snapshot: Option<SnapshotRef>,
 }
 
 impl StepNode {
@@ -387,6 +398,7 @@ impl Walk {
             // 닫은 판은 아직 없다 — 닫을 때 [`Walk::record_journey`] 가 적는다.
             journey: None,
             report: None,
+            snapshot: None,
         });
         self.current = Some(id);
         self.pending_revisit = None; // 새 갈래가 시작됐다.
@@ -436,7 +448,27 @@ impl Walk {
     }
 
     /// 지금 서 있는 Node 를 이 Report 로 닫는다. 자리는 그대로 남는다.
+    ///
+    /// **Verify 는 이 문으로 닫히지 않는다** — 세계를 확정하지 않은 Verify 는 닫힌 것이
+    /// 아니기 때문이다. Verify 는 [`Walk::close_verify`] 로만 닫는다.
     pub fn close(&mut self, report: Report) -> Result<(), WalkError> {
+        self.close_with(report, None)
+    }
+
+    /// 관측한 세계와 함께 Verify 를 닫는다.
+    ///
+    /// Verify 만이 Artifact 세계를 확정할 권한을 지닌다(Artifact Model §5). 그 권한을 쓴
+    /// 흔적이 이 값이고, 그래서 **닫힌 Verify 는 언제나 세계를 지닌다.**
+    pub fn close_verify(&mut self, report: Report, world: SnapshotRef) -> Result<(), WalkError> {
+        self.close_with(report, Some(world))
+    }
+
+    /// 두 문이 함께 지나는 자리 — **Kind 와 세계가 맞물리는지 여기서 한 번 잰다.**
+    fn close_with(
+        &mut self,
+        report: Report,
+        world: Option<SnapshotRef>,
+    ) -> Result<(), WalkError> {
         let Some(id) = self.current else {
             return Err(WalkError::NothingToClose);
         };
@@ -447,11 +479,21 @@ impl Walk {
             return Err(WalkError::NothingToClose);
         }
 
-        self.rules.validate_close(self.kind, self.nodes[at].kind, &report)?;
+        // **문법보다 먼저 잰다.** 세계를 확정할 권한이 없는 자리에 세계를 적으려는 것은
+        // Report 의 내용과 무관한 계층 착오다.
+        let kind = self.nodes[at].kind;
+        match (kind == NodeKind::Verify, world.is_some()) {
+            (true, false) => return Err(WalkError::VerifyNeedsAWorld { at: id }),
+            (false, true) => return Err(WalkError::OnlyVerifyConfirmsAWorld { at: id, kind }),
+            _ => {}
+        }
+
+        self.rules.validate_close(self.kind, kind, &report)?;
         self.check_next_direction(id, &report)?;
 
         self.nodes[at].status = NodeStatus::Closed;
         self.nodes[at].report = Some(report);
+        self.nodes[at].snapshot = world;
         Ok(())
     }
 
@@ -814,6 +856,10 @@ pub enum WalkError {
     NothingToRevisit,
     /// 되돌아온 직후인데 새 가설이 아닌 것을 열려 했다.
     ExpectedHypothesis { opened: NodeKind },
+    /// Verify 를 세계 없이 닫으려 했다.
+    VerifyNeedsAWorld { at: NodeId },
+    /// Verify 가 아닌 자리에 세계를 적으려 했다.
+    OnlyVerifyConfirmsAWorld { at: NodeId, kind: NodeKind },
 }
 
 impl From<GrammarError> for WalkError {
@@ -852,6 +898,18 @@ impl fmt::Display for WalkError {
                 f,
                 "되돌아온 자리에서는 새 가설만 열 수 있다 — {opened} 이(가) 아니라 hypothesis 다"
             ),
+            WalkError::VerifyNeedsAWorld { at } => write!(
+                f,
+                "S{} 는 verify 라 관측한 세계 없이 닫을 수 없다 — \
+                 세계를 확정하는 것은 Report 의 문장이 아니라 관측이다",
+                at.raw()
+            ),
+            WalkError::OnlyVerifyConfirmsAWorld { at, kind } => write!(
+                f,
+                "S{} 는 {kind} 라 Artifact 세계를 확정할 권한이 없다 — \
+                 세계를 확정하는 것은 verify 뿐이다",
+                at.raw()
+            ),
         }
     }
 }
@@ -865,7 +923,9 @@ impl std::error::Error for WalkError {
             | WalkError::BoundaryIsNotAStep { .. }
             | WalkError::UnknownNode(_)
             | WalkError::NothingToRevisit
-            | WalkError::ExpectedHypothesis { .. } => None,
+            | WalkError::ExpectedHypothesis { .. }
+            | WalkError::VerifyNeedsAWorld { .. }
+            | WalkError::OnlyVerifyConfirmsAWorld { .. } => None,
         }
     }
 }
@@ -963,6 +1023,44 @@ pub enum RestoreError {
     OpenCycleNotCurrent { cycle: CycleId, current: CycleId },
     /// 없는 Cycle 에 서 있다.
     UnknownCurrentCycle(CycleId),
+    /// 실린 Cycle Report 의 다음 방향이 이 Cycle Graph 에서 성립하지 않는다 — 되돌아갈
+    /// 대상이 없거나, 열려 있거나, 걸어온 길 위가 아니다.
+    CycleNextDirection {
+        cycle: CycleId,
+        source: CycleTargetError,
+    },
+    /// 없는 Cycle 에서 되돌아왔다고 적혀 있다.
+    UnknownPendingCycleRevisit(CycleId),
+    /// 되돌아온 상태인데 그 결정이 출처에 적혀 있지 않다 — 밟지 않은 되돌아감이다.
+    ///
+    /// pending 은 「적힌 것을 밟은」 결과이므로, 서 있는 자리는 반드시 그 결정이 가리킨
+    /// 대상이어야 한다. 다르면 이 파일은 걷기가 만든 것이 아니다.
+    PendingCycleRevisitNotDeclared {
+        pending: CycleId,
+        current: CycleId,
+        declared: Option<CycleId>,
+    },
+
+    // ── 갈래의 출처 ───────────────────────────────────────────────────────
+    /// 없는 Cycle 에서 갈라져 났다고 적혀 있다.
+    UnknownCycleRevisitFrom { cycle: CycleId, from: CycleId },
+    /// 갈래의 출처가 저보다 먼저 나지 않았다.
+    CycleRevisitFromNotEarlier { cycle: CycleId, from: CycleId },
+    /// 갈래의 출처를 부모로도 적어 두었다 — 실패한 Cycle 은 부모가 되지 않는다.
+    CycleRevisitFromIsTheParent { cycle: CycleId, from: CycleId },
+    /// 갈래의 출처가 이 Cycle 의 부모로 되돌아가겠다고 적지 않았다.
+    CycleRevisitFromNotDeclared {
+        cycle: CycleId,
+        from: CycleId,
+        parent: Option<CycleId>,
+        declared: Option<CycleId>,
+    },
+    /// 갈래가 출발한 세계가 되돌아간 대상의 Exit 이 아니다.
+    CycleRevisitEntryIsNotTheTargetExit {
+        cycle: CycleId,
+        entry: SnapshotRef,
+        target: CycleId,
+    },
 }
 
 /// 자리를 사람이 읽는 꼴로. 아무 데도 서 있지 않은 것도 하나의 자리다.
@@ -1097,6 +1195,68 @@ impl fmt::Display for RestoreError {
             RestoreError::OpenCycleNotCurrent { cycle, current } => write!(
                 f,
                 "{cycle} 이(가) 열려 있는데 서 있는 자리는 {current} 다 — 한 번에 걷는 Cycle 은 하나다"
+            ),
+            RestoreError::CycleNextDirection { cycle, source } => write!(
+                f,
+                "{cycle} 이(가) 적어 둔 다음 방향이 이 Cycle Graph 에서 성립하지 않는다 — {source}"
+            ),
+            RestoreError::UnknownPendingCycleRevisit(id) => write!(
+                f,
+                "{id} 에서 되돌아왔다고 적혀 있는데 그런 Cycle 이 이 Graph 에 없다"
+            ),
+            RestoreError::PendingCycleRevisitNotDeclared {
+                pending,
+                current,
+                declared,
+            } => write!(
+                f,
+                "{pending} 에서 되돌아와 {current} 에 서 있다는데, {pending} 이(가) 적어 둔 \
+                 되돌아갈 곳은 {} 다 — 밟지 않은 되돌아감이다",
+                match declared {
+                    Some(target) => target.to_string(),
+                    None => "없다".to_string(),
+                }
+            ),
+            RestoreError::UnknownCycleRevisitFrom { cycle, from } => write!(
+                f,
+                "{cycle} 이(가) {from} 에서 갈라져 났다는데 그런 Cycle 이 이 Graph 에 없다"
+            ),
+            RestoreError::CycleRevisitFromNotEarlier { cycle, from } => write!(
+                f,
+                "{cycle} 의 갈래 출처 {from} 이(가) 저보다 먼저 나지 않았다 — \
+                 이름은 언제나 앞에서 뒤로 발급된다"
+            ),
+            RestoreError::CycleRevisitFromIsTheParent { cycle, from } => write!(
+                f,
+                "{cycle} 이(가) {from} 을(를) 부모이자 갈래 출처로 적었다 — \
+                 되돌아감은 **버린** 실패에서 갈라지는 것이고, 실패한 Cycle 은 부모가 되지 않는다"
+            ),
+            RestoreError::CycleRevisitFromNotDeclared {
+                cycle,
+                from,
+                parent,
+                declared,
+            } => write!(
+                f,
+                "{cycle} 이(가) {from} 에서 갈라져 {} 아래에 났다는데, {from} 이(가) 적어 둔 \
+                 되돌아갈 곳은 {} 다 — 밟지 않은 되돌아감이다",
+                match parent {
+                    Some(id) => id.to_string(),
+                    None => "뿌리".to_string(),
+                },
+                match declared {
+                    Some(id) => id.to_string(),
+                    None => "없다".to_string(),
+                }
+            ),
+            RestoreError::CycleRevisitEntryIsNotTheTargetExit {
+                cycle,
+                entry,
+                target,
+            } => write!(
+                f,
+                "{cycle} 이(가) {entry} 에서 출발했다는데 되돌아간 {target} 이(가) 확정한 \
+                 세계는 그것이 아니다 — 갈래는 대상의 Exit 에서 시작한다"
             ),
             RestoreError::UnknownCurrentCycle(id) => {
                 write!(f, "{id} 에 서 있다는데 그런 Cycle 이 없다")

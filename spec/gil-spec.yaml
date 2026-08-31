@@ -138,8 +138,9 @@ cycle_kinds:
         value_descriptions:
           open_child: 방금 닫은 이 Cycle 을 부모로 다음 Cycle 을 연다 (Cycle 계층의 이동)
           revisit: >-
-            형제 Cycle 로 되돌아간다 (Cycle 계층 · 대상은 `cycle:C2` 꼴). 그 이동은 아직
-            짓지 않아, 지금은 실패를 확정하는 데서 걷기가 멈춘다
+            현재 실패 Cycle 의 Lineage 위에 있는 유효한 Closed ancestor 로 돌아가 그 조상
+            아래에서 새 가지를 열 준비를 한다 (Cycle 계층 · 대상은 `cycle:C2` 꼴). `gil revisit`
+            뒤 `gil open <interview|experiment>` 로 새 Cycle 을 연다
         allowed_values_when:
           verdict:
             success:

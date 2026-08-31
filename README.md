@@ -16,12 +16,18 @@ Journey는 되돌아가지 않는다.
 
 v0의 지속적 Existence와 Journey는 프로젝트 로컬 `.gil`에 저장한다. 모델이나 세션이 바뀌어도
 같은 프로젝트의 Current Existence를 읽어 동일한 존재로 작업을 이어간다. `gil start`는 최초
-Interview Cycle을 열고, 사용자 Relation과 프로젝트 목표는 그 Interview 안에서 처음 형성한다.
-이때 사용자와 Existence는 소유자와 도구가 아니라 프로젝트를 함께 만드는 동등한 협력자로
-기록된다.
+Interview Cycle을 연다. 설계상 사용자 Relation과 프로젝트 목표는 설정값으로 미리 지어내지
+않고 그 Interview 안에서 형성하며, 사용자와 Existence는 소유자와 도구가 아니라 프로젝트를
+함께 만드는 동등한 협력자다.
 
-현재 구현은 초기 dogfood 단계다. Step 기반 사고 엔진과 단일 Experiment Cycle이 동작하며,
-여러 Cycle, Artifact snapshot, Cycle revisit, Interview와 Monitor는 순차적으로 구현한다.
+현재 구현은 dogfood 단계다. Bootstrap Interview, 여러 Cycle, 지속되는 Existence와 Will,
+format 4 Artifact Snapshot, dirty gate, 중단 복구 가능한 `gil restore`, 그리고 필요한 규칙
+하나만 조회하는 bundled Manual이 동작한다.
+
+전체 명세를 미리 읽지 않은 새 Agent 세션이 `gil context`와 주소 가능한 Help Topic만으로
+실제 작업과 GIL Cycle을 완주하는 것을 Claude와 Codex 계열에서 각각 확인했다. 실패한 Cycle에서
+유효한 Closed ancestor로 돌아가 그 아래에 새 시도를 여는 **Cycle-level revisit**도 CLI와
+Artifact 복구까지 연결되어 있다.
 
 ---
 
@@ -80,14 +86,15 @@ Cycle A (success)
 └─ Cycle C (new attempt)
 ```
 
-실패한 Cycle은 자식을 만들지 않는다. 유효한 Closed ancestor로 revisit한 뒤 새로운 형제 가지를
-연다. 실패 Report와 Knowledge는 이후 Journey에 남아 같은 시도를 반복하지 않게 한다.
+실패한 Cycle은 자식을 만들지 않는다. 유효한 Closed ancestor로 revisit한 뒤 그 아래에 새로운
+가지를 연다. 대상이 실패 Cycle의 직접 부모일 때 새 가지는 실패 Cycle의 형제가 된다. 실패
+Report와 Knowledge는 이후 Journey에 남아 같은 시도를 반복하지 않게 한다.
 
 ### 두 개의 시간선
 
 ```text
 Revisit
-├─ Artifact timeline → 과거 snapshot을 checkout
+├─ Artifact timeline → 구조가 가리키는 snapshot으로 복원
 └─ Journey timeline  → 현재까지의 경험과 지식을 유지
 ```
 
@@ -96,7 +103,7 @@ GIL에서 과거로 돌아간다는 것은 과거의 세계를 다시 선택하�
 
 ### 인간의 의도는 인간이 확정한다
 
-향후 Interview Cycle은 모호한 사용자 요청을 작은 명제로 나누고 AI의 해석을 인간에게 다시
+Interview Cycle은 모호한 사용자 요청을 작은 명제로 나누고 AI의 해석을 인간에게 다시
 확인한다.
 
 - AI는 사용자의 응답보다 넓은 의도를 확정하지 않는다.
@@ -126,27 +133,39 @@ GIL은 모델의 비공개 chain-of-thought를 저장하려는 시스템이 아�
 - Step Open / Close와 Kind별 Report 검증
 - Step-level revisit과 형제 Hypothesis
 - 프로세스를 넘는 local persistence
-- 단일 Experiment Cycle
-- Cycle Report와 `gil cycle close`
+- Bootstrap Interview와 승인된 Synthesis
+- 여러 Cycle의 parent, lineage와 handoff
+- 지속되는 Existence, Journey와 Active/Done Will
+- Cycle Report와 기본 경로인 `gil close` (`gil cycle close`는 호환 명령)
 - 마지막 Outcome만 Cycle 판정 근거로 허용
 - 사람이 읽는 `gil status`와 `gil story`
 - 새 Agent 세션이 이어받는 계층적 `gil context`
 - Define·Outcome을 선택적으로 투영하는 협업자용 Cycle story
 - 제목·개행·indentation으로 구분되는 plain text Cycle Report
 - 이전 저장 형식을 조용히 무시하지 않는 복원 검사
+- format 4 Snapshot registry와 내용 주소 객체 저장소
+- `gil start`의 실제 프로젝트 세계 확정
+- Verify close의 Snapshot 확정과 비-Verify dirty gate
+- Cycle Entry/Exit Snapshot과 World Current 유도
+- 프로젝트 단위 잠금과 중단 뒤 임시 객체 회수
+- 현재 Snapshot과 clean/dirty를 보여 주는 `gil status`
+- 중단 뒤 rollback 가능한 `gil restore`
+- 바이너리에 함께 실리는 Manual과 `gil help <주제>` 조회
+- 현재 상태에 맞는 Topic만 보여 주는 `gil help`
+- 거절이 복구 Topic 하나를 가리키는 오류 Router
+- Cycle-level `gil revisit`과 대상 Exit 세계 복원
+- `parent = target`, `revisit_from = failure`, `entry = target.exit`인 새 Cycle 가지
+- 실패 Report를 유지하는 pending·story·context와 `cycle/revisit` Help Topic
 
-### 진행 중
+### 확인됨
 
-- 성공한 Cycle에서 다음 Experiment Cycle 열기
-- Cycle 간 parent, lineage와 handoff
-- 인간용 story와 전체 감사 history의 역할 분리
+- 전체 명세 없이 Bootstrap만 받은 Agent가 오류가 가리킨 Topic 하나로 복구하고 완주
+- 다른 모델 계열의 새 세션이 `gil context`만으로 열린 Verify와 Active Will을 인수인계
+
+아직 확인되지 않은 것: 전체 토큰 절약, 모든 모델·작업에서의 일반성.
 
 ### 다음
 
-- 여러 Cycle과 handoff
-- Verify 경계의 Artifact snapshot
-- dirty 검사와 `gil restore`
-- Cycle-level revisit과 실패 형제 분기
 - read-only Monitor
 - Interview Cycle과 Chain
 - 백엔드·데이터 분석·프론트엔드·기획서 작성 시나리오
@@ -158,11 +177,12 @@ GIL은 누적된 기록을 모든 독자에게 같은 해상도로 반복하지 
 ```text
 gil story    인간이 현재 상황을 이해한다.
 gil context  새 Agent 세션이 계층별로 압축된 지식을 이어받는다.
-gil history  전체 실행 경로를 감사한다.
+gil help     Agent가 지금 필요한 규칙 하나를 배운다.
 ```
 
-이전 Chain은 Chain Report, 현재 Chain의 이전 Cycle은 Cycle Report, 현재 Cycle은 Step Report
-해상도로 읽는 것을 원칙으로 한다. 압축된 내부 Graph는 삭제되지 않으며 필요할 때 다시 조회한다.
+현재 구현은 이전 Cycle을 Cycle Report, 현재 Cycle을 Step Report 해상도로 읽는다. 미래 Chain
+계층에서는 이전 Chain을 Chain Report 해상도로 읽는 같은 원칙을 적용한다. 압축된 내부 Graph는
+삭제되지 않으며, 전체 경로 감사 명령은 아직 구현하지 않았다.
 
 ---
 
@@ -179,19 +199,36 @@ cargo install --path . --force
 ```bash
 gil start
 gil status
-gil open define
+gil context
 ```
 
-Report는 stdin으로 전달한다.
+막혔을 때는 그 자리의 규칙 하나만 읽는다. 거절이 읽을 주소를 함께 알려 준다.
 
 ```bash
-gil close <<'EOF'
-problem: 협업자가 Cycle 절만 읽고 실험의 목적을 이해할 수 있는가
-success_condition: Step 기록을 펼치지 않고 목적, 판정과 다음 방향을 설명할 수 있다
-EOF
+gil help                            # 지금 상태에 관련된 주제만
+gil help artifact/dirty/non-verify  # 그 주제 하나
 ```
 
-현재 알고 있는 Step Kind:
+`gil start`는 먼저 Interview Cycle을 연다. 현재 자리에서 가능한 명령과 필요한 Report 필드는
+`gil status`와 상태에 민감한 도움말이 안내한다. Report와 Action Context는 stdin으로 전달한다.
+
+```bash
+gil open --help
+gil close --help
+```
+
+실패한 Experiment Cycle Report가 유효한 Closed ancestor를 `target_cycle_ref`로 확정하면,
+대상을 명령 인수로 다시 고르지 않고 두 단계로 새 가지를 연다.
+
+```bash
+gil revisit
+gil open experiment  # 또는 gil open interview
+```
+
+첫 명령은 대상 Cycle의 Exit 세계로 Artifact를 복원하되 실패 Report와 Journey를 남긴다. 두 번째
+명령은 그 대상 아래에 새 Cycle을 연다.
+
+Experiment Cycle의 Step Kind:
 
 ```text
 define
@@ -201,9 +238,9 @@ analysis
 outcome
 ```
 
-명령과 Report 형식은 아직 변경될 수 있다. 기존 `.gil/walk.yaml` 형식은 새
-`.gil/state.yaml` 형식으로 자동 변환하지 않으며, 발견하면 기록을 보존한 채 이전 형식임을
-알린다.
+명령과 Report 형식은 아직 변경될 수 있다. 기존 `.gil/walk.yaml`과 format 3
+`.gil/state.yaml`은 format 4로 자동 변환하지 않으며, 발견하면 기록을 보존한 채 이전
+형식임을 알린다.
 
 ---
 
@@ -257,6 +294,8 @@ layer를 목표로 한다.
 - [GIL Agent UX Model v0.1](spec/GIL_Agent_UX_Model_v0.1.md)
 - [GIL Existence Model v0.1](spec/GIL_Existence_Model_v0.1.md)
 - [GIL Will Model v0.1](spec/GIL_Will_Model_v0.1.md)
+- [GIL Manual Model v0.1](spec/GIL_Manual_Model_v0.1.md)
+- [GIL Storage Model v0.1](spec/GIL_Storage_Model_v0.1.md)
 - [Machine-readable grammar](spec/gil-spec.yaml)
 - [Living Roadmap](spec/GIL_Roadmap.md)
 
@@ -267,7 +306,7 @@ layer를 목표로 한다.
 
 ## Project status
 
-**2026-08-21 — 처음부터 다시 짓는 중이다.**
+**2026-08-31 — Rust dogfood 구현을 진행 중이다.**
 
 앞선 Go 구현과 문서·릴리스는 이 저장소의 옛 branch와 commit history에 남아 있다. 현재 구현은
 Rust로 작성하며, Git wrapper가 아니라 GIL의 개념과 불변식을 먼저 세우는 방향으로 진행한다.

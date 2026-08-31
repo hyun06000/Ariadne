@@ -31,11 +31,16 @@
 //!    Journey 판이 하나 늘고 Node 가 그 판을 provenance 로 지닌다
 //!    ([`Project::close_action_step`]). 컨테이너인 Cycle 은 Will 도 판도 만들지 않는다.
 //!
+//! 4. **Artifact 시간선** — 모든 Cycle 은 출발한 세계([`Cycle::entry_snapshot`])를 지니고
+//!    닫히며 도착한 세계([`Cycle::exit_snapshot`])를 확정한다. 새 세계를 **확정할 권한은
+//!    Verify 에만** 있고([`Project::close_verify_step`]), 그 밖의 Close 는 세계가 바뀌지
+//!    않았을 때만 지날 수 있다. 이름은 [`ProjectSession`] 이 잠금 안에서 발급한다.
+//!
 //! 아직 없는 것(다음 Step 의 몫): Existence 전환 · Participant 와 Relation ·
-//! Knowledge·Memory 의 내용 · Artifact snapshot · Cycle 수준의 되돌아감 · Chain.
+//! Knowledge·Memory 의 내용 · `gil restore` · Cycle 수준의 되돌아감 · Chain.
 //!
 //! ```
-//! use gil::{CycleKind, Node, NodeKind, Project, Report, RuleSet};
+//! use gil::{CycleKind, ManifestAddress, Node, NodeKind, Project, Report, RuleSet};
 //!
 //! let rules = RuleSet::from_path(concat!(
 //!     env!("CARGO_MANIFEST_DIR"),
@@ -69,10 +74,14 @@
 //!         .is_ok()
 //! );
 //!
-//! // 프로젝트는 **최초 Interview Cycle** 하나로 시작한다.
-//! let mut project = Project::start(rules);
+//! // 프로젝트는 **최초 Interview Cycle** 하나로 시작한다 — 그리고 그것은 언제나
+//! // `gil start` 가 실제로 관측한 세계 위에 선다. 여기서는 그 주소를 손으로 준다.
+//! let first_world = ManifestAddress::from_parts("sha256", &[0u8; 32]).unwrap();
+//! let mut project = Project::start(rules, first_world);
 //! let first = project.cycles().current();
 //! assert_eq!(first.kind(), CycleKind::Interview);
+//! assert_eq!(first.entry_snapshot().to_string(), "snapshot:A1");
+//! assert!(first.exit_snapshot().is_none(), "아직 도착한 세계가 없다");
 //! assert_eq!(first.existence(), project.current_existence_ref());
 //! assert_eq!(project.cycles().openable_here(), vec![NodeKind::Question]);
 //!
@@ -95,35 +104,56 @@
 //! assert_eq!(project.active_will().unwrap().target(), opened.step);
 //! ```
 
+// **필요한 만큼만 연다.** 관측기·창고·codec·registry 는 안에 남고, 밖으로 나가는 것은
+// [`ManifestAddress`] 와 [`RegistryError`] 뿐이다 — 세계를 여는 문이 세계의 주소를 받아야
+// 하기 때문이다. 그 주소는 **사람이 보는 이름이 아니다**: 공개 표면은 `snapshot:A1` 이다.
+mod artifact;
 mod context;
 mod contract;
 mod cycle;
 mod cycles;
 mod existence;
+// **잠금 자체는 공개 계약이 아니다.** guard 타입을 내보내면 밖의 코드가 그것을 들고
+// 다니기 시작하고, 그러면 잠금을 언제 잡는지가 라이브러리의 몫이 아니게 된다. 밖에서
+// 볼 수 있는 것은 잠금을 이미 쥔 트랜잭션([`ProjectSession`]) 하나다.
+mod lock;
+// Manual 은 **도구의 지식**이다 — 프로젝트 상태가 아니라 함께 실린 Topic 을 읽는다.
+// 밖으로 나가는 것은 조회 문 하나와 그 오류뿐이고, 주소 타입과 index 는 안에 남는다.
+mod manual;
 mod node;
 mod project;
 mod refs;
 mod report;
+mod restore;
 mod rules;
+mod session;
 mod store;
 mod story;
 mod validate;
 mod walk;
 mod will;
 
+pub use artifact::{ManifestAddress, RegistryError};
 pub use cycle::{BasisRefError, Cycle, CycleError, CycleKind, OutcomeRefError, SynthesisRefError};
 pub use context::{context, next_moves};
 pub use contract::{Branch, CloseContract, FieldContract, ValueChoice};
-pub use cycles::{CycleId, Cycles, CyclesError, OpenChildError};
+pub use cycles::{
+    CycleId, CycleRevisit, CycleRevisitError, CycleTargetError, Cycles, CyclesError,
+    OpenAfterRevisitError, OpenChildError,
+};
 pub use existence::{Existence, ExistenceState, Journey, Revision};
+pub use manual::{HelpError, Refusal, Usage, help_here, help_outside, help_topic, more_about, with_help};
 pub use node::{Node, NodeKind, NodeStatus};
-pub use project::{ActionError, Closed, ClosedCycle, Opened, Project, ProjectError};
+pub use project::{ActionError, Closed, ClosedCycle, Opened, Project, ProjectError, WorldPlace};
 pub use refs::{
     ChainRef, CycleRef, ExistenceRef, JourneyRef, KnowledgeRef, MemoryRef, ParticipantRef,
     RefSyntaxError, RelationRef, SnapshotRef, StateRef, StepRef, WillRef,
 };
 pub use report::{Report, ReportSyntaxError};
 pub use rules::{BUILTIN_SPEC, CycleRules, FieldConstraint, RuleSet, SpecError, StepRules};
+pub use restore::plan::PlanError;
+pub use restore::{RestoreFailure, Restored, Stage};
+pub use session::{CycleRevisited, Gate, ProjectSession, SessionError, WorldState};
 pub use story::story;
 pub use store::{FORMAT, LEGACY_WALK_PATH, STATE_PATH, StoreError, load, save};
 pub use validate::{GrammarError, Subject};

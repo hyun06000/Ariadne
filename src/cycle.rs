@@ -3,8 +3,8 @@
 //! 상위 Cycle Graph([`Cycles`](crate::Cycles))에서는 Node 하나로 보이고, 안에는
 //! Step Graph([`Walk`])가 산다.
 //!
-//! 부모는 **태어날 때 기록된다** — Step 과 같은 규칙이다. 되돌아감의 출처(`revisit_from`)는
-//! 아직 없다: Cycle 수준의 되돌아감을 짓지 않았고, 없는 것을 자리만 만들어 두지 않는다.
+//! 부모는 **태어날 때 기록된다** — Step 과 같은 규칙이다. 되돌아감의 출처(`revisit_from`)도
+//! 같다: 되돌아온 뒤 난 첫 Cycle 에만 한 번 적히고 바뀌지 않으며, **계보의 변이 아니다.**
 //!
 //! # 내부 Outcome 이 닫혀도 Cycle 은 아직 열려 있다
 //!
@@ -29,7 +29,7 @@ use crate::rules::RuleSet;
 use crate::contract::CloseContract;
 use crate::validate::GrammarError;
 use crate::cycles::CycleId;
-use crate::refs::{CycleRef, ExistenceRef, JourneyRef, RefSyntaxError, StepRef};
+use crate::refs::{CycleRef, ExistenceRef, JourneyRef, RefSyntaxError, SnapshotRef, StepRef};
 use crate::walk::{NodeId, RestoreError, Walk, WalkError, WalkState};
 
 use serde::Deserialize;
@@ -116,6 +116,15 @@ pub struct Cycle {
     /// `None` 은 고아가 아니라 **이 Graph 의 뿌리**라는 뜻이다. 한 번 적히면 바뀌지 않고,
     /// 실행 순서로 되계산하지 않는다 — Step 의 `parent` 와 같은 규칙이다.
     parent: Option<CycleId>,
+    /// **어느 실패가 이 갈래를 낳았는가.** 되돌아온 뒤 난 첫 Cycle 에만 있다.
+    ///
+    /// `parent` 와 **다른 것**이다. `parent` 는 누구의 사고와 세계를 이어받았는가이고,
+    /// 이 값은 어느 결정에서 갈라져 나왔는가다. **계보는 이것을 따라가지 않는다** —
+    /// 따라가면 되돌아오며 버린 갈래가 조상으로 섞인다(Spec §17 · Time Model §6).
+    ///
+    /// 평범한 `open_child` 로 난 Cycle 에는 없다. 한 번 적히면 바뀌지 않고, 자손에게
+    /// 전파되지도 않는다.
+    revisit_from: Option<CycleId>,
     kind: CycleKind,
     status: NodeStatus,
     /// **누가 이 Cycle 을 열었는가.** 열 때 한 번 정해지고 lifetime 동안 바뀌지 않는다.
@@ -130,6 +139,21 @@ pub struct Cycle {
     journey: Option<JourneyRef>,
     /// 닫히면서 받는다. 열려 있는 동안은 `None`.
     report: Option<Report>,
+    /// **이 Cycle 을 연 전이가 출발한 세계.** 생성과 동시에 실재한다(Artifact Model §7.1).
+    ///
+    /// ```text
+    /// 뿌리          gil start 의 최초 Snapshot
+    /// open_child    부모의 exit_snapshot_ref
+    /// ```
+    ///
+    /// `Option` 이 아니다 — 「나중에 채울 null」을 두면 그 null 을 읽는 규칙이 생기고,
+    /// 그 규칙은 채워진 뒤에도 남는다.
+    entry: SnapshotRef,
+    /// **닫히면서 확정한 세계.** 열려 있는 동안은 `None`.
+    ///
+    /// 새 세계를 만들지 않는다 — 안에서 이미 확정된 것 중 **마지막 Outcome 의 계보에서
+    /// 가장 가까운 Verify** 를 고르고, 없으면 Entry 를 물려받는다(§7.5).
+    exit: Option<SnapshotRef>,
     steps: Walk,
 }
 
@@ -146,15 +170,19 @@ impl Cycle {
         kind: CycleKind,
         existence: ExistenceRef,
         parent: Option<CycleId>,
+        entry: SnapshotRef,
     ) -> Cycle {
         Cycle {
             id,
             parent,
+            revisit_from: None,
             kind,
             status: NodeStatus::Open,
             existence,
             journey: None,
             report: None,
+            entry,
+            exit: None,
             steps: Walk::start(rules, id.to_ref(), kind, existence),
         }
     }
@@ -167,6 +195,18 @@ impl Cycle {
     /// 이 Cycle 이 어느 Cycle 의 세계를 이어받아 났는가. 뿌리면 `None`.
     pub fn parent(&self) -> Option<CycleId> {
         self.parent
+    }
+
+    /// **어느 실패가 이 갈래를 낳았는가.** 되돌아온 뒤 난 첫 Cycle 에만 있다.
+    ///
+    /// 계보를 물을 때 이것을 따라가지 않는다 — 그것이 이 값과 [`Cycle::parent`] 의 차이다.
+    pub fn revisit_from(&self) -> Option<CycleId> {
+        self.revisit_from
+    }
+
+    /// 되돌아온 뒤 난 첫 Cycle 에 제 출처를 새긴다 — **이름을 발급한 자리만 부른다.**
+    pub(crate) fn born_from_revisit(&mut self, from: CycleId) {
+        self.revisit_from = Some(from);
     }
 
     pub fn kind(&self) -> CycleKind {
@@ -192,6 +232,47 @@ impl Cycle {
 
     pub fn is_closed(&self) -> bool {
         self.status == NodeStatus::Closed
+    }
+
+    /// 이 Cycle 을 연 전이가 출발한 세계. **언제나 있다.**
+    pub fn entry_snapshot(&self) -> SnapshotRef {
+        self.entry
+    }
+
+    /// 이 Cycle 이 닫히며 확정한 세계. 열려 있는 동안은 `None`.
+    pub fn exit_snapshot(&self) -> Option<SnapshotRef> {
+        self.exit
+    }
+
+    /// 이 Cycle 안에서 **지금 유효한 세계** — 캐시가 아니라 구조에서 유도한다.
+    ///
+    /// ```text
+    /// 닫힌 Cycle                    exit_snapshot_ref
+    /// 서 있는 자리의 계보에 Verify   가장 가까운 Verify.snapshot_ref
+    /// 없으면                        entry_snapshot_ref
+    /// ```
+    ///
+    /// 이름의 크기도 저장 배열의 순서도 보지 않는다 — **버려진 가지에도 더 큰 이름이
+    /// 있다.** 오직 `parent` 사슬만 거슬러 오른다(Artifact Model §7.6·§9).
+    pub fn world_snapshot(&self) -> SnapshotRef {
+        if let Some(exit) = self.exit {
+            return exit;
+        }
+        self.verify_in_lineage().unwrap_or(self.entry)
+    }
+
+    /// 서 있는 자리의 계보에서 **가장 가까운 닫힌 Verify** 가 확정한 세계.
+    ///
+    /// 계보를 뿌리부터 받아 **뒤에서부터** 훑는다 — 가장 가까운 것이 먼저 잡힌다.
+    /// 서 있는 자리 자신도 포함한다(닫힌 Verify 위에 서 있을 수 있다).
+    fn verify_in_lineage(&self) -> Option<SnapshotRef> {
+        let here = self.steps.current()?;
+        let lineage = self.steps.lineage(here).ok()?;
+        lineage
+            .iter()
+            .rev()
+            .filter(|node| node.kind == NodeKind::Verify && node.is_closed())
+            .find_map(|node| node.snapshot)
     }
 
     /// 닫히면서 받은 Cycle Report. 열려 있는 동안은 `None`.
@@ -290,9 +371,10 @@ impl Cycle {
         &mut self,
         report: Report,
         journey: JourneyRef,
+        world: Option<SnapshotRef>,
     ) -> Result<NodeId, CycleError> {
         let at = self.step_now_open().ok_or(CycleError::Step(WalkError::NothingToClose))?;
-        self.close_step(report)?;
+        self.close_step_with(report, world)?;
         self.steps.record_journey(at, journey);
         Ok(at)
     }
@@ -308,14 +390,43 @@ impl Cycle {
         Ok(())
     }
 
-    /// 안에서 열려 있는 Step 을 닫는다.
+    /// 닫히면서 확정될 Exit 세계 — **아직 닫지 않은 채로 미리 묻는다.**
+    ///
+    /// 마지막 Outcome 의 계보에서 가장 가까운 닫힌 Verify, 없으면 Entry(§7.5). 새 세계를
+    /// 만들지 않으므로 이 값은 언제나 이미 registry 에 있는 이름이다.
+    pub fn exit_would_be(&self) -> SnapshotRef {
+        self.verify_in_lineage().unwrap_or(self.entry)
+    }
+
+    /// 안에서 열려 있는 Step 을 닫는다. **Verify 는 이 문으로 닫히지 않는다.**
     pub fn close_step(&mut self, report: Report) -> Result<(), CycleError> {
+        self.close_step_with(report, None)
+    }
+
+    /// 관측한 세계와 함께 Verify 를 닫는다.
+    pub fn close_verify_step(
+        &mut self,
+        report: Report,
+        world: SnapshotRef,
+    ) -> Result<(), CycleError> {
+        self.close_step_with(report, Some(world))
+    }
+
+    fn close_step_with(
+        &mut self,
+        report: Report,
+        world: Option<SnapshotRef>,
+    ) -> Result<(), CycleError> {
         self.must_be_open()?;
         if let Some(at) = self.step_now_open() {
             self.check_synthesis_ref(at, &report)?;
             self.check_basis_refs(at, &report)?;
         }
-        self.steps.close(report).map_err(CycleError::Step)
+        match world {
+            Some(world) => self.steps.close_verify(report, world),
+            None => self.steps.close(report),
+        }
+        .map_err(CycleError::Step)
     }
 
     /// 지금 **열려 있는** Step. 끝 경계에 서 있으면 없다.
@@ -533,6 +644,9 @@ impl Cycle {
             .map_err(CycleError::Grammar)?;
         self.check_outcome_ref(&report)?;
 
+        // **Exit 은 고르는 것이 아니라 유도되는 것이다.** 그래서 인자로 받지 않는다 —
+        // 받으면 부르는 쪽이 버려진 가지의 세계를 넣을 길이 생긴다.
+        self.exit = Some(self.exit_would_be());
         self.status = NodeStatus::Closed;
         self.report = Some(report);
         Ok(())
@@ -655,11 +769,14 @@ impl Cycle {
         let cycle = Cycle {
             id: state.id,
             parent: state.parent,
+            revisit_from: state.revisit_from,
             kind: state.kind,
             status: state.status,
             existence: state.existence,
             journey: state.journey,
             report: state.report,
+            entry: state.entry,
+            exit: state.exit,
             steps: Walk::restore(rules, state.id.to_ref(), state.kind, state.existence, state.steps)?,
         };
 
@@ -720,11 +837,14 @@ impl Cycle {
 pub(crate) struct CycleState {
     pub id: CycleId,
     pub parent: Option<CycleId>,
+    pub revisit_from: Option<CycleId>,
     pub kind: CycleKind,
     pub status: NodeStatus,
     pub existence: ExistenceRef,
     pub journey: Option<JourneyRef>,
     pub report: Option<Report>,
+    pub entry: SnapshotRef,
+    pub exit: Option<SnapshotRef>,
     pub steps: WalkState,
 }
 

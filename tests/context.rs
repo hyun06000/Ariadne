@@ -75,8 +75,7 @@ fn step_tagged(cycle: &mut Cycle, kind: NodeKind, tag: &str) -> NodeId {
         .unwrap_or_else(|err| panic!("{kind} 를 열지 못했다: {err}"));
     let id = cycle.steps().current().expect("연 뒤에는 서 있는 자리가 있다");
     let report = tagged_report(cycle.rules(), cycle.kind(), kind, tag);
-    cycle
-        .close_step(report)
+    common::close_cycle_step(cycle, kind, report)
         .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
     id
 }
@@ -509,7 +508,7 @@ fn the_first_cycle_has_nothing_before_it() {
     // "현재 Cycle이 첫 Cycle이라면 이전 Cycle 절은 없다"(Context Model §7).
     //
     // 프로젝트의 첫 Cycle 은 Bootstrap Interview 다 — 그 자리에서는 이어받을 것이 없다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     step_tagged(
         project.cycles_mut().current_mut(),
         NodeKind::Question,
@@ -553,7 +552,9 @@ fn the_next_moves_are_the_ones_the_tool_will_actually_take() {
     // 자리를 옮겨도 함께 옮겨간다.
     let cycle = project.cycles_mut().current_mut();
     let report = tagged_report(cycle.rules(), cycle.kind(), NodeKind::Verify, "Cycle 2");
-    cycle.close_step(report).expect("검증을 닫는다");
+    cycle
+        .close_verify_step(report, common::snapshot(1))
+        .expect("검증을 닫는다");
     assert!(
         context(&project).contains(&next_moves(project.cycles())),
         "자리를 옮기고 나서 갈렸다"
@@ -581,7 +582,9 @@ fn the_allowed_values_come_with_the_field() {
     let (mut project, _) = the_scenario();
     let cycle = project.cycles_mut().current_mut();
     let report = tagged_report(cycle.rules(), cycle.kind(), NodeKind::Verify, "Cycle 2");
-    cycle.close_step(report).expect("검증을 닫는다");
+    cycle
+        .close_verify_step(report, common::snapshot(1))
+        .expect("검증을 닫는다");
     step_tagged(cycle, NodeKind::Analysis, "Cycle 2");
 
     let told = context(&project);
@@ -629,7 +632,9 @@ fn a_closed_cycle_still_says_what_comes_next() {
     let (mut project, _) = the_scenario();
     let cycle = project.cycles_mut().current_mut();
     let report = tagged_report(cycle.rules(), cycle.kind(), NodeKind::Verify, "Cycle 2");
-    cycle.close_step(report).expect("검증을 닫는다");
+    cycle
+        .close_verify_step(report, common::snapshot(1))
+        .expect("검증을 닫는다");
     step_tagged(cycle, NodeKind::Analysis, "Cycle 2");
     let judged = outcome_tagged(cycle, "Cycle 2", "success", None);
     close_tagged(&mut project, judged, "Cycle 2");

@@ -159,7 +159,7 @@ fn what_is_still_being_written_is_not_told_as_done() {
 #[test]
 fn an_empty_walk_still_tells_where_to_begin() {
     // 아무것도 안 적은 Cycle 도 이야기가 있다 — "여기서 시작한다" 는 것.
-    let told = story(Project::start(spec()).cycles());
+    let told = story(Project::start(spec(), common::first_world()).cycles());
     assert!(!told.trim().is_empty(), "빈 Cycle 의 이야기가 비었다");
 }
 
@@ -563,12 +563,16 @@ fn an_open_cycle_has_no_such_section() {
 }
 
 #[test]
-fn a_closed_cycle_still_says_what_cannot_be_done_yet() {
+fn a_closed_cycle_does_not_claim_a_walkable_move_is_impossible() {
+    // 되돌아감은 이제 밟을 수 있다. 이야기가 그것을 못 한다고 말하면 안 된다.
     let (project, _) = closed_cycle("failure");
     let told = story(project.cycles());
-    // 다음 Cycle 을 여는 것은 이제 지었다. 아직 못 하는 것만 밝혀야 한다.
     assert!(
-        told.contains("되돌아가는 것") && told.contains("아직 짓지 않았다"),
-        "아직 못 하는 것을 밝히지 않는다:\n{told}"
+        told.contains("닫혔다"),
+        "닫혔다는 사실을 말하지 않는다:\n{told}"
+    );
+    assert!(
+        !told.contains("아직 짓지 않았다"),
+        "밟을 수 있는 것을 못 한다고 말한다:\n{told}"
     );
 }

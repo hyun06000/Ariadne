@@ -28,7 +28,7 @@ fn edit_file(path: &Path, edit: impl FnOnce(&mut Value)) {
 /// `gil start` 가 만든 것을 눕히고, 손으로 고친 뒤, 되살리기가 거절하는 이유를 돌려준다.
 fn tampered(label: &str, edit: impl FnOnce(&mut Value)) -> StoreError {
     let path = scratch(label).join(gil::STATE_PATH);
-    save(&Project::start(spec()), &path).expect("눕힐 수 있어야 한다");
+    save(&Project::start(spec(), common::first_world()), &path).expect("눕힐 수 있어야 한다");
     edit_file(&path, edit);
 
     match load(spec(), &path) {
@@ -49,10 +49,36 @@ fn saved(label: &str, project: &Project) -> Value {
 
 #[test]
 fn starting_makes_the_whole_state_in_one_save() {
-    let project = Project::start(spec());
+    let project = Project::start(spec(), common::first_world());
     let file = saved("f3-start", &project);
 
-    assert_eq!(file["format"], Value::from(3), "저장 형식은 3 이다");
+    assert_eq!(file["format"], Value::from(4), "저장 형식은 4 다");
+
+    // **Artifact 시간선이 처음부터 완전하다.** 최초 세계가 A1 이고, 뿌리 Cycle 이 거기서
+    // 출발하며, 아직 아무 데도 도착하지 않았다.
+    assert_eq!(file["artifacts"]["next_snapshot_id"], Value::from(2));
+    let snapshots = file["artifacts"]["snapshots"].as_sequence().expect("목록이다");
+    assert_eq!(snapshots.len(), 1, "최초 세계 하나만 있어야 한다");
+    assert_eq!(snapshots[0]["id"], Value::from("A1"), "제 이름은 bare 다");
+    assert_eq!(snapshots[0]["manifest"]["algorithm"], Value::from("sha256"));
+    let digest = snapshots[0]["manifest"]["digest"].as_str().expect("16진수 글자다");
+    assert_eq!(digest.len(), 64);
+    assert!(
+        digest.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "manifest 주소가 소문자 canonical hex 가 아니다: {digest}"
+    );
+
+    let root = &file["cycles"]["nodes"][0];
+    assert_eq!(
+        root["entry_snapshot_ref"],
+        Value::from("snapshot:A1"),
+        "가리키는 자리는 typed reference 다"
+    );
+    assert_eq!(
+        root["exit_snapshot_ref"],
+        Value::Null,
+        "아직 열린 Cycle 은 도착한 세계가 없다"
+    );
     assert_eq!(
         file["current_existence_ref"],
         Value::from("existence:X1"),
@@ -86,7 +112,7 @@ fn starting_makes_the_whole_state_in_one_save() {
 fn the_first_state_object_really_exists() {
     // Existence 가 생겼는데 State 가 없다는 상태를 허용하지 않는다. ES0 은 **실재하는 빈
     // 객체**이며, 성격·역할·전문성을 대신 채우지 않는다.
-    let project = Project::start(spec());
+    let project = Project::start(spec(), common::first_world());
     let file = saved("f3-state", &project);
 
     let states = file["existence_states"].as_mapping().unwrap();
@@ -104,7 +130,7 @@ fn the_first_state_object_really_exists() {
 #[test]
 fn only_the_heads_that_do_not_exist_yet_are_null() {
     // Knowledge·Memory·Relations·Will 은 아직 짓지 않았다 — 그 넷만 비어 있을 수 있다.
-    let file = saved("f3-heads", &Project::start(spec()));
+    let file = saved("f3-heads", &Project::start(spec(), common::first_world()));
     let j0 = &file["existences"]["X1"]["journey"]["revisions"]["J0"];
 
     assert_ne!(j0["existence_state_ref"], Value::Null, "State 는 비울 수 없다");
@@ -120,7 +146,7 @@ fn only_the_heads_that_do_not_exist_yet_are_null() {
 
 #[test]
 fn there_is_no_will_yet() {
-    let file = saved("f3-will", &Project::start(spec()));
+    let file = saved("f3-will", &Project::start(spec(), common::first_world()));
     let journey = &file["existences"]["X1"]["journey"];
 
     assert_eq!(journey["active_will"], Value::Null, "Active Will 은 없다");
@@ -133,7 +159,7 @@ fn there_is_no_will_yet() {
 
 #[test]
 fn the_first_cycle_is_an_interview_owned_by_the_first_existence() {
-    let project = Project::start(spec());
+    let project = Project::start(spec(), common::first_world());
     let cycle = project.cycles().current();
 
     assert_eq!(cycle.kind(), CycleKind::Interview);
@@ -151,7 +177,7 @@ fn the_first_cycle_is_an_interview_owned_by_the_first_existence() {
 fn the_container_interview_gets_no_will_and_offers_only_its_own_steps() {
     // 컨테이너 Cycle 은 Active Will 을 점유하지 않는다(Will Model §5). 그리고 Interview 에서
     // Experiment 의 Step 은 열리지 않는다 — 미완성 기능을 다음 행동으로 안내하지 않는다.
-    let project = Project::start(spec());
+    let project = Project::start(spec(), common::first_world());
     assert_eq!(
         project.cycles().openable_here(),
         vec![NodeKind::Question],
@@ -164,7 +190,7 @@ fn the_container_interview_gets_no_will_and_offers_only_its_own_steps() {
 #[test]
 fn another_process_restores_the_same_existence_and_the_open_interview() {
     let path = scratch("f3-restore").join(gil::STATE_PATH);
-    let before = Project::start(spec());
+    let before = Project::start(spec(), common::first_world());
     save(&before, &path).expect("눕힐 수 있어야 한다");
 
     let after = load(spec(), &path).expect("다시 세울 수 있어야 한다");
@@ -216,7 +242,7 @@ fn a_previous_format_is_refused_not_converted() {
     match load(spec(), &path) {
         Err(StoreError::PreviousFormat { found, current, .. }) => {
             assert_eq!(found, 2);
-            assert_eq!(current, 3);
+            assert_eq!(current, gil::FORMAT);
         }
         other => panic!("앞 형식을 앞 형식이라 말하지 않았다: {other:?}"),
     }
@@ -376,13 +402,16 @@ fn saving_leaves_no_half_written_file_behind() {
     // 완성된 새 파일을 임시 경로에 쓴 뒤 제자리로 옮긴다. 옆자리에 남는 것이 없어야 한다.
     let dir = scratch("f3-atomic");
     let path = dir.join(gil::STATE_PATH);
-    save(&Project::start(spec()), &path).expect("눕힐 수 있어야 한다");
+    save(&Project::start(spec(), common::first_world()), &path).expect("눕힐 수 있어야 한다");
     save(&bootstrap(), &path).expect("다시 눕힐 수 있어야 한다");
 
+    // `.gil` 안에는 상태 파일과 **GIL 의 내부 구조**만 있다. 옆자리에 쓰다 만 파일이
+    // 남지 않는 것이 여기서 재는 것이다.
+    let known = ["state.yaml", "artifacts", "project.lock"];
     let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
         .unwrap()
         .map(|entry| entry.unwrap().file_name())
-        .filter(|name| name.to_string_lossy() != "state.yaml")
+        .filter(|name| !known.contains(&name.to_string_lossy().as_ref()))
         .collect();
     assert!(leftovers.is_empty(), "중간 상태가 남았다: {leftovers:?}");
 

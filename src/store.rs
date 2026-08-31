@@ -22,19 +22,21 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::artifact::{ManifestAddress, ObjectStore, RegistryError, SnapshotRegistry};
 use crate::cycle::{CycleKind, CycleState};
+use crate::lock::ProjectLock;
 use crate::cycles::{CycleId, Cycles, CyclesState};
 use crate::existence::{Existence, ExistenceState, Journey, Revision};
 use crate::project::{Project, ProjectError};
 use crate::refs::{
-    ExistenceRef, JourneyRef, KnowledgeRef, MemoryRef, RefSyntaxError, RelationRef, StateRef,
-    WillRef,
+    ExistenceRef, JourneyRef, KnowledgeRef, MemoryRef, RefSyntaxError, RelationRef, SnapshotRef,
+    StateRef, WillRef,
 };
 use crate::node::{NodeKind, NodeStatus};
 use crate::report::Report;
@@ -44,11 +46,12 @@ use crate::will::Will;
 
 /// 이 크레이트가 읽고 쓰는 저장 형식의 번호.
 ///
-/// 0 은 걷기 하나, 1 은 Cycle 하나, 2 는 Cycle Graph, 3 은 **Project State** 다 —
-/// World Graph 옆에 지속적 Existence 들과 「지금 누가 행동하는가」가 함께 눕는다.
+/// 0 은 걷기 하나, 1 은 Cycle 하나, 2 는 Cycle Graph, 3 은 Project State, 4 는 그 위에
+/// **Artifact 시간선**이 함께 눕는다 — Snapshot registry 와 Cycle 의 Entry/Exit,
+/// 그리고 Verify 가 확정한 세계.
 /// 모양이 바뀔 때마다 올린다 —
 /// 그래야 앞 형식을 만났을 때 파서 오류가 아니라 **앞 형식이라고** 말할 수 있다.
-pub const FORMAT: u32 = 3;
+pub const FORMAT: u32 = 4;
 
 /// 저장소 안에서 상태가 눕는 자리.
 pub const STATE_PATH: &str = ".gil/state.yaml";
@@ -56,9 +59,38 @@ pub const STATE_PATH: &str = ".gil/state.yaml";
 /// 앞 형식이 눕던 자리. 읽지는 않고, 만나면 **말한다**.
 pub const LEGACY_WALK_PATH: &str = ".gil/walk.yaml";
 
+/// 잠금을 쥔 채로만 부를 수 있는 저장 — **CLI 가 지나는 유일한 길.**
+///
+/// guard 를 받지만 쓰지는 않는다. 이 인자는 **컴파일러가 검사하는 증명 의무**다 —
+/// 잠금을 쥐지 않은 자리에서는 이 함수를 부를 수 없다. 잠금을 「잊지 않기로 한다」는
+/// 규율은 반드시 언젠가 잊히므로, 규율 대신 타입에 맡긴다.
+pub(crate) fn save_within(
+    _lock: &ProjectLock,
+    project: &Project,
+    path: impl AsRef<Path>,
+) -> Result<(), StoreError> {
+    save(project, path)
+}
+
+/// 잠금을 쥔 채로만 부를 수 있는 읽기. [`save_within`] 과 같은 이유로 guard 를 받는다.
+pub(crate) fn load_within(
+    _lock: &ProjectLock,
+    rules: RuleSet,
+    path: impl AsRef<Path>,
+) -> Result<Project, StoreError> {
+    load(rules, path)
+}
+
 /// 지금 상태를 파일에 눕힌다. 부모 디렉터리가 없으면 만든다.
 ///
 /// 먼저 옆자리에 쓰고 제자리로 옮긴다 — 쓰다 죽어도 반쯤 쓰인 상태가 남지 않는다.
+///
+/// # 이 함수는 프로젝트를 잠그지 않는다
+///
+/// 저층 함수다. 두 프로세스가 이것을 나란히 부르면 한쪽의 변경이 조용히 사라진다.
+/// GIL 명령끼리의 직렬화는 [`ProjectSession`](crate::ProjectSession) 이 지며, CLI 는 전부
+/// 그것을 지난다. 라이브러리를 직접 쓰는 코드가 이 길로 가면 그 보장은 적용되지 않는다
+/// (Artifact Model §10.6).
 pub fn save(project: &Project, path: impl AsRef<Path>) -> Result<(), StoreError> {
     let path = path.as_ref();
     let stored = StoredState::from(project);
@@ -77,20 +109,61 @@ pub fn save(project: &Project, path: impl AsRef<Path>) -> Result<(), StoreError>
     temp.push(".writing");
     let temp = PathBuf::from(temp);
 
-    fs::write(&temp, text).map_err(|source| StoreError::Write {
-        path: temp.display().to_string(),
-        source,
-    })?;
+    // **흘려 쓰고 디스크에 밀어 넣은 뒤에** 제자리로 옮긴다. 쓰기만 하고 옮기면, 전원이
+    // 끊겼을 때 이름은 새것인데 내용은 비어 있는 파일이 남는다.
+    {
+        let mut file = File::create(&temp).map_err(|source| StoreError::Write {
+            path: temp.display().to_string(),
+            source,
+        })?;
+        file.write_all(text.as_bytes())
+            .and_then(|()| file.flush())
+            .and_then(|()| file.sync_all())
+            .map_err(|source| StoreError::Write {
+                path: temp.display().to_string(),
+                source,
+            })?;
+    }
     fs::rename(&temp, path).map_err(|source| StoreError::Write {
         path: path.display().to_string(),
         source,
-    })
+    })?;
+    sync_dir(path.parent())
+}
+
+/// 새 이름이 디렉터리에 실제로 새겨지도록 부모를 디스크에 밀어 넣는다.
+///
+/// # 이 보장의 실제 범위
+///
+/// Unix 에서만 한다. 그리고 macOS 의 `fsync` 는 드라이브의 쓰기 캐시까지 비우지 않는다
+/// (`F_FULLFSYNC` 가 그 일을 한다) — 여기서 얻는 것은 **파일 시스템 계층까지의 내구성**이며,
+/// 전원 차단 복구가 완전하다고 주장하지 않는다(Artifact Model §10.5).
+#[cfg(unix)]
+fn sync_dir(at: Option<&Path>) -> Result<(), StoreError> {
+    let Some(at) = at.filter(|parent| !parent.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    File::open(at)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|source| StoreError::Write {
+            path: at.display().to_string(),
+            source,
+        })
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_at: Option<&Path>) -> Result<(), StoreError> {
+    // 표준 라이브러리로 디렉터리를 fsync 할 방법이 없다. 하지 않는다.
+    Ok(())
 }
 
 /// 파일에서 상태를 다시 세운다.
 ///
 /// 규칙은 파일에 없다 — [`RuleSet`] 은 언제나 `gil-spec.yaml` 에서 새로 읽어 넘긴다.
 /// 문법이 바뀌면 저장된 것도 **새 문법으로** 판정받아야 하고, 파일에 넣어 두면 그러지 못한다.
+///
+/// [`save`] 와 마찬가지로 **프로젝트를 잠그지 않는다.** 잠근 채 읽으려면
+/// [`ProjectSession::open`](crate::ProjectSession::open) 을 쓴다.
 pub fn load(rules: RuleSet, path: impl AsRef<Path>) -> Result<Project, StoreError> {
     let path = path.as_ref();
     let text = fs::read_to_string(path).map_err(|source| match source.kind() {
@@ -124,7 +197,37 @@ pub fn load(rules: RuleSet, path: impl AsRef<Path>) -> Result<Project, StoreErro
     }
 
     let stored: StoredState = serde_norway::from_str(&text).map_err(StoreError::Decode)?;
-    stored.into_project(rules)
+    let project = stored.into_project(rules)?;
+
+    // **구조가 맞물린 뒤에 객체를 본다.** registry 가 깨진 채로 디스크를 뒤지면 잘못된
+    // 자리를 열어 보게 된다.
+    if let Some(gil) = path.parent() {
+        verify_manifests(&project, &ObjectStore::at(gil))?;
+    }
+    Ok(project)
+}
+
+/// registry 가 가리키는 **manifest 객체**가 실재하고 제 주소와 맞는지 본다.
+///
+/// # blob 까지 매번 훑지 않는다
+///
+/// manifest 하나를 읽는 비용은 세계의 크기에 비례하지만, blob 전수 해시는 **프로젝트 전체를
+/// 다시 읽는 일**이다. `gil status` 한 번이 그것을 하면 도구를 못 쓴다.
+///
+/// 그래서 이 함수가 보장하는 것은 「세계의 목록이 온전하다」까지다. blob 하나가 밖에서
+/// 손상된 것을 매 load 가 반드시 발견한다고 **주장하지 않는다**(Artifact Model §14).
+/// 그것은 실제로 그 바이트를 쓰는 자리 — capture 의 공유와 훗날의 restore — 에서 걸린다.
+fn verify_manifests(project: &Project, store: &ObjectStore) -> Result<(), StoreError> {
+    for record in project.artifacts().records() {
+        store
+            .read_manifest(record.manifest())
+            .map_err(|source| StoreError::Manifest {
+                world: record.id(),
+                address: record.manifest().hex(),
+                said: source.to_string(),
+            })?;
+    }
+    Ok(())
 }
 
 /// typed reference 하나를 읽는다. 무엇의 자리였는지를 함께 말한다.
@@ -155,6 +258,8 @@ impl StoredState {
     ///
     /// 두 축을 각자 세운 뒤 [`Project::restore`] 가 **서로 맞물리는지**를 잰다.
     fn into_project(self, rules: RuleSet) -> Result<Project, StoreError> {
+        let artifacts = self.artifacts.into_registry()?;
+
         let current: ExistenceRef = read_ref(&self.current_existence_ref, "current_existence_ref")?;
 
         let mut existences = BTreeMap::new();
@@ -170,9 +275,63 @@ impl StoredState {
         }
 
         let cycles = Cycles::restore(rules, self.cycles.into_state()?).map_err(StoreError::NotValid)?;
-        Project::restore(cycles, existences, states, current, self.next_will_id)
-            .map_err(StoreError::NotWhole)
+        Project::restore(
+            cycles,
+            existences,
+            states,
+            current,
+            self.next_will_id,
+            artifacts,
+        )
+        .map_err(StoreError::NotWhole)
     }
+}
+
+impl StoredArtifacts {
+    /// 읽어 온 값으로 registry 를 다시 세운다 — **구조부터 잰다.**
+    ///
+    /// 객체가 창고에 실재하는지는 여기서 보지 않는다. 그것은 I/O 라
+    /// [`verify_manifests`] 가 따로 지고, 순서는 **구조 → 객체**다. 구조가 깨진 registry 를
+    /// 들고 디스크를 뒤지는 것은 잘못된 자리를 열어 보는 일이다.
+    fn into_registry(self) -> Result<SnapshotRegistry, StoreError> {
+        let mut records = Vec::with_capacity(self.snapshots.len());
+        for snapshot in self.snapshots {
+            let id: SnapshotRef = read_ref(&format!("snapshot:{}", snapshot.id), "snapshots.id")?;
+            records.push((id.number(), snapshot.manifest.into_address()?));
+        }
+        SnapshotRegistry::restore(self.next_snapshot_id, records).map_err(StoreError::Registry)
+    }
+}
+
+impl StoredManifest {
+    fn into_address(self) -> Result<ManifestAddress, StoreError> {
+        // **소문자 canonical hex 만 받는다.** 대문자를 받아 주면 같은 세계가 두 글자꼴을
+        // 갖고, 그러면 파일을 비교해 같은지 묻는 일이 문자열 규칙에 의존하게 된다.
+        if !self
+            .digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(StoreError::DigestNotCanonical {
+                value: self.digest,
+            });
+        }
+        let bytes = decode_hex(&self.digest).ok_or_else(|| StoreError::DigestNotCanonical {
+            value: self.digest.clone(),
+        })?;
+        ManifestAddress::from_parts(&self.algorithm, &bytes).map_err(StoreError::Registry)
+    }
+}
+
+/// 소문자 16진수를 바이트로. 길이가 홀수면 `None`.
+fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&text[at..at + 2], 16).ok())
+        .collect()
 }
 
 impl StoredExistence {
@@ -269,7 +428,38 @@ struct StoredState {
     existences: BTreeMap<String, StoredExistence>,
     /// 그들의 State 객체들. 지금은 내용이 없다.
     existence_states: BTreeMap<String, StoredExistenceState>,
+    /// **이 프로젝트가 이름 붙인 Artifact 세계들.**
+    ///
+    /// 파일 목록도 blob 도 여기 없다 — `.gil/artifacts/` 의 content-addressed 창고가
+    /// 그것을 지고, 여기 눕는 것은 **이름과 그 세계의 manifest 주소**뿐이다.
+    artifacts: StoredArtifacts,
     cycles: StoredCycles,
+}
+
+/// Snapshot registry 가 눕는 꼴.
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredArtifacts {
+    /// 다음에 발급될 Snapshot 이름의 수. `next_will_id` 와 같은 관례다.
+    next_snapshot_id: u32,
+    /// 이름 오름차순. 빈틈이 없다.
+    snapshots: Vec<StoredSnapshot>,
+}
+
+/// 이름 하나와 그것이 가리키는 세계.
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredSnapshot {
+    /// **제 이름은 bare** — `A1`. 남을 가리키는 자리만 `snapshot:A1` 로 종류를 지닌다
+    /// (Node Model §2.1).
+    id: String,
+    manifest: StoredManifest,
+}
+
+/// manifest 객체의 **내부 주소**. 공개 `SnapshotRef` 가 아니다.
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredManifest {
+    algorithm: String,
+    /// 소문자 canonical 16진수.
+    digest: String,
 }
 
 /// 지속적 Existence 하나.
@@ -331,6 +521,20 @@ struct StoredExistenceState {}
 struct StoredCycles {
     next_id: u32,
     current: u32,
+    /// **format 4 의 선택적 전이 상태** — 되돌아왔고 아직 새 Cycle 을 열지 않았다.
+    ///
+    /// 새 영구 객체의 schema 가 아니라 두 명령 사이의 일시적인 Graph 전이라, format 번호를
+    /// 올리지 않고 4 안에 둔다(Storage Model §3.1).
+    ///
+    /// - 칸이 **없으면** pending 없음 — 앞서 저장된 format 4 파일이 근거 손실 없이 읽힌다.
+    /// - pending 이 없으면 **쓰지 않는다** — 없는 상태에 이름을 주지 않는다.
+    /// - 값은 Graph 안의 bare Cycle 이름 하나다. `parent`·`current`·`steps.pending_revisit`
+    ///   와 같은 규율이고, typed `cycle:C3` 는 Report 와 오류 표면의 어휘다.
+    ///
+    /// 이 칸 하나가 format 4 를 임의 mapping 으로 바꾸지는 않는다 — `deny_unknown_fields`
+    /// 는 그대로라 **모르는 다른 칸은 계속 거절한다.**
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_cycle_revisit: Option<u32>,
     nodes: Vec<StoredCycle>,
 }
 
@@ -348,9 +552,15 @@ struct StoredCycle {
     kind: CycleKind,
     status: StoredStatus,
     parent: Option<u32>,
-    /// Cycle 수준의 되돌아감은 아직 없다. 자리를 비워 두되 **채워진 파일은 거절한다** —
-    /// 확인할 수 없는 출처를 있는 척 읽지 않는다.
+    /// **어느 실패에서 갈라져 났는가.** 되돌아온 뒤 난 첫 Cycle 에만 있다.
+    ///
+    /// `parent` 와 같은 저장 표현(숫자 Cycle ID)이지만 **뜻이 다르다.** 계보는 `parent` 만
+    /// 따라가고, 이 값은 갈래의 출처다. 되살릴 때 그 구조적 관계를 다시 검사한다.
     revisit_from: Option<u32>,
+    /// 이 Cycle 을 연 전이가 출발한 세계. **모든 Cycle 에 있다**(Artifact Model §7.1).
+    entry_snapshot_ref: String,
+    /// 닫히며 확정한 세계. 열려 있는 동안은 `null` 이다.
+    exit_snapshot_ref: Option<String>,
     report: Option<BTreeMap<String, String>>,
     steps: StoredWalk,
 }
@@ -377,6 +587,12 @@ struct StoredNode {
     existence_ref: String,
     /// 이 Step 을 닫은 Journey 판. 열려 있는 동안은 비어 있다.
     journey_ref: Option<String>,
+    /// **닫힌 Verify 가 확정한 세계.** `snapshot:A1` 꼴의 typed reference 다.
+    ///
+    /// Verify 이외의 Kind 에는 없고, 열린 Verify 에도 없다. Report 의 칸이 아니라 Node 의
+    /// 구조 필드라 여기 따로 눕는다(Artifact Model §7.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    snapshot_ref: Option<String>,
     report: Option<BTreeMap<String, String>>,
 }
 
@@ -417,6 +633,21 @@ impl From<&Project> for StoredState {
                 .values()
                 .map(|existence| (existence.id().id(), StoredExistence::from(existence)))
                 .collect(),
+            artifacts: StoredArtifacts {
+                next_snapshot_id: project.artifacts().next_id(),
+                snapshots: project
+                    .artifacts()
+                    .records()
+                    .iter()
+                    .map(|record| StoredSnapshot {
+                        id: record.id().id(),
+                        manifest: StoredManifest {
+                            algorithm: record.manifest().algorithm_name().to_string(),
+                            digest: record.manifest().hex(),
+                        },
+                    })
+                    .collect(),
+            },
             existence_states: states
                 .keys()
                 .map(|number| {
@@ -427,6 +658,7 @@ impl From<&Project> for StoredState {
             cycles: StoredCycles {
                 next_id: cycles.next_name(),
                 current: cycles.current_id().raw(),
+                pending_cycle_revisit: cycles.pending_revisit().map(CycleId::raw),
                 nodes: cycles.nodes().iter().map(StoredCycle::from).collect(),
             },
         }
@@ -477,7 +709,9 @@ impl From<&crate::cycle::Cycle> for StoredCycle {
             kind: cycle.kind(),
             status: cycle.status().into(),
             parent: cycle.parent().map(CycleId::raw),
-            revisit_from: None,
+            revisit_from: cycle.revisit_from().map(CycleId::raw),
+            entry_snapshot_ref: cycle.entry_snapshot().to_string(),
+            exit_snapshot_ref: cycle.exit_snapshot().map(|world| world.to_string()),
             report: cycle.report().map(write_report),
             steps: StoredWalk {
                 next_id: walk.next_id(),
@@ -498,6 +732,7 @@ impl StoredCycles {
         Ok(CyclesState {
             next_id: self.next_id,
             current: CycleId::from_raw(self.current),
+            pending_revisit: self.pending_cycle_revisit.map(CycleId::from_raw),
             nodes,
         })
     }
@@ -505,11 +740,6 @@ impl StoredCycles {
 
 impl StoredCycle {
     fn into_state(self) -> Result<CycleState, StoreError> {
-        // Cycle 수준의 되돌아감을 짓지 않았으니 출처를 검사할 수단이 없다.
-        // 검사할 수 없는 것을 있는 척 읽는 대신 거절한다 — 없는 것과 못 찾은 것은 다르다.
-        if self.revisit_from.is_some() {
-            return Err(StoreError::CycleRevisitNotBuilt);
-        }
         let mut steps = Vec::with_capacity(self.steps.nodes.len());
         for node in self.steps.nodes {
             steps.push(node.into_step()?);
@@ -517,10 +747,13 @@ impl StoredCycle {
         Ok(CycleState {
             id: CycleId::from_raw(self.id),
             parent: self.parent.map(CycleId::from_raw),
+            revisit_from: self.revisit_from.map(CycleId::from_raw),
             kind: self.kind,
             status: self.status.into(),
             existence: read_ref(&self.existence_ref, "cycle.existence_ref")?,
             journey: read_opt_ref(&self.journey_ref, "cycle.journey_ref")?,
+            entry: read_ref(&self.entry_snapshot_ref, "cycle.entry_snapshot_ref")?,
+            exit: read_opt_ref(&self.exit_snapshot_ref, "cycle.exit_snapshot_ref")?,
             report: self.report.map(|fields| fields.into_iter().collect()),
             steps: WalkState {
                 current: self.steps.current.map(NodeId::from_raw),
@@ -542,6 +775,7 @@ impl From<&StepNode> for StoredNode {
             status: node.status.into(),
             existence_ref: node.existence.to_string(),
             journey_ref: node.journey.map(|journey| journey.to_string()),
+            snapshot_ref: node.snapshot.map(|world| world.to_string()),
             report: node.report.as_ref().map(write_report),
         }
     }
@@ -557,6 +791,7 @@ impl StoredNode {
             status: self.status.into(),
             existence: read_ref(&self.existence_ref, "step.existence_ref")?,
             journey: read_opt_ref(&self.journey_ref, "step.journey_ref")?,
+            snapshot: read_opt_ref(&self.snapshot_ref, "step.snapshot_ref")?,
             report: self.report.map(|fields| fields.into_iter().collect()),
         })
     }
@@ -599,8 +834,6 @@ pub enum StoreError {
         current: u32,
         path: String,
     },
-    /// Cycle 되돌아감의 출처가 적혀 있는데 그것을 검사할 계층이 아직 없다.
-    CycleRevisitNotBuilt,
     /// Journey 판이 State 를 가리키지 않는다.
     JourneyWithoutState,
     /// typed reference 로 읽히지 않는 값이 있다.
@@ -613,6 +846,18 @@ pub enum StoreError {
     NotWhole(ProjectError),
     /// 읽히기는 했으나 걸어서 만들 수 있는 꼴이 아니다.
     NotValid(RestoreError),
+    /// Snapshot registry 의 구조가 걸어서 만들 수 있는 꼴이 아니다.
+    Registry(RegistryError),
+    /// manifest 주소가 소문자 canonical 16진수가 아니다.
+    DigestNotCanonical { value: String },
+    /// registry 가 가리키는 manifest 객체가 없거나 손상됐다.
+    ///
+    /// 창고의 오류 타입은 안에 남는다 — 여기 오는 것은 이미 사람의 말로 적힌 이유다.
+    Manifest {
+        world: SnapshotRef,
+        address: String,
+        said: String,
+    },
 }
 
 impl fmt::Display for StoreError {
@@ -650,11 +895,6 @@ impl fmt::Display for StoreError {
                  조용히 무시하지 않으려고 알린다 — 그 안의 기록은 그대로 있다.\n\
                  새로 시작하려면 그 파일을 직접 치우고 `gil start` 를 한다."
             ),
-            StoreError::CycleRevisitNotBuilt => write!(
-                f,
-                "이 파일의 Cycle 이 revisit_from 을 지녔는데, Cycle 수준의 되돌아감은 \
-                 아직 짓지 않았다 — 검사할 수 없는 출처를 있는 척 읽지 않는다"
-            ),
             StoreError::JourneyWithoutState => write!(
                 f,
                 "Journey 판에 existence_state_ref 가 없다 — 모든 판은 실재하는 \
@@ -673,6 +913,24 @@ impl fmt::Display for StoreError {
                 f,
                 "저장 파일이 걸어서 만들 수 없는 꼴을 담고 있다 — {source}"
             ),
+            StoreError::Registry(source) => write!(
+                f,
+                "Snapshot registry 가 걸어서 만들 수 없는 꼴이다 — {source}"
+            ),
+            StoreError::DigestNotCanonical { value } => write!(
+                f,
+                "manifest 주소 {value:?} 가 소문자 canonical 16진수가 아니다 — \
+                 같은 세계가 두 글자꼴을 가지면 이름이 세계를 가리키지 못한다"
+            ),
+            StoreError::Manifest {
+                world,
+                address,
+                said,
+            } => write!(
+                f,
+                "{world} 가 가리키는 manifest(sha256:{address}) 를 읽지 못했다 — {said}\n\
+                 Node·Will·Journey 는 닫히지도 움직이지도 않았다."
+            ),
         }
     }
 }
@@ -685,11 +943,13 @@ impl std::error::Error for StoreError {
             StoreError::NotValid(source) => Some(source),
             StoreError::NotWhole(source) => Some(source),
             StoreError::BadRef { source, .. } => Some(source),
+            StoreError::Registry(source) => Some(source),
             StoreError::NotFound { .. }
             | StoreError::LegacyFormat { .. }
             | StoreError::UnknownFormat { .. }
             | StoreError::PreviousFormat { .. }
-            | StoreError::CycleRevisitNotBuilt
+            | StoreError::DigestNotCanonical { .. }
+            | StoreError::Manifest { .. }
             | StoreError::JourneyWithoutState => None,
         }
     }

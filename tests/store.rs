@@ -19,8 +19,8 @@ use serde_norway::Value;
 mod common;
 use common::{
     bootstrap,
-    ACTION, REASON, SYNTHESIS_REF, TARGET, cycle_report, full_report, graph_at_the_exit, opened,
-    scratch, spec, step_id, walked,
+    ACTION, CYCLE_TARGET, REASON, SYNTHESIS_REF, TARGET, cycle_report, full_report,
+    graph_at_the_exit, opened, scratch, spec, step_id, walked,
 };
 
 // ── 걸어서 만든 자리들 ─────────────────────────────────────────────────────
@@ -349,10 +349,17 @@ fn saving_leaves_nothing_half_written_beside_it() {
     save(&graph_with_a_branch(), &path).unwrap();
     save(&graph_that_closed(), &path).unwrap();
 
+    // `.gil` 안의 GIL 내부 구조는 자국이 아니다 — 여기서 찾는 것은 `state.yaml` 옆에
+    // 남은 **쓰다 만 파일**이다.
+    let known = ["state.yaml", "artifacts", "project.lock"];
     let left: Vec<PathBuf> = std::fs::read_dir(path.parent().unwrap())
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .filter(|entry| entry != &path)
+        .filter(|entry| {
+            !entry
+                .file_name()
+                .is_some_and(|name| known.contains(&name.to_string_lossy().as_ref()))
+        })
         .collect();
     assert!(left.is_empty(), "쓰다 만 자국이 남았다: {left:?}");
 }
@@ -655,17 +662,51 @@ fn a_cycle_report_that_points_at_the_wrong_place_is_refused() {
 }
 
 #[test]
-fn a_cycle_revisit_we_cannot_check_is_refused() {
-    // Cycle 수준의 되돌아감을 짓지 않았다. 검사할 수 없는 출처를 있는 척 읽지 않는다.
-    let path = scratch("cycle-revisit").join(gil::STATE_PATH);
-    save(&graph_that_closed(), &path).unwrap();
-    edit_file(&path, |file| {
-        file["cycles"]["nodes"][WALKED]["revisit_from"] = Value::from(1)
+fn a_cycle_that_calls_its_own_parent_the_branch_source_is_refused() {
+    // 되돌아감은 **버린** 실패에서 갈라지는 것이다. 제 부모를 출처로도 적는 것은 그 뜻과
+    // 어긋난다 — 실패한 Cycle 은 부모가 되지 않는다.
+    let err = tampered(&graph_with_two_cycles(), "revisit-from-parent", |file| {
+        file["cycles"]["nodes"][2]["revisit_from"] = Value::from(2u32);
     });
+    assert!(
+        matches!(err, RestoreError::CycleRevisitFromIsTheParent { .. }),
+        "다른 이유로 거절됐다: {err}"
+    );
+}
 
-    match load(spec(), &path) {
-        Err(StoreError::CycleRevisitNotBuilt) => {}
-        other => panic!("검사할 수 없는 출처를 읽었다: {other:?}"),
+#[test]
+fn a_branch_source_that_does_not_exist_is_refused() {
+    let err = tampered(&graph_with_two_cycles(), "revisit-from-unknown", |file| {
+        file["cycles"]["nodes"][2]["revisit_from"] = Value::from(9u32);
+    });
+    assert!(
+        matches!(err, RestoreError::UnknownCycleRevisitFrom { .. }),
+        "다른 이유로 거절됐다: {err}"
+    );
+}
+
+#[test]
+fn a_branch_source_that_did_not_declare_this_parent_is_refused() {
+    // C3 이 C1 에서 갈라져 났다는데, C1 은 되돌아가겠다고 적은 적이 없다.
+    let err = tampered(&graph_with_two_cycles(), "revisit-from-silent", |file| {
+        file["cycles"]["nodes"][2]["revisit_from"] = Value::from(1u32);
+    });
+    assert!(
+        matches!(err, RestoreError::CycleRevisitFromNotDeclared { .. }),
+        "다른 이유로 거절됐다: {err}"
+    );
+}
+
+#[test]
+fn a_straight_child_never_carries_a_branch_source() {
+    // 평범하게 이어 난 Cycle 에는 출처가 없다 — 걸어서 그렇게 만들 수 없다.
+    let project = graph_with_two_cycles();
+    for cycle in project.cycles().nodes() {
+        assert_eq!(cycle.revisit_from(), None, "{} 에 갈래 출처가 있다", cycle.id());
+    }
+    let after = round_trip(&project, "straight-child-no-source");
+    for cycle in after.cycles().nodes() {
+        assert_eq!(cycle.revisit_from(), None, "왕복이 출처를 지어냈다");
     }
 }
 
@@ -816,7 +857,7 @@ const INTERVIEW: usize = 0;
 /// 언제나 이렇게 **한 줄**이다 — 갈래는 오직 손으로 고친 파일에서만 생긴다. 그래서 계보 검사가
 /// 실제로 무엇을 막는지는 여기서만 잴 수 있다.
 fn interview_asked_twice() -> Project {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
 
     let mut basis = Vec::new();
     for approval in ["no", "yes"] {
@@ -959,7 +1000,7 @@ fn inside(err: RestoreError) -> CycleError {
 
 /// `#1 q · #2 i · #3 s(approved: no)` 를 닫고 **`#4 question` 을 열어 둔** Interview.
 fn interview_with_an_open_question() -> Project {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
 
     let mut basis = Vec::new();
     for kind in [NodeKind::Question, NodeKind::Interpretation] {
@@ -987,4 +1028,219 @@ fn a_basis_ref_that_is_still_open_is_refused_from_the_file_too() {
     };
     assert_eq!(target.to_string(), "step:C1/S4");
     assert_eq!(here.to_string(), "step:C1/S3");
+}
+
+// ── 되돌아갈 곳도 두 번째 통로를 지난다 (M4-B) ─────────────────────────────
+//
+// 닫을 때 막은 것을 파일이 우회하면, 막은 적이 없는 것과 같다. 그래서 복원은 **닫을 때와
+// 같은 함수**로 다시 잰다. 여기서 재는 것은 그 사실 하나다.
+
+/// 실패로 닫힌 Experiment 하나 — 되돌아갈 곳을 적어 두었다.
+fn graph_that_closed_in_failure() -> Project {
+    let (mut project, outcome) = graph_at_the_exit("failure");
+    let report = cycle_report(project.cycles().current(), "failure", outcome);
+    assert_eq!(report.get(ACTION), Some("revisit"), "실패는 되돌아간다");
+    assert_eq!(report.get(CYCLE_TARGET), Some("cycle:C1"), "{report:?}");
+    project.close_cycle(report).expect("Cycle 을 닫는다");
+    project
+}
+
+/// 저장 파일의 그 Cycle Report 에서 되돌아갈 곳을 고친다.
+fn with_cycle_target(at: usize, value: Option<&str>) -> impl FnOnce(&mut Value) + '_ {
+    move |file: &mut Value| {
+        let report = &mut file["cycles"]["nodes"][at]["report"];
+        match value {
+            Some(value) => report[CYCLE_TARGET] = Value::from(value),
+            None => {
+                let map = report.as_mapping_mut().expect("Report 는 mapping 이다");
+                map.remove(Value::from(CYCLE_TARGET))
+                    .expect("걸어서 만든 파일에는 갈 곳이 있다");
+            }
+        }
+    }
+}
+
+/// 되살리기가 다음 방향 때문에 거절했는가 — 그리고 무엇이라 말했는가.
+fn refused_direction(err: RestoreError) -> String {
+    match err {
+        RestoreError::CycleNextDirection { source, .. } => source.to_string(),
+        other => panic!("다른 이유로 거절됐다: {other}"),
+    }
+}
+
+#[test]
+fn a_valid_cycle_target_survives_the_round_trip() {
+    let before = graph_that_closed_in_failure();
+    let after = round_trip(&before, "cycle-target-round-trip");
+
+    let said = after.cycles().current().report().expect("닫힌 Cycle 은 Report 를 지닌다");
+    assert_eq!(said.get(CYCLE_TARGET), Some("cycle:C1"), "적은 대상이 달라졌다");
+    assert_eq!(
+        after.cycles().current().report(),
+        before.cycles().current().report(),
+        "Report 가 건너가며 달라졌다"
+    );
+}
+
+#[test]
+fn a_file_whose_revisit_has_no_target_is_refused() {
+    // 돌연변이 1 — 닫을 때의 필수 검사를 지워도 여기서 걸린다.
+    let err = tampered(
+        &graph_that_closed_in_failure(),
+        "file-target-missing",
+        with_cycle_target(WALKED, None),
+    );
+    let said = refused_direction(err);
+    assert!(said.contains(CYCLE_TARGET), "어느 칸인지 말하지 않는다:\n{said}");
+}
+
+#[test]
+fn a_file_whose_target_is_not_a_cycle_ref_is_refused() {
+    for wrong in ["1", "#1", "C1", "step:C1/S2", "snapshot:A1"] {
+        let err = tampered(
+            &graph_that_closed_in_failure(),
+            &format!("file-target-shape-{}", wrong.replace([':', '/', '#'], "-")),
+            with_cycle_target(WALKED, Some(wrong)),
+        );
+        let said = refused_direction(err);
+        assert!(
+            said.contains("읽히지 않는다"),
+            "{wrong:?} 가 파일에서 Cycle 주소로 읽혔다:\n{said}"
+        );
+    }
+}
+
+#[test]
+fn a_file_whose_target_does_not_exist_is_refused() {
+    let err = tampered(
+        &graph_that_closed_in_failure(),
+        "file-target-unknown",
+        with_cycle_target(WALKED, Some("cycle:C9")),
+    );
+    assert!(refused_direction(err).contains("cycle:C9"));
+}
+
+#[test]
+fn a_file_whose_target_is_the_cycle_itself_is_refused() {
+    // 돌연변이 6 — 자기 자신을 허용하면 여기서 걸린다.
+    let err = tampered(
+        &graph_that_closed_in_failure(),
+        "file-target-itself",
+        with_cycle_target(WALKED, Some("cycle:C2")),
+    );
+    assert!(refused_direction(err).contains("자기 자신"));
+}
+
+#[test]
+fn a_file_whose_non_revisit_direction_carries_a_target_is_refused() {
+    // 돌연변이 2 — 되돌아가지 않는 방향의 갈 곳을 허용하면 여기서 걸린다.
+    let err = tampered(&graph_that_closed(), "file-target-not-allowed", |file| {
+        file["cycles"]["nodes"][WALKED]["report"][CYCLE_TARGET] = Value::from("cycle:C1");
+    });
+    let said = refused_direction(err);
+    assert!(said.contains("open_child"), "어느 방향인지 말하지 않는다:\n{said}");
+}
+
+/// C1 → C2(success) → C3(**실패로 닫힘**) 까지 걸은 프로젝트.
+fn graph_with_a_failed_second_cycle() -> Project {
+    let mut project = graph_with_two_cycles(); // C1(closed) → C2(closed success) → C3(open)
+    let outcome = common::walk_to_the_exit(&mut project, "failure");
+    let report = cycle_report(project.cycles().current(), "failure", outcome);
+    project.close_cycle(report).expect("셋째 Cycle 을 실패로 닫는다");
+    project
+}
+
+#[test]
+fn a_file_whose_target_is_not_an_ancestor_is_refused() {
+    // 돌연변이 3 — 조상 검사를 **ID 크기 비교**로 바꾸면 여기서 걸린다.
+    //
+    // C2 는 C3 보다 작은 이름이지만 조상이 아니다. 파일에서 C3 의 부모를 뿌리로 옮기면
+    // 둘은 형제가 되고, 그때도 C2 의 이름은 여전히 더 작다. **이름의 크기는 계보가 아니다.**
+    //
+    // v0 의 걷기는 한 줄이라 형제가 나지 않는다. 그래서 이 꼴에 닿는 길은 파일뿐이고,
+    // 그것이 이 검사가 복원 쪽에도 있어야 하는 까닭이다.
+    let err = tampered(
+        &graph_with_a_failed_second_cycle(),
+        "file-target-sibling",
+        |file| {
+            file["cycles"]["nodes"][2]["parent"] = Value::from(1u32);
+            file["cycles"]["nodes"][2]["report"][CYCLE_TARGET] = Value::from("cycle:C2");
+        },
+    );
+    let said = refused_direction(err);
+    assert!(said.contains("조상이 아니다"), "{said}");
+    assert!(said.contains("cycle:C2"), "어느 이름인지 말하지 않는다:\n{said}");
+}
+
+#[test]
+fn a_file_whose_target_is_still_open_is_refused() {
+    // 돌연변이 7 — 열린 대상을 허용하면 여기서 걸린다.
+    //
+    // 실패로 닫힌 C2 옆에 **열린 형제** C3 을 눕히고, C2 가 그것을 가리키게 한다.
+    // 걸어서는 만들 수 없는 꼴이라(실패한 Cycle 은 자식을 만들지 않는다) 여기서만 닿는다.
+    let err = tampered(
+        &graph_that_closed_in_failure(),
+        "file-target-open",
+        |file| {
+            let sibling = open_sibling_of(&file["cycles"]["nodes"][WALKED], 3, 1);
+            file["cycles"]["nodes"]
+                .as_sequence_mut()
+                .expect("cycles.nodes 는 열이다")
+                .push(sibling);
+            file["cycles"]["next_id"] = Value::from(4u32);
+            file["cycles"]["current"] = Value::from(3u32);
+            file["cycles"]["nodes"][WALKED]["report"][CYCLE_TARGET] = Value::from("cycle:C3");
+        },
+    );
+    let said = refused_direction(err);
+    assert!(said.contains("열려 있다"), "{said}");
+}
+
+/// 이미 있는 Cycle 을 본떠 **빈 채로 열려 있는** 형제 하나를 짓는다.
+///
+/// 저장 형식은 모르는 칸을 거절하므로 손으로 처음부터 쓰지 않고 있는 것을 본뜬다 —
+/// 그래야 이 시험이 형식이 자랄 때마다 낡지 않는다.
+fn open_sibling_of(model: &Value, id: u32, parent: u32) -> Value {
+    let mut node = model.clone();
+    node["id"] = Value::from(id);
+    node["parent"] = Value::from(parent);
+    node["status"] = Value::from("open");
+    node["report"] = Value::Null;
+    node["journey_ref"] = Value::Null;
+    node["exit_snapshot_ref"] = Value::Null;
+    node["steps"]["nodes"] = Value::Sequence(Vec::new());
+    node["steps"]["next_id"] = Value::from(1u32);
+    node["steps"]["current"] = Value::Null;
+    node["steps"]["pending_revisit"] = Value::Null;
+    node
+}
+
+#[test]
+fn a_target_that_cannot_have_children_never_reaches_a_valid_file() {
+    // 자식을 가질 수 없는 Cycle 은 되돌아갈 곳이 아니다.
+    //
+    // **이 불변식은 다른 검사가 먼저 지킨다.** 조상은 정의상 자식을 지니므로, 조상이
+    // 자식을 열겠다고 적지 않은 파일은 첫 훑기의 `ParentDidNotOpenAChild` 가 이미
+    // 거절한다. 그래서 `TargetCannotBranch` 는 지금 닿을 수 없는 가지이고, 사용자가 보는
+    // 결과는 같다 — 실패한 Cycle 아래로는 되돌아갈 수 없다.
+    let err = tampered(
+        &graph_that_closed_in_failure(),
+        "file-target-no-branch",
+        |file| {
+            // 되돌아가겠다고 적은 C2 아래에 자식 C3 을 눕힌다.
+            let child = open_sibling_of(&file["cycles"]["nodes"][WALKED], 3, 2);
+            file["cycles"]["nodes"]
+                .as_sequence_mut()
+                .expect("cycles.nodes 는 열이다")
+                .push(child);
+            file["cycles"]["next_id"] = Value::from(4u32);
+            file["cycles"]["current"] = Value::from(3u32);
+        },
+    );
+    match err {
+        RestoreError::ParentDidNotOpenAChild { declared, .. } => {
+            assert_eq!(declared.as_deref(), Some("revisit"), "무엇이 적혀 있었는지 말해야 한다");
+        }
+        other => panic!("자식을 열지 않겠다고 적은 Cycle 아래의 자식이 되살아났다: {other}"),
+    }
 }

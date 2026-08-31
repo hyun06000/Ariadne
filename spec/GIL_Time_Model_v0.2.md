@@ -380,7 +380,7 @@ Closed → Closed 원칙은 유지한다. **Open Node에서 직접 revisit하지
 ## 8. Artifact는 Lineage에 속한다
 
 이 절은 **Artifact가 어느 시간 축에 속하는가**를 정한다. Artifact Timeline의 계약
-— 관리 범위, 생성 권한, 변경 경계, Cycle Exit, `gil restore`, 저장 원자성 — 은
+— 관리 범위, 확정 권한, 변경 경계, Cycle Exit, `gil restore`, 저장 원자성 — 은
 `GIL Artifact Model v0.1`이 단독으로 갖는다.
 
 Artifact Version은 최초 snapshot이 생성된 뒤 append-only로 진행한다. 형제 분기가 존재할 수
@@ -409,6 +409,12 @@ A0 → A1 → A2
 #3 artifact = A1
 #4 artifact = A1
 ```
+
+이는 유도의 결과이면서 동시에 **이름의 성질**이다. `SnapshotRef`는 사건의 이름이 아니라
+하나의 불변 세계의 정체성이므로, 세계를 바꾸지 않은 Verify는 새 이름을 만들지 않고 기존
+`SnapshotRef`를 그대로 가리킨다(`GIL Artifact Model v0.1` §13). 따라서 **이름이 바뀌었다는
+것은 세계가 바뀌었다는 뜻**이고, `snapshot_ref`만 비교해도 어느 Step에서 세계가 움직였는지
+알 수 있다.
 
 Revisit은 Artifact History 자체를 되돌리지 않는다.
 
@@ -814,7 +820,7 @@ Node를 닫을 수 없다.
 
 **① Report provenance 구성 요소의 내부 schema.**
 §9·§10과 `GIL Existence Model v0.1`은 Closed Node가 `existence_ref`와 `journey_ref`를
-기록하고 format 3의 단일 `state.yaml` save로 Journey revision·Report·Closed 상태를 함께
+기록하고 현재 Project 저장 형식의 단일 `state.yaml` save로 Journey revision·Report·Closed 상태를 함께
 확정한다고 정했다. Knowledge·Memory·Relations와 Will object의 내부 schema는 아직 정하지
 않았다.
 
@@ -826,7 +832,7 @@ Revisit은 Closed → Closed 로 유지한다(§7). 그래서 Report를 쓸 수 
 
 **③ Knowledge·Memory·Relations는 어디에 저장하고 무엇이 그 단조성을 지키는가.**
 `GIL Existence Model v0.1`이 각 지속적 Existence가 자신의 Journey를 가진다고 정하고,
-`GIL Will Model v0.1`이 Will의 Active/Done 생명주기, format 3 저장과 원자적 transaction을
+`GIL Will Model v0.1`이 Will의 Active/Done 생명주기, Project 저장과 원자적 transaction을
 정했다. Knowledge·Memory·Relations의 구체 schema와 저장 위치는 아직 정해지지 않았다. 따라서
 Will Timeline은 Journey의 첫 구체적 축이지만 Journey 전체의
 저장 모델은 아니다.
@@ -834,19 +840,24 @@ Will Timeline은 Journey의 첫 구체적 축이지만 Journey 전체의
 v0의 저장 범위는 프로젝트 로컬 `.gil`로 확정됐다. 프로젝트 간 Journey 공유와 전역 저장은
 여전히 범위 밖이다.
 
-**④ revisit 뒤의 첫 Node 를 무엇이 Hypothesis 로 강제하는가.**
-모든 reasoning branch 는 새로운 Hypothesis 에서 시작한다. 그런데 revisit 으로 과거 Node 에
-선 다음, **기존 Grammar 만으로는 그 원칙이 지켜지지 않는다** — 예를 들어 Analysis 로
-되돌아가면 Grammar 는 `hypothesis` 뿐 아니라 `outcome` 도 열 수 있다고 말한다.
-따라서 **revisit 을 실행한 상태와 그 다음 `open` 사이**에서 이 원칙을 어떻게 강제할지
-정해야 한다. `revisit` 을 구현하는 Step 의 요구사항으로 남긴다.
+**④ revisit 뒤의 첫 Node를 Hypothesis로 강제하는 규칙 — 해소됨.**
+Step-level revisit은 `pending_revisit`을 기록하고, 그 값이 존재하는 동안 다음 `open`을
+Hypothesis 하나로 제한한다. 새 Hypothesis가 `revisit_from`을 기록하면 pending 상태를 비운다.
+따라서 Grammar가 Analysis 뒤에 다른 Kind도 허용하더라도 revisit 직후의 실행 gate가 reasoning
+branch의 첫 Node를 Hypothesis로 고정한다.
+
+Cycle-level revisit은 같은 재귀 원리를 한 층 위에서 쓴다. `pending_cycle_revisit`이 존재하는
+동안 다음 동작은 새 Cycle을 여는 `gil open <kind>`뿐이다. 그 open은 구조적 부모를 revisit
+대상으로, `revisit_from`을 방금 닫은 실패 Cycle로 기록하고 pending 상태를 비운다. Cycle
+container는 실행형 Node가 아니므로 revisit 자체나 새 Cycle Open이 Will을 만들거나 Journey
+revision을 증가시키지 않는다.
 
 **⑤ Closed의 조건이 v0.1보다 강해졌다 — 해소됨.**
 §7은 Artifact·Existence version 확정까지 요구하는데, `GIL Specification v0.1` §16의 close
 조건은 필수 Report 항목뿐이었다. `GIL Artifact Model v0.1`이 두 문서를 맞췄다.
 
 ```text
-Verify close        Report 유효 + 새 Snapshot 확정 + Will Done + Journey revision
+Verify close        Report 유효 + 세계 확정 + Will Done + Journey revision
                     (Artifact Model §7)
 그 밖의 close       Report 유효 + Artifact가 기준 Snapshot과 같음
                     (Artifact Model §6 — 다르면 거절하고 아무것도 남기지 않는다)

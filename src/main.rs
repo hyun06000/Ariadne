@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use gil::{
-    ActionContract, CloseContract, CycleKind, NodeKind, Project, Report, RuleSet, StoreError,
-    context, load, next_moves, save, story,
+    ActionContract, CloseContract, CycleKind, NodeKind, ProjectSession, Refusal, Report, RuleSet,
+    SessionError, StoreError, Usage, WorldState, context, next_moves, story, with_help,
 };
 
 fn main() -> ExitCode {
@@ -31,7 +31,17 @@ fn run() -> Result<String, String> {
     let command = args.first().map(String::as_str).unwrap_or("--help");
 
     match command {
-        "--help" | "-h" | "help" => Ok(help()),
+        // 두 도움말은 **잠금 계약이 다르다.** 정확 조회는 프로젝트를 찾지 않고, 상태 기반
+        // 조회는 상태를 읽어야 하므로 다른 상태 명령과 같은 안전 경계를 지난다.
+        "help" if args.len() > 2 => Err(refusal(
+            &format!("`gil help` 는 주제 하나만 받는다 ({}개를 받았다).", args.len() - 1),
+            "여러 낱말을 이어 붙여 자연어 검색으로 읽지 않는다.",
+            "주제 하나를 적거나, 인수 없이 지금 상태에 맞는 주제를 본다.",
+            "gil help <주제>",
+        )),
+        "help" if args.get(1).is_some() => help_topic(args.get(1).expect("방금 봤다")),
+        "help" => help_here(),
+        "--help" | "-h" => Ok(help()),
         "--version" | "-V" | "version" => Ok(format!("gil {}\n", env!("CARGO_PKG_VERSION"))),
         "start" => start(),
         // **`--help` 는 요청이 아니다.** stdin 없는 실제 Open·Close 로 읽으면, 계약을
@@ -40,15 +50,46 @@ fn run() -> Result<String, String> {
         "close" if asks_for_help(args.get(1)) => close_help(),
         "open" => open(args.get(1)),
         "close" => close(),
-        "revisit" => revisit(),
+        "restore" => restore(args.get(1)),
+        "revisit" => revisit(args.get(1)),
         "status" => status(),
-        "story" => Ok(story(open_session()?.project.cycles())),
-        "context" => Ok(context(&open_session()?.project)),
+        // 이름 있는 변수로 받는다 — 임시 값으로 두면 잠금이 언제 떨어지는지가
+        // 식(式)의 모양에 달리게 된다.
+        "story" => {
+            let session = open_session()?;
+            Ok(story(session.project().cycles()))
+        }
+        "context" => {
+            let session = open_session()?;
+            Ok(context(session.project()))
+        }
         "cycle" => cycle(args.get(1).map(String::as_str), args.get(2)),
         other => Err(format!(
             "{other:?} 는 gil 이 아는 명령이 아니다.\n\n{}",
             help()
         )),
+    }
+}
+
+/// `gil help <주소>` — **함께 실린 Topic 하나를 편다.**
+///
+/// 정확한 canonical 주소나 유효한 alias 하나만 받는다. 가까운 후보를 추측해 주지 않는다 —
+/// 추측한 주소를 읽으면 지금 자리와 무관한 규칙을 배우게 된다.
+fn help_topic(input: &str) -> Result<String, String> {
+    gil::help_topic(input).map_err(|err| err.to_string())
+}
+
+/// `gil help` — **지금 상태에 관련된 주제만.**
+///
+/// 프로젝트를 찾으면 다른 상태 명령과 같은 길을 지난다: 잠금 → 복구 → 상태 읽기.
+/// 못 찾으면 `.gil` 도 잠금 파일도 만들지 않고 Bootstrap 만 말한다.
+fn help_here() -> Result<String, String> {
+    match find_gil()? {
+        None => gil::help_outside().map_err(|err| err.to_string()),
+        Some(_) => {
+            let session = open_session()?;
+            gil::help_here(&session).map_err(|err| err.to_string())
+        }
     }
 }
 
@@ -60,13 +101,13 @@ fn asks_for_help(argument: Option<&String>) -> bool {
     )
 }
 
-/// 지금 이어 걷고 있는 Cycle Graph — 그리고 **그것이 어느 파일인지**.
+/// 지금 이어 걷고 있는 것 — **그리고 그것을 쥔 잠금.**
 ///
-/// 자리를 함께 들고 다닌다. 읽은 파일과 쓰는 파일이 갈리면 적은 것이 다른 데로 간다.
-struct Session {
-    project: Project,
-    path: PathBuf,
-}
+/// [`ProjectSession`] 은 손에 넣는 순간 이 프로젝트를 잠근 것이고, 떨어지는 순간 푼 것이다.
+/// 그래서 「잠그는 것을 잊었다」는 상태가 이 파일 어디에도 존재하지 않는다.
+///
+/// **명령 하나에 하나만 만든다.** 안쪽 함수가 다시 만들면 제가 쥔 잠금에 제가 걸린다.
+type Session = ProjectSession;
 
 /// 저장된 것이 어디에 있는가 — 그리고 그것이 이 gil 이 읽는 형식인가.
 enum Found {
@@ -116,6 +157,10 @@ fn rules() -> Result<RuleSet, String> {
     RuleSet::builtin().map_err(|err| format!("함께 실린 명세를 읽지 못했다: {err}"))
 }
 
+/// 프로젝트를 찾아 **잠그고** 세운다 — 상태를 읽는 모든 명령의 유일한 입구.
+///
+/// 잠금은 읽기보다 **먼저**다. 읽고 나서 잠그면 그 사이에 다른 명령이 끝나 버려, 이미
+/// 낡은 상태를 쥔 채 잠금을 얻는다 — 그것은 잠그지 않은 것과 같다.
 fn open_session() -> Result<Session, String> {
     let path = match find_gil()? {
         Some(Found::State(path)) => path,
@@ -133,19 +178,27 @@ fn open_session() -> Result<Session, String> {
         }
     };
 
-    let project = load(rules()?, &path).map_err(|err| match err {
+    ProjectSession::open(rules()?, &path).map_err(|err| match err {
         // 방금 있는 것을 보고 왔다. 그새 사라졌다면 그건 다른 이야기다.
-        StoreError::NotFound { .. } => format!("저장된 것이 사라졌다: {}", path.display()),
-        other => other.to_string(),
-    })?;
-    Ok(Session { project, path })
+        SessionError::Store(StoreError::NotFound { .. }) => {
+            format!("저장된 것이 사라졌다: {}", path.display())
+        }
+        other => say(other),
+    })
 }
 
-impl Session {
-    /// 읽어 온 **그 파일**에 도로 눕힌다.
-    fn write(&self) -> Result<(), String> {
-        save(&self.project, &self.path).map_err(|err| err.to_string())
-    }
+/// 지금 상태를 눕힌다 — **잠금을 쥔 채로.**
+fn write(session: &Session) -> Result<(), String> {
+    session.commit().map_err(say)
+}
+
+/// 세계 쪽 거절을 사람의 글로 — **복구할 Topic 이 있으면 그 주소 한 줄과 함께.**
+///
+/// 오류가 문자열이 되는 자리는 여기 하나로 모은다. 그러지 않으면 어떤 길로 나온 오류는
+/// Topic 을 달고 어떤 길로 나온 것은 안 다는 일이 생기고, 그것은 사람이 예측할 수 없다.
+fn say(err: SessionError) -> String {
+    let said = err.to_string();
+    with_help(&Refusal::Session(&err), said)
 }
 
 // ── 명령 ───────────────────────────────────────────────────────────────────
@@ -172,13 +225,21 @@ fn start() -> Result<String, String> {
         None => {}
     }
 
-    let session = Session {
-        project: Project::start(rules()?),
-        path: state_path_here()?,
-    };
-    session.write()?;
+    // **여기서부터 잠금 안이다.** `.gil/` 을 만들며 잠그고, 잠근 뒤에 다시 한 번
+    // 무엇이 이미 있는지 본다 — 두 `gil start` 가 나란히 「비어 있다」를 읽지 못하게.
+    let session = ProjectSession::start(rules()?, state_path_here()?).map_err(|err| match err {
+        SessionError::AlreadyStarted { path } => refusal(
+            "여기서 새로 시작할 수 없다.",
+            &format!("이미 걷고 있다 ({path})."),
+            "여기서 따로 시작하면 한 프로젝트에 기록이 둘이 된다.\n\
+             정말 다시 시작하려면 그 파일을 직접 치워라 — gil 은 적힌 사고를 지우지 않는다.",
+            "gil status",
+        ),
+        other => other.to_string(),
+    })?;
+    write(&session)?;
 
-    let cycle = session.project.cycles().current();
+    let cycle = session.project().cycles().current();
     Ok(format!(
         "프로젝트를 시작했다.\n\
          현재: {} · {}\n\n\
@@ -189,7 +250,7 @@ fn start() -> Result<String, String> {
          기록: {}\n",
         cycle.id().to_ref(),
         cycle.kind(),
-        session.path.display()
+        session.state_path().display()
     ))
 }
 
@@ -206,13 +267,21 @@ enum Place {
     CloseThisCycle,
     /// 닫힌 Cycle 뒤에서 다음 Cycle 을 연다.
     Cycle(Vec<CycleKind>),
+    /// 되돌아온 자리다 — 다음 Cycle 은 **갈래**로 열린다.
+    Branch(Vec<CycleKind>),
     /// 여기서 열 수 있는 것이 없다.
     Nothing(String),
 }
 
 fn place(session: &Session) -> Place {
-    let cycles = session.project.cycles();
+    let cycles = session.project().cycles();
     let cycle = cycles.current();
+
+    // **되돌아온 자리가 먼저다.** 그 자리도 닫힌 Cycle 이지만, 거기서 여는 것은 평범한
+    // 자식이 아니라 갈래다 — 두 자리를 한 갈래로 묶으면 `revisit_from` 이 사라진다.
+    if cycles.pending_revisit().is_some() {
+        return Place::Branch(CycleKind::ALL.to_vec());
+    }
 
     if cycle.is_closed() {
         return match cycles.why_not_open_child() {
@@ -242,10 +311,18 @@ fn place(session: &Session) -> Place {
 
 /// `gil open [종류]` — **어느 계층을 여는지는 GIL 이 판정한다.**
 fn open(name: Option<&String>) -> Result<String, String> {
-    let mut session = open_session()?;
+    open_with(open_session()?, name)
+}
+
+/// 이미 잠근 프로젝트 위에서 연다.
+///
+/// **다시 잠그지 않는다.** 같은 프로세스가 잠금을 두 번 잡으면 제 발에 걸려 「다른 명령이
+/// 쓰고 있다」로 스스로를 거절한다. 그래서 잠금은 명령 경계에서 한 번 잡고, 안쪽 함수에는
+/// 잡은 것을 **넘긴다**.
+fn open_with(mut session: Session, name: Option<&String>) -> Result<String, String> {
     match place(&session) {
         Place::CloseThisStep => {
-            let cycle = session.project.cycles().current();
+            let cycle = session.project().cycles().current();
             let here = here_ref(cycle).expect("열려 있는 자리가 있다");
             Err(refusal(
                 "지금은 열 자리가 아니다.",
@@ -267,7 +344,8 @@ fn open(name: Option<&String>) -> Result<String, String> {
             "gil status",
         )),
         Place::Step(openable) => open_step(&mut session, name, &openable),
-        Place::Cycle(openable) => open_cycle(&mut session, name, &openable),
+        Place::Cycle(openable) => open_cycle(&mut session, name, &openable, false),
+        Place::Branch(openable) => open_cycle(&mut session, name, &openable, true),
     }
 }
 
@@ -294,7 +372,7 @@ fn open_step(
                     &format!("지금 열 수 있는 것이 {}개다.", many.len()),
                     &format!(
                         "종류를 골라 적는다.\n  {}",
-                        choices(session.project.cycles().current(), many)
+                        choices(session.project().cycles().current(), many)
                     ),
                     "gil open <종류>",
                 ));
@@ -308,31 +386,36 @@ fn open_step(
     let contract = read_contract(&hint)?;
 
     let opened = session
-        .project
         .open_action_step(kind, contract)
         // 거절의 이유는 라이브러리의 말을 **그대로** 옮긴다. 여기서 다시 쓰면 같은 판정이
         // 두 자리에서 서로 다르게 말하게 된다. 더하는 것은 복구로 가는 길뿐이다.
         .map_err(|err| {
-            refusal(
+            let said = refusal(
                 &format!("{kind} 를 열 수 없다."),
                 &err.to_string(),
                 &format!("지금 열 수 있는 것: {}", names(openable)),
                 "gil open",
-            )
+            );
+            with_help(&Refusal::Session(&err), said)
         })?;
-    session.write()?;
+    write(&session)?;
     Ok(opened_step(session, opened))
 }
 
+/// Cycle 하나를 연다 — **평범한 자식인지 갈래인지는 부르는 쪽이 이미 판정했다.**
+///
+/// 두 자리는 고르는 방식도 거절하는 말도 같다. 다른 것은 **무엇이 기록되는가** 하나뿐이라,
+/// 그 차이를 문 하나 안에 두고 나머지를 나누지 않는다.
 fn open_cycle(
     session: &mut Session,
     name: Option<&String>,
     openable: &[CycleKind],
+    branch: bool,
 ) -> Result<String, String> {
     let Some(name) = name else {
         // 고를 것이 하나뿐이면 묻지 않는다. 설명은 **고를 때만** 필요하다.
         if let [only] = openable {
-            return open_this_cycle(session, *only);
+            return open_this_cycle(session, *only, branch);
         }
         return Err(refusal(
             "무엇을 열지 정해야 한다.",
@@ -345,26 +428,53 @@ fn open_cycle(
         ));
     };
     let kind = CycleKind::parse(name).ok_or_else(|| {
+        // **Step 종류를 적은 것인지 먼저 본다.** 이름을 잘못 적은 것과 계층을 잘못 본 것은
+        // 사람이 할 일이 다르다 — 후자는 지금 여는 것이 무엇인지부터 알아야 한다.
+        let (why, todo) = match NodeKind::parse(name) {
+            Some(step) => (
+                format!("{step} 은(는) Step 종류이고, 지금은 Cycle 을 여는 자리다."),
+                format!(
+                    "Cycle 을 먼저 연다. 그 안에서 첫 Step 을 여는 것이 다음 걸음이다.\n\
+                     지금 열 수 있는 것: {}",
+                    cycle_names(openable)
+                ),
+            ),
+            None => (
+                "이름을 잘못 적었다.".to_string(),
+                format!("지금 열 수 있는 것: {}", cycle_names(openable)),
+            ),
+        };
         refusal(
-            &format!("{name:?} 는 gil 이 아는 Cycle 종류가 아니다."),
-            "이름을 잘못 적었다.",
-            &format!("지금 열 수 있는 것: {}", cycle_names(openable)),
+            &format!("{name:?} 로는 지금 열 수 없다."),
+            &why,
+            &todo,
             "gil open <종류>",
         )
     })?;
-    open_this_cycle(session, kind)
+    open_this_cycle(session, kind, branch)
 }
 
-fn open_this_cycle(session: &mut Session, kind: CycleKind) -> Result<String, String> {
-    session.project.open_child_cycle(kind).map_err(|err| {
-        refusal(
+fn open_this_cycle(
+    session: &mut Session,
+    kind: CycleKind,
+    branch: bool,
+) -> Result<String, String> {
+    match branch {
+        // **되돌아온 자리에서 여는 것은 갈래다.** 여기서 평범한 자식을 열면 어느 실패가
+        // 이 갈래를 낳았는지가 사라지고, pending 도 소비되지 않은 채 남는다.
+        true => session.open_branch_cycle(kind).map(|_| ()),
+        false => session.open_child_cycle(kind).map(|_| ()),
+    }
+    .map_err(|err| {
+        let said = refusal(
             &format!("{kind} Cycle 을 열 수 없다."),
             &err.to_string(),
             "지금 어디인지 확인한다.",
             "gil status",
-        )
+        );
+        with_help(&Refusal::Session(&err), said)
     })?;
-    session.write()?;
+    write(&session)?;
     Ok(opened_cycle(session))
 }
 
@@ -373,7 +483,7 @@ fn open_this_cycle(session: &mut Session, kind: CycleKind) -> Result<String, Str
 /// 이름과 그 한 줄을 여기 옮겨 적지 않는다. Kind 가 늘면 `gil-spec.yaml` 한 자리만 고치면
 /// 화면도 함께 는다(Agent UX Model §4.2).
 fn cycle_choices(session: &Session, kinds: &[CycleKind]) -> String {
-    let rules = session.project.cycles().current().rules();
+    let rules = session.project().cycles().current().rules();
     let width = kinds
         .iter()
         .map(|kind| kind.as_str().len())
@@ -410,6 +520,12 @@ fn close() -> Result<String, String> {
             "다음 Cycle 을 연다.",
             "gil open <종류>",
         )),
+        Place::Branch(openable) => Err(refusal(
+            "닫을 것이 없다.",
+            "되돌아온 자리라 아직 새 Cycle 이 없다.",
+            "이 자리 아래에 새 Cycle 을 연다.",
+            &format!("gil open {}", cycle_names(&openable)),
+        )),
         Place::Nothing(why) => Err(refusal(
             "닫을 것이 없다.",
             &why,
@@ -420,7 +536,7 @@ fn close() -> Result<String, String> {
 }
 
 fn close_step(session: &mut Session) -> Result<String, String> {
-    let cycle = session.project.cycles().current();
+    let cycle = session.project().cycles().current();
     let node = cycle
         .steps()
         .current()
@@ -436,52 +552,265 @@ fn close_step(session: &mut Session) -> Result<String, String> {
     let report = read_report(&hint)?;
     // **한 번에 확정된다** — Report·Closed·Will Done·Journey 판이 함께 눕거나, 아무것도
     // 눕지 않는다. 거절되면 열린 자리도 걸린 행동도 그대로다.
-    let closed = session.project.close_action_step(report).map_err(|err| {
-        refusal(
-            &format!("{here} · {kind} 를 닫을 수 없다."),
-            &err.to_string(),
-            &format!("{}\n\n{hint}", FIX_IT),
-            "gil close",
-        )
+    let closed = session.close_step(report).map_err(|err| {
+        // 세계 쪽 거절은 **이미 완결된 receipt** 다 — 무엇이·왜·다음에 무엇을 까지 스스로
+        // 말한다. 그것을 다시 감싸면 이유 안에 또 이유가 들어간다.
+        let said = match err.is_receipt() {
+            true => err.to_string(),
+            false => refusal(
+                &format!("{here} · {kind} 를 닫을 수 없다."),
+                &err.to_string(),
+                &format!("{}\n\n{hint}", FIX_IT),
+                "gil close",
+            ),
+        };
+        // **오류가 Manual 의 router 다.** 복구할 Topic 이 있으면 그 주소 한 줄만 더한다.
+        with_help(&Refusal::Session(&err), said)
     })?;
-    session.write()?;
+    write(&session)?;
     Ok(closed_step(session, &closed))
 }
 
 fn close_cycle(session: &mut Session) -> Result<String, String> {
-    let cycle = session.project.cycles().current();
+    let cycle = session.project().cycles().current();
     let here = cycle.id().to_ref();
     let kind = cycle.kind();
     let contract = cycle.close_contract().expect("문법이 이 Cycle Kind 를 선언했다");
     let hint = skeleton_of(&contract, cycle);
 
     let report = read_report(&hint)?;
-    let closed = session.project.close_cycle(report).map_err(|err| {
-        refusal(
-            &format!("{here} · {kind} 를 닫을 수 없다."),
-            &err.to_string(),
-            &format!("{}\n\n{hint}", FIX_IT),
-            "gil close",
-        )
+    let closed = session.close_cycle(report).map_err(|err| {
+        let said = match err.is_receipt() {
+            true => err.to_string(),
+            false => refusal(
+                &format!("{here} · {kind} 를 닫을 수 없다."),
+                &err.to_string(),
+                &format!("{}\n\n{hint}", FIX_IT),
+                "gil close",
+            ),
+        };
+        with_help(&Refusal::Session(&err), said)
     })?;
-    session.write()?;
+    write(&session)?;
     Ok(closed_cycle(session, &closed))
 }
 
-fn revisit() -> Result<String, String> {
+/// `gil restore` — **명령 실행 자체가 복원 의사다.**
+///
+/// 인수를 받지 않는다. 목표는 지금 위치가 이미 정했고(Artifact Model §8.1), 파일을 골라
+/// 되돌리는 것은 **부분 복원**이라 어느 Snapshot 에도 속하지 않는 세계를 만든다.
+/// 확인 절차도 두지 않는다 — 안전성은 물어보는 데서 오지 않고 원자성에서 온다(§8.8).
+fn restore(extra: Option<&String>) -> Result<String, String> {
+    if let Some(extra) = extra {
+        // Domain 명령이 서기 전의 거절도 복구할 Topic 이 있다 — 사용법 하나면 풀린다.
+        return Err(with_help(
+            &Refusal::Usage(Usage::RestoreTakesNoArgument),
+            refusal(
+                &format!("`gil restore` 는 {extra:?} 를 받지 않는다."),
+                "되돌아갈 세계는 지금 위치가 이미 정한다 — 고르는 값이 아니다.\n\
+                 일부 파일만 되돌리면 그 결과는 어느 Snapshot 에도 속하지 않는 세계가 된다.",
+                "인수 없이 그대로 실행한다.",
+                "gil restore",
+            ),
+        ));
+    }
+
+    let session = open_session()?;
+    let done = session.restore().map_err(|err| {
+        let said = match err.is_receipt() {
+            true => err.to_string(),
+            false => refusal(
+                "Artifact 세계를 복원하지 못했다.",
+                &err.to_string(),
+                "지금 어디인지 확인한다.",
+                "gil status",
+            ),
+        };
+        with_help(&Refusal::Session(&err), said)
+    })?;
+    // **저장하지 않는다.** 복원은 논리 상태를 바꾸지 않는다.
+    Ok(restored(&session, &done))
+}
+
+/// 복원의 receipt — **개수와 목표, 그리고 그대로 남은 자리.**
+///
+/// 개별 파일 목록을 기본 출력에 늘어놓지 않는다. 되돌린 파일이 수백 개일 때 그 목록은
+/// 다음 수를 가린다. raw manifest·blob 주소도 내보이지 않는다 — 공개 표면은 `snapshot:A*` 다.
+fn restored(session: &Session, done: &gil::Restored) -> String {
+    let mut out = match done.no_op {
+        true => format!(
+            "복원할 변경이 없다.\n\n현재 Artifact 세계는 기준 Snapshot {} 와 같다.\n",
+            done.world
+        ),
+        false => {
+            let mut out = format!("Artifact 세계를 {} 로 복원했다.\n\n", done.world);
+            for (label, count) in [
+                ("교체", done.replaced),
+                ("생성", done.created),
+                ("삭제", done.deleted),
+            ] {
+                if count > 0 {
+                    out.push_str(&format!("{label}  {count}개\n"));
+                }
+            }
+            out
+        }
+    };
+
+    // **없는 것을 지어내지 않는다.** 열린 자리가 없는 합법적 경계면 Cycle 만 말한다.
+    out.push_str("\n현재 위치\n");
+    let cycle = session.project().cycles().current();
+    match here_ref(cycle) {
+        Some(here) => {
+            let kind = cycle
+                .step_now_open()
+                .and_then(|at| cycle.steps().node(at))
+                .map(|node| node.kind.to_string())
+                .unwrap_or_default();
+            out.push_str(&format!("  {here} · {kind} · open\n"));
+        }
+        None => out.push_str(&format!("  {} · {}\n", cycle.id().to_ref(), cycle.kind())),
+    }
+    match session.project().active_will() {
+        Some(will) => out.push_str(&format!("  {} · 유지\n", will.id())),
+        None => {}
+    }
+    out
+}
+
+/// `gil revisit` — **어느 계층을 되돌아가는지는 GIL 이 판정한다.**
+///
+/// ```text
+/// 열린 Cycle 안, 닫힌 Outcome 에 되돌아감이 적혀 있다  → Step 계층
+/// 닫힌 Cycle 의 Cycle Report 에 되돌아감이 적혀 있다   → Cycle 계층
+/// ```
+///
+/// **인수를 받지 않는다.** 어디로 갈지는 닫는 순간 Report 에 이미 확정됐고, 여기서 다시
+/// 고르게 하면 근거와 이동이 갈린다 — Snapshot 을 고를 수 없는 것과 같은 까닭이다.
+fn revisit(extra: Option<&String>) -> Result<String, String> {
+    if let Some(extra) = extra {
+        return Err(with_help(
+            &Refusal::Usage(Usage::RevisitTakesNoArgument),
+            refusal(
+                &format!("`gil revisit` 는 {extra:?} 를 받지 않는다."),
+                "되돌아갈 곳은 닫을 때 Cycle Report 에 이미 확정됐다 — 고르는 값이 아니다.\n\
+                 여기서 다시 고르면 왜 그리로 가는지와 실제 이동이 갈린다.",
+                "인수 없이 그대로 실행한다.",
+                "gil revisit",
+            ),
+        ));
+    }
+
     let mut session = open_session()?;
-    session
-        .project
-        .cycles_mut()
-        .current_mut()
-        .revisit_step()
-        .map_err(|err| err.to_string())?;
-    session.write()?;
+    // **닫힌 Cycle 이면 Cycle 계층이다.** 그 안에는 되돌아갈 Step 자리가 없다.
+    if session.project().cycles().current().is_closed() {
+        return revisit_cycle(&mut session);
+    }
+    session.revisit_step().map_err(say)?;
+    write(&session)?;
     Ok(where_now(&session))
 }
 
+/// Cycle 계층의 되돌아감 — **논리 이동과 세계 복원이 한 명령이다.**
+///
+/// 저장은 이 안에서 이미 끝난다(②→③ 순서). 그래서 여기서 `write` 를 다시 부르지 않는다 —
+/// 부르면 복원이 끝난 뒤 같은 상태를 한 번 더 쓰는 셈이고, 그 사이의 의미가 흐려진다.
+fn revisit_cycle(session: &mut Session) -> Result<String, String> {
+    let done = session.revisit_cycle().map_err(say)?;
+    Ok(revisited(session, &done))
+}
+
+/// 되돌아감의 receipt — **어디서 갈라졌고, 어디에 섰고, 세계는 어떻게 됐는가.**
+///
+/// 파일 목록도 내부 주소도 전체 Context 도 내지 않는다. Existence 와 판은 **지금 값을 읽어**
+/// 보일 뿐이며, 되돌아감이 새 판을 만든 것처럼 말하지 않는다 — 만들지 않았다.
+fn revisited(session: &Session, done: &gil::CycleRevisited) -> String {
+    let cycles = session.project().cycles();
+    let mut out = String::from("되돌아갔다
+");
+
+    let from = cycles
+        .node(done.moved.from.into())
+        .expect("방금 떠나온 자리는 실재한다");
+    let verdict = from
+        .report()
+        .and_then(|report| report.get("verdict"))
+        .unwrap_or("판정 없음");
+    out.push_str(&format!(
+        "  출처: {} · {} · {verdict}
+",
+        done.moved.from,
+        from.kind()
+    ));
+    out.push_str(&format!(
+        "  대상: {} · {}
+",
+        done.moved.target,
+        cycles.current().status()
+    ));
+
+    out.push_str("
+Artifact 세계
+");
+    match done.world.no_op {
+        true => out.push_str(&format!(
+            "  복원할 변경이 없다 — 현재 세계는 {} 와 같다
+",
+            done.world.world
+        )),
+        false => {
+            out.push_str(&format!("  {} 로 복원했다
+", done.world.world));
+            for (label, count) in [
+                ("교체", done.world.replaced),
+                ("생성", done.world.created),
+                ("삭제", done.world.deleted),
+            ] {
+                if count > 0 {
+                    out.push_str(&format!("  {label}  {count}개
+"));
+                }
+            }
+        }
+    }
+
+    let existence = session.project().current_existence();
+    out.push_str(&format!(
+        "
+존재: {} · {}
+",
+        existence.id(),
+        existence.current_journey()
+    ));
+    out.push_str(&branch_block());
+    out
+}
+
+/// 되돌아온 자리에서 **지금 실제로 밟을 수 있는 수** — 갈래를 여는 것 하나뿐이다.
+fn branch_block() -> String {
+    let openable = CycleKind::ALL.to_vec();
+    format!(
+        "
+지금 할 일
+  이 자리 아래에 새 Cycle 을 연다.
+
+실행
+  {}
+",
+        openable
+            .iter()
+            .map(|kind| format!("gil open {}", kind.as_str()))
+            .collect::<Vec<_>>()
+            .join("
+  ")
+    )
+}
+
 fn status() -> Result<String, String> {
-    Ok(where_now(&open_session()?))
+    // 이름 있는 변수로 받는다 — 임시 값으로 두면 잠금이 언제 떨어지는지가 식(式)의 모양에
+    // 달리게 된다. 읽기만 하는 명령도 같은 exclusive 잠금을 **짧게** 쓴다.
+    let session = open_session()?;
+    Ok(where_now(&session))
 }
 
 /// `gil cycle …` — 옛 자리. `gil open`·`gil close` 가 두 계층을 함께 판정하므로 더는
@@ -492,8 +821,11 @@ fn cycle(sub: Option<&str>, argument: Option<&String>) -> Result<String, String>
         Some("open") => {
             let mut session = open_session()?;
             match place(&session) {
-                Place::Cycle(openable) => open_cycle(&mut session, argument, &openable),
-                _ => open(argument),
+                Place::Cycle(openable) => open_cycle(&mut session, argument, &openable, false),
+                Place::Branch(openable) => open_cycle(&mut session, argument, &openable, true),
+                // 이미 잠근 것을 넘긴다 — `open()` 을 부르면 같은 프로세스가 잠금을
+                // 두 번 잡으려다 스스로를 거절한다.
+                _ => open_with(session, argument),
             }
         }
         Some(other) => Err(refusal(
@@ -524,7 +856,7 @@ fn close_help() -> Result<String, String> {
     let Some(session) = session_for_help()? else {
         return Ok(no_project_yet("gil close"));
     };
-    let cycle = session.project.cycles().current();
+    let cycle = session.project().cycles().current();
 
     let contract = match place(&session) {
         Place::CloseThisStep => step_contract(cycle),
@@ -541,6 +873,12 @@ fn close_help() -> Result<String, String> {
             return Ok(String::from(
                 "지금은 닫을 자리가 아니다.\n\n먼저 할 일\n  이 Cycle 은 이미 닫혔다. \
                  다음 Cycle 을 연다.\n\n실행\n  gil open --help\n",
+            ));
+        }
+        Place::Branch(_) => {
+            return Ok(String::from(
+                "지금은 닫을 자리가 아니다.\n\n먼저 할 일\n  되돌아온 자리다. \
+                 이 자리 아래에 새 Cycle 을 연다.\n\n실행\n  gil open --help\n",
             ));
         }
         Place::Nothing(why) => {
@@ -568,13 +906,13 @@ fn open_help() -> Result<String, String> {
     let Some(session) = session_for_help()? else {
         return Ok(no_project_yet("gil open"));
     };
-    let cycle = session.project.cycles().current();
+    let cycle = session.project().cycles().current();
 
     match place(&session) {
         // 열린 자리가 있으면 여는 법이 아니라 **먼저 할 일**을 말한다.
         Place::CloseThisStep => {
             let here = here_ref(cycle).expect("열려 있는 자리가 있다");
-            let will = session.project.active_will();
+            let will = session.project().active_will();
             let mut out = format!("지금은 열 자리가 아니다.\n\n이유\n  {here} 이(가) 아직 열려 있다.\n");
             if let Some(will) = will {
                 out.push_str(&format!("\n지금 할 일\n{}\n", indent(will.next_action())));
@@ -616,6 +954,15 @@ fn open_help() -> Result<String, String> {
              실행\n  gil open <종류>\n",
             cycle_choices(&session, &openable)
         )),
+        // 되돌아온 자리 — 같은 명령이 **갈래**를 연다.
+        Place::Branch(openable) => Ok(format!(
+            "열 수 있는 것 (Cycle · 갈래)\n  {}\n\n\
+             되돌아온 자리라 여는 Cycle 이 갈래가 된다 — 부모는 지금 이 자리이고, \
+             갈래의 출처로 방금 버린 실패 Cycle 이 남는다.\n\
+             Cycle 은 안의 Graph 를 담는 그릇이라 행동 계약 없이 연다.\n\n\
+             실행\n  gil open <종류>\n",
+            cycle_choices(&session, &openable)
+        )),
     }
 }
 
@@ -646,10 +993,10 @@ fn no_project_yet(command: &str) -> String {
 /// 전체 Journey 도 과거 Report 도 여기 다시 싣지 않는다(Agent UX Model §3). 같은 대화에는
 /// 이미 있는 것이고, 없다면 그것은 `gil context` 의 몫이다.
 fn opened_step(session: &Session, opened: gil::Opened) -> String {
-    let cycle = session.project.cycles().current();
+    let cycle = session.project().cycles().current();
     let contract = cycle.contract_of_kind(opened.kind);
     let will = session
-        .project
+        .project()
         .active_will()
         .expect("실행형 자리는 Will 과 함께 열린다");
 
@@ -672,19 +1019,25 @@ fn opened_step(session: &Session, opened: gil::Opened) -> String {
 }
 
 fn opened_cycle(session: &Session) -> String {
-    let cycles = session.project.cycles();
+    let cycles = session.project().cycles();
     let cycle = cycles.current();
     let mut out = format!("열었다: {} · {}", cycle.id().to_ref(), cycle.kind());
     match cycle.parent() {
         Some(parent) => out.push_str(&format!(" · 부모 {}\n", parent.to_ref())),
         None => out.push('\n'),
     }
+    // **갈래로 열렸다면 그 사실을 말한다.** 부모만 보면 평범하게 이어 난 것과 구별되지
+    // 않는데, 이 Cycle 은 어느 실패에서 갈라진 것이다.
+    if let Some(from) = cycle.revisit_from() {
+        out.push_str(&format!("갈래 출처: {}\n", from.to_ref()));
+    }
+    out.push_str(&format!("출발한 세계: {}\n", cycle.entry_snapshot()));
     out.push_str(&next_block(cycle));
     out
 }
 
 fn closed_step(session: &Session, closed: &gil::Closed) -> String {
-    let cycle = session.project.cycles().current();
+    let cycle = session.project().cycles().current();
     // 방금 낸 판을 한 줄로 적는다 — 방금 제출한 Report 도 Will 전체도 되풀이하지 않는다.
     format!(
         "닫았다: {} · {}\n기록됨: {}\n{}",
@@ -697,7 +1050,7 @@ fn closed_step(session: &Session, closed: &gil::Closed) -> String {
 
 fn closed_cycle(session: &Session, closed: &gil::ClosedCycle) -> String {
     let (here, kind) = (closed.cycle, closed.kind);
-    let cycles = session.project.cycles();
+    let cycles = session.project().cycles();
     let cycle = cycles.current();
     let verdict = cycle
         .report()
@@ -709,6 +1062,13 @@ fn closed_cycle(session: &Session, closed: &gil::ClosedCycle) -> String {
         "닫았다: {here} · {kind} · {verdict}\n기록됨: {} (판은 늘지 않는다)\n\n다음\n",
         closed.journey
     );
+    // **적어 둔 방향이 곧 다음 수다.** 되돌아감도 자식을 여는 것과 같은 자격으로 밟는다.
+    if cycles.can_revisit() {
+        out.push_str(
+            "  적어 둔 조상으로 되돌아간다 — 그 자리의 Artifact 세계가 함께 복원된다\n\n             실행\n  gil revisit\n",
+        );
+        return out;
+    }
     match cycles.why_not_open_child() {
         None => {
             out.push_str(&format!(
@@ -858,13 +1218,13 @@ fn here_ref(cycle: &gil::Cycle) -> Option<gil::StepRef> {
 /// 기록이 **서 있는 자리에 없으면** 어느 파일인지를 먼저 말한다. 있으면 말하지 않는다 —
 /// 예사로운 일에 줄을 쓰면 정작 알려야 할 때 그 줄이 안 읽힌다.
 fn where_now(session: &Session) -> String {
-    let cycles = session.project.cycles();
+    let cycles = session.project().cycles();
     let cycle = cycles.current();
     let walk = cycle.steps();
     let mut out = String::new();
 
-    if found_above(&session.path) {
-        out.push_str(&format!("기록: {}\n", session.path.display()));
+    if found_above(session.state_path()) {
+        out.push_str(&format!("기록: {}\n", session.state_path().display()));
     }
 
     // ① 어느 Cycle 인가 — 이름·종류·상태, 그리고 어디에서 이어받았는가.
@@ -876,6 +1236,17 @@ fn where_now(session: &Session) -> String {
     match cycle.parent() {
         Some(parent) => out.push_str(&format!(" · 부모 {parent}\n")),
         None => out.push_str(" · 뿌리\n"),
+    }
+    // **되돌아온 자리인가.** 지금 서 있는 것은 닫힌 조상이고, 다음 수가 평소와 다르다.
+    if let Some(from) = cycles.pending_revisit() {
+        out.push_str(&format!(
+            "되돌아옴: {} 에서 갈라져 여기 섰다 — 아직 새 Cycle 을 열지 않았다\n",
+            from.to_ref()
+        ));
+    }
+    // 갈래로 난 Cycle 이면 그 출처를 말한다 — 부모만 보면 평범히 이어 난 것과 같아 보인다.
+    if let Some(from) = cycle.revisit_from() {
+        out.push_str(&format!("갈래 출처: {} (계보의 변이 아니다)\n", from.to_ref()));
     }
 
     // ② 무엇을 이어받았는가. **원본은 부모에게 있다** — 여기서는 있다는 사실만 말한다.
@@ -902,13 +1273,13 @@ fn where_now(session: &Session) -> String {
     ));
 
     // ④ 지금 누가 행동하며 무엇을 하려는가 — **짧게.** 전체 Journey 는 펼치지 않는다.
-    let existence = session.project.current_existence();
+    let existence = session.project().current_existence();
     out.push_str(&format!(
         "존재: {} · {}\n",
         existence.id(),
         existence.current_journey()
     ));
-    match session.project.active_will() {
+    match session.project().active_will() {
         Some(will) => out.push_str(&format!(
             "하려는 것: {} · {} — {}\n",
             will.id(),
@@ -918,9 +1289,62 @@ fn where_now(session: &Session) -> String {
         None => out.push_str("하려는 것: 걸린 행동이 없다\n"),
     }
 
-    // ⑤ 다음에 무엇을 할 수 있는가. **안내는 실행과 같은 자리에서 나온다.**
+    // ⑤ 지금 세계는 기준과 같은가 — **짧은 nudge 하나.**
+    out.push_str(&world_nudge(session));
+
+    // ⑥ 다음에 무엇을 할 수 있는가. **안내는 실행과 같은 자리에서 나온다.**
     out.push_str(&next_moves(cycles));
     out
+}
+
+/// 지금 Artifact 세계 — 기준이 무엇이고, 같은가 다른가, 다르면 지금 무엇을 할 수 있는가.
+///
+/// **전체 목록도 내부 주소도 내지 않는다.** 공개 표면은 `snapshot:A*` 하나이고, 여기서
+/// 필요한 것은 네 가지 물음의 답뿐이다 — 기준·상태·확정 가능 여부·지금 밟을 수 있는 수.
+fn world_nudge(session: &Session) -> String {
+    let state = match session.world_state() {
+        Ok(state) => state,
+        // 세계를 읽는 것 자체가 안 되면(창고 손상 등) status 를 통째로 실패시키지 않는다 —
+        // 서 있는 자리는 이미 위에서 말했고, 그것은 여전히 참이다.
+        Err(err) => {
+            return format!("\n현재 세계\n  읽지 못했다\n\n이유\n{}\n\n현재 상태는 변경하지 않았다.\n", indent(&err.to_string()));
+        }
+    };
+
+    match state {
+        WorldState::Clean { world } => format!("\n현재 세계\n  {world} · clean\n\n"),
+        WorldState::Unknown { world, said } => format!(
+            "\n현재 세계\n  기준: {world}\n  상태: 확인하지 못했다\n\n이유\n{}\n\n\
+             현재 상태는 변경하지 않았다.\n\n",
+            indent(&said)
+        ),
+        WorldState::Dirty { world, .. } => {
+            let mut out = format!("\n현재 세계\n  기준: {world}\n  상태: dirty\n\n");
+            out.push_str(&match open_verify(session) {
+                // 세계를 확정할 권한은 Verify 에만 있다(Artifact Model §5).
+                true => String::from(
+                    "이 Verify 를 닫으면 바뀐 세계를 관측해 Snapshot 으로 확정한다.\n\n",
+                ),
+                // **밟을 수 있는 길만 말한다.** Interview 안에는 verify 가 없고, 이 Cycle 을
+                // 닫는 것도 같은 gate 에 막힌다 — 그러니 먼저 되돌리는 수뿐이다.
+                false => String::from(
+                    "이 자리에서는 Artifact 변경을 확정할 수 없다.\n\
+                     먼저 `gil restore` 로 기준 세계를 복원한다.\n\
+                     현재 Step 과 Active Will 은 그대로 열린 채 남는다.\n\n",
+                ),
+            });
+            out
+        }
+    }
+}
+
+/// 지금 열려 있는 자리가 Verify 인가.
+fn open_verify(session: &Session) -> bool {
+    let cycle = session.project().cycles().current();
+    cycle
+        .step_now_open()
+        .and_then(|at| cycle.steps().node(at))
+        .is_some_and(|node| node.kind == NodeKind::Verify)
 }
 
 /// 여러 줄이면 첫 줄만 — `gil status` 는 세 줄로 답하는 자리다.
@@ -1023,8 +1447,11 @@ fn read_contract(skeleton: &str) -> Result<ActionContract, String> {
         .read_to_string(&mut text)
         .map_err(|err| format!("stdin 을 읽지 못했다: {err}"))?;
 
+    // YAML 자체가 깨진 것은 **어느 자리인지 말하지 못하는** parser 오류다. 거기엔 읽을
+    // Topic 을 붙이지 않는다.
     let report = Report::parse(&text).map_err(|err| refuse(err.to_string()))?;
-    ActionContract::from_report(&report).map_err(|err| refuse(err.to_string()))
+    ActionContract::from_report(&report)
+        .map_err(|err| with_help(&Refusal::Contract(&err), refuse(err.to_string())))
 }
 
 // ── 안내 ───────────────────────────────────────────────────────────────────
@@ -1057,6 +1484,8 @@ fn help() -> String {
          gil context   새 세션·인수인계·맥락을 잃었을 때 지금 자리를 복원한다\n  \
          gil status    지금 어디인지 세 줄로 답한다\n  \
          gil story     걸어온 것을 사람의 말로 읽는다\n\n\
+         Artifact 를 바꿔 놓고 되돌리고 싶을 때 — **인수를 받지 않는다.**\n  \
+         gil restore   지금 위치가 요구하는 세계로 작업 폴더를 되돌린다\n\n\
          Report 를 적는 꼴 — 적은 글자가 그대로 값이 된다. 주석도, 인용도, 형 변환도 없다.\n\n  \
          gil close <<'EOF'\n  \
          problem: 줄 끝까지 그대로다 — #7 도 3.10 도 그냥 글자다\n  \

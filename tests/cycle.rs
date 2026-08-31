@@ -89,7 +89,7 @@ fn a_cycle_does_not_close_before_its_outcome_does() {
         );
 
         let step = full_report(cycle.rules(), cycle.kind(), kind);
-        cycle.close_step(step).unwrap();
+        common::close_cycle_step(&mut cycle, kind, step).unwrap();
         assert!(!cycle.can_close(), "{kind} 뒤에서 닫을 수 있다고 한다");
     }
 
@@ -523,7 +523,7 @@ fn a_cycle_that_is_still_open_can_keep_walking() {
 ///
 /// 돌려주는 것은 (Cycle, 닫힌 Question, 닫힌 Interpretation).
 fn interview_at_a_synthesis() -> (Cycle, gil::NodeId, gil::NodeId) {
-    let mut project = gil::Project::start(spec());
+    let mut project = gil::Project::start(spec(), common::first_world());
     let cycle = project.cycles_mut().current_mut();
     let question = cycle_step(cycle, NodeKind::Question);
     let interpretation = cycle_step(cycle, NodeKind::Interpretation);

@@ -1343,7 +1343,11 @@ fn history_keeps_the_closed_steps_and_their_reports_in_order() {
     for kind in [NodeKind::Define, NodeKind::Hypothesis, NodeKind::Verify] {
         walk.open(kind).unwrap();
         let report = full_report(walk.rules(), CycleKind::Experiment, kind).with("note", format!("{kind} 를 지났다"));
-        walk.close(report.clone()).unwrap();
+        match kind == NodeKind::Verify {
+            true => walk.close_verify(report.clone(), common::snapshot(1)),
+            false => walk.close(report.clone()),
+        }
+        .unwrap();
         given.push((kind, report));
     }
 
@@ -1465,8 +1469,11 @@ fn the_whole_cycle_walks_from_entry_to_exit() {
         walk.open(kind)
             .unwrap_or_else(|err| panic!("{kind} 를 열지 못했다: {err}"));
         let report = full_report(walk.rules(), CycleKind::Experiment, kind);
-        walk.close(report)
-            .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
+        match kind == NodeKind::Verify {
+            true => walk.close_verify(report, common::snapshot(1)),
+            false => walk.close(report),
+        }
+        .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
     }
 
     assert_eq!(

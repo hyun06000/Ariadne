@@ -85,6 +85,10 @@ snapshot:A1
 - Step ID는 소속 Cycle 안에서 유일하며, Step reference는 반드시 Cycle ID를 함께 가진다.
 - Will ID는 프로젝트 전체에서 유일하다. 한 Existence의 Journey 안에 저장되더라도 다른
   Existence의 Will과 같은 ID를 재사용하지 않는다.
+- Snapshot ID는 프로젝트 전체에서 유일하며, **하나의 불변 Artifact 세계의 정체성**이다.
+  같은 세계에는 기존 `snapshot:A1`을 다시 가리키고 새 ID를 발급하지 않는다. 이것은 ID
+  재사용이 아니라 **여러 Node가 하나의 불변 객체를 함께 참조하는 것**이며, `existence:X1`을
+  여러 Node가 가리키는 것과 같다(`GIL Artifact Model v0.1` §13).
 - Cycle ID가 프로젝트 전체에서 유일하므로 Cycle reference에 아직 구현되지 않은 Chain 경로를
   미리 넣지 않는다. 이후 Chain이 구현되어도 기존 Cycle reference를 다시 쓰지 않는다.
 - 객체 자신의 `id` 필드는 `C2`, `S3`, `W4` 같은 bare ID를 저장한다. 다른 객체를 가리키는
@@ -97,6 +101,10 @@ snapshot:A1
 
 typed reference의 해석 범위는 현재 프로젝트의 `.gil` 하나다. v0은 다른 프로젝트의 같은
 문자열을 동일한 객체로 해석하지 않는다.
+
+여기 적힌 문자열이 **공개 참조의 전부**다. 저장소가 객체를 찾기 위해 내부적으로 쓰는 hash나
+경로는 typed reference가 아니며 공개 표면에 노출하지 않는다. `snapshot:A1`의 `A1`도 hash가
+아니라 프로젝트 로컬 순차 ID다.
 
 ID의 숫자 부분은 ASCII 십진수의 canonical 표기만 허용한다. `C1`, `S3`, `X1`, `W4`, `U1`,
 `R1`, `K18`, `M11`, `A1`은 1부터 시작하며 선행 0을 허용하지 않는다. 초기 revision과 초기
@@ -179,7 +187,7 @@ Step
 └─────────────────────┘
 ```
 
-모든 Step이 Artifact를 변경할 수 있는 것은 아니다. Artifact 변경과 새 snapshot 확정은 Verify
+모든 Step이 Artifact를 변경할 수 있는 것은 아니다. Artifact 변경과 세계의 확정은 Verify
 Step에서만 허용한다(`GIL Artifact Model v0.1` §5·§6). Verify Node는 도구가 생성한 `snapshot_ref`를 Report와 분리된 구조 필드로
 직접 저장한다. 다른 Closed Step의 Artifact Version은 가장 가까운 선행 Verify 또는 Cycle Entry의
 snapshot에서 유도한다.

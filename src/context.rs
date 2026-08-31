@@ -46,6 +46,7 @@ pub fn context(project: &Project) -> String {
     let mut out = String::new();
     write_preamble(&mut out);
     write_previous_cycles(&mut out, cycles);
+    write_abandoned_cycle(&mut out, cycles);
     write_current_cycle(&mut out, cycles);
     write_here(&mut out, project);
     out
@@ -85,9 +86,9 @@ fn write_preamble(out: &mut String) {
 /// **펼치는 것과 대표를 읽는 것은 다르다.** Step 의 이름도, Hypothesis·Verify·Analysis 도,
 /// 되돌아가 버린 갈래의 판정도, 시간순 전개도 여기 오지 않는다. 시작점과 끝점만 읽는다.
 ///
-/// v0 에서 조상은 언제나 성공한 Cycle 이다(실패한 Cycle 은 자식을 두지 못한다). 그래서
-/// 「반드시 전해야 하는 실패 Cycle Report」(§5)의 자리를 여기 미리 만들어 두지 않는다 —
-/// Cycle 수준의 되돌아감이 생겨 실패한 형제가 실제로 나타날 때 함께 온다.
+/// 조상은 언제나 성공한 Cycle 이다(실패한 Cycle 은 자식을 두지 못한다). 되돌아오며 버린
+/// 실패 Cycle 은 계보 위에 없으므로 이 절에 오지 않고, 바로 다음 절이 따로 싣는다 —
+/// **같은 실패를 되풀이하지 않으려면 그 Report 가 반드시 전해져야 한다**(Cycle Model §10).
 fn write_previous_cycles(out: &mut String, cycles: &Cycles) {
     let lineage = cycles
         .lineage(cycles.current_id())
@@ -111,6 +112,40 @@ fn write_previous_cycles(out: &mut String, cycles: &Cycles) {
     for cycle in ancestors {
         write_one_previous_cycle(out, cycle);
     }
+}
+
+/// **되돌아오며 버린 실패 Cycle** — 계보 위에는 없지만 반드시 전해야 하는 것.
+///
+/// 실패 Cycle Report 는 늘 전달한다. 같은 실패를 되풀이할 수 있기 때문이다(Cycle Model §10).
+/// 그러나 그 Cycle 은 **계보의 조상이 아니다** — 여기 실린다고 해서 `parent` 사슬에 낀 것이
+/// 아니고, 그 사실을 절 이름과 한 줄로 함께 말한다.
+///
+/// 두 자리에서 온다.
+///
+/// ```text
+/// pending 이 있다        방금 되돌아왔고 아직 새 Cycle 을 열지 않았다
+/// 지금 Cycle 이 갈래다   그 Cycle 의 revisit_from 이 가리키는 실패
+/// ```
+///
+/// 조상과 **같은 해상도**로 싣는다 — 안의 Step Graph 는 펼치지 않는다.
+fn write_abandoned_cycle(out: &mut String, cycles: &Cycles) {
+    let Some(from) = cycles
+        .pending_revisit()
+        .or_else(|| cycles.current().revisit_from())
+    else {
+        return;
+    };
+    let Some(cycle) = cycles.node(from) else {
+        return; // 복원이 이미 막았을 자리다. 없는 것을 지어내지 않는다.
+    };
+
+    let _ = write!(
+        out,
+        "\n═══ 되돌아오며 버린 Cycle ═══\n\
+         (계보의 조상이 **아니다** — 여기서 갈라져 나왔을 뿐이다. 같은 실패를 되풀이하지\n\
+         않으려면 이 Report 를 읽어야 한다. 조상과 같은 해상도로 싣는다.)\n"
+    );
+    write_one_previous_cycle(out, cycle);
 }
 
 /// 조상 하나의 투영 — **명세가 고른 자리만.**
@@ -354,6 +389,24 @@ pub fn next_moves(cycles: &Cycles) -> String {
             out.push_str("다음: 여기서 할 수 있는 것이 없다\n");
         }
         return out;
+    }
+
+    // **되돌아온 자리** — 여기서 할 일은 하나뿐이다.
+    if let Some(from) = cycles.pending_revisit() {
+        return format!(
+            "다음: {} 에서 되돌아왔다 — 이 자리 아래에 새 Cycle 을 연다\n\
+             \x20     `gil open interview` · `gil open experiment`\n",
+            from.to_ref()
+        );
+    }
+
+    // 닫힌 Cycle 이 되돌아가겠다고 적었는가 — **밟아 보고 답한다.**
+    if cycles.can_revisit() {
+        return format!(
+            "다음: {} 이(가) 적어 둔 대로 조상으로 되돌아간다 — `gil revisit` (인수 없음)\n\
+             \x20     그 뒤 그 자리 아래에 새 Cycle 을 연다 — `gil open <종류>`\n",
+            cycle.id()
+        );
     }
 
     // 닫힌 Cycle — 적어 둔 방향을 밟을 수 있는가.

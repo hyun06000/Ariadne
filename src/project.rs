@@ -32,11 +32,15 @@
 use std::collections::BTreeMap;
 
 use crate::cycle::{Cycle, CycleError, CycleKind};
-use crate::cycles::{CycleId, Cycles, CyclesError};
+use crate::cycles::{
+    CycleCloseError, CycleId, CycleRevisit, CycleRevisitError, CycleTargetError, Cycles,
+    CyclesError, OpenAfterRevisitError,
+};
 use crate::existence::{Existence, ExistenceState};
 use crate::node::NodeKind;
-use crate::refs::{CycleRef, ExistenceRef, JourneyRef, StateRef, StepRef, WillRef};
+use crate::refs::{CycleRef, ExistenceRef, JourneyRef, SnapshotRef, StateRef, StepRef, WillRef};
 use crate::report::Report;
+use crate::artifact::{ManifestAddress, RegistryError, SnapshotRegistry};
 use crate::rules::RuleSet;
 use crate::will::{ActionContract, Will};
 
@@ -59,6 +63,11 @@ pub struct Project {
     /// Existence 별이 아니다 — 한 Journey 안에 살더라도 다른 Existence 의 Will 과 이름을
     /// 나눠 쓰지 않는다(Node Model §2.1). 그래서 Journey 가 아니라 뿌리가 발급한다.
     next_will_id: u32,
+    /// 이 프로젝트가 이름 붙인 Artifact 세계들.
+    ///
+    /// 여기 사는 것은 **이름과 manifest 주소**뿐이다. 파일 목록도 blob 도 들어오지 않는다 —
+    /// 그것들은 `.gil/artifacts/` 의 content-addressed 창고가 진다(Artifact Model §10.5).
+    artifacts: SnapshotRegistry,
 }
 
 impl Project {
@@ -66,12 +75,28 @@ impl Project {
     ///
     /// 첫 Cycle 이 Interview 인 것은 [`Cycles::start`] 가 정한다. 여기서 더하는 것은
     /// **누가 그것을 여는가**다.
-    pub fn start(rules: RuleSet) -> Project {
+    /// 프로젝트를 연다 — 최초 Existence 와 그가 소유한 최초 Interview Cycle 을 함께.
+    ///
+    /// `first_world` 는 **`gil start` 가 실제로 관측한** 세계의 manifest 주소다. 그것이
+    /// `snapshot:A1` 이 되고, 뿌리 Cycle 의 Entry 가 된다(Artifact Model §4).
+    ///
+    /// 빈 세계로 시작하지 않는다. 이미 파일이 있는 폴더에서 시작하면 **그 파일들이 A1** 이다.
+    ///
+    /// # 주소가 실재하는지는 여기서 보지 않는다
+    ///
+    /// 창고를 뒤지는 것은 I/O 라 도메인의 일이 아니다. 확정과 검증은
+    /// [`ProjectSession`](crate::ProjectSession) 이 이미 했고, 복원할 때 다시 잰다.
+    pub fn start(rules: RuleSet, first_world: ManifestAddress) -> Project {
         let existence = ExistenceRef::new(FIRST_EXISTENCE).expect("최초 Existence 는 X1 이다");
         let state = StateRef::new(FIRST_STATE).expect("초기 State 는 ES0 이다");
 
+        let mut artifacts = SnapshotRegistry::new();
+        let first = artifacts
+            .intern(first_world)
+            .expect("빈 registry 의 첫 발급은 A1 이다");
+
         Project {
-            cycles: Cycles::start(rules, existence),
+            cycles: Cycles::start(rules, existence, first),
             existences: BTreeMap::from([(
                 FIRST_EXISTENCE,
                 Existence::start(existence, state),
@@ -79,7 +104,43 @@ impl Project {
             existence_states: BTreeMap::from([(FIRST_STATE, ExistenceState)]),
             current_existence: existence,
             next_will_id: FIRST_WILL,
+            artifacts,
         }
+    }
+
+    /// 이 프로젝트가 이름 붙인 세계들. 읽기만 한다.
+    pub(crate) fn artifacts(&self) -> &SnapshotRegistry {
+        &self.artifacts
+    }
+
+    /// **지금 유효한 Artifact 세계** — 캐시가 아니라 구조에서 유도한다.
+    ///
+    /// 계산은 [`Cycle::world_snapshot`](crate::Cycle::world_snapshot) 한 자리에만 있다.
+    /// dirty 판정·Cycle Exit·훗날의 restore 가 **같은 함수**를 쓴다 — 두 자리에 적으면
+    /// 한쪽이 낡고, 그러면 「닫을 수 있다」와 「되돌아갈 곳」이 서로 다른 세계를 가리킨다.
+    pub fn world_snapshot(&self) -> SnapshotRef {
+        self.cycles.current().world_snapshot()
+    }
+
+    /// 그 이름이 가리키는 세계의 manifest 주소. 모르는 이름이면 `None`.
+    ///
+    /// **사람에게 보이는 이름이 아니다.** 공개 표면은 `snapshot:A1` 하나이고, 이 주소는
+    /// receipt 에 기본으로 실리지 않는다(Artifact Model §13·§15). 저장과 진단이 쓴다.
+    pub fn world_manifest(&self, world: SnapshotRef) -> Option<&ManifestAddress> {
+        self.artifacts.resolve(world)
+    }
+
+    /// 다음에 발급될 Snapshot 이름의 수.
+    pub fn next_snapshot_id(&self) -> u32 {
+        self.artifacts.next_id()
+    }
+
+    /// 이름 붙은 세계들 — 이름 오름차순.
+    pub fn snapshots(&self) -> impl Iterator<Item = (SnapshotRef, &ManifestAddress)> {
+        self.artifacts
+            .records()
+            .iter()
+            .map(|record| (record.id(), record.manifest()))
     }
 
     /// 다음에 발급될 Will 의 이름 값.
@@ -154,6 +215,49 @@ impl Project {
         self.cycles.open_child(kind, existence)
     }
 
+    /// **되돌아온 자리에서 새 갈래를 연다** — 지금 행동하는 존재의 이름으로.
+    ///
+    /// [`Project::open_child_cycle`] 과 같은 provenance 규칙을 쓴다. 연 Existence 와 닫는
+    /// Existence 는 같아야 하므로 여는 순간의 Current 를 새기고, 컨테이너이므로 **Will 도
+    /// Journey 판도 만들지 않는다**(Will Model §5 · Existence Model §4).
+    pub(crate) fn open_branch_cycle(
+        &mut self,
+        kind: CycleKind,
+    ) -> Result<CycleId, OpenAfterRevisitError> {
+        let existence = self.current_existence;
+        self.cycles.open_after_revisit(kind, existence)
+    }
+
+    /// **적어 둔 Cycle 계층의 되돌아감을 밟는다 — 논리적 이동 하나.**
+    ///
+    /// 여기서 바뀌는 것은 서 있는 자리와 pending 둘뿐이다. Will 도, Journey 판도, Snapshot
+    /// 도, 새 Cycle 도 만들지 않는다 — 컨테이너 사이의 이동은 그 어느 것도 아니기 때문이다
+    /// (Will Model §5 · Existence Model §4).
+    ///
+    /// 세계를 실제로 되돌리는 일은 이 순수 계층이 할 수 없다. 어느 세계인지만 돌려준다.
+    ///
+    /// **밖으로 나가는 문이 아니다.** 세계 투영과 ②→③ 순서까지 갖춘
+    /// [`ProjectSession::revisit_cycle`](crate::ProjectSession::revisit_cycle) 만 공개한다 —
+    /// 순수 계층만 부르면 논리는 옮겨졌는데 폴더는 옛 세계인 상태를 만들 수 있다.
+    pub(crate) fn revisit_cycle(&mut self) -> Result<CycleRevisit, CycleRevisitError> {
+        self.cycles.revisit()
+    }
+
+    /// 되돌아온 뒤 아직 소비되지 않은 결정이 있는가 — **있으면 Graph 를 바꾸지 않는다.**
+    ///
+    /// Step 을 열고 닫는 두 문은 [`Cycles`] 의 메서드를 지나지 않고 지금 Cycle 을 곧장
+    /// 만지므로, 그 자리에서 다시 묻는다. 지금 서 있는 자리는 닫힌 대상 조상이라 어차피
+    /// 막히지만, 「이미 닫혔다」는 말은 **무엇을 해야 하는지**를 알려 주지 않는다.
+    pub(crate) fn no_pending_revisit(&self) -> Result<(), ActionError> {
+        match self.cycles.pending_revisit() {
+            Some(from) => Err(ActionError::RevisitPending {
+                from: from.to_ref(),
+                target: self.cycles.current_id().to_ref(),
+            }),
+            None => Ok(()),
+        }
+    }
+
     /// 저장이 읽어 온 값으로 다시 세운다.
     pub(crate) fn restore(
         cycles: Cycles,
@@ -161,6 +265,7 @@ impl Project {
         existence_states: BTreeMap<u32, ExistenceState>,
         current_existence: ExistenceRef,
         next_will_id: u32,
+        artifacts: SnapshotRegistry,
     ) -> Result<Project, ProjectError> {
         let project = Project {
             cycles,
@@ -168,6 +273,7 @@ impl Project {
             existence_states,
             current_existence,
             next_will_id,
+            artifacts,
         };
         project.check_restored()?;
         Ok(project)
@@ -225,6 +331,91 @@ impl Project {
 
         self.check_restored_wills()?;
         self.check_restored_provenance()?;
+        self.check_restored_worlds()?;
+        Ok(())
+    }
+
+    /// format 4 의 Artifact 불변식을 다시 잰다 — **구조적 참조가 전부 실재하는가.**
+    ///
+    /// manifest 객체가 창고에 있는지는 여기서 보지 않는다. 그것은 I/O 라 저장 계층이
+    /// 지고([`load`](crate::load)), 여기서는 **Graph 와 registry 가 서로 맞물리는가**만 잰다.
+    ///
+    /// 손상된 참조를 이름 순서나 지금 위치로 **추측해 고치지 않는다.** 고쳐진 Graph 는
+    /// 무엇이 진짜였는지 더는 말하지 못한다.
+    fn check_restored_worlds(&self) -> Result<(), ProjectError> {
+        let known = |world: SnapshotRef| self.artifacts.resolve(world).is_some();
+
+        for cycle in self.cycles.nodes() {
+            let id = cycle.id().to_ref();
+
+            // ① 모든 Cycle 은 Entry 를 지니고, 그 이름은 registry 에 있다.
+            if !known(cycle.entry_snapshot()) {
+                return Err(ProjectError::UnknownSnapshot {
+                    at: WorldPlace::CycleEntry(id),
+                    world: cycle.entry_snapshot(),
+                });
+            }
+
+            // ② 열린 Cycle 에는 Exit 이 없고, 닫힌 Cycle 에는 반드시 있다.
+            match (cycle.is_closed(), cycle.exit_snapshot()) {
+                (false, Some(world)) => {
+                    return Err(ProjectError::ExitOnOpenCycle { cycle: id, world });
+                }
+                (true, None) => return Err(ProjectError::ClosedCycleWithoutExit(id)),
+                (true, Some(world)) if !known(world) => {
+                    return Err(ProjectError::UnknownSnapshot {
+                        at: WorldPlace::CycleExit(id),
+                        world,
+                    });
+                }
+                _ => {}
+            }
+
+            // ③ 자식의 Entry 는 **부모의 Exit** 이다. 다른 값이면 그 Cycle 은 걸어서
+            //    만들 수 없다 — `open_child` 가 읽는 자리가 하나뿐이기 때문이다.
+            if let Some(parent) = cycle.parent() {
+                let parent = self
+                    .cycles
+                    .node(parent)
+                    .expect("Cycles::restore 가 부모의 실재를 이미 쟀다");
+                let inherited = parent.exit_snapshot();
+                if inherited != Some(cycle.entry_snapshot()) {
+                    return Err(ProjectError::EntryDoesNotFollowParent {
+                        cycle: id,
+                        parent: parent.id().to_ref(),
+                        entry: cycle.entry_snapshot(),
+                        parent_exit: inherited,
+                    });
+                }
+            }
+
+            // ④ 세계를 확정할 권한은 Verify 에만 있고, 닫힌 Verify 는 반드시 썼다.
+            for node in cycle.steps().nodes() {
+                let step = cycle.step_ref(node.id);
+                match (node.kind == NodeKind::Verify, node.is_closed(), node.snapshot) {
+                    (true, true, None) => {
+                        return Err(ProjectError::ClosedVerifyWithoutSnapshot(step));
+                    }
+                    (true, false, Some(world)) => {
+                        return Err(ProjectError::SnapshotOnOpenVerify { step, world });
+                    }
+                    (false, _, Some(world)) => {
+                        return Err(ProjectError::SnapshotOnNonVerify {
+                            step,
+                            kind: node.kind,
+                            world,
+                        });
+                    }
+                    (true, true, Some(world)) if !known(world) => {
+                        return Err(ProjectError::UnknownSnapshot {
+                            at: WorldPlace::Verify(step),
+                            world,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
         Ok(())
     }
 
@@ -531,6 +722,7 @@ impl Project {
         kind: NodeKind,
         contract: ActionContract,
     ) -> Result<Opened, ActionError> {
+        self.no_pending_revisit()?;
         let mut next = self.clone();
         let owner = next.current_existence;
 
@@ -571,6 +763,36 @@ impl Project {
     /// Will 의 `done` 은 행동을 수행했다는 뜻이지 가설이 성공했다는 뜻이 아니다
     /// (Will Model §6) — 실패를 관측하고 닫는 Verify 도 제 행동은 끝낸 것이다.
     pub fn close_action_step(&mut self, report: Report) -> Result<Closed, ActionError> {
+        self.close_step_with(report, None)
+    }
+
+    /// **Verify 를 닫으며 관측한 세계를 확정한다.**
+    ///
+    /// 세계를 확정할 권한은 Verify 에만 있다(Artifact Model §5). 여기서 하는 일은 셋이다 —
+    /// manifest 에 이름을 주고, 그 이름을 Verify 에 새기고, 나머지는 보통의 Close 와 똑같이
+    /// 한 transaction 으로 묶는다.
+    ///
+    /// ```text
+    /// 이미 아는 세계   기존 SnapshotRef 를 그대로 쓴다 — 새 이름을 만들지 않는다
+    /// 처음 보는 세계   새 SnapshotRef 를 발급한다
+    /// ```
+    ///
+    /// **Verify 에는 verdict 가 없다.** 파일이 바뀌었는지와 가설이 맞았는지는 다른 물음이고,
+    /// 아무것도 바꾸지 않은 Verify 도 정상적으로 닫힌다.
+    pub fn close_verify_step(
+        &mut self,
+        report: Report,
+        world: ManifestAddress,
+    ) -> Result<Closed, ActionError> {
+        self.close_step_with(report, Some(world))
+    }
+
+    fn close_step_with(
+        &mut self,
+        report: Report,
+        world: Option<ManifestAddress>,
+    ) -> Result<Closed, ActionError> {
+        self.no_pending_revisit()?;
         let mut next = self.clone();
         let owner = next.current_existence;
 
@@ -615,8 +837,17 @@ impl Project {
         let number = existence.journey().next_revision();
         let journey = JourneyRef::new(owner, number);
 
+        // ⑨ 세계에 이름을 준다 — **복제본 위에서.** 거절되면 이름도 나지 않는다.
+        //    같은 세계면 이미 있는 이름을 그대로 돌려받는다(Artifact Model §13).
+        let confirmed = match world {
+            None => None,
+            Some(address) => Some(next.artifacts.intern(address).map_err(ActionError::Registry)?),
+        };
+
         // ⑤⑫ Report 를 재고 Node 를 닫는다. 거절되면 복제본째 버린다.
-        next.cycles.current_mut().close_step_into(report, journey)?;
+        next.cycles
+            .current_mut()
+            .close_step_into(report, journey, confirmed)?;
 
         // ⑥⑦ 같은 객체를 Done 목록 끝으로 **옮긴다** — 베끼지 않는다.
         let existence = next.existence_mut(owner).expect("방금 읽은 존재다");
@@ -678,7 +909,20 @@ impl Project {
         }
 
         let journey = next.current_existence().current_journey();
-        next.cycles.current_mut().close_into(report, journey)?;
+        // **어느 종류의 Cycle 이 거절했는지 함께 말한다.** 성공하면 `ClosedCycle` 이 kind 를
+        // 알려 주는데 거절할 때만 잃을 이유가 없다 — 그리고 Interview 와 Experiment 는
+        // 사람이 할 일이 다르다.
+        next.cycles
+            .close_current(report, journey)
+            .map_err(|err| match err {
+                CycleCloseError::NextDirection(source) => {
+                    ActionError::CycleDirection { kind, source }
+                }
+                CycleCloseError::Cycle(source) => ActionError::CycleReport { kind, source },
+                CycleCloseError::RevisitPending { from, target } => {
+                    ActionError::RevisitPending { from, target }
+                }
+            })?;
 
         *self = next;
         Ok(ClosedCycle {
@@ -694,6 +938,8 @@ impl Project {
 pub enum ActionError {
     /// 닫을 실행형 자리가 없다.
     NothingOpen,
+    /// Snapshot registry 가 이름을 주지 못했다.
+    Registry(RegistryError),
     /// 이미 걸린 행동이 있다 — 하려는 행동은 하나다.
     WillAlreadyActive { will: WillRef, target: StepRef },
     /// 열린 자리는 있는데 걸린 행동이 없다.
@@ -728,6 +974,21 @@ pub enum ActionError {
     WillStillActive { will: WillRef, target: StepRef },
     /// 세계 쪽이 거절했다 — 문법·전이·Report.
     Cycle(CycleError),
+    /// **Cycle 자체를 닫으려다** 거절됐다. 어느 종류의 Cycle 인지 함께 말한다.
+    CycleReport {
+        kind: CycleKind,
+        source: CycleError,
+    },
+    /// 되돌아왔고 아직 새 Cycle 을 열지 않았다 — 그 자리에서는 Graph 를 바꿀 수 없다.
+    RevisitPending { from: CycleRef, target: CycleRef },
+    /// Cycle Report 가 적어 둔 **다음 방향**이 이 Cycle Graph 에서 성립하지 않는다.
+    ///
+    /// `CycleReport` 와 가르는 까닭은 판정한 계층이 다르기 때문이다 — 이것은 Cycle 하나가
+    /// 아니라 Graph 가 거절한 것이고, 사람이 고칠 자리도 Report 의 다른 칸이다.
+    CycleDirection {
+        kind: CycleKind,
+        source: CycleTargetError,
+    },
 }
 
 impl From<CycleError> for ActionError {
@@ -739,6 +1000,7 @@ impl From<CycleError> for ActionError {
 impl std::fmt::Display for ActionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ActionError::Registry(source) => write!(f, "{source}"),
             ActionError::NothingOpen => write!(f, "지금 열려 있는 실행형 자리가 없다"),
             ActionError::WillAlreadyActive { will, target } => write!(
                 f,
@@ -789,6 +1051,14 @@ impl std::fmt::Display for ActionError {
                  그 행동을 끝낸다"
             ),
             ActionError::Cycle(err) => write!(f, "{err}"),
+            ActionError::CycleReport { source, .. } => write!(f, "{source}"),
+            ActionError::CycleDirection { source, .. } => write!(f, "{source}"),
+            ActionError::RevisitPending { from, target } => write!(
+                f,
+                "{from} 에서 {target} 로 되돌아온 자리다 — 아직 새 Cycle 이 없어 \
+                 Step 을 열거나 닫을 자리가 없다.\n\
+                 먼저 이 자리 아래에 새 Cycle 을 연다: `gil open interview` · `gil open experiment`"
+            ),
         }
     }
 }
@@ -796,7 +1066,7 @@ impl std::fmt::Display for ActionError {
 impl std::error::Error for ActionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            ActionError::Cycle(err) => Some(err),
+            ActionError::Cycle(err) | ActionError::CycleReport { source: err, .. } => Some(err),
             _ => None,
         }
     }
@@ -901,6 +1171,49 @@ pub enum ProjectError {
         head: Option<WillRef>,
         expected: Option<WillRef>,
     },
+
+    // ── Artifact 세계 ─────────────────────────────────────────────────────
+    /// 구조가 가리키는 Snapshot 이 registry 에 없다.
+    UnknownSnapshot { at: WorldPlace, world: SnapshotRef },
+    /// 아직 열린 Cycle 이 Exit 세계를 지니고 있다.
+    ExitOnOpenCycle { cycle: CycleRef, world: SnapshotRef },
+    /// 닫힌 Cycle 에 Exit 세계가 없다.
+    ClosedCycleWithoutExit(CycleRef),
+    /// 자식의 Entry 가 부모의 Exit 이 아니다.
+    EntryDoesNotFollowParent {
+        cycle: CycleRef,
+        parent: CycleRef,
+        entry: SnapshotRef,
+        parent_exit: Option<SnapshotRef>,
+    },
+    /// 닫힌 Verify 에 확정한 세계가 없다.
+    ClosedVerifyWithoutSnapshot(StepRef),
+    /// 아직 열린 Verify 가 세계를 지니고 있다.
+    SnapshotOnOpenVerify { step: StepRef, world: SnapshotRef },
+    /// Verify 가 아닌 자리가 세계를 지니고 있다.
+    SnapshotOnNonVerify {
+        step: StepRef,
+        kind: NodeKind,
+        world: SnapshotRef,
+    },
+}
+
+/// 구조적 SnapshotRef 가 적혀 있던 자리 — 거절할 때 **어디인지** 말하기 위해.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorldPlace {
+    CycleEntry(CycleRef),
+    CycleExit(CycleRef),
+    Verify(StepRef),
+}
+
+impl std::fmt::Display for WorldPlace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorldPlace::CycleEntry(cycle) => write!(f, "{cycle} 의 entry_snapshot_ref"),
+            WorldPlace::CycleExit(cycle) => write!(f, "{cycle} 의 exit_snapshot_ref"),
+            WorldPlace::Verify(step) => write!(f, "{step} 의 snapshot_ref"),
+        }
+    }
 }
 
 /// 없는 것도 사람이 읽는 꼴로.
@@ -1053,6 +1366,49 @@ impl std::fmt::Display for ProjectError {
                  행동은 {} 다 — 실행형 Close 는 방금 끝낸 행동을 그 판의 머리로 둔다",
                 or_none(*head),
                 or_none(*expected)
+            ),
+
+            ProjectError::UnknownSnapshot { at, world } => write!(
+                f,
+                "{at} 이(가) {world} 를 가리키는데 그 이름이 registry 에 없다 — \
+                 이름 순서나 지금 위치로 추측해 고치지 않는다"
+            ),
+            ProjectError::ExitOnOpenCycle { cycle, world } => write!(
+                f,
+                "{cycle} 이(가) 아직 열려 있는데 {world} 를 확정했다고 적혀 있다 — \
+                 Exit 은 닫히면서 정해진다"
+            ),
+            ProjectError::ClosedCycleWithoutExit(cycle) => write!(
+                f,
+                "{cycle} 이(가) 닫혔다는데 확정한 Artifact 세계가 없다"
+            ),
+            ProjectError::EntryDoesNotFollowParent {
+                cycle,
+                parent,
+                entry,
+                parent_exit,
+            } => write!(
+                f,
+                "{cycle} 의 Entry 가 {entry} 인데 부모 {parent} 이(가) 떠난 세계는 {} 다 — \
+                 자식이 출발하는 세계는 부모가 도착한 세계 하나뿐이다",
+                match parent_exit {
+                    Some(world) => world.to_string(),
+                    None => "없음".to_string(),
+                }
+            ),
+            ProjectError::ClosedVerifyWithoutSnapshot(step) => write!(
+                f,
+                "{step} 은(는) 닫힌 verify 인데 확정한 세계가 없다 — \
+                 세계를 확정하지 않은 Verify 는 닫힌 것이 아니다"
+            ),
+            ProjectError::SnapshotOnOpenVerify { step, world } => write!(
+                f,
+                "{step} 이(가) 아직 열려 있는데 {world} 를 확정했다고 적혀 있다"
+            ),
+            ProjectError::SnapshotOnNonVerify { step, kind, world } => write!(
+                f,
+                "{step} 은(는) {kind} 인데 {world} 를 확정했다고 적혀 있다 — \
+                 Artifact 세계를 확정하는 것은 verify 뿐이다"
             ),
         }
     }

@@ -48,6 +48,11 @@ fn write_cycle_banner(out: &mut String, cycles: &Cycles, cycle: &Cycle) {
         false => "걷는 중",
     };
     let _ = write!(out, "═══ {} · {} · {state}", cycle.id(), cycle.kind());
+    // **갈래로 난 Cycle 은 그렇게 말한다.** 부모만 보이면 평범히 이어 난 것과 구별되지
+    // 않는데, 이 Cycle 은 어느 실패에서 갈라져 나온 것이다.
+    if let Some(from) = cycle.revisit_from() {
+        let _ = write!(out, " · {from} 에서 갈라짐");
+    }
     match cycle.parent() {
         Some(parent) => {
             let _ = writeln!(out, " · {parent} 에서 이어받음 ═══");
@@ -318,13 +323,18 @@ fn write_where_we_stand(out: &mut String, cycles: &Cycles) {
     if let Some(parent) = cycle.parent() {
         let _ = write!(out, "({parent} 에서 이어받음)");
     }
+    // 되돌아온 자리라면 그 사실이 먼저다 — 다음 수가 평소와 다르기 때문이다.
+    if let Some(from) = cycles.pending_revisit() {
+        let _ = writeln!(
+            out,
+            " 은(는) 닫혔고, {from} 에서 되돌아와 여기 서 있다.\n\
+             이 자리 아래에 새 Cycle 을 열면 그 Cycle 이 {from} 의 갈래가 된다."
+        );
+        return;
+    }
     match walk.current().and_then(|id| walk.node(id)) {
         _ if cycle.is_closed() => {
-            let _ = writeln!(
-                out,
-                " 은(는) 닫혔다.\n\
-                 Cycle 을 되돌아가는 것과 실패 Cycle 의 형제 가지는 아직 짓지 않았다."
-            );
+            let _ = writeln!(out, " 은(는) 닫혔다.");
         }
         None => {
             let _ = writeln!(out, " 에 서 있고, 아직 아무것도 적지 않았다 — 문제부터 적는다.");

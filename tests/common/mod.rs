@@ -4,16 +4,60 @@
 //! 안 쓰임 경고를 끈다 — 없는 연장으로 오해하지 않도록.
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use std::collections::BTreeMap;
 
 use gil::{
-    ActionContract, Cycle, CycleKind, FieldConstraint, NodeId, NodeKind, Project, Report, RuleSet,
-    StepRef, Walk,
+    ActionContract, Cycle, CycleKind, FieldConstraint, ManifestAddress, NodeId, NodeKind, Project,
+    ProjectSession, Report, RuleSet, SnapshotRef, StepRef, Walk,
 };
 
 pub const SPEC_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/spec/gil-spec.yaml");
+
+/// 지어낸 주소 — **창고에 실재하지 않는다.**
+///
+/// 저장을 거치지 않는 순수 도메인 시험에서만 쓴다. `load` 는 registry 가 가리키는 manifest
+/// 가 실재하는지 보므로(format 4 §8), 저장을 거치는 시험은 [`first_world`] 를 쓴다.
+pub fn imagined_world(seed: u8) -> ManifestAddress {
+    ManifestAddress::from_parts("sha256", &[seed; 32]).expect("sha256 주소는 32 바이트다")
+}
+
+/// **빈 프로젝트의 세계** — 실제로 관측해서 얻은 주소.
+///
+/// 내용이 주소를 정하므로 빈 폴더의 세계는 **어디서 관측해도 같다**. 그래서 이 값 하나가
+/// [`scratch`] 로 만든 모든 자리에서 통한다 — 각 자리의 창고에는 같은 manifest 객체가
+/// 실제로 눕혀져 있다.
+pub fn first_world() -> ManifestAddress {
+    static EMPTY: std::sync::OnceLock<ManifestAddress> = std::sync::OnceLock::new();
+    EMPTY
+        .get_or_init(|| {
+            let dir = std::env::temp_dir().join("gil-test-empty-world");
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("빈 자리를 만든다");
+            sow_world(&dir)
+        })
+        .clone()
+}
+
+/// 그 자리를 실제로 관측해 blob·manifest 를 눕히고 최초 세계의 주소를 돌려준다.
+///
+/// `ProjectSession::start` 를 지난다 — 관측·확정·재검증을 다시 적지 않기 위해서다.
+/// `state.yaml` 은 쓰지 않는다(`commit` 을 부르지 않는다).
+pub fn sow_world(root: &Path) -> ManifestAddress {
+    let session = ProjectSession::start(spec(), root.join(gil::STATE_PATH))
+        .expect("빈 자리에서 최초 세계를 세운다");
+    session
+        .project()
+        .world_manifest(snapshot(1))
+        .expect("A1 은 언제나 실재한다")
+        .clone()
+}
+
+/// 이름으로 부르는 Snapshot.
+pub fn snapshot(number: u32) -> SnapshotRef {
+    SnapshotRef::new(number).expect("Snapshot 이름은 1 부터다")
+}
 
 pub fn spec() -> RuleSet {
     RuleSet::from_path(SPEC_PATH).expect("spec/gil-spec.yaml 을 읽을 수 있어야 한다")
@@ -74,23 +118,56 @@ fn fill(
 /// 시험이 파일을 눕히는 빈 자리. 이름이 겹치지 않게 시험마다 다른 `label` 을 준다.
 ///
 /// 들어가기 전에 지운다 — 앞 판이 남긴 것이 이번 판의 답이 되지 않도록.
+/// 시험이 쓸 빈 프로젝트 자리 — **최초 세계의 객체까지 눕혀서.**
+///
+/// format 4 의 `state.yaml` 은 registry 가 가리키는 manifest 가 창고에 실재할 때만
+/// 되살아난다(§8). 그래서 이 자리는 「`gil start` 가 방금 지나간 폴더」와 같은 모양으로
+/// 선다 — `.gil/artifacts/` 에 빈 세계의 manifest 가 이미 있다.
 pub fn scratch(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("gil-test-{label}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("시험이 쓸 자리를 만들 수 있어야 한다");
+    sow_world(&dir);
     dir
 }
 
 /// Report 가 다음 방향을 적는 칸의 이름 — `gil-spec.yaml` 이 부르는 그대로.
 pub const ACTION: &str = "next_direction.action";
 pub const TARGET: &str = "next_direction.target_node_ref";
+pub const CYCLE_TARGET: &str = "next_direction.target_cycle_ref";
 pub const REASON: &str = "next_direction.reason";
 
 /// 이미 열려 있는 Node 를 명세가 받아들이는 Report 로 닫는다.
+///
+/// **Verify 는 세계와 함께 닫는다.** 세계를 확정하지 않은 Verify 는 닫힌 것이 아니므로
+/// (Artifact Model §7.2), 시험이 그 자리를 지나려면 관측한 세계를 함께 줘야 한다.
 pub fn step_close(walk: &mut Walk, kind: NodeKind) {
     let report = full_report(walk.rules(), walk.kind(), kind);
-    walk.close(report)
-        .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
+    match kind == NodeKind::Verify {
+        true => walk.close_verify(report, snapshot(1)),
+        false => walk.close(report),
+    }
+    .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
+}
+
+/// 지금 열려 있는 자리가 Verify 인가 — 어느 문으로 닫을지 가른다.
+pub fn open_is_verify(project: &Project) -> bool {
+    let cycle = project.cycles().current();
+    cycle
+        .step_now_open()
+        .and_then(|at| cycle.steps().node(at))
+        .is_some_and(|node| node.kind == NodeKind::Verify)
+}
+
+/// 열려 있는 자리를 **그 Kind 에 맞는 문으로** 닫는다.
+///
+/// Verify 에는 세계를 함께 준다. 시험이 주는 것은 언제나 [`first_world`] 라 registry 는
+/// 기존 `A1` 을 그대로 재사용한다 — 「아무것도 바꾸지 않은 Verify」의 모양이다.
+pub fn close_here(project: &mut Project, report: Report) -> Result<gil::Closed, gil::ActionError> {
+    match open_is_verify(project) {
+        true => project.close_verify_step(report, first_world()),
+        false => project.close_action_step(report),
+    }
 }
 
 /// 한 Step 을 온전히 걷는다 — 열고, 명세가 받아들이는 Report 로 닫는다.
@@ -175,8 +252,7 @@ pub fn project_step(project: &mut Project, kind: NodeKind, contract: ActionContr
         project.cycles().current().kind(),
         kind,
     );
-    project
-        .close_action_step(report)
+    close_here(project, report)
         .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
     opened.step
 }
@@ -214,10 +290,21 @@ pub fn cycle_step(cycle: &mut Cycle, kind: NodeKind) -> NodeId {
         .unwrap_or_else(|err| panic!("{kind} 를 열지 못했다: {err}"));
     let id = cycle.steps().current().expect("연 뒤에는 서 있는 자리가 있다");
     let report = full_report(cycle.rules(), cycle.kind(), kind);
-    cycle
-        .close_step(report)
+    close_cycle_step(cycle, kind, report)
         .unwrap_or_else(|err| panic!("{kind} 를 닫지 못했다: {err}"));
     id
+}
+
+/// Cycle 안의 열린 자리를 그 Kind 에 맞는 문으로 닫는다.
+pub fn close_cycle_step(
+    cycle: &mut Cycle,
+    kind: NodeKind,
+    report: Report,
+) -> Result<(), gil::CycleError> {
+    match kind == NodeKind::Verify {
+        true => cycle.close_verify_step(report, snapshot(1)),
+        false => cycle.close_step(report),
+    }
 }
 
 /// 그 Cycle 을 닫을 수 있는 Cycle Report — 판정한 자리와 결과를 맞춰서.
@@ -229,6 +316,12 @@ pub fn cycle_report(cycle: &Cycle, verdict: &str, outcome: NodeId) -> Report {
     let allowed = cycle_allowed_here(cycle.rules(), cycle.kind(), ACTION, &report);
     report.insert(ACTION, allowed.first().expect("갈 곳이 하나는 있다").clone());
     report.insert(REASON, "왜 그 방향인지");
+    // 되돌아가겠다면 갈 곳을 함께 적는다 — **구조에서 고른다.** 이 Cycle 의 부모는 언제나
+    // 조상이고, 자식을 열겠다고 적었기에 이 Cycle 이 났다. 그래서 늘 유효한 대상이다.
+    if report.get(ACTION) == Some("revisit") {
+        let parent = cycle.parent().expect("실패로 닫는 Cycle 은 뿌리가 아니다");
+        report.insert(CYCLE_TARGET, parent.to_ref().to_string());
+    }
     report
 }
 
@@ -239,7 +332,14 @@ pub fn cycle_report(cycle: &Cycle, verdict: &str, outcome: NodeId) -> Report {
 /// 실험할 수 있다. **이 prelude 를 건너뛰는 지름길을 두지 않는다** — 그러면 저장할 수 없는
 /// 상태를 시험만 만들 수 있게 되고, 시험이 지키는 것이 실제와 갈린다.
 pub fn bootstrap() -> Project {
-    let mut project = Project::start(spec());
+    bootstrap_from(Project::start(spec(), first_world()))
+}
+
+/// 이미 선 프로젝트를 Interview 끝까지 걷고 Experiment 를 연다.
+///
+/// **세계를 바꾸지 않는다** — Interview 의 어느 자리도 Artifact 를 확정할 권한이 없으므로,
+/// 이 길을 지나는 동안 registry 는 `A1` 하나 그대로다.
+pub fn bootstrap_from(mut project: Project) -> Project {
 
     for kind in [
         NodeKind::Question,
@@ -294,6 +394,16 @@ pub fn bootstrap() -> Project {
         .open_child_cycle(CycleKind::Experiment)
         .expect("승인된 Synthesis 뒤에는 Experiment 를 열 수 있다");
     project
+}
+
+/// Experiment 를 define → hypothesis 까지 걷고 **Verify 를 열어 둔다.**
+///
+/// 세계를 확정하는 것은 Verify 뿐이라, 시험이 세계를 다루려면 그 자리에 서 있어야 한다.
+pub fn up_to_verify(project: &mut Project) {
+    for kind in [NodeKind::Define, NodeKind::Hypothesis] {
+        walked(project, kind);
+    }
+    opened(project, NodeKind::Verify);
 }
 
 /// 그 Cycle 안의 Step 을 가리키는 typed reference — `step:C1/S3`.

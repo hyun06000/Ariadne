@@ -277,11 +277,12 @@ Open된 Node에서는 해당 Node가 허용하는 작업을 수행할 수 있다
 Node를 닫기 위해서는 해당 Node Kind에서 요구하는 Report가 충족되어야 한다.
 
 Artifact tree가 현재 확정 snapshot과 다를 때, Verify가 아닌 Step은 닫을 수 없고 Cycle도 닫을
-수 없다. 그때 사용자가 하는 명시적 복원 명령은 `gil restore`다. Verify는 새 Artifact snapshot의
+수 없다. 같고 다름은 Artifact manifest 비교로 판정한다. 그때 사용자가 하는 명시적 복원 명령은 `gil restore`다. Verify는 새 Artifact snapshot의
 확정이 성공해야 닫을 수 있다.
 
-**Artifact·Snapshot·`gil restore`의 규범은 `GIL Artifact Model v0.1`이 단독으로 갖는다.**
-변경 허용 경계는 그 문서 §6, Verify close 트랜잭션은 §7, 저장과 원자성 경계는 §10이다.
+**Artifact·Snapshot·`gil restore`의 의미 규범은 `GIL Artifact Model v0.1`이 단독으로 갖는다.**
+변경 허용 경계는 그 문서 §6, Verify close 트랜잭션은 §7이 정한다. format 4, canonical
+manifest, 객체 확정과 잠금의 물리 계약은 `GIL Storage Model v0.1`이 정한다.
 
 닫히지 않은 Node를 기반으로 다음 Node를 열 수 없다.
 
@@ -845,18 +846,22 @@ Artifact는 AI와 인간의 작업을 통해 생성되거나 수정된 실제 �
 예:
 
 - Source Code
-- Dataset
 - Notebook
 - Report
 - Document
 - Image
 - Chart
 - Configuration
+- 프로젝트 폴더 안에 놓인 데이터 파일
+
+마지막 항목은 **프로젝트 안의 일반 파일**이라는 뜻이다. 실험을 위해 외부에서 반입해 추적하는
+**Managed Dataset은 Artifact가 아니며** Snapshot이 소유하지도, 그 바이트를 반복 저장하지도
+않는다. 그 계약은 M3 이후 별도 명세로 설계한다(`GIL Roadmap` §7.5).
 
 Artifact는 특정 Node 시점의 Snapshot으로 관리한다. 파일마다 규칙을 두지 않고 작업 결과물
 전체를 하나의 tree snapshot으로 다룬다.
 
-**이 절은 Artifact가 무엇인지만 말한다.** 관리 범위, 최초 기준 세계, Snapshot 생성 권한,
+**이 절은 Artifact가 무엇인지만 말한다.** 관리 범위, 최초 기준 세계, Snapshot 확정 권한,
 변경 허용 경계, Cycle Exit Snapshot, `gil restore`, 저장 원자성의 규범은 전부
 `GIL Artifact Model v0.1`에 있다.
 

@@ -515,10 +515,16 @@ const OUTCOME: &str = "verdict: failure\nlesson: 갈래를 다시 세운다\n\
 /// 상수로 둘 수 없다. Step 이름은 소속 Cycle 안에서만 유일하므로 어느 Cycle 을 닫느냐에 따라
 /// 가리킬 주소가 달라진다.
 fn experiment_cycle(cycle: &str, verdict: &str, action: &str) -> String {
+    // 갈 곳은 **되돌아감에만** 적는다. 그 밖의 방향에 적으면 거절된다(Cycle Model §11).
+    // 이 걷기의 뿌리는 언제나 `cycle:C1` 이고, 그것이 C2 의 유효한 조상이다.
+    let target = match action {
+        "revisit" => "\n  target_cycle_ref: cycle:C1",
+        _ => "",
+    };
     format!(
         "verdict: {verdict}\noutcome_ref: step:{cycle}/S5\n\
          handoff_summary: 다음 Cycle 이 알아야 할 것\n\
-         next_direction:\n  action: {action}\n  reason: 왜 그 방향인지\n"
+         next_direction:\n  action: {action}\n  reason: 왜 그 방향인지{target}\n"
     )
 }
 
@@ -622,11 +628,11 @@ fn the_cli_refuses_a_cycle_report_that_disagrees_with_its_outcome() {
     );
     assert!(said.contains("success") && said.contains("failure"), "{said}");
 
-    // ⑥ 판정이 방향을 좁힌다.
+    // ⑥ 판정이 방향을 좁힌다. (open_child 에는 갈 곳을 적지 않는다 — 사람이 쓸 그 모양으로)
     let said = refused(
         &dir,
         &["close"],
-        Some(&cycle_failed("C2").replace("action: revisit", "action: open_child")),
+        Some(&experiment_cycle("C2", "failure", "open_child")),
     );
     assert!(said.contains("verdict"), "왜 좁혀졌는지 말하지 않는다:\n{said}");
 }
@@ -640,22 +646,28 @@ fn a_closed_cycle_moves_no_more_from_the_cli() {
 
     refused(&dir, &["open", "hypothesis"], Some(&contract_for("hypothesis")));
     refused(&dir, &["close"], Some(DEFINE));
-    refused(&dir, &["revisit"], None);
     refused(&dir, &["close"], Some(&cycle_failed("C2")));
+    // 되돌아감은 **밟을 수 있다** — 그러나 그것은 이 Cycle 을 다시 여는 것이 아니다.
+    // 그 확인은 `tests/revisit.rs` 가 한다.
 }
 
 #[test]
-fn a_closed_cycle_says_what_cannot_be_done_yet() {
-    // 방향을 적는 것과 실제로 옮기는 것이 다르다는 사실을 사람이 오해하지 않게.
+fn a_closed_cycle_says_what_can_be_done_now() {
+    // 적어 둔 방향은 이제 **밟을 수 있다.** 화면이 그것을 다음 수로 말해야 한다.
     let dir = scratch("cli-cycle-honest");
     walk_to_the_exit(&dir);
     ok(&dir, &["close"], Some(&cycle_failed("C2")));
 
-    let said = ok(&dir, &["status"], None);
-    assert!(
-        said.contains("아직 짓지 않았다"),
-        "아직 못 하는 것을 밝히지 않는다:\n{said}"
-    );
+    for said in [ok(&dir, &["status"], None), ok(&dir, &["context"], None)] {
+        assert!(
+            said.contains("gil revisit"),
+            "밟을 수 있는 다음 수를 말하지 않는다:\n{said}"
+        );
+        assert!(
+            !said.contains("아직 짓지 않았다"),
+            "밟을 수 있는 것을 못 한다고 말한다:\n{said}"
+        );
+    }
 
     let told = ok(&dir, &["story"], None);
     assert!(
@@ -663,8 +675,8 @@ fn a_closed_cycle_says_what_cannot_be_done_yet() {
         "Cycle Report 를 이야기에서 읽을 수 없다:\n{told}"
     );
     assert!(
-        told.contains("아직 짓지 않았다"),
-        "이야기도 아직 못 하는 것을 밝혀야 한다:\n{told}"
+        !told.contains("아직 짓지 않았다"),
+        "이야기가 밟을 수 있는 것을 못 한다고 말한다:\n{told}"
     );
 }
 

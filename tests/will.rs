@@ -112,7 +112,7 @@ fn a_blank_contract_field_is_the_same_failure_as_a_missing_one() {
 #[test]
 fn the_contract_that_was_written_is_the_contract_that_is_kept() {
     // 적은 글자가 그대로 값이 된다 — Report 와 같은 규율이다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     let written = contract(
         "사용자의 프로젝트 목표를 확인한다",
         "목표의 종류를 선택지와 함께 질문한다",
@@ -136,7 +136,7 @@ fn the_contract_that_was_written_is_the_contract_that_is_kept() {
 #[test]
 fn a_refused_open_leaves_the_node_the_will_and_the_allocator_alone() {
     // Node 만 있거나 Will 만 있는 중간 상태를 허용하지 않는다(Will Model §7).
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     let before = snapshot(&project);
 
     // Interview 의 시작 경계에서 define 은 열리지 않는다 — 문법이 먼저 거절한다.
@@ -153,7 +153,7 @@ fn a_refused_open_leaves_the_node_the_will_and_the_allocator_alone() {
 #[test]
 fn a_second_active_will_is_refused_and_opens_nothing() {
     // 지금 하려는 행동은 하나다(Will Model §5).
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     opened(&mut project, NodeKind::Question);
     let before = snapshot(&project);
 
@@ -170,7 +170,7 @@ fn a_second_active_will_is_refused_and_opens_nothing() {
 #[test]
 fn opening_does_not_raise_the_journey_revision() {
     // 판은 **확정된 내용이 바뀔 때만** 는다. Open 은 register 를 채울 뿐이다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     let before = revisions(&project);
     opened(&mut project, NodeKind::Question);
 
@@ -190,7 +190,7 @@ fn opening_does_not_raise_the_journey_revision() {
 
 #[test]
 fn closing_moves_the_same_will_and_raises_exactly_one_revision() {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     let opened = project
         .open_action_step(
             NodeKind::Question,
@@ -242,7 +242,7 @@ fn closing_moves_the_same_will_and_raises_exactly_one_revision() {
 #[test]
 fn a_refused_close_keeps_the_open_step_the_active_will_and_the_journey() {
     // 하나라도 실패하면 전부 이전 상태다(Will Model §7).
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     opened(&mut project, NodeKind::Question);
     let before = snapshot(&project);
 
@@ -259,7 +259,7 @@ fn a_refused_close_keeps_the_open_step_the_active_will_and_the_journey() {
 #[test]
 fn closing_without_an_active_will_is_refused() {
     // 걸어서는 만들 수 없는 자리다 — Cycle 층으로 문법만 걷고 통합 Close 를 부르면 여기 온다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     project
         .cycles_mut()
         .current_mut()
@@ -304,7 +304,7 @@ fn a_done_will_does_not_mean_the_hypothesis_succeeded() {
 
 #[test]
 fn will_names_come_from_the_project_root_and_are_never_reused() {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     let mut names = Vec::new();
     for kind in [NodeKind::Question, NodeKind::Interpretation] {
         walked(&mut project, kind);
@@ -408,7 +408,7 @@ fn tampered(project: &Project, label: &str, edit: impl FnOnce(&mut Value)) -> Pr
 
 /// `#1 question` 을 닫고 `#2 interpretation` 을 **열어 둔** 프로젝트 — W1 done · W2 active.
 fn one_done_and_one_active() -> Project {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
     opened(&mut project, NodeKind::Interpretation);
     project
@@ -498,7 +498,7 @@ fn an_open_action_step_without_an_active_will_is_refused() {
 
 #[test]
 fn an_active_will_without_an_open_action_step_is_refused() {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
     let err = tampered(&project, "will-orphan", |file| {
         x1(file)["active_will"] = serde_norway::from_str(
@@ -517,7 +517,7 @@ fn an_active_will_without_an_open_action_step_is_refused() {
 #[test]
 fn a_done_will_that_is_also_in_the_register_is_refused() {
     // 옮기는 것이지 베끼는 것이 아니다 — 같은 객체가 두 자리에 동시에 있을 수 없다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
     opened(&mut project, NodeKind::Interpretation);
 
@@ -532,7 +532,7 @@ fn a_done_will_that_is_also_in_the_register_is_refused() {
 fn done_wills_in_a_forged_order_are_refused() {
     // 한 존재는 한 번에 하나씩 걸고 끝내므로 끝낸 순서는 곧 발급 순서다.
     // 시각을 저장하지 않고도 순서 위조를 잡는 근거가 그것이다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
     walked(&mut project, NodeKind::Interpretation);
 
@@ -549,7 +549,7 @@ fn done_wills_in_a_forged_order_are_refused() {
 
 #[test]
 fn a_revision_head_that_points_at_no_done_will_is_refused() {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
 
     let err = tampered(&project, "will-head-ghost", |file| {
@@ -562,7 +562,7 @@ fn a_revision_head_that_points_at_no_done_will_is_refused() {
 #[test]
 fn a_revision_head_that_looks_past_its_own_moment_is_refused() {
     // 앞선 판이 나중에 끝난 행동을 가리키면 그 판은 제 시점보다 뒤를 본 것이다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
     walked(&mut project, NodeKind::Interpretation);
 
@@ -578,7 +578,7 @@ fn a_revision_head_that_looks_past_its_own_moment_is_refused() {
 
 #[test]
 fn a_current_head_that_is_not_the_last_done_will_is_refused() {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
     walked(&mut project, NodeKind::Interpretation);
 
@@ -594,7 +594,7 @@ fn a_current_head_that_is_not_the_last_done_will_is_refused() {
 #[test]
 fn a_closed_step_whose_journey_does_not_hold_its_will_is_refused() {
     // 실행형 Close 는 방금 끝낸 행동을 새 판의 머리로 둔다 — 그 둘이 갈리면 위조다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
     walked(&mut project, NodeKind::Interpretation);
 
@@ -610,7 +610,7 @@ fn a_closed_step_whose_journey_does_not_hold_its_will_is_refused() {
 
 #[test]
 fn a_provenance_that_points_at_no_revision_is_refused() {
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
 
     let err = tampered(&project, "will-journey-ghost", |file| {
@@ -670,7 +670,7 @@ fn the_context_carries_the_whole_action_contract() {
 #[test]
 fn the_context_does_not_unfold_past_wills() {
     // 이어 걷는 데 필요한 것은 **지금 걸린 하나**다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     project
         .open_action_step(
             NodeKind::Question,
@@ -698,7 +698,7 @@ fn the_context_does_not_unfold_past_wills() {
 #[test]
 fn the_context_does_not_invent_a_missing_will() {
     // Current Will 이 없다면 GIL 은 다음 작업을 추측하지 않고 **없음을 명시한다**.
-    let project = Project::start(spec());
+    let project = Project::start(spec(), common::first_world());
     let told = gil::context(&project);
     assert!(told.contains("걸린 행동이 없다"), "{told}");
 }
@@ -712,7 +712,7 @@ fn a_new_revision_inherits_every_head_it_did_not_change() {
     // 판이 하나 늘었다는 이유로 **아직 짓지도 않은 머리**를 새로 만들지 않는다. 여기서는
     // Knowledge·Memory·Relations 를 아직 짓지 않아 걸어서는 그 차이를 낼 수 없으므로,
     // 파일에 머리를 심어 두고 그 다음 Close 가 그것을 그대로 물려받는지 잰다.
-    let mut project = Project::start(spec());
+    let mut project = Project::start(spec(), common::first_world());
     walked(&mut project, NodeKind::Question);
 
     let path = scratch("will-inherit").join(gil::STATE_PATH);
