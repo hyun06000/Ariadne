@@ -485,12 +485,9 @@ fn write_report_principles(out: &mut String) {
 // ── 명세에서 읽어 오는 것들 ────────────────────────────────────────────────
 
 /// 이전 Cycle 절이 원본에서 읽어 오는 칸의 이름 — `gil-spec.yaml` 이 부르는 그대로.
-const PROBLEM: &str = "problem";
-const SUCCESS_CONDITION: &str = "success_condition";
-const VERDICT: &str = "verdict";
-const HANDOFF_SUMMARY: &str = "handoff_summary";
-const NEXT_ACTION: &str = "next_direction.action";
-const NEXT_REASON: &str = "next_direction.reason";
+use crate::report::field::{
+    HANDOFF_SUMMARY, NEXT_ACTION, NEXT_REASON, PROBLEM, SUCCESS_CONDITION, VERDICT,
+};
 
 fn step_close_requires(rules: &RuleSet, cycle: CycleKind, kind: NodeKind) -> Vec<String> {
     rules

@@ -357,13 +357,12 @@ fn write_where_we_stand(out: &mut String, cycles: &Cycles) {
 const NEXT_DIRECTION: &str = "next_direction.";
 
 /// Cycle 절이 원본에서 읽어 오는 칸의 이름 — `gil-spec.yaml` 이 부르는 그대로.
-const PROBLEM: &str = "problem";
-const SUCCESS_CONDITION: &str = "success_condition";
-const VERDICT: &str = "verdict";
-const HANDOFF_SUMMARY: &str = "handoff_summary";
-const NEXT_ACTION: &str = "next_direction.action";
+use crate::report::field::{
+    HANDOFF_SUMMARY, NEXT_ACTION, NEXT_REASON, PROBLEM, SUCCESS_CONDITION, VERDICT,
+};
+
+/// Step 계층의 갈 곳 — Cycle 계층의 것과 다른 칸이라 여기 남는다.
 const NEXT_TARGET: &str = "next_direction.target_node_ref";
-const NEXT_REASON: &str = "next_direction.reason";
 
 /// 칸의 이름표. 없는 칸은 제 이름 그대로 — 조용히 사라지는 것보다 낫다.
 fn label(field: &str) -> &str {

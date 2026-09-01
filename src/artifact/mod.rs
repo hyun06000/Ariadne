@@ -52,7 +52,7 @@ pub(crate) use store::{ObjectError, ObjectStore};
 ///
 /// **루트 바로 아래의 이것 하나만 제외한다.** 더 깊은 곳의 같은 이름은 제외가 아니라
 /// 거절 사유다([`ObserveError::NestedGilRepository`]).
-const GIL_DIR: &str = ".gil";
+pub(crate) const GIL_DIR: &str = ".gil";
 
 /// 파일을 읽어 들이는 조각의 크기.
 ///

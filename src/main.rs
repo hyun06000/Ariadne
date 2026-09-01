@@ -10,7 +10,8 @@ use std::process::ExitCode;
 
 use gil::{
     ActionContract, CloseContract, CycleKind, NodeKind, ProjectSession, Refusal, Report, RuleSet,
-    SessionError, StoreError, Usage, WorldState, context, next_moves, story, with_help,
+    SessionError, StoreError, Usage, WorldState, context, next_moves, render_monitor_html,
+    render_monitor_text, story, with_help,
 };
 
 fn main() -> ExitCode {
@@ -63,6 +64,7 @@ fn run() -> Result<String, String> {
             let session = open_session()?;
             Ok(context(session.project()))
         }
+        "monitor" => monitor(args.get(1)),
         "cycle" => cycle(args.get(1).map(String::as_str), args.get(2)),
         other => Err(format!(
             "{other:?} 는 gil 이 아는 명령이 아니다.\n\n{}",
@@ -806,6 +808,100 @@ fn branch_block() -> String {
     )
 }
 
+/// `gil monitor` — **사람이 지금 상태와 그 근거를 읽는 화면.**
+///
+/// 순서가 계약이다.
+///
+/// ```text
+/// ProjectSession::open   잠그고 · 복구하고 · 검증된 판을 읽는다
+/// session.monitor()      세계를 한 번 관측해 불변 Snapshot 을 만든다
+/// drop(session)          ← **여기서 잠금이 풀린다**
+/// render_monitor_text    Snapshot 하나만 보고 글을 짓는다
+/// ```
+///
+/// 그리는 동안 프로젝트를 쥐고 있지 않는다. 화면 하나를 만드는 데 걸리는 시간만큼 다른
+/// GIL 명령이 막히면, 사람이 보는 창이 곧 도구를 멈추는 자물쇠가 된다.
+///
+/// **아무것도 바꾸지 않는다.** 저장하지 않고, 세계를 확정하지 않고, 작업 파일을 만지지
+/// 않는다 — 프로젝트를 여는 순간의 중단 복구는 Storage Model 의 원자성 복구이지 이 명령의
+/// 쓰기가 아니다.
+fn monitor(extra: Option<&String>) -> Result<String, String> {
+    // 세 가지뿐이다 — 한 번 읽기, 저장해 열 문서 하나, 그리고 계속 지켜보기.
+    let html = match extra.map(String::as_str) {
+        None => false,
+        Some("--html") => true,
+        Some("--serve") => return watch_here(),
+        Some(other) => {
+            return Err(refusal(
+                &format!("`gil monitor` 는 {other:?} 를 받지 않는다."),
+                "지금 상태를 그대로 보이는 명령이라 고를 것이 거의 없다.\n\
+                 한 번 읽거나, 문서 하나로 저장하거나, 계속 지켜보거나 셋뿐이다.",
+                "인수 없이 실행하거나 `--html` 이나 `--serve` 하나만 적는다.",
+                "gil monitor · gil monitor --html · gil monitor --serve",
+            ));
+        }
+    };
+
+    // **Snapshot 을 손에 쥐고 세션을 놓는다.** 값은 소유한 것이라 세션보다 오래 산다.
+    //
+    // 그리는 것은 잠금 밖에서 일어난다 — 두 표현 모두 같은 순서를 지킨다.
+    let seen = {
+        let session = open_session()?;
+        session.monitor().map_err(say)?
+    };
+    Ok(match html {
+        true => render_monitor_html(&seen),
+        false => render_monitor_text(&seen),
+    })
+}
+
+/// `gil monitor --serve` — **사람이 browser 로 계속 지켜본다.**
+///
+/// 앞에서 도는 명령이다. 주소를 한 번 적고, 사람이 끝낼 때까지 돈다.
+///
+/// **browser 를 열어 주지 않는다.** 어느 browser 를 어떤 profile 로 열지는 이 도구가 정할
+/// 일이 아니고, 자동으로 열면 그 주소가 그 browser 의 기록에 남는다.
+fn watch_here() -> Result<String, String> {
+    let path = match find_gil()? {
+        Some(Found::State(path)) => path,
+        Some(Found::Legacy(path)) => {
+            return Err(StoreError::LegacyFormat {
+                path: path.display().to_string(),
+            }
+            .to_string());
+        }
+        None => {
+            return Err(format!(
+                "여기서도 그 위 어디에서도 걷기를 못 찾았다 ({}) — `gil start` 로 시작한다",
+                gil::STATE_PATH
+            ));
+        }
+    };
+    let mut server = gil::serve_monitor(rules()?, &path)?;
+
+    // **주소 한 줄뿐이다.** token 을 따로 되풀이하지 않고, 프로젝트 경로도 `.gil` 자리도
+    // 창고 주소도 적지 않는다 — 사람이 이 화면을 그대로 붙여 넣을 자리가 있기 때문이다.
+    println!("GIL Monitor가 이 주소에서 현재 프로젝트를 보여 준다.");
+    println!("{}", server.url());
+    println!();
+    if server.blind().is_some() {
+        println!("이 실행에서는 파일 감시가 서지 못했다 — 화면은 느린 주기로만 새로 관측한다.");
+        println!();
+    }
+    println!("이 주소는 이 실행 동안만 유효하다.");
+    println!("종료하려면 Ctrl-C.");
+
+    server.wait().map_err(|said| {
+        refusal(
+            &format!("Monitor 를 계속 지켜볼 수 없다 — {said}."),
+            "Ctrl-C 를 받는 자리는 프로세스에 하나뿐이라, 둘이 나눠 가질 수 없다.",
+            "먼저 열어 둔 `gil monitor --serve` 를 끝낸 뒤 다시 실행한다.",
+            "gil monitor --serve",
+        )
+    })?;
+    Ok(String::new())
+}
+
 fn status() -> Result<String, String> {
     // 이름 있는 변수로 받는다 — 임시 값으로 두면 잠금이 언제 떨어지는지가 식(式)의 모양에
     // 달리게 된다. 읽기만 하는 명령도 같은 exclusive 잠금을 **짧게** 쓴다.
@@ -1483,7 +1579,10 @@ fn help() -> String {
          이어받을 때\n  \
          gil context   새 세션·인수인계·맥락을 잃었을 때 지금 자리를 복원한다\n  \
          gil status    지금 어디인지 세 줄로 답한다\n  \
-         gil story     걸어온 것을 사람의 말로 읽는다\n\n\
+         gil story     걸어온 것을 사람의 말로 읽는다\n  \
+         gil monitor   지금 상태와 그 근거를 한 화면으로 읽는다\n  \
+         gil monitor --html   같은 것을 저장해서 열 수 있는 HTML 문서 하나로\n  \
+         gil monitor --serve   browser 로 계속 지켜본다 (Ctrl-C 로 끝)\n\n\
          Artifact 를 바꿔 놓고 되돌리고 싶을 때 — **인수를 받지 않는다.**\n  \
          gil restore   지금 위치가 요구하는 세계로 작업 폴더를 되돌린다\n\n\
          Report 를 적는 꼴 — 적은 글자가 그대로 값이 된다. 주석도, 인용도, 형 변환도 없다.\n\n  \

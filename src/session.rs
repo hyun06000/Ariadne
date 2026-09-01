@@ -790,6 +790,8 @@ pub enum SessionError {
         moved: CycleRevisit,
         source: Box<RestoreFailure>,
     },
+    /// Monitor Snapshot 을 지을 수 없다 — 걸어서 만들 수 없는 상태를 만났다.
+    Monitor(crate::monitor::MonitorError),
     /// 시험이 심어 둔 실패 — debug 빌드에만 있다.
     #[cfg(debug_assertions)]
     Injected { point: String },
@@ -957,6 +959,12 @@ impl fmt::Display for SessionError {
             ),
 
             SessionError::Branch(source) => write!(f, "{source}"),
+            // **손상이다.** 사용법 Topic 을 붙이지 않는다 — 읽어서 고칠 규칙이 아니다.
+            SessionError::Monitor(source) => write!(
+                f,
+                "지금 상태를 읽을 수 없다.\n\n이유\n{}\n\n현재 상태는 변경하지 않았다.",
+                indented(&source.to_string())
+            ),
             SessionError::Revisit(source) => write!(
                 f,
                 "거절: 되돌아갈 수 없다.\n\n이유\n{}\n\n\

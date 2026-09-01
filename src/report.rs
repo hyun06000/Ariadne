@@ -27,6 +27,23 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+/// Report 가 쓰는 칸의 이름 — **`gil-spec.yaml` 이 부르는 그대로, 한 자리에.**
+///
+/// 이 이름들은 story·context·monitor 가 **같은 원본에서 같은 사실을 읽으려고** 쓴다.
+/// 각 renderer 가 제 파일에 따로 적어 두면 한 곳에서 오타 하나가 나도 그 renderer 만
+/// 조용히 빈 값을 보이고, 세 화면이 서로 다른 말을 하게 된다.
+///
+/// **여기 있는 것은 이름뿐이다.** 어떤 칸이 필요한지, 어떤 값이 허락되는지는 여전히
+/// 문법이 정한다 — 이 목록은 그 판정에 끼어들지 않는다.
+pub(crate) mod field {
+    pub(crate) const PROBLEM: &str = "problem";
+    pub(crate) const SUCCESS_CONDITION: &str = "success_condition";
+    pub(crate) const VERDICT: &str = "verdict";
+    pub(crate) const HANDOFF_SUMMARY: &str = "handoff_summary";
+    pub(crate) const NEXT_ACTION: &str = "next_direction.action";
+    pub(crate) const NEXT_REASON: &str = "next_direction.reason";
+}
+
 /// 이름 붙은 칸들의 모음. 순서는 이름순으로 고정된다(메시지·시험이 흔들리지 않게).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Report {

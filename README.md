@@ -156,6 +156,13 @@ GIL은 모델의 비공개 chain-of-thought를 저장하려는 시스템이 아�
 - Cycle-level `gil revisit`과 대상 Exit 세계 복원
 - `parent = target`, `revisit_from = failure`, `entry = target.exit`인 새 Cycle 가지
 - 실패 Report를 유지하는 pending·story·context와 `cycle/revisit` Help Topic
+- 지금 상태와 그 근거를 한 화면으로 읽는 read-only `gil monitor`
+- 저장해서 열 수 있는 standalone 문서 `gil monitor --html`
+- `127.0.0.1`의 임의 port와 일회성 capability 주소로 여는 `gil monitor --serve`
+- 파일과 `state.yaml` 변화를 debounce로 모아 전체 재조회로 수렴하는 자동 갱신
+- 관측 실패를 stale로 표시하고 사건 없이도 재시도해 회복하는 갱신 상태기계
+- 같은 Snapshot에서 그리는 결정적 inline SVG Cycle Graph (parent 실선 · revisit 점선)
+- `지금 / 지금 할 일 / 여정 / 왜 여기 왔는가` 순서의 focus panel과 접어 둔 상세 기록
 
 ### 확인됨
 
@@ -166,7 +173,9 @@ GIL은 모델의 비공개 chain-of-thought를 저장하려는 시스템이 아�
 
 ### 다음
 
-- read-only Monitor
+- Human Monitor 판독 실험 2 — 참여하지 않은 사용자가 30초 안에 현재 실험·성공 기준·다음
+  행동을 설명할 수 있는가 (실험 1은 실패했고, 원인은 정보 부족이 아니라 평평한 시각
+  우선순위였다)
 - Interview Cycle과 Chain
 - 백엔드·데이터 분석·프론트엔드·기획서 작성 시나리오
 
@@ -176,6 +185,7 @@ GIL은 누적된 기록을 모든 독자에게 같은 해상도로 반복하지 
 
 ```text
 gil story    인간이 현재 상황을 이해한다.
+gil monitor  인간이 지금 자리와 그 근거를 한 화면으로 읽는다.
 gil context  새 Agent 세션이 계층별로 압축된 지식을 이어받는다.
 gil help     Agent가 지금 필요한 규칙 하나를 배운다.
 ```

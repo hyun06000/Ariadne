@@ -674,9 +674,11 @@ provenance
 - `alt_text`는 자료를 직접 볼 수 없는 독자에게 핵심 정보를 전달한다.
 - `provenance`는 생성 또는 관측 출처를 추적한다.
 
-정확한 schema, 저장 방식, 허용 media type과 HTML 보안 정책은 Monitor 구현 전에 별도로 정한다.
-그 전에도 Report의 추가 필드로 증거 참조를 기록할 수 있지만, renderer가 이해하지 못하는 참조를
-임의로 실행하거나 삽입해서는 안 된다.
+정확한 schema, 저장 방식과 허용 media type은 시각 자료를 구현하기 전에 별도로 정한다. 첫
+Monitor 구현은 이 결정을 기다리지 않고 구조적 사실과 신뢰하지 않는 텍스트만 표시한다. 그 전에도
+Report의 추가 필드로 증거 참조를 기록할 수 있지만, renderer가 이해하지 못하는 참조를 임의로
+실행하거나 삽입해서는 안 된다. HTML renderer의 기본 안전 경계는 `GIL Monitor Model v0.1`을
+따른다.
 
 #### next_direction
 

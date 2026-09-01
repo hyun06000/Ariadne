@@ -29,6 +29,7 @@
 //! `{{close_requires:<cycle>/<kind>}}` 한 줄이 그 자리를 가리키고, 읽는 순간
 //! `gil-spec.yaml` 이 답한다. 두 자리에 적으면 한쪽이 낡는다.
 
+mod catalog;
 mod id;
 mod router;
 mod when;
@@ -44,7 +45,9 @@ use crate::node::NodeKind;
 use crate::rules::{RuleSet, SpecError};
 use crate::session::{ProjectSession, WorldState};
 
-pub(crate) use id::{TopicId, TopicIdError};
+pub(crate) use catalog::Bundled;
+pub(crate) use id::TopicIdError;
+pub use id::TopicId;
 pub use router::{Refusal, Usage, more_about, with_help};
 pub(crate) use when::{Condition, Confirmation, Inside, ManualContext, WhenError, WorldMark};
 
@@ -61,6 +64,7 @@ const SOURCES: &[&str] = &[
     include_str!("topics/cycle/experiment/close.md"),
     include_str!("topics/cycle/revisit.md"),
     include_str!("topics/cycle/revisit/target.md"),
+    include_str!("topics/monitor/serve.md"),
 ];
 
 /// 본문이 Grammar 를 가리키는 표시 — **여는 괄호와 닫는 괄호.**
@@ -92,6 +96,19 @@ struct FrontMatter {
     /// 옛 주소. 언제나 canonical Topic 하나로 끝나야 한다(§4).
     #[serde(default)]
     aliases: Vec<String>,
+    /// **지금 자리에 맞춰 권해도 되는 Topic 인가.**
+    ///
+    /// 적지 않으면 참이다 — 지금까지의 Topic 은 모두 「막혔을 때 읽을 것」이라 권해야
+    /// 맞다. 거짓으로 적은 Topic 은 **주소로만 열린다.**
+    ///
+    /// 조건이 비어 있다는 것과 이것은 다른 말이다. 조건이 없는 Topic 은 「어느 자리에서나
+    /// 맞다」는 뜻이고, 그런 것이 여럿이면 막힌 사람에게 상황과 무관한 줄이 늘 따라붙는다.
+    #[serde(default = "yes")]
+    offered: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// Topic 하나.
@@ -102,6 +119,8 @@ pub(crate) struct Topic {
     summary: String,
     /// 적힌 조건만 AND 로 잰다. 비어 있으면 **모든 상태**에 적용된다.
     applies_when: Vec<Condition>,
+    /// 지금 자리에 맞춰 권해도 되는가. 거짓이면 **주소로만** 열린다.
+    offered: bool,
     related: Vec<TopicId>,
     examples: Vec<TopicId>,
     aliases: Vec<TopicId>,
@@ -126,7 +145,9 @@ impl Topic {
 
     /// 지금 상태에 **모든 조건이** 맞는가. 조건이 없으면 언제나 맞다.
     pub(crate) fn applies_to(&self, here: &ManualContext) -> bool {
-        self.applies_when.iter().all(|when| when.holds(here))
+        // **권하지 않기로 한 Topic 은 어느 자리에도 맞지 않는다.** 그것을 읽는 길은
+        // 주소를 직접 적는 것 하나뿐이다.
+        self.offered && self.applies_when.iter().all(|when| when.holds(here))
     }
 
     pub(crate) fn sections(&self) -> impl Iterator<Item = (&str, &str)> {
@@ -181,6 +202,7 @@ fn read(source: &str) -> Result<Topic, ManualError> {
         title: front.title,
         summary: front.summary,
         applies_when: conditions(front.applies_when)?,
+        offered: front.offered,
         related: front
             .related
             .iter()
@@ -1098,6 +1120,36 @@ mod tests {
             WorldMark::Dirty
         )));
         assert!(!topic.applies_to(&ManualContext::outside()));
+    }
+
+    #[test]
+    fn a_topic_that_is_not_offered_opens_only_by_address() {
+        let manual = Manual::bundled().unwrap();
+        let address = crate::manual::id::TopicId::parse("monitor/serve").unwrap();
+        // 주소로는 열린다.
+        assert!(manual.resolve(&address).is_some(), "주소로도 못 연다");
+        // 그러나 어느 자리에서도 권하지 않는다 — 조건이 비어 있는데도.
+        assert!(
+            manual.resolve(&address).unwrap().applies_when().is_empty(),
+            "이 시험이 재려는 것은 조건이 없는 Topic 이다"
+        );
+        for here in [
+            ManualContext::outside(),
+            somewhere(None, WorldMark::Clean),
+            somewhere(None, WorldMark::Dirty),
+            somewhere(Some((NodeKind::Verify, NodeStatus::Open)), WorldMark::Dirty),
+            somewhere(Some((NodeKind::Question, NodeStatus::Open)), WorldMark::Clean),
+        ] {
+            let offered: Vec<String> = select(&manual, &here)
+                .topics
+                .iter()
+                .map(|topic| topic.id.to_string())
+                .collect();
+            assert!(
+                !offered.contains(&"monitor/serve".to_string()),
+                "막힌 사람에게 상황과 무관한 줄이 따라붙는다: {offered:?}"
+            );
+        }
     }
 
     #[test]

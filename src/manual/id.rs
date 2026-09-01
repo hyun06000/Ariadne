@@ -22,8 +22,12 @@
 use std::fmt;
 
 /// canonical Topic 주소 하나.
+///
+/// **공개되는 까닭**: Monitor 의 다음 행동이 이 주소를 실어 나른다(Monitor Model §4.8).
+/// 거기에 `String` 을 두면 화면이 주소를 직접 조립하게 되고, 그러면 실리지 않은 주소가
+/// 화면에 나타날 수 있다. 만드는 문은 여전히 [`TopicId::parse`] 하나뿐이라 crate 안에 있다.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct TopicId(String);
+pub struct TopicId(String);
 
 impl TopicId {
     /// 사람이 적어 준 글자를 주소로 읽는다. 계약을 어기면 **왜 어겼는지**와 함께 거절한다.
@@ -56,9 +60,11 @@ impl TopicId {
         Ok(TopicId(text.to_string()))
     }
 
-    /// **아직 시험만 쓴다.** 읽는 자리는 [`Display`](fmt::Display) 하나면 충분하다.
-    #[cfg(test)]
-    pub(crate) fn as_str(&self) -> &str {
+    /// 주소의 글자.
+    ///
+    /// 화면에 적는 자리는 [`Display`](fmt::Display) 로 충분하지만, Monitor 의 다음 행동을
+    /// 받아 `gil help <주소>` 를 부르는 쪽처럼 **글자 자체가 필요한** 자리가 있다.
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 }

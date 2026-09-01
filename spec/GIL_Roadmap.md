@@ -28,12 +28,12 @@ dogfood로 통과**해야 `[x]`가 된다.
 ```text
 전체 이정표 10개
 
-진행도  [x][x][~][x][x][x][ ][ ][ ][L]
+진행도  [x][x][~][x][x][x][~][ ][ ][L]
         M0 M1 M2 M3 M3.5 M4 M5 M6 M7 M8
 
 완료     5  Step Core, 단일 Cycle 경계, Artifact 시간선, AI Manual Foundation, Failure Revisit
-진행 중  1  Bootstrap 잔여(M2)
-대기     3  Human Monitor 이후
+진행 중  2  Bootstrap 잔여(M2), Human Monitor(M5)
+대기     2  Advanced Interview·Chain Closing(M6), Scenario Suite(M7)
 Later    1  성공 가지 Merge
 ```
 
@@ -50,8 +50,8 @@ Later    1  성공 가지 Merge
 
 바로 다음 목표:
 
-> **CLI와 동일한 read model로 현재 Chain·Cycle·Step, 실패 가지, revisit 출처와 clean/dirty를
-> 사람이 지속적으로 읽을 수 있게 한다.**
+> **완성된 Monitor Snapshot과 HTML을 loopback server에서 안전하게 자동 갱신하되, browser
+> refresh마다 Artifact 전체를 다시 관측하지 않는다.**
 
 ---
 
@@ -77,7 +77,7 @@ M3.5 AI Manual Foundation            완료   ← GIL Manual Model v0.1
   ↓
 M4 Failure Revisit & Branching       완료
   ↓
-M5 Human Monitor                     대기
+M5 Human Monitor                     진행 중 ← GIL Monitor Model v0.1
   ↓
 M6 Advanced Interview & Chain Close  대기
   ↓
@@ -996,37 +996,112 @@ Experiment Cycle failure Report의 `revisit`은 **기록할 수 있고 실행할
 
 ## 10. M5 — Human Monitor
 
-상태: `[ ] 대기`
+상태: `[~] 진행 중 — M5-A0·A1a·A1b 완료, M5-A2 계약 확정·구현 대기`
 
 목표:
 
 > 사용자가 터미널과 raw YAML 없이 AI의 현재 위치, 실패, 전환과 다음 방향을 이해한다.
 
-### M5-A Read-only Monitor
+상세 의미 계약은 `GIL Monitor Model v0.1`을 따른다. M5에서는 아직 존재하지 않는 Chain,
+승인 mode와 시각 자료 schema를 UI가 먼저 지어내지 않는다.
 
-- [ ] `.gil`을 안전하게 읽는 read model
-- [ ] 현재 Chain / Cycle / Step
-- [ ] 현재 실험 목적과 성공 기준
-- [ ] active lineage
-- [ ] 실패한 형제 Cycle
-- [ ] revisit 출처와 대상
-- [ ] Cycle handoff
-- [ ] 현재 clean / dirty
-- [ ] 현재 가능한 행동
-- [ ] 상태 변경 시 자동 갱신
-- [ ] GIL 상태를 변경하지 않는 read-only UI
-- [ ] 하나의 read model에서 plain text / Markdown / HTML renderer 제공
-- [ ] renderer 사이에서 의미와 판정이 달라지지 않음
-- [ ] Report의 표·차트·이미지·화면 캡처 참조 표시
+### M5-A0 Monitor Snapshot
+
+- [x] Monitor가 답해야 하는 인간의 질문과 다른 투영의 역할 분리
+- [x] "하나의 read model"을 하나의 사실 Snapshot과 목적별 projection으로 정의
+- [x] 아직 구현되지 않은 Chain을 v0 출력에서 제외
+- [x] active lineage는 parent edge만 따르고 `revisit_from`은 별도 관계로 정의
+- [x] pending revisit와 완료된 revisit 구분
+- [x] world `clean / dirty / unknown`과 단일 관측 규칙
+- [x] semantic read-only와 Storage recovery 구분
+- [x] Report·Will·사용자 문자열을 신뢰하지 않는 renderer 입력으로 정의
+- [x] typed `MonitorSnapshot` 구현 — active lineage를 Cycle 해상도 사실로 보강
+- [x] 검증된 Project loader만 사용 — raw YAML·CLI 문자열 파싱 없음
+- [x] 한 Snapshot당 Artifact 세계 관측 한 번
+- [x] status와 current Cycle·Step·world state 정합성 시험
+- [x] Monitor 조회 전후 Graph·Journey·Will·Snapshot registry·작업 파일 불변
+
+### M5-A1a plain text reference renderer
+
+- [x] 순수 함수 `render_monitor_text(&MonitorSnapshot)`
+- [x] `gil monitor` read-only 명령
+- [x] Snapshot 생성 뒤 lock을 놓고 renderer 실행
+- [x] 현재 Cycle / Step
+- [x] 현재 실험 목적과 성공 기준
+- [x] active lineage와 inactive Cycle 구분
+- [x] active ancestor의 종류·상태·판정·handoff 표시
+- [x] 실패 verdict와 구조적 sibling 관계를 혼동하지 않음
+- [x] revisit 출처와 대상
+- [x] Cycle handoff
+- [x] Current Will
+- [x] 현재 clean / dirty / unknown
+- [x] 현재 가능한 행동과 선택적 Help Topic
+- [x] 색·terminal 폭·ANSI·Unicode 도형 없이도 구조가 읽힘
+- [x] 여러 줄 값의 indentation 유지
+
+### M5-A1b 안전한 HTML renderer
+
+- [x] A1a와 같은 `MonitorSnapshot`만 입력으로 사용
+- [x] 완전한 standalone HTML5 문서와 `gil monitor --html`
+- [x] Report·Will·사용자 문자열 HTML escape
+- [x] raw HTML·script·외부 resource 자동 로드 없음
+- [x] 엄격한 CSP와 renderer 소유 inline CSS만 허용
+- [x] 색만이 아닌 text·heading·list로 상태와 관계 구분
+- [x] 작은 화면에서도 읽히는 responsive layout
+- [x] renderer 사이에서 typed reference·판정·다음 행동이 같음
+
+### M5-A2 지속 관찰
+
+구현 순서: **A2a 갱신 상태기계 → A2b 안전한 loopback server → A2c OS 변화 감지와 실사용 검증**.
+`gil monitor --serve`는 세 조각이 모두 닫힌 뒤 공개한다.
+
+- [x] loopback server·주소·요청·cache의 의미 계약 확정
+- [x] browser refresh와 Artifact 재관측 주기 분리
+- [x] watcher는 hint, 전체 `monitor()` 조회만 사실이라는 규칙 확정
+- [x] Current / Stale / Unavailable 상태 정의
+- [x] `gil monitor --serve` — `127.0.0.1` 임의 port와 capability path
+- [x] 내부 loopback server — `127.0.0.1` 임의 port와 capability path
+- [x] exact Host·token 검증, GET/HEAD만, 요청 크기·시간 제한
+- [x] CSP·no-store·nosniff·no-referrer·DENY 응답
+- [x] change hint debounce와 느린 reconciliation
+- [x] browser refresh마다 전체 Artifact를 다시 관측하지 않음
+- [x] 상태 변경 시 완전한 새 Snapshot으로 자동 갱신
+- [x] UI가 프로젝트 lock을 장시간 소유하지 않음
+- [x] watcher event를 GIL 사건으로 오인하지 않고 전체 조회로 수렴
+- [x] 갱신 실패 시 stale 상태와 오류 표시
+- [x] stale 뒤 event가 없어도 재시도하여 Current로 회복
+- [x] server 종료 뒤 Project와 작업 파일 불변
+- [x] UI의 cache·표현 상태와 GIL의 의미 상태 분리
+- [x] OS 파일 감시 — 루트 `.gil`은 `state.yaml`만, 그 밖의 내부 사건은 hint로 만들지 않음
+- [x] 관측이 스스로 hint를 낳아 영구 재관측하지 않음
+- [x] watcher가 서지 못하면 화면과 stdout이 그 사실을 명시하고 reconciliation만 사용
+- [x] Ctrl-C가 시험과 같은 종료 경로로 listener·watcher·worker를 끝냄
+
+### M5-A3 실제 사용 검증
+
+- [ ] 참여하지 않은 사용자가 30초 안에 현재 실험과 성공 기준을 설명
+- [ ] 실패 가지와 현재 활성 가지를 혼동하지 않음
+- [ ] CLI를 보지 않고 다음 행동을 설명
+- [x] 판독 실험 1 수행 — 세 조건 모두 실패, 정보 부족이 아닌 평평한 시각 우선순위가 원인
+- [x] 초보자가 Graph를 글 목록이나 ASCII art로 이해한다고 가정하지 않는 원칙 확정
+- [x] 같은 MonitorSnapshot에서 안전한 inline SVG Cycle Graph 렌더링
+- [x] parent 실선·revisit 점선·active lineage·inactive branch를 공간적으로 구분
+- [x] 현재 Cycle만 Step을 펼치고 현재 Step을 위치와 글로 표시
+- [x] SVG 옆 focus panel을 `지금 / 지금 할 일 / 왜 여기 왔는가` 순서로 재구성
+- [x] 작업 행동(Will)과 그 뒤의 GIL 명령을 분리해 표시
+- [x] 과거 `next_direction`을 현재 행동보다 낮추고 `당시`의 방향으로 명시
+- [x] 실패 이유·교훈·revisit·현재 가설을 하나의 전환 서사로 투영
+- [x] desktop·작은 화면 screenshot에서 node·edge·label 겹침과 잘림 없음
+- [x] 색 없이 shape·line·label만으로 상태와 관계를 구분
+- [x] 판독 실험 1 시나리오를 fixture로 고정하고 다섯 물음의 회귀 시험으로 잠금
+- [ ] 같은 시나리오로 판독 실험 2 수행
+
+### M5 후속 — 선행 domain 계약 뒤 수행
+
+- [ ] 표·차트·이미지·화면 캡처의 안전한 resource reference schema
 - [ ] 시각 자료 caption·alt text·provenance 표시
-- [ ] Markdown·HTML의 안전한 렌더링 정책
-
-### M5-B Human Checkpoints
-
-- [ ] milestone 승인 표시
-- [ ] stepwise 승인 표시
-- [ ] autonomous 진행 설명
-- [ ] 갑작스러운 Chain 종료 제안 전에 경로 요약
+- [ ] milestone / stepwise / autonomous 승인 상태와 Checkpoint UI
+- [ ] 갑작스러운 Chain 종료 제안 전 경로 요약 — M6 Chain Closing 이후
 
 합격 조건:
 

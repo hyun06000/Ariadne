@@ -120,6 +120,7 @@ mod lock;
 // Manual 은 **도구의 지식**이다 — 프로젝트 상태가 아니라 함께 실린 Topic 을 읽는다.
 // 밖으로 나가는 것은 조회 문 하나와 그 오류뿐이고, 주소 타입과 index 는 안에 남는다.
 mod manual;
+mod monitor;
 mod node;
 mod project;
 mod refs;
@@ -143,6 +144,13 @@ pub use cycles::{
 };
 pub use existence::{Existence, ExistenceState, Journey, Revision};
 pub use manual::{HelpError, Refusal, Usage, help_here, help_outside, help_topic, more_about, with_help};
+pub use manual::TopicId;
+pub use monitor::{
+    ActionKind, CapturedAt, CurrentCycleFacts, CycleFacts, CycleRelation, CycleReportFacts,
+    ExistenceFacts, ExperimentDefinition, InactiveCycle, MonitorError, MonitorSnapshot,
+    MonitorServer, NextAction, NextDirection, PendingRevisit, StepFacts, WillFacts, WorldFacts,
+    WorldMark, render_monitor_html, render_monitor_text, serve_monitor,
+};
 pub use node::{Node, NodeKind, NodeStatus};
 pub use project::{ActionError, Closed, ClosedCycle, Opened, Project, ProjectError, WorldPlace};
 pub use refs::{

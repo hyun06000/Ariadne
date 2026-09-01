@@ -43,24 +43,15 @@ use super::Manual;
 ///
 /// 한 자리에 모아 둔다 — Topic 주소가 바뀌면 [`tests::every_reachable_topic_exists`] 가
 /// 먼저 빨개진다. 런타임에 조용히 링크를 빼는 것으로 끝내지 않는다(§5).
-#[cfg(test)]
-const REACHABLE: &[&str] = &[
-    DIRTY_NON_VERIFY,
-    VERIFY_CLOSE,
-    RESTORE,
-    OPEN_CONTRACT,
-    EXPERIMENT_CLOSE,
-    CYCLE_REVISIT,
-    REVISIT_TARGET,
-];
+use super::Bundled;
 
-const DIRTY_NON_VERIFY: &str = "artifact/dirty/non-verify";
-const VERIFY_CLOSE: &str = "step/verify/close";
-const RESTORE: &str = "artifact/restore";
-const OPEN_CONTRACT: &str = "action/open-contract";
-const EXPERIMENT_CLOSE: &str = "cycle/experiment/close";
-const CYCLE_REVISIT: &str = "cycle/revisit";
-const REVISIT_TARGET: &str = "cycle/revisit/target";
+const DIRTY_NON_VERIFY: Bundled = Bundled::DirtyNonVerify;
+const VERIFY_CLOSE: Bundled = Bundled::VerifyClose;
+const RESTORE: Bundled = Bundled::Restore;
+const OPEN_CONTRACT: Bundled = Bundled::OpenContract;
+const EXPERIMENT_CLOSE: Bundled = Bundled::ExperimentClose;
+const CYCLE_REVISIT: Bundled = Bundled::CycleRevisit;
+const REVISIT_TARGET: Bundled = Bundled::RevisitTarget;
 
 /// Router 가 보는 **공개 거절**.
 ///
@@ -182,7 +173,7 @@ pub(crate) fn help_for(refusal: &Refusal<'_>) -> Option<TopicId> {
         // 부정확한 링크를 붙이지 않는 것이 먼저다(§3).
         Refusal::Session(_) => return None,
     };
-    TopicId::parse(address).ok()
+    Some(address.id())
 }
 
 /// 이 거절이 **Verify 를 닫으려다 난 Report 계약 오류**인가.
@@ -299,21 +290,24 @@ mod tests {
         ))))
     }
 
+    /// 이 거절이 가리키는 Topic 의 주소. 없으면 `None`.
     fn topic_of(error: &SessionError) -> Option<String> {
-        help_for(&Refusal::Session(error)).map(|id| id.to_string())
+        help_for(&Refusal::Session(error)).map(|id| id.as_str().to_string())
     }
 
     #[test]
-    fn every_reachable_topic_exists_in_the_bundled_manual() {
+    fn every_bundled_address_resolves() {
         // **배포 전에 빨개진다.** Manual source 에서 주소를 바꾸면 여기서 걸린다 —
         // 런타임에 조용히 링크를 빼는 것으로 끝내지 않는다.
+        //
+        // 정본 전체를 훑으므로 Router 와 Monitor 의 안내가 **함께** 검사된다. 각자 제
+        // 목록을 들고 있으면 한쪽만 낡아도 아무도 모른다.
         let manual = Manual::bundled().expect("함께 실린 Manual");
-        for address in REACHABLE {
-            let id = TopicId::parse(address)
-                .unwrap_or_else(|err| panic!("{address:?} 가 주소가 아니다: {err}"));
+        for topic in Bundled::ALL {
             assert!(
-                manual.resolve(&id).is_some(),
-                "{address} 를 가리키는데 그런 Topic 이 없다"
+                manual.resolve(&topic.id()).is_some(),
+                "{} 를 가리키는데 그런 Topic 이 없다",
+                topic.address()
             );
         }
     }
@@ -332,13 +326,13 @@ mod tests {
         ] {
             assert_eq!(
                 topic_of(&dirty(step(kind))).as_deref(),
-                Some(DIRTY_NON_VERIFY),
+                Some(DIRTY_NON_VERIFY.address()),
                 "{kind}"
             );
         }
         assert_eq!(
             topic_of(&dirty(Gate::Cycle(CycleRef::new(1).expect("Cycle 주소")))).as_deref(),
-            Some(DIRTY_NON_VERIFY)
+            Some(DIRTY_NON_VERIFY.address())
         );
     }
 
@@ -352,7 +346,7 @@ mod tests {
     fn a_verify_report_contract_error_points_at_the_verify_topic() {
         assert_eq!(
             topic_of(&report_error(Subject::Step(NodeKind::Verify))).as_deref(),
-            Some(VERIFY_CLOSE)
+            Some(VERIFY_CLOSE.address())
         );
     }
 
@@ -401,7 +395,7 @@ mod tests {
             let err = ContractError::Missing { fields };
             assert_eq!(
                 help_for(&Refusal::Contract(&err)).map(|id| id.to_string()).as_deref(),
-                Some(OPEN_CONTRACT)
+                Some(OPEN_CONTRACT.address())
             );
         }
     }
@@ -427,7 +421,7 @@ mod tests {
         ] {
             assert_eq!(
                 topic_of(&cycle_report_error(CycleKind::Experiment, source)).as_deref(),
-                Some(EXPERIMENT_CLOSE)
+                Some(EXPERIMENT_CLOSE.address())
             );
         }
     }
@@ -480,7 +474,7 @@ mod tests {
             help_for(&Refusal::Usage(Usage::RestoreTakesNoArgument))
                 .map(|id| id.to_string())
                 .as_deref(),
-            Some(RESTORE)
+            Some(RESTORE.address())
         );
     }
 
@@ -548,14 +542,14 @@ mod tests {
     fn the_router_never_reads_the_message() {
         // 문자열을 뒤져 고르지 않는다는 증거 — 본문이 무엇이든 판정이 같다.
         let mut said = dirty(step(NodeKind::Question));
-        assert_eq!(topic_of(&said).as_deref(), Some(DIRTY_NON_VERIFY));
+        assert_eq!(topic_of(&said).as_deref(), Some(DIRTY_NON_VERIFY.address()));
         if let SessionError::Dirty { changes, .. } = &mut said {
             changes.push("artifact/restore 라고 적힌 파일".to_string());
             changes.push("step/verify/close".to_string());
         }
         assert_eq!(
             topic_of(&said).as_deref(),
-            Some(DIRTY_NON_VERIFY),
+            Some(DIRTY_NON_VERIFY.address()),
             "본문의 글자가 판정을 바꿨다"
         );
     }

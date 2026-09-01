@@ -333,6 +333,11 @@ Read Model
 renderer가 바뀌어도 포함되는 지식의 해상도와 의미가 바뀌어서는 안 된다. Monitor는 같은 read
 model을 사용하되 사람이 필요할 때 상위 Report에서 내부 Graph로 점진적으로 펼칠 수 있게 한다.
 
+여기서 같은 read model은 story, context와 Monitor가 같은 거대한 출력 객체나 같은 문자열을
+공유한다는 뜻이 아니다. 검증된 원본 사실의 한 Snapshot에서 독자별 projection을 만든다는
+뜻이다. Monitor의 Snapshot 경계, 읽기 일관성, 부재 표현과 renderer 안전 규칙은
+`GIL Monitor Model v0.1`을 따른다.
+
 ---
 
 ## 11. 현재 결정하지 않는 것
