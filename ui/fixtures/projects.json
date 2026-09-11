@@ -1,0 +1,23 @@
+[
+  {
+    "cycles": 3,
+    "label": "Ariadne — 정렬 순서 실험",
+    "origin": "fixture",
+    "scope_id": "fixture:reading-one",
+    "steps": 12
+  },
+  {
+    "cycles": 1,
+    "label": "새 프로젝트 — 첫 인터뷰",
+    "origin": "fixture",
+    "scope_id": "fixture:first-interview",
+    "steps": 1
+  },
+  {
+    "cycles": 6,
+    "label": "밀도 시험",
+    "origin": "fixture",
+    "scope_id": "fixture:dense",
+    "steps": 27
+  }
+]

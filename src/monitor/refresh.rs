@@ -848,7 +848,9 @@ mod tests {
     #[test]
     fn rendering_changes_neither_the_engine_nor_the_project() {
         const LABEL: &str = "rendering-changes-neither-the-engine-nor-the-project";
-        let dir = std::env::temp_dir().join("gil-refresh-snapshot");
+        // **이 시험의 fixture 가 세운 자리를 읽는다.** 예전에는 남의 이름을 적어 두어,
+        // 다른 시험이 우연히 만들어 둔 폴더에 기대고 있었다.
+        let dir = project(LABEL);
         let mut watcher = Fake::always_ok(LABEL);
         let engine = Refresh::start(pace(), Moment::at(0), &mut watcher);
         let before = std::fs::read(dir.join(crate::STATE_PATH)).expect("상태를 읽는다");

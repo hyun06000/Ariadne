@@ -1,0 +1,12 @@
+[package]
+name = "gil-companion"
+version = "0.1.0"
+edition = "2024"
+description = "GIL Companion — 계속 떠 있는 읽기 전용 여정 창"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

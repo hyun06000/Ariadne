@@ -23,7 +23,7 @@ dogfood로 통과**해야 `[x]`가 된다.
 
 ## 2. 현재 위치
 
-마지막 갱신: **2026-08-31**
+마지막 갱신: **2026-09-11**
 
 ```text
 전체 이정표 10개
@@ -46,12 +46,13 @@ Later    1  성공 가지 Merge
 
 현재 초점:
 
-- M5의 read-only Monitor가 현재 Graph·실패 가지·revisit 출처와 Artifact 세계를 보여 준다.
+- M5의 검증된 MonitorSnapshot을 지속형 Tauri Companion의 인터랙티브 인간 표면으로 투영한다.
+- Codex inline UI는 시제품으로, loopback browser는 개발·진단 fallback으로 유지한다.
 
 바로 다음 목표:
 
-> **완성된 Monitor Snapshot과 HTML을 loopback server에서 안전하게 자동 갱신하되, browser
-> refresh마다 Artifact 전체를 다시 관측하지 않는다.**
+> **Tauri shell에 공용 Step DAG fixture와 Project switcher를 싣고, 세션별 server·port 없이 하나의
+> 읽기 전용 창에서 Project scope를 전환한다.**
 
 ---
 
@@ -996,7 +997,7 @@ Experiment Cycle failure Report의 `revisit`은 **기록할 수 있고 실행할
 
 ## 10. M5 — Human Monitor
 
-상태: `[~] 진행 중 — M5-A0·A1a·A1b 완료, M5-A2 계약 확정·구현 대기`
+상태: `[~] 진행 중 — M5-A 완료, Host UI 계약·Tauri fixture 단계 검증, 실제 GIL read adapter 전`
 
 목표:
 
@@ -1094,7 +1095,103 @@ Experiment Cycle failure Report의 `revisit`은 **기록할 수 있고 실행할
 - [x] desktop·작은 화면 screenshot에서 node·edge·label 겹침과 잘림 없음
 - [x] 색 없이 shape·line·label만으로 상태와 관계를 구분
 - [x] 판독 실험 1 시나리오를 fixture로 고정하고 다섯 물음의 회귀 시험으로 잠금
+- [x] 2026-09-05 시각 검토 — Cycle 중심 자유 배치 Graph는 작은 예시에서도 선이 복잡해 폐기
+- [x] Git Graph형 단방향 시간축·lane과 Step 중심 node 원칙 확정
+- [x] SVG layout을 `Step = node`, `Cycle/Chain = group`, `branch = lane`으로 교체
+- [x] 새 node가 한 방향으로만 자라고 revisit도 화면에서 과거 방향으로 역행하지 않음
+- [x] Cycle은 내용 영역의 경계·배경 띠로, Journey lane은 독립된 왼쪽 영역으로 표시
+- [x] Step 옆에 kind와 짧은 인간용 요약을 정렬하고 typed reference는 보조 정보로 낮춤
+- [x] 현재 경로는 연속 lane, 실패한 시도는 옆 lane의 끝으로 읽힘
+- [x] 정적 Graph를 먼저 검증하고 click 기반 접기·펼치기는 interaction 계약 뒤로 미룸
 - [ ] 같은 시나리오로 판독 실험 2 수행
+
+### M5-B Host-Embedded Interactive Monitor
+
+기본 사용자는 별도 `GIL.app`이나 browser를 먼저 열지 않는다. Codex·Claude Desktop 같은 Agent
+Host 안에서 대화와 같은 Project의 Monitor를 연다. loopback server와 standalone shell은 개발,
+진단 또는 Host가 embedded UI를 지원하지 않을 때의 fallback이다.
+
+- [x] 기본 인간 표면을 Agent Host 안의 panel 또는 inline UI로 결정
+- [x] `MonitorSnapshot → Host UI adapter`의 읽기 경계 정의
+- [x] presentation intent와 domain-changing GIL action 분리
+- [x] Host 중립 `MonitorViewV1` 전달 계약 명세 — 내부 `MonitorSnapshot`은 직접 직렬화하지 않음
+- [x] Host 중립 presentation intent 명세 — select·focus·collapse·filter
+- [x] 선택한 Step의 `NodeDetailV1` on-demand 상세 계약
+- [x] 내부 `MonitorSnapshot → MonitorViewV1` 순수 투영 구현
+- [x] kind·state·relation·world·action을 View 전용 enum으로 분리하고 JSON 문자열 왕복 준비
+- [x] 값을 지닌 `ActionKind`를 `kind` + nullable 대상 kind로 손실 없이 투영
+- [x] canonical JSON encoder와 null·빈 목록·원문 보존 왕복 시험
+- [x] Host UI v1의 어휘 범위를 bundled GIL Grammar v0.1로 한정하고 미지원 값은 명시적 거절
+- [x] `StepRef → NodeDetailV1` read model과 이름순 Report 투영
+- [x] Codex Host 안의 fixture 기반 클릭 가능한 UX prototype
+- [x] Graph가 기본 표면이고 text는 선택한 대상의 detail·검색·접근성 역할만 맡는 UX 확정
+- [x] Step 선택 → 인접 요약 카드 + 별도 detail inspector UX 확정
+- [x] Cycle 접기·펼치기와 접힌 행의 재배치 UX 확정
+- [ ] 현재 위치로 이동·현재 경로만 보기·실패 갈래 filter
+- [ ] Project와 Current Existence를 현재 대화의 명시적 scope에서 이어받음
+- [x] port·capability URL 없이 Codex inline prototype을 열 수 있음
+- [x] fixture UI가 `.gil`을 직접 읽거나 수정하지 않음
+- [x] write action은 Human Checkpoint domain 계약 전까지 노출하지 않음
+- [x] Codex Plugin UI에서 버튼·초기 자동 PiP 요청을 실측하고 실제 모드가 `inline`임을 확인
+- [x] 지속형 Host surface 부재 시 Tauri Companion을 v0 기준 fallback으로 확정
+- [x] 같은 canonical fixture Snapshot을 Tauri Companion에 표시
+- [ ] 처음 보는 사용자를 대상으로 판독·탐색 실험
+
+M5-B 구현 순서는 다음과 같다.
+
+```text
+Host-neutral Snapshot/Intent contract
+→ typed MonitorViewV1 순수 투영
+→ next_actions와 canonical JSON
+→ NodeDetailV1
+→ fixture prototype
+→ 인간 UX 검증
+→ 실제 MonitorSnapshot 연결
+→ 다른 Host adapter와 fallback
+```
+
+### M5-C Persistent Tauri Companion
+
+목표:
+
+> Agent session과 무관하게 하나의 읽기 전용 창을 계속 띄우고, 그 창에서 등록한 GIL Project를
+> 명시적으로 전환하며 현재 여정을 실시간으로 관찰한다.
+
+첫 구현 조각은 **Tauri shell + fixture + Project switcher**다. 실제 `.gil` 연결과 watcher를 한 번에
+넣지 않는다.
+
+2026-09-11 실제 macOS Tauri 창에서 Step DAG, 절대 방향 edge 문법, 선택 요약과 상세, Cycle
+접기·펼치기와 재배치, Project별 표현 상태 복원, 밀도 fixture와 자동 scroll을 검수했다. 첫 fixture
+조각은 닫혔고 다음 조각은 Companion-local settings와 실제 GIL read adapter다.
+
+- [x] Tauri app shell과 공용 UI bundle 연결
+- [x] 기존 `reading_one` fixture로 Cycle DAG·현재 Cycle·detail interaction 표시
+- [x] Project switcher에서 두 fixture scope를 전환하고 Project별 선택·detail을 격리해 복원
+- [ ] 최근 Project 목록·마지막 선택·창 위치를 Companion 설정에만 저장
+- [x] `.gil`·Artifact·Journey를 쓰지 않는다는 증거
+- [ ] GIL read adapter로 실제 `MonitorViewV1`과 `NodeDetailV1` 연결
+- [ ] 현재 선택 Project의 변화 hint → 완전한 View 재조회
+- [x] Project별 server·port·capability URL 없이 동작
+- [ ] 앱 하나로 Project 추가·제거·전환
+- [ ] Codex 또는 Claude session이 종료되어도 창과 마지막 검증 View 유지
+
+M5-C 구현 순서는 다음과 같다.
+
+```text
+Tauri shell + fixture
+→ Project scope switcher
+→ Companion-local settings
+→ 실제 GIL read adapter
+→ 선택 Project watcher와 reconciliation
+→ 인간 판독·장시간 관찰 실험
+```
+
+하지 않는 것:
+
+- Companion에서 `gil open`·`close`·`revisit`·`restore` 실행
+- 여러 Project의 Graph를 한 화면에 합성
+- 모든 등록 Project를 항상 전체 해상도로 background 관측
+- Tauri 전용 사실 schema 또는 Graph 의미 생성
 
 ### M5 후속 — 선행 domain 계약 뒤 수행
 

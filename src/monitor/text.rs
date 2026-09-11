@@ -330,3 +330,25 @@ fn write_lines(out: &mut String, indent: &str, label: &str, value: &str) {
         let _ = writeln!(out, "{indent}{INDENT}{line}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_text_never_reads_the_timeline() {
+        // 새 칸이 생겼다고 글 화면이 전체 history 가 되면 안 된다. **바이트로 잰다** —
+        // 시간선을 통째로 비워도 글이 한 글자도 달라지지 않으면, 글은 그것을 읽지 않는다.
+        let full = super::super::graph::tests::reading_one();
+        assert!(!full.timeline.is_empty(), "이 fixture 는 시간선을 지녀야 한다");
+
+        let mut emptied = full.clone();
+        emptied.timeline.clear();
+
+        assert_eq!(
+            render_monitor_text(&full),
+            render_monitor_text(&emptied),
+            "글 화면이 시간선을 읽고 있다"
+        );
+    }
+}

@@ -149,7 +149,20 @@ pub use monitor::{
     ActionKind, CapturedAt, CurrentCycleFacts, CycleFacts, CycleRelation, CycleReportFacts,
     ExistenceFacts, ExperimentDefinition, InactiveCycle, MonitorError, MonitorSnapshot,
     MonitorServer, NextAction, NextDirection, PendingRevisit, StepFacts, WillFacts, WorldFacts,
-    WorldMark, render_monitor_html, render_monitor_text, serve_monitor,
+    TimelineCycleFacts, TimelineRelation, WorldMark, render_monitor_html, render_monitor_text,
+    serve_monitor,
+};
+// Host UI 로 나가는 판 있는 읽기 모델(GIL Host UI Model v0.1 §3).
+pub use monitor::view::SCHEMA_VERSION;
+pub use monitor::{DetailError, NodeDetailV1, ReportFieldV1, ReportV1};
+pub use monitor::{
+    WireError, decode_detail_v1, decode_view_v1, encode_detail_v1, encode_view_v1,
+};
+pub use monitor::{
+    CurrentV1, CycleKindV1, CycleReportV1, DefinitionV1, DirectionActionV1, MonitorViewV1,
+    NextActionKindV1, NextActionV1, NextDirectionV1, NodeStateV1, StepKindV1, StepV1,
+    TimelineCycleV1, TimelineRelationV1, VerdictV1, ViewError, WillV1, WorldStateV1, WorldV1,
+    monitor_view_v1,
 };
 pub use node::{Node, NodeKind, NodeStatus};
 pub use project::{ActionError, Closed, ClosedCycle, Opened, Project, ProjectError, WorldPlace};

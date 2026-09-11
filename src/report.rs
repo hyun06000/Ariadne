@@ -42,6 +42,15 @@ pub(crate) mod field {
     pub(crate) const HANDOFF_SUMMARY: &str = "handoff_summary";
     pub(crate) const NEXT_ACTION: &str = "next_direction.action";
     pub(crate) const NEXT_REASON: &str = "next_direction.reason";
+
+    // Step 하나를 한 줄로 대표하는 칸들. 어느 Step kind 가 어느 칸을 쓰는지는
+    // [`crate::monitor::summary_field`] 한 자리가 정한다.
+    pub(crate) const QUESTION: &str = "question";
+    pub(crate) const INTERPRETATION: &str = "interpretation";
+    pub(crate) const STATEMENT: &str = "statement";
+    pub(crate) const HYPOTHESIS: &str = "hypothesis";
+    pub(crate) const RESULT: &str = "result";
+    pub(crate) const LESSON: &str = "lesson";
 }
 
 /// 이름 붙은 칸들의 모음. 순서는 이름순으로 고정된다(메시지·시험이 흔들리지 않게).

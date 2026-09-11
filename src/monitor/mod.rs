@@ -35,10 +35,23 @@ mod say;
 mod serve;
 mod svg;
 mod text;
+mod detail;
+pub(crate) mod view;
+mod wire;
 
 pub use html::render_monitor_html;
 pub use serve::{MonitorServer, serve_monitor};
 pub use text::render_monitor_text;
+pub use detail::{DetailError, NodeDetailV1, ReportFieldV1, ReportV1};
+pub use wire::{
+    WireError, decode_detail_v1, decode_view_v1, encode_detail_v1, encode_view_v1,
+};
+pub use view::{
+    CurrentV1, CycleKindV1, CycleReportV1, DefinitionV1, DirectionActionV1, MonitorViewV1,
+    NextActionKindV1, NextActionV1, NextDirectionV1, NodeStateV1, StepKindV1, StepV1,
+    TimelineCycleV1, TimelineRelationV1, VerdictV1, ViewError, WillV1, WorldStateV1, WorldV1,
+    monitor_view_v1,
+};
 
 use std::time::SystemTime;
 
@@ -50,7 +63,8 @@ use crate::project::Project;
 use crate::refs::{CycleRef, ExistenceRef, JourneyRef, SnapshotRef, StepRef, WillRef};
 use crate::report::Report;
 use crate::report::field::{
-    HANDOFF_SUMMARY, NEXT_ACTION, NEXT_REASON, PROBLEM, SUCCESS_CONDITION, VERDICT,
+    HANDOFF_SUMMARY, HYPOTHESIS, INTERPRETATION, LESSON, NEXT_ACTION, NEXT_REASON, PROBLEM,
+    QUESTION, RESULT, STATEMENT, SUCCESS_CONDITION, VERDICT,
 };
 use crate::session::{ProjectSession, SessionError, WorldState};
 
@@ -100,6 +114,22 @@ pub struct MonitorSnapshot {
     pub current_will: Option<WillFacts>,
     pub world: WorldFacts,
     pub next_actions: Vec<NextAction>,
+    /// 이 Journey 가 만든 **모든 Cycle 을 발급 순서 그대로**, 각자의 Step 과 함께.
+    ///
+    /// # 벡터의 순서가 곧 시간이다
+    ///
+    /// 구조가 주는 append-only 발급 순서를 그대로 옮긴 것이라, 읽는 쪽은 `CycleRef` 나
+    /// `StepRef` 의 **번호를 비교할 일이 없다.** 번호로 시간을 짐작하면 되돌아감이 섞인
+    /// Graph 에서 곧바로 틀린다.
+    ///
+    /// # 왜 별도의 칸인가
+    ///
+    /// [`CycleFacts`] 는 여전히 Step 을 지니지 않는다. Cycle 해상도의 계약은 그대로 두고,
+    /// **Step DAG 를 그리기 위한 투영 하나**를 옆에 둔다. 글 화면(`gil monitor`)은 이 칸을
+    /// 펼치지 않는다 — 조상마다 Step 을 늘어놓는 것은 여전히 다른 독자의 몫이다.
+    ///
+    /// 여기서 자르지 않는다. 접기와 축약은 그리는 쪽이 한다.
+    pub timeline: Vec<TimelineCycleFacts>,
 }
 
 /// 지금 행동하는 존재와 그 판.
@@ -175,6 +205,85 @@ pub struct StepFacts {
     pub step_ref: StepRef,
     pub kind: NodeKind,
     pub state: NodeStatus,
+    /// 이 Step 을 한 줄로 대표하는 **Report 원문 그대로.**
+    ///
+    /// 지어낸 요약도, renderer 가 해석한 말도 아니다 — [`summary_field`] 가 정한 칸 하나를
+    /// 그대로 옮긴다. 아직 닫히지 않았거나 그 칸이 없으면 `None` 이다.
+    ///
+    /// **여기서 자르지 않는다.** 화면에 맞춘 길이 제한과 줄임표는 그리는 쪽의 몫이고,
+    /// escape 는 마지막 출력 경계에서 한다. read model 이 미리 자르면 상세 영역에서
+    /// 원문을 되찾을 길이 사라진다.
+    pub summary: Option<String>,
+}
+
+/// 시간선 위의 Cycle 하나가 지금 걷는 갈래와 맺은 관계.
+///
+/// **넷은 서로 배타적이다.** boolean 두 개를 늘어놓으면 `활성이면서 버려진` 같은 있을 수
+/// 없는 상태가 타입으로 표현 가능해지고, 그러면 읽는 쪽마다 그것을 어떻게 다룰지 다시
+/// 정해야 한다. 하나의 enum 이면 그 물음 자체가 없다.
+///
+/// 판정하는 자리는 [`timeline_relation`] 하나뿐이고, 그마저 아래 셋은
+/// [`relation`] 에 그대로 물어본다 — [`InactiveCycle::relation_to_current`] 와 **같은
+/// 함수**라 한쪽만 낡을 수 없다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimelineRelation {
+    /// 지금까지 걸어온 길 위에 있다(현재 Cycle 자신을 포함한다).
+    ActivePath,
+    /// 지금 걷는 갈래가 **이 Cycle 에서 갈라져 나왔다.**
+    RevisitSource,
+    /// 부모는 계보 위인데 저는 아니다 — 같은 자리에서 갈라져 두고 온 가지다.
+    Abandoned,
+    /// 그 밖. 두고 온 가지의 자손처럼 계보에서 더 멀리 떨어진 것들이다.
+    Other,
+}
+
+/// 시간선 위의 Cycle 하나 — **Cycle 해상도의 사실과 그 안의 Step 전부.**
+///
+/// `kind`·`state`·`parent`·`revisit_from`·`definition`·`report` 를 여기 다시 적지 않는다.
+/// [`CycleFacts`] 를 그대로 안는다 — 같은 사실을 두 타입에 적으면 한쪽이 낡는다.
+///
+/// **현재 Cycle 인지는 여기 없다.** [`MonitorSnapshot::current_cycle`] 의 참조와 견주어
+/// 알아낸다 — 「지금 어디인가」를 말하는 자리는 하나뿐이어야 하기 때문이다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimelineCycleFacts {
+    pub facts: CycleFacts,
+    pub relation_to_current: TimelineRelation,
+    /// 만든 순서 그대로.
+    pub steps: Vec<StepFacts>,
+}
+
+/// 이 Step kind 를 한 줄로 대표하는 Report 칸.
+///
+/// **대응표가 사는 자리는 여기 하나다.** 문법(`gil-spec.yaml`)은 어떤 칸이 *필요한지*는
+/// 말하지만 어떤 칸이 그 Step 을 *대표하는지*는 말하지 않는다 — `close_requires` 의 첫
+/// 칸도 아니다(verify 는 `execution` 이 먼저지만 사람이 읽고 싶은 것은 `result` 다).
+/// 그러니 이 판단은 Monitor 의 것이고, 두 자리에 적으면 한쪽이 낡는다.
+///
+/// 경계 표식(Entry·Exit)에는 Report 가 없다.
+fn summary_field(kind: NodeKind) -> Option<&'static str> {
+    match kind {
+        NodeKind::Question => Some(QUESTION),
+        NodeKind::Interpretation => Some(INTERPRETATION),
+        NodeKind::Synthesis => Some(STATEMENT),
+        NodeKind::Define => Some(PROBLEM),
+        NodeKind::Hypothesis => Some(HYPOTHESIS),
+        NodeKind::Verify => Some(RESULT),
+        NodeKind::Analysis => Some(INTERPRETATION),
+        NodeKind::Outcome => Some(LESSON),
+        NodeKind::CycleEntry | NodeKind::CycleExit => None,
+    }
+}
+
+/// Step Node 하나를 사실로 — **Cycle 안이든 시간선 위든 같은 함수가 짓는다.**
+fn step_facts(cycle: &Cycle, node: &crate::walk::StepNode) -> StepFacts {
+    StepFacts {
+        step_ref: cycle.step_ref(node.id),
+        kind: node.kind,
+        state: node.status,
+        summary: summary_field(node.kind)
+            .and_then(|field| node.report.as_ref()?.get(field))
+            .map(str::to_string),
+    }
 }
 
 /// 지금 계보 위에 있지 않은 Cycle.
@@ -395,10 +504,24 @@ fn snapshot(
         .steps()
         .nodes()
         .iter()
-        .map(|node| StepFacts {
-            step_ref: here.step_ref(node.id),
-            kind: node.kind,
-            state: node.status,
+        .map(|node| step_facts(here, node))
+        .collect();
+
+    // **발급 순서 그대로.** `Cycles::nodes()` 도 `Walk::nodes()` 도 「만든 순서대로」를
+    // 계약으로 적어 둔 접근자다. 여기서 다시 정렬하지 않는다 — 정렬하는 순간 그 기준이
+    // 새 진실 판정이 된다.
+    let timeline: Vec<TimelineCycleFacts> = cycles
+        .nodes()
+        .iter()
+        .map(|cycle| TimelineCycleFacts {
+            facts: cycle_facts(cycles, cycle),
+            relation_to_current: timeline_relation(cycles, cycle.id(), &on_lineage),
+            steps: cycle
+                .steps()
+                .nodes()
+                .iter()
+                .map(|node| step_facts(cycle, node))
+                .collect(),
         })
         .collect();
     // 서 있는 자리 — 닫혀 있어도 그 자리에 서 있다. 아직 아무것도 열지 않았으면 없다.
@@ -423,6 +546,7 @@ fn snapshot(
         },
         active_lineage,
         inactive_cycles,
+        timeline,
         pending_revisit: pending,
         current_step,
         // **없으면 없다.** 열린 Step 이 있다고 Will 을 지어내지 않는다.
@@ -474,6 +598,33 @@ fn declared_target(cycles: &Cycles, from: CycleId) -> Option<CycleRef> {
 ///
 /// verdict 를 보지 않는다. 실패했는지는 Report 가 말할 몫이고, 이 값은 「지금 걷는 갈래와
 /// 어떻게 이어져 있는가」만 말한다.
+/// 시간선 위의 한 Cycle 이 맺은 관계 — **우선순위가 여기 하나에 적혀 있다.**
+///
+/// ```text
+/// ① 계보 위인가            → ActivePath      (현재 Cycle 자신도 여기 든다)
+/// ② 그 밖이면 relation() 에게 그대로 묻는다
+///      RevisitSource  지금 갈래가 여기서 갈라져 나왔다
+///      Abandoned      부모는 계보 위인데 저는 아니다
+///      Other          그 밖
+/// ```
+///
+/// ①이 먼저인 까닭은 계보 위의 Cycle 도 제 조상의 revisit 출처일 수 있기 때문이다. 그때
+/// 「지금 걷는 길 위에 있다」가 더 중요한 사실이다 — 화면이 그것을 옆 갈래로 밀어내면
+/// 활성 경로가 끊겨 보인다.
+///
+/// **아래 셋은 다시 판정하지 않는다.** [`relation`] 이 그 하나뿐인 자리이고, 그래서
+/// [`InactiveCycle::relation_to_current`] 와 이 값이 갈릴 수 없다.
+fn timeline_relation(cycles: &Cycles, id: CycleId, on_lineage: &[CycleId]) -> TimelineRelation {
+    if on_lineage.contains(&id) {
+        return TimelineRelation::ActivePath;
+    }
+    match relation(cycles, id, on_lineage) {
+        CycleRelation::RevisitSource => TimelineRelation::RevisitSource,
+        CycleRelation::Abandoned => TimelineRelation::Abandoned,
+        CycleRelation::Other => TimelineRelation::Other,
+    }
+}
+
 fn relation(cycles: &Cycles, id: CycleId, on_lineage: &[CycleId]) -> CycleRelation {
     // ① 지금 걷는 갈래가 이 Cycle 에서 갈라져 나왔는가 — **가장 구체적인 사실이 먼저다.**
     let source_of_branch = on_lineage
@@ -755,6 +906,55 @@ mod tests {
     }
 
     #[test]
+    fn the_timeline_costs_no_extra_look() {
+        // 전체 Step 시간선은 `Cycles` 와 `Walk` 만 읽는다 — 폴더를 다시 보지 않는다.
+        let session = session("timeline-observe-once");
+        let before = crate::artifact::scan_count::now();
+
+        let seen = session.monitor().expect("Snapshot 을 만든다");
+
+        assert_eq!(
+            crate::artifact::scan_count::now() - before,
+            2,
+            "시간선을 짓느라 프로젝트를 한 벌 넘게 훑었다"
+        );
+        assert!(!seen.timeline.is_empty(), "시간선이 비었다");
+    }
+
+    #[test]
+    fn projecting_the_view_costs_no_look_no_write_and_no_lock() {
+        // 투영은 **인수 안의 것만** 읽는다. 파일도, Project 도, 시계도 다시 보지 않는다.
+        let session = session("view-costs-nothing");
+        let root = session.state_path().parent().expect("루트").to_path_buf();
+        let state = std::fs::read(session.state_path()).expect("상태를 읽는다");
+        let world = std::fs::read(root.parent().expect("작업 폴더").join("a.txt")).ok();
+
+        let seen = session.monitor().expect("Snapshot 을 만든다");
+        let before = crate::artifact::scan_count::now();
+
+        let view = crate::monitor_view_v1(&seen).expect("View 를 짓는다");
+
+        assert_eq!(
+            crate::artifact::scan_count::now() - before,
+            0,
+            "투영이 세계를 훑었다"
+        );
+        assert!(!view.timeline.is_empty(), "View 가 비었다");
+        // 아무것도 쓰지 않았다.
+        assert_eq!(state, std::fs::read(session.state_path()).expect("다시 읽는다"));
+        assert_eq!(
+            world,
+            std::fs::read(root.parent().expect("작업 폴더").join("a.txt")).ok()
+        );
+        // 그리고 같은 Snapshot 을 두 번 투영해도 시각이 흔들리지 않는다 — 시계를 읽지
+        // 않는다는 증거다.
+        assert_eq!(
+            view.captured_at_unix_ms,
+            crate::monitor_view_v1(&seen).expect("두 번째").captured_at_unix_ms
+        );
+    }
+
+    #[test]
     fn two_snapshots_observe_twice_and_never_share_one() {
         // 갱신은 이전 Snapshot 을 고치지 않고 **새로 짓는다.** 그러므로 관측도 새로 한다.
         let session = session("observe-twice");
@@ -834,4 +1034,5 @@ mod tests {
             .collect();
         assert_eq!(after, names, "Graph 가 바뀌었다");
     }
+
 }

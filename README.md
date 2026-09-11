@@ -306,6 +306,8 @@ layer를 목표로 한다.
 - [GIL Will Model v0.1](spec/GIL_Will_Model_v0.1.md)
 - [GIL Manual Model v0.1](spec/GIL_Manual_Model_v0.1.md)
 - [GIL Storage Model v0.1](spec/GIL_Storage_Model_v0.1.md)
+- [GIL Monitor Model v0.1](spec/GIL_Monitor_Model_v0.1.md)
+- [GIL Host UI Model v0.1](spec/GIL_Host_UI_Model_v0.1.md)
 - [Machine-readable grammar](spec/gil-spec.yaml)
 - [Living Roadmap](spec/GIL_Roadmap.md)
 

@@ -1,0 +1,154 @@
+/* GIL Companion — 공용 UI bundle 의 겉모습.
+ *
+ * 계보: Codex Plugin UI 시제품(`widget.html`, 2026-09-08 실측)의 색·타이포·DAG 배치를
+ * 출발점으로 삼았다. 그때의 fixture 전용 모양에서 Project switcher·현재 Cycle 확대·
+ * Step detail·scope 격리를 위해 구조를 다시 짰다.
+ *
+ * **Tauri 를 모른다.** 이 파일에는 Host 이름이 한 번도 나오지 않는다. */
+
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: light-dark(#fafaf8, #1b1d1b);
+  color: light-dark(#202320, #ecefec);
+}
+button, select { font: inherit; color: inherit; }
+
+/* ── 머리 ─────────────────────────────────────────────────────────── */
+.top {
+  height: 52px; padding: 0 14px; display: flex; align-items: center; gap: 9px;
+  border-bottom: 1px solid light-dark(#e0e3de, #363936);
+}
+.mark {
+  width: 27px; height: 27px; border-radius: 8px; background: #566fe8; color: #fff;
+  display: grid; place-items: center; font-weight: 700; font-size: 11px;
+}
+.title { min-width: 0; }
+.title b { display: block; font-size: 12px; }
+.title small { display: block; margin-top: 2px; font-size: 9px; color: #5670e8; }
+
+/* Project switcher — 명시적 scope 전환. 추측하지 않는다. */
+.scope { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.scope label { font-size: 9px; color: light-dark(#777d77, #a9afa9); text-transform: uppercase;
+               letter-spacing: .08em; }
+.scope select {
+  border: 1px solid light-dark(#d5d9d3, #424642); border-radius: 7px;
+  background: light-dark(#fff, #252825); padding: 6px 9px; font-size: 10px; cursor: pointer;
+  max-width: 230px;
+}
+
+/* ── 지금 ─────────────────────────────────────────────────────────── */
+.intro { padding: 14px; }
+.intro small { font-size: 9px; color: light-dark(#777d77, #a9afa9); text-transform: uppercase;
+               letter-spacing: .08em; }
+.intro h1 { font-size: 14px; line-height: 1.4; margin: 5px 0 4px; }
+.intro p { margin: 0; font-size: 10px; color: light-dark(#747a74, #a9afa9); }
+.intro .world { display: inline-block; margin-top: 6px; padding: 2px 7px; border-radius: 6px;
+                font-size: 9px; border: 1px solid light-dark(#d5d9d3, #424642); }
+
+/* ── Step DAG — 기본 화면 ─────────────────────────────────────────── */
+.map { margin: 0 14px; padding: 0; border: 1px solid light-dark(#dee1dc, #373b37);
+       background: light-dark(#fff, #202320); overflow: auto; max-height: 52vh; }
+.stage { position: relative; }
+.stage .wires, .stage .arrow { position: absolute; left: 0; top: 0; pointer-events: none; }
+.stage .layer { position: absolute; inset: 0; }
+.stage .cards { position: absolute; inset: 0; pointer-events: none; }
+
+.edge { fill: none; stroke: light-dark(#a9b0a9, #626962); stroke-width: 1.6; }
+.edge.revisit { stroke: #c8645b; stroke-dasharray: 4 3; stroke-width: 1.6; }
+.head.revisit { fill: #c8645b; }
+
+/* Step node — 작은 원. 고른 것도 카드로 키우지 않고 강조만 더한다(§6.1-1). */
+.node {
+  position: absolute; transform: translate(-50%, -50%); padding: 0; cursor: pointer;
+  border-radius: 50%; background: light-dark(#fff, #252825);
+}
+.node.step { width: 13px; height: 13px; border: 2px solid var(--kind, #9aa29a); }
+.node.step[data-here="true"] { box-shadow: 0 0 0 3px rgba(86, 111, 232, .22); }
+.node.step[aria-selected="true"] { width: 19px; height: 19px; border-width: 3px;
+                                   border-color: #566fe8; z-index: 3; }
+.node:focus-visible { outline: 2px solid #566fe8; outline-offset: 3px; }
+
+/* Step kind 의 색 — **보조 수단이다.** 뜻은 aria-label 과 요약 카드가 진다(§6.1-5). */
+.node.step[data-kind="question"], .node.step[data-kind="hypothesis"] { --kind: #566fe8; }
+.node.step[data-kind="interpretation"], .node.step[data-kind="verify"] { --kind: #2f9e6e; }
+.node.step[data-kind="define"], .node.step[data-kind="analysis"] { --kind: #c98a2f; }
+.node.step[data-kind="synthesis"], .node.step[data-kind="outcome"] { --kind: #9a5bc0; }
+
+/* 접힌 Cycle — 조금 더 큰 원 하나에 식별자(§6.1-8). */
+.node.cycle {
+  width: 26px; height: 26px; border: 2px dashed light-dark(#9aa29a, #6b726b);
+  font-size: 8px; font-weight: 700; letter-spacing: -.02em; z-index: 2;
+}
+.node.cycle[data-verdict="failure"] { border-color: #c8645b; }
+.node.cycle[aria-selected="true"] { border-color: #566fe8; border-style: solid; }
+
+/* Cycle 경계 — 점선 상자와 이름. **클릭을 가로막지 않는다.** */
+.bound {
+  position: absolute; border: 1px dashed light-dark(#c9cfc8, #4a504a); border-radius: 8px;
+  pointer-events: none;
+}
+.bound[data-relation="revisit_source"], .bound[data-relation="abandoned"],
+.bound[data-relation="other"] { border-color: light-dark(#dfc4c1, #6b4f4c); }
+/* 이름은 왼쪽 위, control 은 오른쪽 위. 식별자가 길어져도 서로 닿지 않게 이름이 쓸 수
+   있는 폭을 control 앞까지로 묶는다 — 전체 이름은 `title` 이 지닌다. */
+.bound-name { position: absolute; left: 4px; top: -9px; font-size: 8px; font-weight: 700;
+              padding: 0 3px; background: light-dark(#fff, #202320);
+              color: light-dark(#6f756f, #9aa09a);
+              max-width: calc(100% - 30px); overflow: hidden; text-overflow: ellipsis;
+              white-space: nowrap; }
+/* 접기 control 은 **경계 안쪽**에 앉는다.
+
+   상자 밖으로 걸치면 열과 열 사이의 좁은 틈(COL_W − BOX_W = 14px)을 먹어, 되돌아감
+   점선이 지나는 통로가 버튼 아래로 숨는다(2026-09-11 실측). 통로를 비키게 하거나
+   점선을 버튼 위로 올려 덮지 않고, **control 을 제자리로 들인다.**
+
+   3px 은 focus ring 까지 경계 안에 드는 **가장 작은** 값이다 — 2px 이면 ring 이 점선을
+   1px 넘는다(`outline: 2px` + `outline-offset: 2px` = 바깥으로 4px). */
+.fold {
+  position: absolute; right: 3px; top: -11px; width: 18px; height: 18px; line-height: 1;
+  border-radius: 50%; border: 1px solid light-dark(#c9cfc8, #4a504a);
+  background: light-dark(#fff, #252825); font-size: 11px; cursor: pointer;
+  pointer-events: auto; display: grid; place-items: center; padding: 0; z-index: 4;
+}
+.fold:hover { border-color: #566fe8; }
+.fold:focus-visible { outline: 2px solid #566fe8; outline-offset: 2px; }
+
+/* 고른 node 옆의 짧은 요약 카드 — **pointer event 를 가로채지 않는다**(§6.1-6). */
+.card {
+  position: absolute; width: 186px; pointer-events: none; z-index: 5;
+  border: 1px solid light-dark(#d1d5cf, #444944); border-radius: 9px;
+  background: light-dark(#fffffff2, #252825f2); padding: 7px 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .08);
+}
+.card small { display: block; font-size: 8px; color: #566fe8; }
+.card b { display: block; margin-top: 2px; font-size: 10px; }
+.card p { margin: 4px 0 0; font-size: 9px; line-height: 1.4;
+          color: light-dark(#656b65, #b9beb9); }
+/* 굵고 반투명한 파란 화살표 — 어느 node 의 설명인지 곧바로 보이게. */
+.lead { fill: none; stroke: rgba(86, 111, 232, .45); stroke-width: 5; stroke-linecap: round; }
+.lead-head { fill: rgba(86, 111, 232, .45); }
+
+/* ── 고른 것의 상세 ───────────────────────────────────────────────── */
+.detail { margin: 12px 14px 0; border-top: 1px solid light-dark(#e0e3de, #343734);
+          padding: 12px 0; }
+.detail small { font-size: 9px; color: #566fe8; }
+.detail h2 { font-size: 13px; margin: 5px 0; }
+.detail dl { margin: 6px 0 0; font-size: 10px; }
+.detail dt { font-weight: 700; margin-top: 6px; }
+.detail dd { margin: 2px 0 0; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+             color: light-dark(#656b65, #b9beb9); }
+.detail .empty { font-size: 10px; color: light-dark(#8b918b, #949a94); }
+
+/* ── 상태 ─────────────────────────────────────────────────────────── */
+.status {
+  margin-top: 12px; padding: 10px 14px; border-top: 1px solid light-dark(#e0e3de, #343734);
+  display: flex; gap: 7px; align-items: center; font-size: 9px;
+  color: light-dark(#6f756f, #aeb4ae);
+}
+.status i { width: 7px; height: 7px; border-radius: 50%; background: #39a56d; }
+.notice { display: none; padding: 7px 14px; background: light-dark(#fff3d9, #483d25);
+          font-size: 9px; color: light-dark(#735a1d, #ead28f); }
+.notice[data-shown="true"] { display: block; }

@@ -3,9 +3,15 @@ name = "gil"
 version = "0.1.0"
 edition = "2024"
 
+# Companion 은 **따로 서 있는 crate** 다. `gil` 은 그것에 기대지 않으므로 CLI 가 Tauri·webview
+# 의존성을 한 줄도 끌고 오지 않는다. `cargo build`·`cargo test` 는 여전히 `gil` 만 짓는다.
+[workspace]
+members = ["companion"]
+
 [dependencies]
 libc = "0.2.189"
 notify = "8.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 serde_norway = "0.9.42"
 sha2 = { version = "0.10", default-features = false, features = ["std"] }

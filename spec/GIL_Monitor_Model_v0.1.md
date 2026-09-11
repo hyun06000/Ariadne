@@ -487,15 +487,34 @@ MonitorSnapshot
   → 선택한 지점의 semantic HTML 설명
 ```
 
-첫 시각화의 해상도는 다음과 같다.
+#### 단방향 Step DAG
 
-- Cycle은 전체 여정의 큰 node다.
-- parent 관계는 실선, revisit 전환은 형태가 다른 점선으로 그린다.
-- active lineage는 구조적으로 두드러지고 inactive branch는 뒤로 낮춘다.
-- 현재 Cycle만 내부 Step을 펼친다. 과거 Cycle의 Step Graph는 기본적으로 접는다.
-- 현재 Step은 위치 표식과 `현재`라는 글을 함께 가진다.
-- success, failure, open, closed는 색뿐 아니라 shape·line·icon·label로 구분한다.
-- typed reference는 상세 정보에 보존하되 초보자의 첫 읽기에서 가장 큰 label로 쓰지 않는다.
+Human Monitor Graph에서 **화면에 찍히는 기본 node는 Step**이다. Cycle을 큰 node로 놓고 Cycle
+사이를 자유로운 2차원 선으로 연결하지 않는다. GIL의 실행은 앞으로 새 Step과 Cycle을 낳으므로,
+Git Graph처럼 하나의 시간축을 따라 자라는 DAG로 표현한다.
+
+- 기본 진행 방향은 위에서 아래다. 새로 생긴 node는 이전 node보다 아래에 놓인다.
+- 의미상 과거를 참조하는 revisit도 화면에서 뒤로 향하는 edge를 만들지 않는다.
+- revisit 뒤의 새 시도는 다음 시간 위치에 새 lane으로 나타난다. 어느 과거 경계에서 세계를
+  이어받았는지는 lane의 출발점과 `다시 시도` 표식으로 표현한다.
+- Step의 parent edge는 진행 방향을 거슬러 올라가지 않는다.
+- active path는 하나의 계속되는 lane으로 읽히고, 버린 시도는 옆 lane에서 끝난다.
+- 실패, success와 현재 위치는 색뿐 아니라 node shape·icon·label로 구분한다.
+- 각 Step 옆에는 kind와 사람이 읽을 수 있는 짧은 요약을 둔다. typed reference는 작은 보조
+  정보이며 가장 큰 label로 쓰지 않는다.
+
+#### 위계는 node가 아니라 시각적 group이다
+
+- Cycle은 그 안의 Step들을 감싸는 점선 경계, 배경 띠, 색상 또는 side rail로 나타낸다.
+- Cycle Entry와 Exit은 필요하면 경계 표식으로 나타내되 Step보다 큰 독립 node로 만들지 않는다.
+- Chain이 구현되면 여러 Cycle group을 감싸는 한 단계 바깥 group 또는 rail로 나타낸다.
+- group은 Graph의 진행 방향을 바꾸지 않는다.
+- 같은 Cycle의 Step은 공간적으로 연속되어 보여야 한다.
+- Cycle과 Chain의 접기·펼치기는 장차 가능한 interaction이지만, interaction 계약이 없는 첫
+  교정에서는 정적인 group 표현부터 검증한다.
+
+화면은 자유 배치 graph가 아니다. lane 수는 branch 수만큼만 늘고, edge는 정해진 rail을 따라
+이동한다. node를 피해 임의의 곡선을 찾는 routing보다 **일관된 시간축과 lane 문법**을 우선한다.
 
 Graph 위나 바로 옆의 focus panel은 다음 세 의미를 가장 먼저 보여 준다.
 
@@ -530,14 +549,19 @@ MonitorSnapshot → VisualGraph   무엇을 어디에 놓을지 (Project를 다�
 VisualGraph     → inline SVG    정해진 자리를 그린다
 ```
 
-`MAX_VISUAL_CYCLES = 64`, `MAX_VISUAL_STEPS = 32`. 상한을 넘으면 현재 Cycle, 그 부모, 현재
-위치로 이어진 revisit의 출처와 대상, 그 전환을 설명하는 실패 갈래를 먼저 남기고 나머지를
-`이전 Cycle N개` 하나로 접는다. **접힌 것은 삭제되지 않고** 아래 상세 기록에 그대로 있다.
-활성 여부를 ID 크기로 추정하지 않는다 — 계보 목록과 `relation_to_current`가 이미 말한다.
+기존 첫 구현의 `Cycle = 큰 node` layout은 2026-09-05 인간 검토에서 폐기 대상으로 판정됐다.
+Cycle node 셋과 두 종류의 edge를 자유로운 2차원 경로로 연결하자 작은 예시에서도 선이 서로
+감싸고 교차해 진행 방향을 읽기 어려웠다. 다음 구현은 같은 `VisualGraph` 분리를 유지하되,
+`Step = node`, `Cycle/Chain = group`, `time = 한 방향`, `branch = lane`으로 layout 의미를 교체한다.
 
-SVG에 들어가는 글은 renderer가 소유한 낱말과 typed reference뿐이다. **사용자 문장은 그림에
-한 조각도 들어가지 않는다** — 그래서 긴 문장이 그림의 폭을 늘릴 수 없고, 신뢰하지 않는 글이
-markup이 될 통로가 아예 없다. 그래도 모든 text node를 escape한다.
+표시 상한은 유지하되 Step 중심으로 다시 정의한다. 현재 위치와 현재로 이어진 전환을 먼저 남기고
+오래된 구간은 `이전 Step N개` 또는 `이전 Cycle N개` group으로 접는다. **접힌 것은 삭제되지 않고**
+아래 상세 기록에 그대로 있다. 활성 여부와 시간 순서를 단순한 ID 크기 비교로 추정하지 않고,
+검증된 구조와 append-only 발급 순서를 사용한다.
+
+Step 옆의 짧은 설명은 Report에서 투영할 수 있다. 이 문자열은 반드시 escape하고 정해진 글자 수와
+줄 수 안에서 시각적으로 줄이며, 원문 전체는 semantic detail에 보존한다. 사용자 문자열을 SVG의
+element·attribute·CSS·ID·좌표나 path data로 사용하지 않는다.
 
 `marker`와 `url(#…)` 참조를 쓰지 않고 화살촉도 계산된 path로 그린다. 참조가 하나도 없는
 그림이 위 규칙을 지키기 쉽다.
@@ -713,6 +737,81 @@ server를 아예 거절하지 않는 이유는 두 가지다. 읽기 전용 화�
 - derived HTML, token과 cache를 프로젝트에 남기지 않는다.
 - server가 종료되면 URL은 더 이상 응답하지 않는다.
 
+### 8.8 기본 사용자 표면 — Agent Host 안의 Monitor
+
+loopback server는 인간 사용자의 기본 진입점이 아니다. GIL의 직접 사용자는 Agent이고, 인간은
+이미 Codex·Claude Desktop 같은 Agent Host 안에서 그 Agent와 협업한다. 따라서 이상적인 최종
+경로는 **현재 대화와 같은 Host 안에서 열리는 지속형 Monitor 표면**이다. 현재 Host가 그 수명을
+제공하지 않는 동안에는 하나의 Tauri Companion을 v0 기본 경로로 사용한다.
+
+```text
+Human
+  → Agent Host의 chat
+      ├─ Agent → typed GIL action → GIL Core
+      └─ Human → embedded Monitor → MonitorSnapshot
+```
+
+사람은 세션마다 server를 실행하거나 browser의 port·capability URL을 기억하지 않는다. Tauri
+Companion은 한 번 실행한 창에서 Project를 명시적으로 등록·전환한다. Host가 persistent embedded
+UI를 지원하면 Agent의 receipt, 상태 chip 또는 명시적 「여정 보기」에서 같은 창의 panel이나 PiP
+surface를 열고, 현재 대화가 가리키는 Project와 Current Existence를 Host가 아는 범위 안에서
+이어받는다. 어느 UI도 cwd나 최근 폴더를 추측해 다른 Project를 고르지 않는다.
+
+Host별 UI API는 GIL의 domain 계약이 아니다. GIL은 다음 중립 경계만 소유한다.
+
+```text
+GIL Core
+  → owned MonitorSnapshot
+  → Host UI adapter
+  → interactive presentation state
+
+Human intent
+  → Host UI adapter
+  → typed GIL action request
+  → GIL Core
+  → receipt 또는 typed refusal
+```
+
+이 경계의 wire model, presentation intent, on-demand detail과 호환성 규칙은
+`GIL Host UI Model v0.1`이 소유한다. 이 문서의 `MonitorSnapshot`은 내부 read model이며 Host에
+그대로 직렬화하지 않는다.
+
+#### 표현 동작과 의미 동작을 가른다
+
+다음은 presentation state만 바꾸며 Graph·Journey·Will·Artifact를 바꾸지 않는다.
+
+- pan, zoom, 현재 위치로 이동
+- Step 선택과 detail panel 열기
+- Cycle 접기·펼치기
+- 현재 경로·실패 갈래·Interview 표시 filter
+- 화면의 임시 정렬과 viewport 상태
+
+다음은 GIL의 의미 상태를 바꾸므로 UI가 직접 수행하거나 `.gil`을 수정하지 않는다.
+
+- 승인과 거절
+- Node·Cycle 열기와 닫기
+- revisit
+- restore
+- 다음 실험 시작
+
+이 동작들은 Host adapter가 typed GIL action으로 요청하고, GIL Core의 기존 gate·transaction과
+receipt를 그대로 지난다. 화면의 button이 domain 규칙을 복제하거나 우회하지 않는다.
+
+#### 전달과 갱신
+
+- Host는 한 번에 완전한 `MonitorSnapshot` 하나를 UI에 전달한다.
+- 이후의 event나 channel은 **다시 읽을 때가 되었다는 hint**일 뿐 Graph 사건이 아니다.
+- UI는 partial event를 기존 Snapshot에 합쳐 새 사실을 만들지 않는다.
+- 선택·접기·filter는 Host 또는 UI process의 수명이 짧은 presentation state이며 `.gil`에 쓰지
+  않는다.
+- Project가 바뀌면 이전 Project의 Snapshot과 presentation state를 현재 화면에 섞지 않는다.
+- Host가 지속형 embedded UI를 제공하지 않으면 하나의 Tauri Companion으로 물러난다. loopback
+  browser는 개발·진단용 최후 fallback이다. fallback이 기본 계약을 더 약하게 만들거나 다른 사실을
+  보여서는 안 된다.
+
+첫 embedded Monitor는 관찰 전용이다. write action button은 Human Checkpoint의 domain 계약과
+Host의 명시적 승인 경계가 모두 생긴 뒤에만 추가한다.
+
 ---
 
 ## 9. 시각 자료와 인간 승인
@@ -882,14 +981,15 @@ focus panel은 아래 순서를 둔다.
 
 ## 12. 현재 결정하지 않는 것
 
-- loopback Monitor를 Tauri 또는 별도 desktop shell로 포장하는 시점
+- Host별 embedded UI API와 packaging 방식
+- 여러 Agent Host 사이에서 presentation state를 이어받는 방식
 - Unix 밖의 platform을 위한 entropy provider와 배포 지원 범위
 - 외부에 공개할 JSON schema와 versioning
 - 전체 history의 검색과 필터
 - Chain projection
 - 시각 자료 저장 schema와 media type
 - 인간 승인 상태와 write command
-- 여러 프로젝트를 한 화면에서 보는 방식
+- 여러 프로젝트를 동시에 한 화면에 비교하는 방식
 - 원격 Monitor와 인증
 - 사용자별 화면 설정의 저장 위치
 
@@ -902,3 +1002,7 @@ focus panel은 아래 순서를 둔다.
 
 > **화면 기술보다 먼저 사실의 경계와 부재를 정의한다. 아직 존재하지 않는 Chain, 승인과 시각
 > 자료를 UI가 지어내지 않는다.**
+
+> **인간의 이상적인 Monitor는 Agent와 대화하는 Host의 지속형 surface에 열린다. 현재 Host가 그
+> surface를 제공하지 않으므로 v0의 기준 구현은 여러 Project를 전환할 수 있는 하나의 Tauri
+> Companion이며, browser는 개발·진단용 fallback이다.**

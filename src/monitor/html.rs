@@ -79,21 +79,52 @@ section.focus dd { margin-bottom: 0.6rem; }
 details.record { margin-top: 1.5rem; }
 details.record summary { font-weight: 700; padding: 0.5rem 0; cursor: default; }
 details.record h2 { font-size: 1.05rem; }
-ul.legend { list-style: none; padding-left: 0; font-size: 0.9rem; }
-ul.legend li { margin: 0.15rem 0; }
+ol.legend { padding-left: 1.25rem; }
+ol.legend li { margin: 0.15rem 0; }
 svg.graph { display: block; width: 100%; height: auto; max-width: 100%; overflow: visible; }
 svg.graph text { font-family: inherit; fill: currentColor; }
-svg.graph .g-name { font-size: 15px; font-weight: 700; }
-svg.graph .g-mark { font-size: 12px; }
-svg.graph .g-ref { font-size: 10px; opacity: 0.65; }
-svg.graph .g-here { font-size: 11px; font-weight: 700; text-anchor: end; }
-svg.graph .g-step .g-here { text-anchor: middle; }
-svg.graph .g-aside { font-size: 11px; text-anchor: end; opacity: 0.7; }
-svg.graph .g-step-name { font-size: 12px; text-anchor: middle; }
-svg.graph .g-off { opacity: 0.55; }
-svg.graph .g-folded { opacity: 0.55; }
-@media (max-width: 640px) {
-  svg.graph { overflow: visible; }
+svg.graph .g-kind { font-size: 13px; font-weight: 700; }
+svg.graph .g-said { font-size: 12px; }
+svg.graph .g-mark { font-size: 11px; font-weight: 700; }
+svg.graph .g-ref { font-size: 10px; opacity: 0.6; text-anchor: end; }
+svg.graph .g-here { font-size: 11px; font-weight: 700; }
+svg.graph .g-cycle .g-here { text-anchor: end; }
+svg.graph .g-group { font-size: 12px; font-weight: 700; }
+svg.graph .g-group-mark { font-size: 11px; opacity: 0.8; }
+svg.graph .g-origin { font-size: 11px; opacity: 0.85; }
+svg.graph .g-folded { font-size: 11px; opacity: 0.6; }
+svg.graph .g-off { opacity: 0.5; }
+svg.graph .g-link { opacity: 0.4; }
+ol.legend ol { font-size: 0.95rem; opacity: 0.9; }
+
+/* 그림과 목록은 **같은 사실의 두 표현**이다. 그래서 둘 다 두되, 한 번에 하나만 보인다.
+   숨는 쪽도 접근성 나무에서는 사라지지 않는다 — `display: none` 도 `aria-hidden` 도
+   쓰지 않고 자리만 1px 로 접어 둔다. 전환은 CSS 뿐이고 JavaScript 는 없다.
+
+   699px 은 재어서 고른 값이다. 700px 폭에서 그림의 가장 작은 글자가 아직 읽히고
+   (kind 11.6px · 주소 8.9px), 그보다 좁아지면 읽을 수 없게 줄어든다. */
+.for-readers {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 699px) {
+  svg.graph { display: none; }
+  .for-readers {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
 }
 code { font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; overflow-wrap: anywhere; }
 ";
@@ -245,39 +276,54 @@ fn picture(out: &mut String, seen: &MonitorSnapshot) {
     out.push_str("<section class=\"picture\">\n");
     heading(out, "여정");
     out.push_str(&svg::render_monitor_svg(&plan));
-    out.push_str("<ul class=\"legend\">\n");
-    for cycle in &plan.cycles {
-        let standing = match cycle.standing {
-            graph::Standing::Here => "현재",
+    // SVG 를 보지 못하는 환경과 화면 reader 를 위한 같은 사실의 목록 — **그림의 순서
+    // 그대로.** ASCII 그림이 아니라 목록이다.
+    out.push_str("<div class=\"for-readers\">\n");
+    if let Some(folded) = &plan.folded {
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", text(&folded.says()));
+    }
+    out.push_str("<ol class=\"legend\">\n");
+    for group in &plan.groups {
+        let standing = match group.standing {
+            graph::Standing::Here => "현재 Cycle",
             graph::Standing::Active => "활성 경로",
             graph::Standing::LeftBehind => "지나온 갈래",
         };
         let _ = writeln!(
             out,
-            "<li>{} — {} · {} (<code>{}</code>){}</li>",
-            text(&cycle.name),
+            "<li>{} — {} · {} (<code>{}</code>){}",
+            text(&group.name),
             text(standing),
-            text(cycle.mark.word()),
-            text(&cycle.address),
-            match &cycle.headline {
-                Some(said) => format!(" · {}", text(said)),
+            text(group.mark.word()),
+            text(&group.address),
+            match &group.came_from {
+                Some(origin) => format!(" · {}", text(&origin.says())),
                 None => String::new(),
             }
         );
+        out.push_str("\n<ol>\n");
+        for row in plan.rows.iter().filter(|row| {
+            row.row >= group.from_row && row.row <= group.to_row
+        }) {
+            let _ = writeln!(
+                out,
+                "<li>{}{} — {} (<code>{}</code>){}</li>",
+                text(row.kind),
+                match row.standing {
+                    graph::Standing::Here => " · 현재",
+                    _ => "",
+                },
+                text(row.mark.word()),
+                text(&row.address),
+                match &row.summary {
+                    Some(said) => format!(" · {}", text(said)),
+                    None => String::new(),
+                }
+            );
+        }
+        out.push_str("</ol>\n</li>\n");
     }
-    for edge in &plan.edges {
-        let _ = writeln!(
-            out,
-            "<li>{} → {} — {}</li>",
-            text(&plan.cycles[edge.from].name),
-            text(&plan.cycles[edge.to].name),
-            text(edge.tie.says())
-        );
-    }
-    if let Some(folded) = &plan.folded {
-        let _ = writeln!(out, "<li>{}</li>", text(&folded.says()));
-    }
-    out.push_str("</ul>\n</section>\n");
+    out.push_str("</ol>\n</div>\n</section>\n");
 }
 
 /// **[왜 여기 왔는가]** — 지금 자리로 이어진 전환 하나만.
@@ -310,9 +356,13 @@ fn focus_why(out: &mut String, seen: &MonitorSnapshot) {
                 "이전 시도",
                 &format!(
                     "{} — {} ({})",
-                    graph::name_of(source.kind, &source.cycle_ref.to_string()),
-                    graph::mark_of(source.state, source.report.as_ref().map(|r| r.verdict.as_str()))
-                        .word(),
+                        graph::name_of(source.kind, &source.cycle_ref.to_string()),
+                    graph::mark_of(
+                        source.state,
+                        true,
+                        source.report.as_ref().map(|r| r.verdict.as_str())
+                    )
+                    .word(),
                     source.cycle_ref
                 ),
             );

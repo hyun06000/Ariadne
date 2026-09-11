@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GIL Companion</title>
+  <link rel="stylesheet" href="companion.css">
+</head>
+<body>
+<main id="gil-companion">
+  <header class="top">
+    <div class="mark">G</div>
+    <div class="title"><b>GIL Companion</b><small>현재 여정 · read only</small></div>
+    <div class="scope">
+      <label for="scope">Project</label>
+      <select id="scope"></select>
+    </div>
+  </header>
+  <div class="notice"></div>
+  <section class="intro">
+    <small>지금</small>
+    <h1>불러오는 중…</h1>
+    <p></p>
+    <span class="world"></span>
+  </section>
+  <section class="map" aria-label="Step DAG">
+    <div class="stage">
+      <svg class="wires" aria-hidden="true"></svg>
+      <div class="layer"></div>
+      <div class="cards" aria-hidden="true"></div>
+    </div>
+  </section>
+  <section class="detail" aria-live="polite"></section>
+  <footer class="status"><i></i><span></span></footer>
+</main>
+<!-- Host 가 `window.GIL_HOST` 를 채운다. bundle 은 어느 Host 인지 모른다. -->
+<script src="host.js"></script>
+<script type="module" src="companion.js"></script>
+</body>
+</html>

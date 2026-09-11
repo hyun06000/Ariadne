@@ -15,7 +15,7 @@ use std::process::{Command, Output, Stdio};
 
 use gil::{
     ActionKind, CycleKind, CycleRelation, MonitorSnapshot, NodeKind, NodeStatus, ProjectSession,
-    WorldMark, render_monitor_html, render_monitor_text,
+    TimelineRelation, WorldMark, render_monitor_html, render_monitor_text,
 };
 
 mod common;
@@ -1657,7 +1657,7 @@ fn no_user_string_becomes_a_tag_an_attribute_or_css() {
     let allowed = [
         "!doctype", "html", "head", "meta", "title", "style", "body", "main", "header",
         "h1", "h2", "h3", "p", "section", "dl", "dt", "dd", "ol", "ul", "li", "code",
-        "details", "summary",
+        "details", "summary", "div",
         // 그림이 쓰는 것 — 전부 renderer 가 적는다. `script`·`foreignObject`·`image`·
         // `a`·`use` 는 **여기 없다**, 그러므로 생기면 이 시험이 먼저 깨진다.
         "svg", "desc", "g", "rect", "circle", "path", "text",
@@ -1675,10 +1675,17 @@ fn no_user_string_becomes_a_tag_an_attribute_or_css() {
         let value = chunk.split('"').next().expect("닫는 따옴표가 있다");
         assert!(
             [
-                "note", "path", "branch", "focus", "picture", "record", "legend",
-                "graph", "g-cycle g-now", "g-cycle g-on", "g-cycle g-off", "g-name",
-                "g-mark", "g-ref", "g-here", "g-aside", "g-step", "g-step-name",
-                "g-sign", "g-parent", "g-revisit", "g-head", "g-folded",
+                "note", "path", "branch", "focus", "picture", "record", "legend", "graph",
+                // Cycle 그룹
+                "g-cycle g-now", "g-cycle g-on", "g-cycle g-off", "g-rail", "g-group",
+                "g-group-mark", "g-origin",
+                // Step 행
+                "g-step g-now", "g-step g-on", "g-step g-off", "g-dot", "g-ring", "g-sign",
+                "g-kind", "g-said", "g-mark", "g-ref", "g-here",
+                // 줄과 선
+                "g-lane", "g-stop", "g-turn", "g-head", "g-folded", "g-link",
+                // 그림과 목록을 가르는 자리
+                "for-readers",
             ]
             .contains(&value),
             "renderer 가 모르는 class {value:?} 가 생겼다"
@@ -2498,15 +2505,21 @@ fn the_three_projections_tell_the_same_story() {
         assert!(picture.contains(address), "그림에 {address} 가 없다");
     }
 
-    // ② parent 와 revisit 이 **서로 다른 것으로** 나타난다.
-    assert!(picture.contains("이 결과를 바탕으로 다음 실험을 시작함"), "{picture}");
-    assert!(picture.contains("이전 질문으로 돌아가 다른 방법을 시도함"), "{picture}");
-    assert!(picture.contains("class=\"g-parent\""), "부모의 줄이 없다");
-    assert!(picture.contains("class=\"g-revisit\""), "되돌아감의 줄이 없다");
+    // ② 앞으로 나아간 것과 되돌아간 것이 **서로 다른 문법으로** 나타난다.
+    //    진행은 선이고, 되돌아감은 **선이 아니라 lane 출발점의 글**이다.
+    assert!(picture.contains("class=\"g-turn\""), "갈래로 나아가는 선이 없다");
+    assert!(picture.contains("class=\"g-lane\""), "lane 이 없다");
+    assert!(picture.contains("실패 뒤"), "되돌아감의 유래가 없다:\n{picture}");
+    assert!(picture.contains("다시 시도"), "되돌아감을 말하지 않는다");
+    // 그리고 **위로 향하는 화살표가 없다** — 화살촉은 아래를 가리키는 모양 하나뿐이다.
+    for head in picture.lines().filter(|line| line.contains("class=\"g-head\"")) {
+        assert!(head.contains("l -4 -7 l 8 0 z"), "위를 가리키는 화살촉이 생겼다: {head}");
+    }
 
     // ③ 활성과 비활성이 셋 다에서 갈린다.
-    assert!(picture.contains("현재"), "그림이 지금을 말하지 않는다");
+    assert!(picture.contains("현재 Cycle"), "그림이 지금을 말하지 않는다");
     assert!(picture.contains("지나온 갈래"), "그림이 두고 온 갈래를 말하지 않는다");
+    assert!(picture.contains("class=\"g-stop\""), "끝난 갈래를 막지 않았다");
     assert!(plain.contains("활성 경로") && plain.contains("지나온 갈래"), "{plain}");
 
     // ④ 종류·상태·판정.
@@ -2518,7 +2531,16 @@ fn the_three_projections_tell_the_same_story() {
     // ⑤ 현재 Cycle 과 현재 Step.
     let here_step = seen.current_step.as_ref().expect("열린 자리").step_ref.to_string();
     assert!(plain.contains(&here_step) && html.contains(&here_step), "현재 Step 이 없다");
-    assert!(picture.contains("검증"), "그림이 현재 Step 을 펼치지 않았다");
+    assert!(picture.contains(&here_step), "그림에 현재 Step 이 없다");
+    assert!(picture.contains("검증"), "그림이 Step 의 종류를 말하지 않는다");
+    // 그림의 기본 node 는 Step 이다 — 과거 Cycle 의 Step 도 빠지지 않는다.
+    for step in seen.timeline.iter().flat_map(|entry| &entry.steps) {
+        assert!(
+            picture.contains(&step.step_ref.to_string()),
+            "그림에 {} 가 없다",
+            step.step_ref
+        );
+    }
 
     // ⑥ 질문 · 성공 기준 · 작업 행동 · 완료 조건 · GIL 명령 — 글과 HTML 에 모두.
     let define = seen.current_cycle.facts.experiment_definition.as_ref().expect("정의");
@@ -2550,4 +2572,842 @@ fn the_plain_text_gains_no_drawing() {
     }
     // 그리고 사실은 그대로 있다.
     assert!(plain.contains("cycle:C2") && plain.contains("cycle:C3"), "{plain}");
+}
+
+// ── ⑥ 전체 Step 시간선 ────────────────────────────────────────────────────
+//
+// Step DAG 를 그리려면 **모든 Cycle 의 Step 이** 필요하다. 그러나 Cycle 해상도의 계약은
+// 그대로 두었으므로, 이 절은 새 칸 하나가 구조의 순서를 그대로 옮겼는지만 잰다.
+
+#[test]
+fn the_timeline_holds_every_cycle_in_the_order_the_domain_issued_them() {
+    let dir = reading_one("timeline-issue-order");
+    let seen = monitor(&dir);
+
+    // 도메인이 발급한 순서를 **직접** 읽어 와 견준다 — 시험이 순서를 지어내지 않는다.
+    let session = ProjectSession::open(spec(), state_in(&dir)).expect("되살린다");
+    let issued: Vec<String> = session
+        .project()
+        .cycles()
+        .nodes()
+        .iter()
+        .map(|cycle| cycle.id().to_ref().to_string())
+        .collect();
+    drop(session);
+
+    let shown: Vec<String> = seen
+        .timeline
+        .iter()
+        .map(|entry| entry.facts.cycle_ref.to_string())
+        .collect();
+    assert_eq!(shown, issued, "시간선이 발급 순서와 다르다");
+    assert!(shown.len() >= 3, "이 시나리오는 Cycle 셋이다: {shown:?}");
+}
+
+#[test]
+fn every_cycle_keeps_the_step_order_the_walk_made() {
+    let dir = reading_one("timeline-step-order");
+    let seen = monitor(&dir);
+    let session = ProjectSession::open(spec(), state_in(&dir)).expect("되살린다");
+
+    for entry in &seen.timeline {
+        let cycle = session
+            .project()
+            .cycles()
+            .nodes()
+            .iter()
+            .find(|cycle| cycle.id().to_ref() == entry.facts.cycle_ref)
+            .expect("도메인에 있는 Cycle");
+        let made: Vec<String> = cycle
+            .steps()
+            .nodes()
+            .iter()
+            .map(|node| cycle.step_ref(node.id).to_string())
+            .collect();
+        let shown: Vec<String> = entry.steps.iter().map(|s| s.step_ref.to_string()).collect();
+        assert_eq!(shown, made, "{} 의 Step 순서가 다르다", entry.facts.cycle_ref);
+    }
+}
+
+#[test]
+fn the_past_and_the_abandoned_cycles_bring_their_steps_too() {
+    let dir = reading_one("timeline-past-steps");
+    let seen = monitor(&dir);
+
+    // 계보 위의 조상(C1)도, 두고 온 실패 갈래(C2)도 Step 을 지니고 온다.
+    for address in ["cycle:C1", "cycle:C2"] {
+        let entry = seen
+            .timeline
+            .iter()
+            .find(|entry| entry.facts.cycle_ref.to_string() == address)
+            .unwrap_or_else(|| panic!("{address} 이 시간선에 없다"));
+        assert!(!entry.steps.is_empty(), "{address} 의 Step 이 비었다");
+    }
+    // 그런데 Cycle 해상도의 계약은 그대로다 — 조상은 여전히 Step 을 지니지 못한다.
+    let ancestor = &seen.active_lineage[0];
+    assert_eq!(ancestor.cycle_ref.to_string(), "cycle:C1");
+    // (타입에 `steps` 칸이 없으므로 이 줄이 컴파일되는 것 자체가 그 증거다.)
+    let _: &gil::CycleFacts = ancestor;
+}
+
+#[test]
+fn the_order_follows_structure_even_when_the_numbers_do_not() {
+    // `reading_one` 은 C1 → C2(실패) → 되돌아가 C3. 계보는 [C1, C3] 이고 C2 는 그 사이의
+    // 번호를 쓴다 — **번호로 정렬하면 C2 가 계보 한가운데로 끼어든다.**
+    let dir = reading_one("timeline-not-by-number");
+    let seen = monitor(&dir);
+    let at = |address: &str| {
+        seen.timeline
+            .iter()
+            .position(|entry| entry.facts.cycle_ref.to_string() == address)
+            .unwrap_or_else(|| panic!("{address} 이 없다"))
+    };
+    // 구조가 정한 순서: 부모는 언제나 자식보다 먼저다.
+    assert!(at("cycle:C1") < at("cycle:C2"), "부모가 자식보다 뒤에 있다");
+    assert!(at("cycle:C1") < at("cycle:C3"), "부모가 자식보다 뒤에 있다");
+    // 되돌아감의 출처도 새 시도보다 먼저다.
+    assert!(at("cycle:C2") < at("cycle:C3"), "실패한 갈래가 새 시도보다 뒤에 있다");
+    // 그리고 그 순서는 발급 순서이지 정렬한 결과가 아니다.
+    let addresses: Vec<String> = seen.timeline.iter().map(|e| e.facts.cycle_ref.to_string()).collect();
+    let mut sorted = addresses.clone();
+    sorted.sort();
+    assert_eq!(addresses, sorted, "이 시나리오에서는 우연히 같다 — 위 구조 단언이 본체다");
+}
+
+#[test]
+fn a_summary_is_the_report_field_itself_not_a_retelling() {
+    let dir = reading_one("timeline-summary-source");
+    let seen = monitor(&dir);
+    let session = ProjectSession::open(spec(), state_in(&dir)).expect("되살린다");
+
+    // kind 마다 정해진 칸 하나에서 **원문 그대로** 온다.
+    let field_of = |kind: NodeKind| -> Option<&'static str> {
+        match kind {
+            NodeKind::Question => Some("question"),
+            NodeKind::Interpretation | NodeKind::Analysis => Some("interpretation"),
+            NodeKind::Synthesis => Some("statement"),
+            NodeKind::Define => Some("problem"),
+            NodeKind::Hypothesis => Some("hypothesis"),
+            NodeKind::Verify => Some("result"),
+            NodeKind::Outcome => Some("lesson"),
+            NodeKind::CycleEntry | NodeKind::CycleExit => None,
+        }
+    };
+    let mut checked = 0usize;
+    for entry in &seen.timeline {
+        let cycle = session
+            .project()
+            .cycles()
+            .nodes()
+            .iter()
+            .find(|cycle| cycle.id().to_ref() == entry.facts.cycle_ref)
+            .expect("도메인에 있는 Cycle");
+        for step in &entry.steps {
+            let node = cycle
+                .steps()
+                .nodes()
+                .iter()
+                .find(|node| cycle.step_ref(node.id) == step.step_ref)
+                .expect("도메인에 있는 Step");
+            let expected = field_of(step.kind)
+                .and_then(|field| node.report.as_ref()?.get(field))
+                .map(str::to_string);
+            assert_eq!(step.summary, expected, "{} 의 요약이 원문이 아니다", step.step_ref);
+            if expected.is_some() {
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 5, "요약이 있는 Step 을 충분히 보지 못했다: {checked}");
+
+    // 그리고 그 값이 실제로 사람이 적은 그 문장이다.
+    let define = seen
+        .timeline
+        .iter()
+        .flat_map(|entry| &entry.steps)
+        .find(|step| step.kind == NodeKind::Define && step.summary.is_some())
+        .expect("닫힌 Define");
+    assert!(
+        define.summary.as_deref() == Some(FAILED_PROBLEM)
+            || define.summary.as_deref() == Some(NEW_PROBLEM),
+        "{:?}",
+        define.summary
+    );
+}
+
+#[test]
+fn an_open_step_has_no_summary_yet() {
+    let dir = reading_one("timeline-open-step");
+    let seen = monitor(&dir);
+    let open: Vec<&gil::StepFacts> = seen
+        .timeline
+        .iter()
+        .flat_map(|entry| &entry.steps)
+        .filter(|step| step.state == gil::NodeStatus::Open)
+        .collect();
+    assert!(!open.is_empty(), "이 시나리오에는 열린 Verify 가 있다");
+    for step in open {
+        assert_eq!(step.summary, None, "{} 가 닫히기 전에 요약을 지녔다", step.step_ref);
+    }
+    // 경계 표식도 Report 를 지니지 않는다.
+    for step in seen.timeline.iter().flat_map(|entry| &entry.steps) {
+        if matches!(step.kind, NodeKind::CycleEntry | NodeKind::CycleExit) {
+            assert_eq!(step.summary, None, "경계가 요약을 지녔다");
+        }
+    }
+}
+
+#[test]
+fn a_long_summary_survives_whole_in_the_read_model() {
+    let dir = bare("timeline-long-summary");
+    write(&dir, "work.txt", "처음");
+    let long = "가".repeat(3000);
+    let mut session = ProjectSession::start(spec(), state_in(&dir)).expect("시작한다");
+    *session.project_mut() = bootstrap_from(session.project().clone());
+    opened(session.project_mut(), NodeKind::Define);
+    let rules = spec();
+    session
+        .close_step(
+            full_report(&rules, CycleKind::Experiment, NodeKind::Define)
+                .with("problem", long.clone())
+                .with("success_condition", "짧다"),
+        )
+        .expect("문제를 고정한다");
+    session.commit().expect("눕힌다");
+    drop(session);
+
+    let seen = monitor(&dir);
+    let define = seen
+        .timeline
+        .iter()
+        .flat_map(|entry| &entry.steps)
+        .find(|step| step.kind == NodeKind::Define)
+        .expect("Define");
+    // **read model 은 자르지 않는다.** 자르는 것은 그리는 쪽의 일이다.
+    assert_eq!(define.summary.as_deref(), Some(long.as_str()), "원문이 잘렸다");
+}
+
+#[test]
+fn the_timeline_writes_nothing_and_leaves_no_lock() {
+    let dir = reading_one("timeline-costs-nothing");
+    let before = fs::read(state_in(&dir)).expect("상태를 읽는다");
+    let world_before = fs::read(dir.join("work.txt")).ok();
+
+    // (훑기 횟수 자체는 crate 안의 계수기가 잰다 —
+    //  `monitor::tests::the_timeline_costs_no_extra_look`.)
+    let session = ProjectSession::open(spec(), state_in(&dir)).expect("되살린다");
+    let seen = session.monitor().expect("Snapshot");
+    drop(session);
+
+    assert!(!seen.timeline.is_empty(), "시간선이 비었다");
+    // 아무것도 쓰지 않았다.
+    assert_eq!(before, fs::read(state_in(&dir)).expect("다시 읽는다"), "상태가 바뀌었다");
+    assert_eq!(world_before, fs::read(dir.join("work.txt")).ok(), "작업 파일이 바뀌었다");
+    // 그리고 잠금이 남지 않았다.
+    assert!(ProjectSession::open(spec(), state_in(&dir)).is_ok(), "잠금이 남았다");
+}
+
+#[test]
+fn the_plain_text_does_not_unroll_the_timeline() {
+    // 새 칸이 생겼다고 글 화면이 전체 history 가 되지 않는다.
+    let dir = reading_one("timeline-text-unchanged");
+    let seen = monitor(&dir);
+    let plain = rendered(&dir);
+
+    // 글 화면이 적는 Step 은 **서 있는 자리 하나뿐**이다.
+    let here = seen.current_step.as_ref().expect("열린 자리").step_ref.to_string();
+    assert!(plain.contains(&here), "서 있는 자리가 없다:\n{plain}");
+
+    // 시간선의 **다른 모든 Step 은 한 줄도 나오지 않는다** — 지금 Cycle 의 지나간
+    // Step 도, 과거 Cycle 의 Step 도. 새 칸이 글 화면을 전체 history 로 만들지 않았다.
+    let mut hidden = 0usize;
+    for step in seen.timeline.iter().flat_map(|entry| &entry.steps) {
+        let address = step.step_ref.to_string();
+        if address == here {
+            continue;
+        }
+        assert!(
+            !plain.contains(&address),
+            "글 화면이 Step {address} 를 늘어놓았다"
+        );
+        hidden += 1;
+    }
+    assert!(hidden >= 8, "감춰진 Step 이 너무 적어 이 시험이 잡는 것이 없다: {hidden}");
+
+    // (글 화면이 새 칸을 아예 읽지 않는다는 것은 lib 시험이 바이트로 잰다 —
+    //  `monitor::text::tests::the_text_never_reads_the_timeline`.)
+}
+
+// ── ⑦ 그림과 목록 — 같은 사실의 두 표현 ──────────────────────────────────
+
+/// `<style>` 안의 규칙 하나를 잘라 낸다.
+fn rule_of(html: &str, selector: &str) -> String {
+    let style = html
+        .split("<style>")
+        .nth(1)
+        .and_then(|rest| rest.split("</style>").next())
+        .expect("stylesheet");
+    let at = style
+        .find(selector)
+        .unwrap_or_else(|| panic!("{selector} 규칙이 없다"));
+    let rest = &style[at..];
+    let end = rest.find('}').map(|end| end + 1).unwrap_or(rest.len());
+    rest[..end].to_string()
+}
+
+#[test]
+fn the_wide_screen_shows_the_picture_and_folds_the_list_away_from_sight_only() {
+    let dir = reading_one("two-shapes-wide");
+    let html = html_of(&dir);
+
+    // 둘 다 문서 안에 있다.
+    assert!(html.contains("<svg class=\"graph\""), "그림이 없다");
+    assert!(html.contains("<div class=\"for-readers\">"), "목록 감싸개가 없다");
+    assert!(html.contains("<ol class=\"legend\">"), "목록이 없다");
+
+    // 목록은 **눈에서만** 접힌다 — 접근성 나무에서 사라지지 않는다.
+    let folded = rule_of(&html, ".for-readers {");
+    assert!(folded.contains("position: absolute"), "{folded}");
+    assert!(folded.contains("clip-path: inset(50%)"), "{folded}");
+    assert!(!folded.contains("display: none"), "접근성까지 지웠다: {folded}");
+    assert!(!folded.contains("visibility: hidden"), "접근성까지 지웠다: {folded}");
+    // **속성**을 찾는다 — 주석에 적힌 낱말이 아니라.
+    assert!(!html.contains("aria-hidden=\""), "aria-hidden 으로 지웠다");
+    assert!(!html.contains(" hidden>") && !html.contains(" hidden=\""), "hidden 속성을 썼다");
+}
+
+#[test]
+fn the_narrow_screen_hides_the_picture_and_reads_the_list_at_full_size() {
+    let dir = reading_one("two-shapes-narrow");
+    let html = html_of(&dir);
+
+    // 전환은 media query 하나다.
+    let narrow = html
+        .split("@media (max-width: 699px)")
+        .nth(1)
+        .expect("좁은 화면 규칙이 없다");
+    let block = &narrow[..narrow.find("\n}").map(|end| end + 2).unwrap_or(narrow.len())];
+    assert!(block.contains("svg.graph { display: none; }"), "그림을 숨기지 않는다: {block}");
+    assert!(block.contains("position: static"), "목록을 되돌리지 않는다: {block}");
+    assert!(block.contains("clip-path: none"), "목록이 접힌 채로 남는다: {block}");
+    // 본문 크기로 읽힌다 — 목록에 따로 줄인 글씨를 주지 않는다.
+    assert!(!block.contains("font-size: 0.7"), "좁은 화면에서 더 줄였다: {block}");
+
+    // 그리고 이 전환에 JavaScript 가 한 조각도 쓰이지 않는다.
+    assert!(!html.contains("<script"), "JavaScript 가 들어왔다");
+    assert!(!html.contains("onclick") && !html.contains("onload"), "사건 처리기가 들어왔다");
+    assert!(!html.contains("@media (min-width"), "두 방향 규칙이 섞였다");
+}
+
+#[test]
+fn both_shapes_carry_the_same_step_facts() {
+    let dir = reading_one("two-shapes-same-facts");
+    let seen = monitor(&dir);
+    let html = html_of(&dir);
+    let picture = html
+        .split("<section class=\"picture\">")
+        .nth(1)
+        .and_then(|rest| rest.split("</section>").next())
+        .expect("그림 절")
+        .to_string();
+    let svg = picture
+        .split("<svg")
+        .nth(1)
+        .and_then(|rest| rest.split("</svg>").next())
+        .expect("그림")
+        .to_string();
+    let list = picture
+        .split("<div class=\"for-readers\">")
+        .nth(1)
+        .expect("목록")
+        .to_string();
+
+    // 두 표현이 **같은 Step 집합**을 말한다.
+    for step in seen.timeline.iter().flat_map(|entry| &entry.steps) {
+        let address = step.step_ref.to_string();
+        assert!(svg.contains(&address), "그림에 {address} 가 없다");
+        assert!(list.contains(&address), "목록에 {address} 가 없다");
+    }
+    // 같은 Cycle 집합과 같은 판정도.
+    for entry in &seen.timeline {
+        let address = entry.facts.cycle_ref.to_string();
+        assert!(svg.contains(&address) || list.contains(&address), "{address} 가 없다");
+    }
+    for word in ["현재", "성공", "실패", "열림"] {
+        assert!(svg.contains(word), "그림에 {word} 이 없다");
+        assert!(list.contains(word), "목록에 {word} 이 없다");
+    }
+    // 되돌아감의 유래도 둘 다에.
+    assert!(svg.contains("다시 시도") && list.contains("다시 시도"), "유래가 한쪽에만 있다");
+}
+
+#[test]
+fn no_angle_bracket_placeholder_reaches_either_shape() {
+    let dir = reading_one("two-shapes-no-placeholder");
+    let html = html_of(&dir);
+    let picture = html
+        .split("<section class=\"picture\">")
+        .nth(1)
+        .and_then(|rest| rest.split("</section>").next())
+        .expect("그림 절")
+        .to_string();
+
+    // `full_report` 가 채워 넣는 자리표시들 — 그림에도 목록에도 없다.
+    for fake in ["question&gt;", "hypothesis&gt;", "result&gt;", "statement&gt;", "&lt;"] {
+        assert!(!picture.contains(fake), "자리표시 {fake} 가 화면에 실렸다");
+    }
+    // 그러나 Step 은 전부 남아 있다.
+    let seen = monitor(&dir);
+    for step in seen.timeline.iter().flat_map(|entry| &entry.steps) {
+        assert!(picture.contains(&step.step_ref.to_string()), "{} 가 사라졌다", step.step_ref);
+    }
+    // 그리고 **진짜 요약은 그대로 보인다.**
+    assert!(picture.contains(FAILED_PROBLEM.chars().take(20).collect::<String>().as_str()),
+        "진짜 요약이 사라졌다");
+}
+
+// ── ⑧ 시간선이 Cycle 의 사실을 함께 지닌다 ────────────────────────────────
+
+#[test]
+fn each_timeline_entry_carries_the_very_same_cycle_facts() {
+    let dir = reading_one("timeline-same-facts");
+    let seen = monitor(&dir);
+
+    // 같은 Cycle 의 사실이 두 자리에 있으면 **같은 값**이어야 한다 — 같은 함수가 지었다.
+    for entry in &seen.timeline {
+        let address = entry.facts.cycle_ref.to_string();
+        let elsewhere = seen
+            .active_lineage
+            .iter()
+            .find(|facts| facts.cycle_ref.to_string() == address)
+            .cloned()
+            .or_else(|| {
+                seen.inactive_cycles
+                    .iter()
+                    .find(|cycle| cycle.cycle_ref.to_string() == address)
+                    .map(|cycle| gil::CycleFacts {
+                        cycle_ref: cycle.cycle_ref,
+                        kind: cycle.kind,
+                        state: cycle.state,
+                        parent_cycle_ref: cycle.parent_cycle_ref,
+                        revisit_from_cycle_ref: cycle.revisit_from_cycle_ref,
+                        // 계보 밖 목록은 정의를 지니지 않는다 — 그 칸만 견주지 않는다.
+                        experiment_definition: entry.facts.experiment_definition.clone(),
+                        report: cycle.report.clone(),
+                    })
+            })
+            .unwrap_or_else(|| panic!("{address} 이 두 목록 어디에도 없다"));
+        assert_eq!(entry.facts, elsewhere, "{address} 의 사실이 두 자리에서 다르다");
+    }
+}
+
+#[test]
+fn the_four_relations_are_exclusive_and_each_cycle_wears_exactly_one() {
+    // `three_relations` 는 C1(계보) · C2(버림) · C3(그 밖) · C4(되돌아감 출처) · C5(지금).
+    let dir = three_relations("timeline-four-relations");
+    let seen = monitor(&dir);
+
+    let relation = |address: &str| {
+        seen.timeline
+            .iter()
+            .find(|entry| entry.facts.cycle_ref.to_string() == address)
+            .unwrap_or_else(|| panic!("{address} 이 시간선에 없다"))
+            .relation_to_current
+    };
+    assert_eq!(relation("cycle:C1"), TimelineRelation::ActivePath, "뿌리가 계보 밖이다");
+    assert_eq!(relation("cycle:C2"), TimelineRelation::Abandoned);
+    assert_eq!(relation("cycle:C3"), TimelineRelation::Other);
+    assert_eq!(relation("cycle:C4"), TimelineRelation::RevisitSource);
+    assert_eq!(relation("cycle:C5"), TimelineRelation::ActivePath, "지금 Cycle 이 계보 밖이다");
+
+    // **한 Cycle 은 한 번만, 한 관계만.** 타입이 칸 하나라 둘을 동시에 지닐 수 없고,
+    // 시간선에도 한 번만 나온다.
+    let mut seen_once: Vec<String> = seen
+        .timeline
+        .iter()
+        .map(|entry| entry.facts.cycle_ref.to_string())
+        .collect();
+    let before = seen_once.len();
+    seen_once.sort();
+    seen_once.dedup();
+    assert_eq!(seen_once.len(), before, "한 Cycle 이 시간선에 두 번 나왔다");
+
+    // 계보 위의 것은 전부 ActivePath 이고, 그 밖은 하나도 ActivePath 가 아니다.
+    for facts in &seen.active_lineage {
+        assert_eq!(relation(&facts.cycle_ref.to_string()), TimelineRelation::ActivePath);
+    }
+    for cycle in &seen.inactive_cycles {
+        assert_ne!(
+            relation(&cycle.cycle_ref.to_string()),
+            TimelineRelation::ActivePath,
+            "{} 이 계보 밖인데 활성이라고 한다",
+            cycle.cycle_ref
+        );
+    }
+}
+
+#[test]
+fn the_timeline_relation_and_the_inactive_relation_never_disagree() {
+    // 두 값이 같은 함수에서 나온다 — 한쪽만 낡을 수 없다는 것을 여기서 잰다.
+    let dir = three_relations("timeline-relations-agree");
+    let seen = monitor(&dir);
+    let mut checked = 0usize;
+    for cycle in &seen.inactive_cycles {
+        let entry = seen
+            .timeline
+            .iter()
+            .find(|entry| entry.facts.cycle_ref == cycle.cycle_ref)
+            .expect("시간선에 있다");
+        let expected = match cycle.relation_to_current {
+            CycleRelation::RevisitSource => TimelineRelation::RevisitSource,
+            CycleRelation::Abandoned => TimelineRelation::Abandoned,
+            CycleRelation::Other => TimelineRelation::Other,
+        };
+        assert_eq!(entry.relation_to_current, expected, "{} 에서 갈렸다", cycle.cycle_ref);
+        checked += 1;
+    }
+    assert!(checked >= 3, "세 관계를 다 보지 못했다: {checked}");
+}
+
+#[test]
+fn whether_a_cycle_is_the_current_one_is_read_from_the_current_reference() {
+    // 시간선은 「지금인가」를 적어 두지 않는다. **하나의 자리**가 그것을 말한다.
+    let dir = reading_one("timeline-current-derived");
+    let seen = monitor(&dir);
+    let here = &seen.current_cycle.facts.cycle_ref;
+    let matched: Vec<&gil::TimelineCycleFacts> = seen
+        .timeline
+        .iter()
+        .filter(|entry| &entry.facts.cycle_ref == here)
+        .collect();
+    assert_eq!(matched.len(), 1, "지금 Cycle 이 시간선에 하나가 아니다");
+    assert_eq!(matched[0].relation_to_current, TimelineRelation::ActivePath);
+    // 그리고 그 항목의 사실이 `current_cycle` 의 것과 같다.
+    assert_eq!(matched[0].facts, seen.current_cycle.facts);
+}
+
+// ── ⑨ 고른 Step 하나의 상세 ──────────────────────────────────────────────
+
+use gil::{DetailError, decode_detail_v1, encode_detail_v1, monitor_view_v1};
+
+fn detail(dir: &Path, address: &str) -> Result<gil::NodeDetailV1, DetailError> {
+    let session = ProjectSession::open(spec(), state_in(dir)).expect("되살린다");
+    session.node_detail_v1(address.parse().expect("주소"))
+}
+
+#[test]
+fn a_closed_step_brings_every_report_field_in_name_order() {
+    let dir = reading_one("detail-name-order");
+    let one = detail(&dir, "step:C2/S1").expect("닫힌 Define");
+
+    assert_eq!(one.schema_version, 1);
+    assert_eq!(one.step_ref, "step:C2/S1");
+    assert_eq!(one.cycle_ref, "cycle:C2", "담긴 Cycle 이 아니다");
+    assert_eq!(one.kind, gil::StepKindV1::Define);
+    assert_eq!(one.state, gil::NodeStateV1::Closed);
+
+    let report = one.report.as_ref().expect("닫힌 Step 은 Report 를 지닌다");
+    let names: Vec<&str> = report.fields.iter().map(|at| at.name.as_str()).collect();
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(names, sorted, "이름순이 아니다: {names:?}");
+    assert!(names.contains(&"problem") && names.contains(&"success_condition"), "{names:?}");
+
+    // 값이 원문 그대로다 — 도메인에서 직접 읽어 견준다.
+    let session = ProjectSession::open(spec(), state_in(&dir)).expect("되살린다");
+    let cycle = session
+        .project()
+        .cycles()
+        .nodes()
+        .iter()
+        .find(|cycle| cycle.id().to_ref().to_string() == "cycle:C2")
+        .expect("Cycle");
+    let node = cycle
+        .steps()
+        .nodes()
+        .iter()
+        .find(|node| cycle.step_ref(node.id).to_string() == "step:C2/S1")
+        .expect("Step");
+    let truth = node.report.as_ref().expect("Report");
+    assert_eq!(report.fields.len(), truth.field_names().count(), "칸 수가 다르다");
+    for field in &report.fields {
+        assert_eq!(Some(field.value.as_str()), truth.get(&field.name), "{} 의 값", field.name);
+    }
+}
+
+#[test]
+fn an_open_step_has_no_report_at_all() {
+    let dir = reading_one("detail-open-step");
+    let one = detail(&dir, "step:C3/S3").expect("열린 Verify");
+    assert_eq!(one.state, gil::NodeStateV1::Open);
+    assert_eq!(one.report, None, "닫히기 전에 Report 를 지어냈다");
+    // 그래도 나머지 사실은 있다.
+    assert_eq!(one.kind, gil::StepKindV1::Verify);
+    assert_eq!(one.cycle_ref, "cycle:C3");
+}
+
+#[test]
+fn a_boundary_is_never_a_step_so_it_is_simply_not_found() {
+    // 경계(`cycle_entry`·`cycle_exit`)는 Step 이 아니다 — `Walk::open` 이 거절하므로
+    // `Walk::nodes()` 에 들어갈 수 없다. 따라서 그것을 가리키는 StepRef 도 없다.
+    let dir = reading_one("detail-boundary");
+    let session = ProjectSession::open(spec(), state_in(&dir)).expect("되살린다");
+    for cycle in session.project().cycles().nodes() {
+        for node in cycle.steps().nodes() {
+            assert!(
+                !matches!(node.kind, NodeKind::CycleEntry | NodeKind::CycleExit),
+                "경계가 Step 으로 저장돼 있다: {}",
+                cycle.step_ref(node.id)
+            );
+        }
+    }
+    drop(session);
+    // 그래서 상세 조회에서 경계는 「없음」으로만 나타난다.
+    assert!(matches!(detail(&dir, "step:C1/S99"), Err(DetailError::NotFound { .. })));
+}
+
+#[test]
+fn a_step_in_a_cycle_that_does_not_exist_is_refused() {
+    let dir = reading_one("detail-no-cycle");
+    assert_eq!(
+        detail(&dir, "step:C99/S1"),
+        Err(DetailError::NotFound { step_ref: "step:C99/S1".to_string() }),
+        "없는 Cycle 의 Step 을 찾아 줬다"
+    );
+}
+
+#[test]
+fn a_missing_step_in_a_real_cycle_is_refused() {
+    let dir = reading_one("detail-no-step");
+    assert_eq!(
+        detail(&dir, "step:C2/S99"),
+        Err(DetailError::NotFound { step_ref: "step:C2/S99".to_string() }),
+        "없는 Step 을 찾아 줬다"
+    );
+}
+
+#[test]
+fn the_same_bare_step_number_in_another_cycle_is_never_a_fallback() {
+    // C1/S1 · C2/S1 · C3/S1 이 모두 있다. 청한 것만 답해야 한다.
+    let dir = reading_one("detail-no-fallback");
+    let kinds = [
+        ("step:C1/S1", "cycle:C1", gil::StepKindV1::Question),
+        ("step:C2/S1", "cycle:C2", gil::StepKindV1::Define),
+        ("step:C3/S1", "cycle:C3", gil::StepKindV1::Define),
+    ];
+    for (address, cycle, kind) in kinds {
+        let one = detail(&dir, address).unwrap_or_else(|_| panic!("{address}"));
+        assert_eq!(one.step_ref, address, "다른 Step 으로 물러섰다");
+        assert_eq!(one.cycle_ref, cycle, "다른 Cycle 로 물러섰다");
+        assert_eq!(one.kind, kind);
+    }
+    // 셋이 실제로 서로 다른 사실이다 — 아니면 이 시험이 아무것도 재지 않는다.
+    let first = detail(&dir, "step:C1/S1").expect("C1");
+    let second = detail(&dir, "step:C2/S1").expect("C2");
+    assert_ne!(first.report, second.report);
+}
+
+#[test]
+fn a_field_the_grammar_does_not_name_still_arrives_under_its_own_name() {
+    let dir = bare("detail-extra-field");
+    write(&dir, "work.txt", "처음");
+    let mut session = ProjectSession::start(spec(), state_in(&dir)).expect("시작한다");
+    *session.project_mut() = bootstrap_from(session.project().clone());
+    // **주소를 손으로 적지 않는다.** 앞선 bootstrap 이 이미 Step 을 몇 개 만들었다.
+    let define = opened(session.project_mut(), NodeKind::Define);
+    let rules = spec();
+    session
+        .close_step(
+            full_report(&rules, CycleKind::Experiment, NodeKind::Define)
+                .with("problem", "무엇이 문제인가")
+                .with("success_condition", "무엇이면 성공인가")
+                // 문법이 요구하지 않는 칸.
+                .with("zz_extra", "문법에 없는 칸")
+                .with("aa_extra", "이름순에서 맨 앞"),
+        )
+        .expect("문제를 고정한다");
+    session.commit().expect("눕힌다");
+    drop(session);
+
+    let one = detail(&dir, &define.to_string()).expect("Define");
+    let report = one.report.as_ref().expect("Report");
+    let names: Vec<&str> = report.fields.iter().map(|at| at.name.as_str()).collect();
+    assert!(names.contains(&"zz_extra") && names.contains(&"aa_extra"), "{names:?}");
+    assert_eq!(names.first(), Some(&"aa_extra"), "이름순이 아니다: {names:?}");
+    assert_eq!(names.last(), Some(&"zz_extra"), "이름순이 아니다: {names:?}");
+    let value = |name: &str| {
+        report.fields.iter().find(|at| at.name == name).map(|at| at.value.as_str())
+    };
+    assert_eq!(value("zz_extra"), Some("문법에 없는 칸"), "원문이 바뀌었다");
+}
+
+#[test]
+fn a_nasty_report_value_round_trips_through_json_exactly() {
+    let dir = bare("detail-nasty-json");
+    write(&dir, "work.txt", "처음");
+    let nasty = "따옴표 \" 역슬래시 \\ 줄바꿈 \n 탭 \t <script>alert(1)</script> & < >";
+    let mut session = ProjectSession::start(spec(), state_in(&dir)).expect("시작한다");
+    *session.project_mut() = bootstrap_from(session.project().clone());
+    let define = opened(session.project_mut(), NodeKind::Define);
+    let rules = spec();
+    session
+        .close_step(
+            full_report(&rules, CycleKind::Experiment, NodeKind::Define)
+                .with("problem", nasty)
+                .with("success_condition", "가"),
+        )
+        .expect("문제를 고정한다");
+    session.commit().expect("눕힌다");
+    drop(session);
+
+    let one = detail(&dir, &define.to_string()).expect("Define");
+    let text = encode_detail_v1(&one).expect("옮긴다");
+    let back = decode_detail_v1(&text).expect("되읽는다");
+    assert_eq!(back, one, "왕복이 사실을 바꿨다");
+    assert_eq!(encode_detail_v1(&back).expect("다시"), text, "왕복이 글자를 바꿨다");
+
+    let value = back
+        .report
+        .expect("Report")
+        .fields
+        .into_iter()
+        .find(|at| at.name == "problem")
+        .expect("problem")
+        .value;
+    assert_eq!(value, nasty, "원문이 바뀌었다");
+    // JSON escaping 만 했다 — HTML 로 바꾸지 않았다.
+    assert!(text.contains("<script>") && !text.contains("&lt;"), "HTML escape 를 했다");
+    assert!(text.contains("\\n") && text.contains("\\t") && text.contains("\\\""), "{text}");
+}
+
+#[test]
+fn the_detail_json_follows_the_same_canonical_rules() {
+    let dir = reading_one("detail-json-rules");
+    let open = detail(&dir, "step:C3/S3").expect("열린 Step");
+    let text = encode_detail_v1(&open).expect("옮긴다");
+
+    assert!(text.contains("\"schema_version\":1"), "{text}");
+    // 없는 Report 는 key 생략이 아니라 `null`.
+    assert!(text.contains("\"report\":null"), "{text}");
+    assert!(!text.contains('\n') && !text.contains(": "), "compact 가 아니다");
+    // 모르는 칸은 지나친다.
+    let widened = text.replacen("{\"schema_version\":1", "{\"tomorrow\":[1],\"schema_version\":1", 1);
+    assert_eq!(decode_detail_v1(&widened).expect("지나친다"), open);
+    // 모르는 판과 모르는 낱말은 거절한다.
+    for found in [0u32, 2] {
+        let other = text.replacen("\"schema_version\":1", &format!("\"schema_version\":{found}"), 1);
+        assert!(decode_detail_v1(&other).is_err(), "판 {found} 을 읽었다");
+    }
+    let twisted = text.replacen("\"verify\"", "\"validate\"", 1);
+    assert_ne!(twisted, text);
+    assert!(decode_detail_v1(&twisted).is_err(), "모르는 낱말을 받아들였다");
+
+    // 빈 배열은 `[]` — 칸이 없는 Report 라면.
+    let empty = gil::NodeDetailV1 {
+        report: Some(gil::ReportV1 { fields: vec![] }),
+        ..open
+    };
+    assert!(encode_detail_v1(&empty).expect("옮긴다").contains("\"fields\":[]"));
+}
+
+#[test]
+fn asking_for_a_detail_changes_nothing_and_observes_nothing_new() {
+    let dir = reading_one("detail-read-only");
+    let state = fs::read(state_in(&dir)).expect("상태를 읽는다");
+    let work = fs::read(dir.join("work.txt")).ok();
+    let objects = || {
+        fn count(at: &Path) -> usize {
+            fs::read_dir(at)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|one| match one.path().is_dir() {
+                            true => count(&one.path()),
+                            false => 1,
+                        })
+                        .sum()
+                })
+                .unwrap_or(0)
+        }
+        count(&dir.join(".gil/artifacts"))
+    };
+    let before = objects();
+    let world_before = monitor(&dir).world.state;
+
+    // 여러 번 물어도.
+    for address in ["step:C1/S1", "step:C2/S3", "step:C3/S1", "step:C3/S3"] {
+        assert!(detail(&dir, address).is_ok(), "{address}");
+    }
+
+    assert_eq!(state, fs::read(state_in(&dir)).expect("다시 읽는다"), "상태가 바뀌었다");
+    assert_eq!(work, fs::read(dir.join("work.txt")).ok(), "작업 파일이 바뀌었다");
+    assert_eq!(before, objects(), "창고에 객체가 늘었다");
+    assert_eq!(world_before, monitor(&dir).world.state, "세계 상태가 바뀌었다");
+    // 그리고 잠금이 남지 않았다.
+    assert!(ProjectSession::open(spec(), state_in(&dir)).is_ok(), "잠금이 남았다");
+}
+
+#[test]
+fn the_initial_view_still_carries_no_full_report() {
+    let dir = reading_one("detail-view-stays-thin");
+    let seen = monitor(&dir);
+    let view = monitor_view_v1(&seen).expect("View");
+    // Verify 를 고른다 — 그 Report 의 칸 이름은 초기 View 어디에도 나타나지 않는다.
+    // (`problem`·`success_condition` 은 `experiment_definition` 으로, `verdict` 는 Cycle
+    //  Report 로 **정당하게** 실리므로 그 셋으로는 이 규칙을 잴 수 없다.)
+    let one = detail(&dir, "step:C2/S3").expect("닫힌 Verify");
+    let report = one.report.as_ref().expect("Report");
+    let hidden: Vec<&str> = report.fields.iter().map(|at| at.name.as_str()).collect();
+    assert!(hidden.len() >= 2, "감춰진 칸이 너무 적다: {hidden:?}");
+
+    let text = gil::encode_view_v1(&view).expect("옮긴다");
+    for name in &hidden {
+        assert!(
+            !text.contains(&format!("\"{name}\":")),
+            "초기 View 에 {name} 이 칸으로 실렸다"
+        );
+    }
+    // View 의 Step 은 여전히 네 사실뿐이고, 대표 칸 한 줄만 지닌다.
+    let step = view.timeline[1].steps.iter().find(|at| at.step_ref == "step:C2/S3").expect("Step");
+    assert!(step.summary.is_some(), "대표 칸 한 줄은 있다");
+    let value = |name: &str| {
+        report.fields.iter().find(|at| at.name == name).map(|at| at.value.clone())
+    };
+    assert_eq!(step.summary, value("result"), "요약이 대표 칸의 원문이 아니다");
+    assert_ne!(step.summary, value("execution"), "다른 칸을 요약으로 실었다");
+}
+
+#[test]
+fn a_boundary_shaped_address_that_does_not_exist_is_still_not_found() {
+    // 경계는 Step 이 아니므로 그것을 가리키는 주소도 없다. 「경계라서 거절」이 아니라
+    // **「그런 Step 이 없다」**가 정확한 답이다.
+    let dir = reading_one("detail-boundary-shaped");
+    for address in ["step:C1/S1000", "step:C2/S999", "step:C3/S1000"] {
+        assert_eq!(
+            detail(&dir, address),
+            Err(DetailError::NotFound { step_ref: address.to_string() }),
+            "{address}"
+        );
+    }
+    // 그리고 실제 Step 의 종류는 전부 여덟 중 하나다 — 경계가 새어 나오지 않는다.
+    let seen = monitor(&dir);
+    let view = monitor_view_v1(&seen).expect("View");
+    let eight = [
+        gil::StepKindV1::Question, gil::StepKindV1::Interpretation, gil::StepKindV1::Synthesis,
+        gil::StepKindV1::Define, gil::StepKindV1::Hypothesis, gil::StepKindV1::Verify,
+        gil::StepKindV1::Analysis, gil::StepKindV1::Outcome,
+    ];
+    assert_eq!(eight.len(), 8);
+    let mut counted = 0usize;
+    for one in &view.timeline {
+        for step in &one.steps {
+            assert!(eight.contains(&step.kind), "{} 가 여덟 밖이다", step.step_ref);
+            counted += 1;
+        }
+        for step in &one.steps {
+            let detailed = detail(&dir, &step.step_ref).expect("있는 Step");
+            assert_eq!(detailed.kind, step.kind, "{} 의 종류가 두 자리에서 다르다", step.step_ref);
+        }
+    }
+    assert!(counted >= 10, "본 Step 이 너무 적다: {counted}");
 }
