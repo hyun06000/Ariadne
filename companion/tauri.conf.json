@@ -7,21 +7,25 @@
     "frontendDist": "../ui"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "GIL Companion",
-        "width": 520,
-        "height": 900,
-        "minWidth": 380,
-        "resizable": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'"
-    }
+    },
+    "macOSPrivateApi": false
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "GIL Companion",
+    "longDescription": "계속 떠 있는 읽기 전용 GIL 여정 창",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   }
 }

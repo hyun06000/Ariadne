@@ -21,22 +21,35 @@ button, select { font: inherit; color: inherit; }
   height: 52px; padding: 0 14px; display: flex; align-items: center; gap: 9px;
   border-bottom: 1px solid light-dark(#e0e3de, #363936);
 }
+/* 표식은 **소문자 `gil` 워드마크**다. 단독 대문자 `G` 는 쓰지 않는다 — 어느 회사의
+   표식으로 오인될 자리를 남기지 않는다. 앱 아이콘·menu bar 표식과 같은 글자다.
+
+   27px 상자에 세 글자를 넣으려고 자간을 조금 좁힌다. `l` 의 키와 `g` 의 꼬리가 상자에
+   닿지 않도록 글자 크기는 11px 에 둔다. */
 .mark {
+  /* **줄어들지 않는다.** flex 자식이라 머리줄이 좁아지면 상자가 눌리고, 그러면 세 글자가
+     잘린다(좁은 창에서 27px 이 13px 까지 눌리는 것을 시험이 잡았다). */
+  flex: none;
   width: 27px; height: 27px; border-radius: 8px; background: #566fe8; color: #fff;
-  display: grid; place-items: center; font-weight: 700; font-size: 11px;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 11px; letter-spacing: -0.2px; line-height: 1;
 }
-.title { min-width: 0; }
+/* 이름은 **한 줄**이다. 자리가 모자라면 잘리는 대신 말줄임으로 물러선다 — 좁은 창에서
+   글자가 한 자씩 쌓이면 읽을 수 없다. */
+.title { min-width: 0; overflow: hidden; }
+.title b, .title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title b { display: block; font-size: 12px; }
 .title small { display: block; margin-top: 2px; font-size: 9px; color: #5670e8; }
 
 /* Project switcher — 명시적 scope 전환. 추측하지 않는다. */
-.scope { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+/* 손잡이들은 **줄어들지 않는다.** 눌리면 글자가 세로로 쌓인다. */
+.scope { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
 .scope label { font-size: 9px; color: light-dark(#777d77, #a9afa9); text-transform: uppercase;
                letter-spacing: .08em; }
 .scope select {
   border: 1px solid light-dark(#d5d9d3, #424642); border-radius: 7px;
   background: light-dark(#fff, #252825); padding: 6px 9px; font-size: 10px; cursor: pointer;
-  max-width: 230px;
+  max-width: 230px; min-width: 0;
 }
 
 /* ── 지금 ─────────────────────────────────────────────────────────── */
@@ -132,6 +145,61 @@ button, select { font: inherit; color: inherit; }
 .lead-head { fill: rgba(86, 111, 232, .45); }
 
 /* ── 고른 것의 상세 ───────────────────────────────────────────────── */
+/* 고르개 옆의 손잡이 둘. 읽기만 하는 것들이라 강조하지 않는다. */
+.scope .open, .scope .refresh, .scope .forget {
+  flex: none; white-space: nowrap; margin-left: 6px; padding: 4px 8px; font-size: 10px; cursor: pointer;
+  border: 1px solid light-dark(#d5d9d3, #424642); border-radius: 7px;
+  background: light-dark(#fff, #252825); color: inherit;
+}
+.scope .open:hover, .scope .refresh:hover, .scope .forget:hover { border-color: #566fe8; }
+.scope .open:disabled, .scope .refresh:disabled, .scope .forget:disabled { opacity: .5; cursor: wait; }
+.scope .open:focus-visible, .scope .refresh:focus-visible, .scope .forget:focus-visible {
+  outline: 2px solid #566fe8; outline-offset: 2px;
+}
+
+/* **마지막으로 확인된 화면**이라는 사실. Graph 를 지우는 대신 옆에 선다(§9.1.1-6). */
+.stale { display: none; margin: 0 14px; padding: 7px 9px; border-radius: 8px;
+         font-size: 10px; line-height: 1.45;
+         border: 1px solid light-dark(#e4c98f, #6b5a2e);
+         background: light-dark(#fff8e8, #2d2819);
+         color: light-dark(#7a6320, #e7d49b); }
+.stale[data-shown="true"] { display: block; }
+
+/* 지금 무엇을 기다리는가. **Graph 를 가리지 않는다** — 위에 한 줄로 선다. */
+.working { display: none; margin: 0 14px; padding: 6px 9px; border-radius: 8px;
+           font-size: 10px; line-height: 1.45;
+           border: 1px solid light-dark(#d5d9d3, #424642);
+           background: light-dark(#f4f6f3, #22251f);
+           color: light-dark(#6f756f, #aeb4ae); }
+.working[data-shown="true"] { display: flex; gap: 7px; align-items: center; }
+.working::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
+  border: 2px solid #566fe8; border-right-color: transparent;
+  animation: gil-turn .7s linear infinite;
+}
+@keyframes gil-turn { to { transform: rotate(360deg); } }
+/* 움직임을 줄이라고 한 사람에게는 돌지 않는 점 하나로 족하다. */
+@media (prefers-reduced-motion: reduce) {
+  .working::before { animation: none; border-right-color: #566fe8; opacity: .5; }
+}
+
+/* 설정을 읽지 못했다 — 원본은 그대로 두고 이번 실행만 임시로 돈다. */
+.settings-say { display: none; margin: 0 14px 8px; padding: 7px 9px; border-radius: 8px;
+                font-size: 10px; line-height: 1.45;
+                border: 1px solid light-dark(#e4c98f, #6b5a2e);
+                background: light-dark(#fff8e8, #2d2819);
+                color: light-dark(#7a6320, #e7d49b); }
+.settings-say[data-shown="true"] { display: block; }
+
+/* 못 여는 Project — 목록에 남기되 그렇다고 말한다. */
+.scope select option[data-unavailable] { color: light-dark(#a8534a, #d59089); }
+
+.empty { margin: 18px 14px; padding: 14px; border-radius: 10px;
+         border: 1px dashed light-dark(#d5d9d3, #424642);
+         font-size: 11px; line-height: 1.6; }
+.empty p { margin: 0; }
+.empty .how { margin-top: 4px; color: light-dark(#747a74, #a9afa9); }
+
 .detail { margin: 12px 14px 0; border-top: 1px solid light-dark(#e0e3de, #343734);
           padding: 12px 0; }
 .detail small { font-size: 9px; color: #566fe8; }

@@ -27,6 +27,15 @@ const scopeSelect = el(".scope select");
 const notice = el(".notice");
 const intro = el(".intro");
 const map = el(".map");
+const stale = el(".stale");
+const emptyState = el(".empty");
+const working = el(".working");
+const introSection = el(".intro");
+const mapSection = el(".map");
+const openButton = el(".scope .open");
+const refreshButton = el(".scope .refresh");
+const forgetButton = el(".scope .forget");
+const settingsSay = el(".settings-say");
 const stage = el(".stage");
 const wires = el(".stage .wires");
 const layer = el(".stage .layer");
@@ -48,9 +57,63 @@ const seatOf = (scopeId) => {
 
 let current = null; // { scopeId, view, seat, plan }
 
+/** Host 가 준 거절의 **종류**를 사람의 말로.
+ *
+ * 글을 뜯어 뜻을 짐작하지 않는다 — `code` 가 갈래를 정하고, Host 가 함께 준 한 줄은
+ * **글자 그대로** 덧붙일 뿐이다(§9.1.1-7 · §10). 모르는 code 는 지어내지 않고 그대로 보인다. */
+const REFUSAL = {
+  not_a_project: "이 자리에 GIL Project 가 없다",
+  unsupported_format: "이 Companion 이 읽지 않는 저장 판이다",
+  busy: "다른 GIL 명령이 이 Project 를 쥐고 있다 — 잠시 뒤 새로고침",
+  needs_recovery: "끝나지 않은 복원이 남아 있다 — 창은 그것을 고치지 않는다. " +
+                  "그 Project 에서 GIL 명령을 하나 실행하면 제자리로 돌아간다",
+  damaged: "저장된 것을 읽었지만 말이 되지 않는다",
+  observe_failed: "Project 의 세계를 들여다보지 못했다",
+  unreadable: "그 자리를 읽지 못했다",
+  unknown_scope: "이 창이 연 Project 가 아니다",
+  scope_collision: "서로 다른 두 Project 가 같은 주소를 받았다 — 섞지 않고 멈춘다",
+  project_missing: "등록해 둔 자리를 찾을 수 없다",
+  project_moved: "그 자리에 다른 Project 가 있다",
+  settings_unwritable: "이 창의 설정을 적지 못했다",
+  unsupported_vocabulary: "이 Companion 이 모르는 Grammar 낱말이 있다",
+};
+const why = (error) => {
+  const code = error && error.code;
+  const known = code && REFUSAL[code];
+  const said = error && error.said ? error.said : (error && error.message) || String(error);
+  if (known) return `${known} — ${said}`;
+  return code ? `${code} — ${said}` : said;
+};
+
 const say = (message) => {
   notice.textContent = message;
   notice.dataset.shown = "true";
+};
+
+// ── 지금 무엇을 기다리는가 ──────────────────────────────────────────
+//
+// 기다리는 일은 **셋뿐**이고, 셋 다 창을 멈추지 않는다(Rust 쪽이 event loop 밖에서 한다).
+// 그래도 사람은 무엇을 기다리는지 알아야 한다 — 아무 말 없이 멈춰 보이는 화면과 「읽는
+// 중」이라고 적힌 화면은 다른 것이다.
+//
+// **Graph 를 지우지 않는다.** 진행 줄은 위에 한 줄로 서고, 아래는 마지막으로 검증된
+// 화면 그대로다.
+const WORKING = {
+  picking: "폴더를 고르는 중",
+  opening: "Project 를 읽는 중",
+  refreshing: "다시 읽는 중",
+};
+/** 중복 눌림만 그 손잡이로 막는다. 창 전체를 잠그지 않는다. */
+const busyOn = (what, button) => {
+  working.textContent = WORKING[what];
+  working.dataset.shown = "true";
+  if (button) button.disabled = true;
+};
+/** **어떤 길로 끝나든 반드시 걷힌다** — 됐든, 취소됐든, 실패했든. */
+const busyOff = (button) => {
+  working.textContent = "";
+  working.dataset.shown = "false";
+  if (button) button.disabled = false;
 };
 const clearNotice = () => {
   notice.dataset.shown = "false";
@@ -450,7 +513,7 @@ async function selectStep(stepRef) {
   try {
     node = await window.GIL_HOST.loadDetail(scopeId, stepRef);
   } catch (error) {
-    say(`상세를 읽지 못했다: ${error && error.message ? error.message : error}`);
+    say(`상세를 읽지 못했다 — ${why(error)}`);
   }
   // 기다리는 동안 Project 가 바뀌었으면 **버린다** — 남의 Project 에 섞지 않는다.
   if (!current || current.scopeId !== scopeId || seat.selectedStep !== stepRef) return;
@@ -472,6 +535,107 @@ function expandCycle(cycleRef) {
 
 // ── Project scope 전환 ──────────────────────────────────────────────
 
+/**
+ * 마지막으로 검증된 View 가 **최신이 아닐 수 있다**는 사실을 따로 세운다(§9.1.1-6).
+ *
+ * 화면의 Graph 를 지우지 않는다. 실패를 `dirty` 나 빈 Graph 로 바꾸지도 않는다 — 그것은
+ * 일어난 일이 아니다. 마지막으로 확인된 사실은 그대로 두고, **확인하지 못했다는 사실**만
+ * 옆에 적는다.
+ */
+function markStale(error) {
+  stale.textContent = `마지막으로 확인된 화면이다. 다시 읽지 못했다: ${why(error)}`;
+  stale.dataset.shown = "true";
+}
+function markFresh() {
+  stale.textContent = "";
+  stale.dataset.shown = "false";
+}
+
+/** 사람이 누르는 새로고침 — **완전한 View** 를 다시 읽는다. 부분 갱신은 없다(§8). */
+async function refresh() {
+  if (!current) return;
+  const scopeId = current.scopeId;
+  busyOn("refreshing", refreshButton);
+  try {
+    const view = await window.GIL_HOST.loadView(scopeId);
+    if (!current || current.scopeId !== scopeId) return; // 그새 Project 가 바뀌었다
+    if (view.schema_version !== SUPPORTED_SCHEMA) {
+      markStale({ code: "unsupported_vocabulary",
+                  said: `schema_version ${view.schema_version} 을 읽을 수 없다` });
+      return;
+    }
+    // **통째로 갈아 끼운다.** 옛 View 에 새 조각을 얹어 사실을 만들지 않는다.
+    current.view = view;
+    markFresh();
+    renderIntro();
+    renderGraph();
+  } catch (error) {
+    // 마지막으로 검증된 View 는 그대로 둔다.
+    markStale(error);
+  } finally {
+    busyOff(refreshButton);
+  }
+}
+
+/** 사람이 폴더를 고른다. **취소는 아무 일도 아니다**(§9.1.1-8). */
+async function openProject() {
+  busyOn("picking", openButton);
+  try {
+    // 사람이 고르개를 만지는 동안 — 창은 계속 움직인다.
+    const picked = await window.GIL_HOST.addProject();
+    // **취소는 아무 일도 아니다.** 진행 줄만 걷고 나간다(§9.1.1-8).
+    if (!picked) return;
+    clearNotice();
+    busyOn("opening", openButton);
+    await listScopes();
+    scopeSelect.value = picked.scope_id;
+    await showScope(picked.scope_id);
+  } catch (error) {
+    say(why(error));
+  } finally {
+    busyOff(openButton);
+  }
+}
+
+/**
+ * 아무 Project 도 고르지 않은 상태로 화면을 비운다.
+ *
+ * 「고르지 않는다」는 **화면에도 아무것도 없다**는 뜻이어야 한다. 앞서 보던 Graph 가 남아
+ * 있으면 사람은 그것이 지금 고른 것이라고 읽는다.
+ */
+function chooseNothing() {
+  current = null;
+  layer.innerHTML = "";
+  wires.innerHTML = "";
+  cardLayer.innerHTML = "";
+  renderDetail(null);
+  markFresh();
+}
+
+/**
+ * 지금 Project 를 목록에서 뺀다 — **이 창의 설정에서만.**
+ *
+ * Project 폴더 · `.gil` · Artifact · Snapshot · Report 는 하나도 건드리지 않는다. 그래서
+ * 「지운다」가 아니라 「뺀다」라고 적는다 — 사람이 파일이 사라진다고 오해하면 안 된다.
+ *
+ * 뺀 것이 보고 있던 것이면 **빈 선택**으로 간다. 다른 Project 를 추측해 열지 않는다(§9.1.2).
+ */
+async function forgetProject() {
+  if (!current) return;
+  const scopeId = current.scopeId;
+  forgetButton.disabled = true;
+  try {
+    await window.GIL_HOST.forgetProject(scopeId);
+    chooseNothing();
+    seats.delete(scopeId);
+    await listScopes();
+  } catch (error) {
+    say(why(error));
+  } finally {
+    forgetButton.disabled = false;
+  }
+}
+
 async function showScope(scopeId) {
   clearNotice();
   // **이전 Project 의 화면을 먼저 비운다.** 새 사실이 오기 전에 옛 사실이 남아 있으면
@@ -484,12 +648,16 @@ async function showScope(scopeId) {
   map.scrollTop = 0;
   renderDetail(null);
 
+  markFresh();
+  busyOn("opening", null);
   let view;
   try {
     view = await window.GIL_HOST.loadView(scopeId);
   } catch (error) {
-    say(`이 Project 를 읽지 못했다: ${error && error.message ? error.message : error}`);
+    say(`이 Project 를 읽지 못했다 — ${why(error)}`);
     return;
+  } finally {
+    busyOff(null);
   }
   if (view.schema_version !== SUPPORTED_SCHEMA) {
     say(`이 Companion 은 schema_version ${view.schema_version} 을 읽을 수 없다 ` +
@@ -497,9 +665,61 @@ async function showScope(scopeId) {
     return;
   }
   current = { scopeId, view, seat: seatOf(scopeId), plan: null };
+  introSection.hidden = false;
+  mapSection.hidden = false;
+  detail.hidden = false;
+  emptyState.hidden = true;
   renderIntro();
   renderGraph();
   renderDetail(current.seat.detail);
+}
+
+/**
+ * 이름이 같은 것이 둘 이상이면 **보이기 위해서만** 짧은 꼬리를 붙인다(§9.1.2).
+ *
+ * 꼬리는 주소가 아니다. Host 로 가는 요청은 언제나 **전체 scope** 를 쓴다 — 고르개의
+ * `value` 가 그것이고, 이 함수는 `textContent` 에만 손댄다.
+ */
+function tellApart(scopes) {
+  const seen = new Map();
+  for (const one of scopes) seen.set(one.label, (seen.get(one.label) || 0) + 1);
+  return (one) => {
+    if ((seen.get(one.label) || 0) < 2) return one.label;
+    const tail = String(one.scope_id).split(":").pop().slice(0, 6);
+    return `${one.label} (${tail})`;
+  };
+}
+
+/** 고르개를 Host 가 말한 목록으로 다시 세운다. 개수를 세지도 이름을 짓지도 않는다. */
+async function listScopes() {
+  const scopes = await window.GIL_HOST.listProjects();
+  const naming = tellApart(scopes);
+  scopeSelect.innerHTML = "";
+  for (const one of scopes) {
+    const option = document.createElement("option");
+    option.value = one.scope_id;   // **언제나 전체 scope.**
+    // 크기는 **등록부가 지닌 값**을 그대로 읽는다. 이름 안에 숫자를 적어 두면 Project 가
+    // 자랄 때 이름만 낡는다. 없는 Host 도 있다 — 그러면 이름만 적는다.
+    const size = Number.isInteger(one.cycles) && Number.isInteger(one.steps)
+      ? ` · Cycle ${one.cycles} · Step ${one.steps}`
+      : "";
+    // 못 여는 것도 목록에 남는다 — 사람이 등록해 둔 사실은 사라지지 않는다(§9.1.2).
+    const gone = one.unavailable ? ` — ${word(REFUSAL, one.unavailable) || one.unavailable}` : "";
+    if (one.unavailable) option.dataset.unavailable = one.unavailable;
+    option.textContent = `${naming(one)}${size}${gone}`;
+    scopeSelect.appendChild(option);
+  }
+  // **연 Project 가 없으면 그 사실을 곧바로 보인다.** 「불러오는 중…」이 남아 있으면
+  // 사람은 무언가 오고 있다고 믿고 기다린다 — 오지 않는데.
+  const none = scopes.length === 0;
+  emptyState.hidden = !none;
+  scopeSelect.hidden = none;
+  refreshButton.disabled = none;
+  introSection.hidden = none;
+  mapSection.hidden = none;
+  detail.hidden = none;
+  forgetButton.hidden = none || typeof window.GIL_HOST.forgetProject !== "function";
+  return scopes;
 }
 
 async function start() {
@@ -507,21 +727,69 @@ async function start() {
     say("이 Host 가 GIL_HOST 를 제공하지 않는다.");
     return;
   }
-  const scopes = await window.GIL_HOST.listProjects();
-  scopeSelect.innerHTML = "";
-  for (const one of scopes) {
-    const option = document.createElement("option");
-    option.value = one.scope_id;
-    // 크기는 **등록부가 지닌 값**을 그대로 읽는다. 이름 안에 숫자를 적어 두면 Project 가
-    // 자랄 때 이름만 낡는다.
-    const size = Number.isInteger(one.cycles) && Number.isInteger(one.steps)
-      ? ` · Cycle ${one.cycles} · Step ${one.steps}`
-      : "";
-    option.textContent = `${one.label}${size}`;
-    scopeSelect.appendChild(option);
-  }
+  // **문이 할 수 있는 것만 켠다.** bundle 은 어느 Host 인지 모르지만, 그 문에 폴더를 고르는
+  // 손잡이가 달려 있는지는 볼 수 있다. fixture Host 에는 없다.
+  const canPick = typeof window.GIL_HOST.addProject === "function";
+  openButton.hidden = !canPick;
+  openButton.onclick = openProject;
+  refreshButton.onclick = refresh;
   scopeSelect.onchange = () => showScope(scopeSelect.value);
-  if (scopes.length) await showScope(scopes[0].scope_id);
+
+  forgetButton.onclick = forgetProject;
+
+  // 창 밖에서 오는 말 — 있는 Host 에서만. **사실은 이 길로 오지 않는다.**
+  if (typeof window.GIL_HOST.listen === "function") {
+    // menu bar 의 새로고침은 **hint 한 줄**이다. 받는 쪽이 제 경계로 완전한 View 를
+    // 다시 조회한다 — 부분 갱신을 합쳐 사실을 만들지 않는다(§8).
+    window.GIL_HOST.listen("gil://refresh", () => {
+      refresh();
+    });
+    // 이 창의 사정. Graph 를 건드리지 않고 한 줄로 알린다.
+    window.GIL_HOST.listen("gil://say", (said) => {
+      if (said && said.said) say(said.said);
+    });
+  }
+
+  const scopes = await listScopes();
+  if (!scopes.length) {
+    chooseNothing();
+    return;
+  }
+
+  // **마지막으로 보던 것 하나만 연다**(§9.1.2). 등록됐다는 이유로 나머지를 읽지 않는다.
+  //
+  // 그 Host 가 무엇을 마지막으로 보았는지 모르면(fixture Host 가 그렇다) 목록의 첫 칸을
+  // 연다 — 그 Host 에는 「마지막」이라는 것이 없기 때문이다.
+  let start = scopes[0];
+  if (typeof window.GIL_HOST.opening === "function") {
+    let opened = null;
+    try {
+      opened = await window.GIL_HOST.opening();
+    } catch (error) {
+      say(why(error));
+    }
+    if (opened && opened.settings_refusal) {
+      // 설정을 읽지 못했다. **원본은 그대로**이고 이번 실행만 임시로 돈다.
+      settingsSay.textContent = opened.settings_refusal.said;
+      settingsSay.dataset.shown = "true";
+    }
+    const last = opened && opened.last_selected;
+    // 마지막 선택이 없거나 목록에 없으면 **아무것도 고르지 않는다.**
+    start = last ? scopes.find((one) => one.scope_id === last) : null;
+  }
+  if (!start) {
+    chooseNothing();
+    return;
+  }
+  if (start.unavailable) {
+    chooseNothing();
+    // 열 수 없다는 사실만 말하고 **다른 Project 로 물러서지 않는다.**
+    scopeSelect.value = start.scope_id;
+    say(`마지막으로 보던 Project 를 열 수 없다 — ${word(REFUSAL, start.unavailable) || start.unavailable}`);
+    return;
+  }
+  scopeSelect.value = start.scope_id;
+  await showScope(start.scope_id);
 }
 
 window.addEventListener("resize", () => {
@@ -540,5 +808,11 @@ window.GIL_COMPANION = {
   collapseCycle,
   expandCycle,
   revealSelection,
+  refresh,
+  openProject,
+  working: () => working.textContent,
+  listScopes,
+  forgetProject,
+  start,
   ready: start(),
 };

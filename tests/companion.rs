@@ -698,3 +698,486 @@ fn the_bundle_is_static_and_asks_for_no_server_no_port_no_capability_url() {
     let bundle = fs::read_to_string(ui.join("companion.js")).expect("bundle");
     assert!(bundle.contains("window.GIL_HOST"), "Host 문이 없다");
 }
+
+// ── 실제 GIL Project 를 읽는 adapter ────────────────────────────────────
+//
+// Host UI Model §9.1.1 의 첫 조각. Companion 의 Tauri command 는 얇은 껍질이고, 실제로 읽는
+// 차례는 여기 적은 것과 **같은 네 걸음**이다.
+//
+//   ProjectSession::open → monitor() → monitor_view_v1() → encode_view_v1()
+//   ProjectSession::open → node_detail_v1() → encode_detail_v1()
+//
+// 그래서 이 시험이 지키는 것은 adapter 가 지키는 것이다. Tauri 를 세우지 않고도 잴 수 있는
+// 자리에서 재는 이유는 하나다 — 창을 띄워야만 확인되는 사실은 회귀 시험이 되지 못한다.
+
+/// adapter 가 View 를 얻는 그 차례 그대로 — **읽기만 하는 문**으로.
+fn adapter_view(root: &Path) -> String {
+    let session = ProjectSession::open_read_only(spec(), state_in(root)).expect("연다");
+    let seen = session.monitor().expect("Snapshot");
+    let view = monitor_view_v1(&seen).expect("View");
+    encode_view_v1(&view).expect("옮긴다")
+}
+
+/// adapter 가 상세를 얻는 그 차례 그대로. 없으면 `None` — 물러서지 않는다.
+fn adapter_detail(root: &Path, step_ref: &str) -> Option<String> {
+    let session = ProjectSession::open_read_only(spec(), state_in(root)).expect("연다");
+    let step: gil::StepRef = step_ref.parse().ok()?;
+    match session.node_detail_v1(step) {
+        Ok(detail) => Some(encode_detail_v1(&detail).expect("옮긴다")),
+        Err(gil::DetailError::NotFound { .. }) => None,
+    }
+}
+
+#[test]
+fn a_real_project_gives_a_complete_monitor_view_v1() {
+    let dir = reading_one("adapter-view");
+    let view = decode_view_v1(&adapter_view(&dir)).expect("계약대로다");
+
+    assert_eq!(view.schema_version, 1, "이 판이 아니다");
+    assert!(!view.timeline.is_empty(), "시간선이 비었다");
+    assert!(!view.current.cycle_ref.is_empty(), "지금 자리가 없다");
+    assert!(view.captured_at_unix_ms > 1_700_000_000_000, "관측 시각이 비었다");
+    // fixture 와 **같은 계약**이다 — 창에만 있는 Graph 사실을 따로 만들지 않는다(§9.1.1-3).
+    let saved = decode_view_v1(
+        &fs::read_to_string(fixtures().join("reading-one").join("view.json")).expect("view"),
+    )
+    .expect("View");
+    assert_eq!(
+        view.timeline.len(),
+        saved.timeline.len(),
+        "실제 Project 와 fixture 의 모양이 다르다"
+    );
+}
+
+#[test]
+fn a_closed_step_gives_every_report_field_it_has() {
+    let dir = reading_one("adapter-detail");
+    let view = decode_view_v1(&adapter_view(&dir)).expect("View");
+
+    // 닫힌 Step 하나를 고른다 — Report 가 있는 자리다.
+    let (cycle, step) = view
+        .timeline
+        .iter()
+        .flat_map(|one| one.steps.iter().map(move |step| (one, step)))
+        .find(|(_, step)| step.state == gil::NodeStateV1::Closed)
+        .expect("닫힌 Step 이 하나는 있다");
+
+    let said = adapter_detail(&dir, &step.step_ref).expect("있는 Step 이다");
+    let detail = decode_detail_v1(&said).expect("계약대로다");
+    assert_eq!(detail.step_ref, step.step_ref);
+    assert_eq!(detail.cycle_ref, cycle.cycle_ref);
+    let report = detail.report.expect("닫힌 Step 에는 Report 가 있다");
+    assert!(!report.fields.is_empty(), "Report 가 비었다");
+
+    // **한 칸도 빠지지 않는다.** 저장된 Report 의 이름이 전부 그대로 온다.
+    let session = ProjectSession::open(spec(), state_in(&dir)).expect("연다");
+    let found = session
+        .project()
+        .cycles()
+        .nodes()
+        .iter()
+        .find(|one| one.id().to_ref().to_string() == cycle.cycle_ref)
+        .expect("그 Cycle");
+    let stored = found
+        .steps()
+        .nodes()
+        .iter()
+        .find(|node| found.step_ref(node.id).to_string() == step.step_ref)
+        .and_then(|node| node.report.as_ref())
+        .expect("저장된 Report");
+
+    let seen: Vec<&str> = report.fields.iter().map(|one| one.name.as_str()).collect();
+    let mut counted = 0usize;
+    for name in stored.field_names() {
+        assert!(seen.contains(&name), "{name} 칸이 상세에서 빠졌다");
+        let given = report.fields.iter().find(|one| one.name == name).expect("칸");
+        assert_eq!(Some(given.value.as_str()), stored.get(name), "{name} 의 값이 달라졌다");
+        counted += 1;
+    }
+    assert_eq!(seen.len(), counted, "칸 수가 다르다");
+}
+
+#[test]
+fn the_same_bare_step_id_in_another_project_does_not_answer_for_this_one() {
+    let mine = reading_one("adapter-mine");
+    let other = first_interview("adapter-other");
+
+    // 두 Project 모두 `step:C1/S1` 이라는 **같은 글자**를 지닌다.
+    let here = adapter_detail(&mine, "step:C1/S1").expect("이쪽에 있다");
+    let there = adapter_detail(&other, "step:C1/S1").expect("저쪽에도 있다");
+    assert_ne!(here, there, "서로 다른 Project 가 같은 상세를 내놓았다");
+
+    // 그리고 한쪽에만 있는 주소는 **다른 쪽에서 없다**. 가까운 Step 으로 물러서지 않는다.
+    let deep = "step:C3/S3";
+    assert!(adapter_detail(&mine, deep).is_some(), "이쪽에는 있어야 한다");
+    assert_eq!(
+        adapter_detail(&other, deep),
+        None,
+        "저쪽에 없는 주소가 무언가로 답했다"
+    );
+}
+
+#[test]
+fn a_manual_refresh_reads_the_whole_view_again_and_never_merges() {
+    let dir = reading_one("adapter-refresh");
+    let first = adapter_view(&dir);
+
+    // 사람이 그 Project 에서 **실제로 한 걸음 더 걷는다** — 창 밖에서 일어난 일이다.
+    // `reading_one` 은 열린 Verify 위에 서 있으므로, 그것을 닫는 것이 다음 한 걸음이다.
+    {
+        let mut session = ProjectSession::open(spec(), state_in(&dir)).expect("연다");
+        session
+            .close_step(full_report(&spec(), CycleKind::Experiment, NodeKind::Verify))
+            .expect("검증을 닫는다");
+        opened(session.project_mut(), NodeKind::Analysis);
+        session.commit().expect("눕힌다");
+    }
+
+    // 새로고침은 **완전한 View** 를 다시 읽는다. 옛 것에 조각을 얹지 않는다(§9.1.1-5).
+    let again = adapter_view(&dir);
+    assert_ne!(first, again, "새로고침이 새 사실을 가져오지 못했다");
+
+    let before = decode_view_v1(&first).expect("View");
+    let after = decode_view_v1(&again).expect("View");
+    let count = |view: &gil::MonitorViewV1| -> usize {
+        view.timeline.iter().map(|one| one.steps.len()).sum()
+    };
+    assert_eq!(count(&after), count(&before) + 1, "걸은 한 걸음이 보이지 않는다");
+    // 닫힌 Verify 가 실제로 닫힌 것으로 보인다 — 옛 View 의 「열림」이 남아 있지 않다.
+    let closed = |view: &gil::MonitorViewV1| -> usize {
+        view.timeline
+            .iter()
+            .flat_map(|one| one.steps.iter())
+            .filter(|step| step.state == gil::NodeStateV1::Closed)
+            .count()
+    };
+    assert!(closed(&after) > closed(&before), "닫힌 것이 닫힌 것으로 보이지 않는다");
+    // 그리고 **통째로** 바뀐 것이다 — 두 View 는 각자 완결된 사실이다.
+    assert_eq!(after.schema_version, 1);
+    assert!(!after.timeline.is_empty());
+}
+
+/// **이 조각의 합격 조건**(§9.1.1).
+///
+/// 열고, View 를 읽고, 상세를 읽고, 새로고침하고, 거절당한 뒤에도 `.gil` 의 Graph·Report·
+/// Journey·Memory·Will, Artifact 파일, Snapshot 창고와 작업 파일이 **바이트 하나까지 같다**.
+/// 관측이 객체를 새로 확정하지도, `state.yaml` 을 다시 눕히지도 않는다.
+#[test]
+fn opening_reading_and_refreshing_a_real_project_writes_nothing_at_all() {
+    let dir = reading_one("adapter-read-only");
+    let objects = |at: &Path| -> usize {
+        every_file(&at.join(".gil").join("artifacts")).len()
+    };
+
+    let before = every_file(&dir);
+    let before_objects = objects(&dir);
+    assert!(before.len() >= 3, "볼 파일이 너무 적다: {}", before.len());
+    assert!(before.keys().any(|name| name.contains("state.yaml")), "state.yaml 이 없다");
+    assert!(before_objects > 0, "Snapshot 창고가 비었다");
+
+    let view = decode_view_v1(&adapter_view(&dir)).expect("View");
+    // 창이 하는 일을 **여러 번** 한다 — 열고, 읽고, 고르고, 새로고침한다.
+    for _ in 0..3 {
+        let _ = adapter_view(&dir);
+        for one in &view.timeline {
+            for step in &one.steps {
+                let _ = adapter_detail(&dir, &step.step_ref);
+            }
+        }
+    }
+    // 거절도 아무것도 쓰지 않는다.
+    assert_eq!(adapter_detail(&dir, "step:C99/S99"), None);
+    assert_eq!(adapter_detail(&dir, "주소가 아니다"), None);
+
+    let after = every_file(&dir);
+    assert_eq!(before.len(), after.len(), "파일 수가 달라졌다");
+    assert_eq!(before_objects, objects(&dir), "객체 수가 달라졌다");
+    for (name, bytes) in &before {
+        assert_eq!(Some(bytes), after.get(name), "{name} 의 바이트가 달라졌다");
+    }
+    // 그리고 잠금이 남지 않았다 — 사람의 다음 `gil` 명령이 곧바로 연다.
+    assert!(ProjectSession::open(spec(), state_in(&dir)).is_ok(), "잠금이 남았다");
+}
+
+// ── 읽기만 하는 열기 ────────────────────────────────────────────────────
+//
+// §9.1.1 의 read-only 는 **건강한 Project 에서 바이트가 같았다**로 증명되지 않는다. 쓰는
+// 쪽의 `ProjectSession::open` 은 미완의 복원을 되돌리고 tmp 잔해를 치우기 때문이다 — 그것이
+// 옳지만, 관찰만 하는 창이 그러면 「보기만 했는데 달라졌다」가 된다.
+//
+// 그래서 **일부러 그 상태를 만들어 놓고** 재는 것이 여기 있는 시험들이다.
+
+/// `.gil` 안의 모든 파일 — 잠금만 뺀다. 잠금은 논리 상태가 아니라 한 명령이 쥐었다 놓는 자리다.
+fn gil_bytes(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    every_file(&dir.join(".gil"))
+        .into_iter()
+        .filter(|(name, _)| !name.contains("lock"))
+        .collect()
+}
+
+/// **끝나지 않은 복원**을 남긴다 — 준비 도중 `gil` 이 죽은 자리와 같은 모양.
+///
+/// `preparing-<pid>-<표>` 는 rollback 이 아직 걸리지 않은 단계라, 보통 명령이 열면 그냥
+/// 치운다. 그래서 「읽기는 거절하고, 쓰는 명령은 여전히 복구한다」를 한 시험에서 잴 수 있다.
+fn interrupted_restore(dir: &Path) -> PathBuf {
+    let area = dir.join(".gil").join("restore");
+    let half = area.join("preparing-4242-7");
+    fs::create_dir_all(&half).expect("restore 영역을 만든다");
+    fs::write(half.join("PLAN"), "끝나지 않은 계획").expect("계획을 남긴다");
+    half
+}
+
+/// 되돌려야 할 **active** 를 남긴다 — 표식이 없으므로 보통 명령은 rollback 을 건다.
+fn uncommitted_restore(dir: &Path) -> PathBuf {
+    let active = dir.join(".gil").join("restore").join("active");
+    fs::create_dir_all(&active).expect("restore 영역을 만든다");
+    fs::write(active.join("PLAN"), "끝나지 않은 계획").expect("계획을 남긴다");
+    active
+}
+
+/// **아무도 참조하지 않는 tmp 잔해**를 남긴다 — 확정 도중 죽은 자리와 같은 모양.
+///
+/// 이름이 `<pid>-<표>` 여야 GIL 이 제 잔해로 알아본다. 모르는 이름은 GIL 이 지우지 않고
+/// 거절하므로(남의 파일을 치우지 않는다), 그 모양을 그대로 흉내 낸다.
+fn tmp_residue(dir: &Path) -> PathBuf {
+    let tmp = dir.join(".gil").join("artifacts").join("tmp");
+    fs::create_dir_all(&tmp).expect("tmp 를 만든다");
+    let leftover = tmp.join("4242-7");
+    fs::write(&leftover, "확정되지 못한 바이트").expect("잔해를 남긴다");
+    leftover
+}
+
+#[test]
+fn a_read_only_open_refuses_an_interrupted_restore_instead_of_repairing_it() {
+    let dir = reading_one("read-only-interrupted");
+    let half = interrupted_restore(&dir);
+    let before = gil_bytes(&dir);
+
+    // **고치지 않는다. 있다는 사실만 말한다.**
+    let refused = ProjectSession::open_read_only(spec(), state_in(&dir))
+        .err()
+        .expect("끝나지 않은 복원 위에서는 읽지 않는다");
+    match &refused {
+        gil::SessionError::NeedsRecovery { found, .. } => {
+            assert!(found.contains("preparing-"), "무엇이 남았는지 말하지 않았다: {found}");
+        }
+        other => panic!("다른 거절이 나왔다: {other}"),
+    }
+    // 거절이 **빈 Graph 나 dirty 로 둔갑하지 않았다** — 애초에 View 가 만들어지지 않았다.
+    assert!(half.exists(), "읽기만 하는 열기가 복원 영역을 치웠다");
+    assert!(half.join("PLAN").is_file(), "계획이 사라졌다");
+    assert_eq!(before, gil_bytes(&dir), "파일이 달라졌다");
+
+    // 그리고 **쓰는 명령의 복구는 그대로다** — 같은 Project 를 보통 명령으로 열면 제자리로
+    // 돌아간다. 읽기 전용 문이 생겼다고 GIL 본래의 동작이 바뀌지 않는다.
+    ProjectSession::open(spec(), state_in(&dir)).expect("쓰는 열기는 복구하고 연다");
+    assert!(!half.exists(), "보통 열기가 복구하지 않았다");
+    // 복구가 끝났으니 이제 읽기만 하는 열기도 선다.
+    assert!(ProjectSession::open_read_only(spec(), state_in(&dir)).is_ok(), "복구 뒤에도 막힌다");
+}
+
+#[test]
+fn a_read_only_open_leaves_tmp_residue_exactly_where_it_found_it() {
+    let dir = reading_one("read-only-tmp");
+    let leftover = tmp_residue(&dir);
+    let before = gil_bytes(&dir);
+
+    // 잔해가 있어도 **읽기는 선다** — 아무도 참조하지 않는 것들이라 사실을 해치지 않는다.
+    let view = decode_view_v1(&adapter_view(&dir)).expect("View");
+    assert!(!view.timeline.is_empty(), "잔해 때문에 Graph 가 비었다");
+
+    assert!(leftover.is_file(), "읽기만 하는 열기가 tmp 잔해를 치웠다");
+    assert_eq!(
+        fs::read_to_string(&leftover).expect("잔해"),
+        "확정되지 못한 바이트",
+        "잔해의 바이트가 달라졌다"
+    );
+    assert_eq!(before, gil_bytes(&dir), "파일이 달라졌다");
+
+    // 그리고 **쓰는 명령의 잔해 회수는 그대로다.**
+    ProjectSession::open(spec(), state_in(&dir)).expect("쓰는 열기");
+    assert!(!leftover.exists(), "보통 열기가 잔해를 치우지 않았다");
+}
+
+#[test]
+fn reading_a_damaged_project_changes_not_one_byte_and_not_one_object() {
+    let dir = reading_one("read-only-damaged");
+    uncommitted_restore(&dir);
+    tmp_residue(&dir);
+
+    let objects = |at: &Path| -> usize { every_file(&at.join(".gil").join("artifacts")).len() };
+    let before = every_file(&dir);
+    let before_objects = objects(&dir);
+
+    // 창이 하는 일을 여러 번 한다 — 열고, 거절당하고, 다시 연다.
+    for _ in 0..3 {
+        let refused = ProjectSession::open_read_only(spec(), state_in(&dir));
+        assert!(
+            matches!(refused, Err(gil::SessionError::NeedsRecovery { .. })),
+            "복구가 필요한 상태에서 다른 답이 나왔다"
+        );
+    }
+
+    let after = every_file(&dir);
+    assert_eq!(before.len(), after.len(), "파일 수가 달라졌다");
+    assert_eq!(before_objects, objects(&dir), "객체 수가 달라졌다");
+    for (name, bytes) in &before {
+        assert_eq!(Some(bytes), after.get(name), "{name} 의 바이트가 달라졌다");
+    }
+}
+
+#[test]
+fn the_companion_reads_a_healthy_project_through_the_read_only_door_only() {
+    let dir = reading_one("read-only-door");
+    let before = every_file(&dir);
+
+    // 읽기 전용 문으로 얻은 View 가 쓰는 문으로 얻은 것과 **같은 사실**이다.
+    let strict = decode_view_v1(&adapter_view(&dir)).expect("View");
+    let normal = {
+        let session = ProjectSession::open(spec(), state_in(&dir)).expect("연다");
+        let seen = session.monitor().expect("Snapshot");
+        decode_view_v1(&encode_view_v1(&monitor_view_v1(&seen).expect("View")).expect("옮긴다"))
+            .expect("View")
+    };
+    assert_eq!(strict.timeline.len(), normal.timeline.len(), "두 문이 다른 Graph 를 말한다");
+    assert_eq!(strict.current.cycle_ref, normal.current.cycle_ref);
+
+    // 그리고 상세도 같은 문으로 온다.
+    let session = ProjectSession::open_read_only(spec(), state_in(&dir)).expect("연다");
+    let step: gil::StepRef = strict.timeline[0].steps[0].step_ref.parse().expect("주소");
+    let detail = session.node_detail_v1(step).expect("있는 Step");
+    assert_eq!(detail.step_ref, strict.timeline[0].steps[0].step_ref);
+    drop(session);
+
+    assert_eq!(before, every_file(&dir), "읽기만 했는데 파일이 달라졌다");
+    // 잠금이 남지 않았다 — 창이 떠 있어도 사람의 `gil` 명령이 막히지 않는다.
+    assert!(ProjectSession::open(spec(), state_in(&dir)).is_ok(), "잠금이 남았다");
+}
+
+// ── Companion 설정이 Project 를 건드리지 않는다 ──────────────────────────
+//
+// Host UI Model §9.1.2 의 마지막 줄: 「시험은 설정 파일만 바뀌고 등록한 모든 Project 의
+// 파일 수·바이트·Artifact 객체 수는 전혀 바뀌지 않음을 확인한다.」
+
+/// 설정이 하는 일을 이 시험 안에서 그대로 밟는다 — 들이고, 차례를 바꾸고, 지운다.
+///
+/// Companion 의 `settings` 모듈은 `gil-companion` crate 안에 있어 여기서 부를 수 없다.
+/// 그래서 여기서 재는 것은 **그 모듈이 무엇을 만지는가**가 아니라 **Project 가 무엇도
+/// 겪지 않는가**다 — 후자가 명세가 요구한 것이다.
+fn settings_like_work(config: &Path, roots: &[&Path]) {
+    let file = config.join("companion-settings.json");
+    for round in 0..3 {
+        let listed: Vec<String> = roots
+            .iter()
+            .enumerate()
+            .map(|(at, root)| {
+                format!(
+                    r#"{{"root":{:?},"scope_id":"project:{at}{round}","label":"이름{at}"}}"#,
+                    root.display().to_string()
+                )
+            })
+            .collect();
+        let said = format!(
+            r#"{{"schema_version":1,"projects":[{}],"last_selected":null,"window":{{"position":[10.0,20.0],"size":[520.0,900.0],"maximized":false}}}}"#,
+            listed.join(",")
+        );
+        let beside = config.join(".companion-settings.json.tmp");
+        fs::write(&beside, &said).expect("옆자리에 적는다");
+        fs::rename(&beside, &file).expect("제자리로 옮긴다");
+    }
+    // 마지막에는 전부 지운 설정 — Project 제거와 같은 모양이다.
+    fs::write(
+        &file,
+        r#"{"schema_version":1,"projects":[],"last_selected":null,"window":{"position":null,"size":[520.0,900.0],"maximized":false}}"#,
+    )
+    .expect("적는다");
+}
+
+#[test]
+fn remembering_and_forgetting_projects_changes_not_one_project_byte() {
+    let one = reading_one("settings-project-one");
+    let other = first_interview("settings-project-two");
+    let config = scratch("settings-config");
+
+    let objects = |at: &Path| -> usize { every_file(&at.join(".gil").join("artifacts")).len() };
+    let before_one = every_file(&one);
+    let before_other = every_file(&other);
+    let before_objects = (objects(&one), objects(&other));
+    assert!(before_one.len() >= 3 && before_other.len() >= 1, "볼 파일이 너무 적다");
+    assert!(before_objects.0 > 0, "Snapshot 창고가 비었다");
+
+    // 등록하고, 차례를 바꾸고, 지운다. 그리고 그 사이사이 **실제로 읽는다** —
+    // 창이 하는 일과 같은 순서다.
+    settings_like_work(&config, &[&one, &other]);
+    for root in [&one, &other] {
+        let view = decode_view_v1(&adapter_view(root)).expect("View");
+        for cycle in &view.timeline {
+            for step in &cycle.steps {
+                let _ = adapter_detail(root, &step.step_ref);
+            }
+        }
+    }
+    settings_like_work(&config, &[&one]);
+
+    // **두 Project 모두 바이트 하나 다르지 않다.**
+    for (label, root, before, objects_before) in [
+        ("첫째", &one, &before_one, before_objects.0),
+        ("둘째", &other, &before_other, before_objects.1),
+    ] {
+        let after = every_file(root);
+        assert_eq!(before.len(), after.len(), "{label} Project 의 파일 수가 달라졌다");
+        assert_eq!(objects_before, objects(root), "{label} 의 객체 수가 달라졌다");
+        for (name, bytes) in before.iter() {
+            assert_eq!(Some(bytes), after.get(name), "{label} 의 {name} 바이트가 달라졌다");
+        }
+    }
+
+    // 그리고 **바뀐 것은 설정 폴더 안의 파일 하나뿐**이다.
+    let mut left: Vec<String> = fs::read_dir(&config)
+        .expect("훑는다")
+        .flatten()
+        .map(|one| one.file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["companion-settings.json"], "설정 폴더에 다른 것이 생겼다");
+
+    // 잠금도 남지 않았다.
+    for root in [&one, &other] {
+        assert!(ProjectSession::open(spec(), state_in(root)).is_ok(), "잠금이 남았다");
+    }
+}
+
+#[test]
+fn the_settings_file_never_lands_inside_a_project() {
+    let root = reading_one("settings-not-inside");
+    let config = scratch("settings-outside");
+    settings_like_work(&config, &[&root]);
+
+    // 설정은 **앱 전용 폴더**에만 있다. Project 안 어디에도 없다(§9.1.2).
+    for (name, _) in every_file(&root) {
+        assert!(
+            !name.contains("companion-settings"),
+            "Project 안에 설정이 생겼다: {name}"
+        );
+    }
+    assert!(config.join("companion-settings.json").is_file(), "설정이 제자리에 없다");
+
+    // 설정이 자리를 기억하는 동안에도 그 자리는 **파일 안에만** 있다. 화면으로 나가지
+    // 않는다는 것은 `gil-companion` 의 시험이 따로 지킨다.
+    let file = config.join("companion-settings.json");
+    fs::write(
+        &file,
+        format!(
+            r#"{{"schema_version":1,"projects":[{{"root":{:?},"scope_id":"project:하나","label":"하나"}}],"last_selected":null,"window":{{"position":null,"size":[520.0,900.0],"maximized":false}}}}"#,
+            root.display().to_string()
+        ),
+    )
+    .expect("적는다");
+    let said = fs::read_to_string(&file).expect("읽는다");
+    assert!(said.contains("\"root\""), "설정이 자리를 기억하지 않는다");
+    // 그래도 Project 안에는 설정이 없다.
+    assert!(
+        every_file(&root).keys().all(|name| !name.contains("companion-settings")),
+        "Project 안에 설정이 생겼다"
+    );
+}

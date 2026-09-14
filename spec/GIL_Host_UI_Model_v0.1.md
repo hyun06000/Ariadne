@@ -383,9 +383,94 @@ Host가 지속형 surface를 제공하지 않는 동안 v0의 기준 adapter는 
 - Companion은 `.gil/state.yaml`을 직접 해석하지 않고 GIL의 검증된 read API 또는 canonical
   `MonitorViewV1` adapter만 사용한다.
 - Companion이 떠 있지 않아도 GIL의 의미 동작과 저장은 정상 동작한다.
+- 사용자에게 보이는 Companion 표식은 소문자 `gil` 워드마크이며 단독 대문자 `G`를 쓰지 않는다.
 
 Tauri는 v0 packaging 결정이지 wire 계약이 아니다. 장차 Agent Host가 지속형 panel을 제공하면 같은
 UI bundle과 View/detail 계약을 그 adapter에 싣고, Tauri를 필수 설치에서 다시 내릴 수 있다.
+
+#### 9.1.1 실제 GIL read adapter의 첫 조각
+
+fixture 다음의 첫 조각은 사용자가 **명시적으로 선택한 하나의 GIL Project**를 읽는 adapter다.
+이 조각의 갱신 방식은 수동 refresh 하나뿐이며 watcher, 최근 Project 저장과 창 위치 저장은 포함하지
+않는다.
+
+1. 사용자는 OS folder picker에서 Project root를 선택한다. adapter는 cwd, 최근 폴더 또는 열린
+   대화에서 Project를 추측하지 않는다.
+2. 선택한 root는 GIL의 검증된 project open 경로를 통과해야 한다. Companion은
+   `.gil/state.yaml`을 직접 읽거나 부분적으로 해석하지 않는다.
+3. 성공한 open은 stable scope identity와 완전한 `MonitorViewV1`을 돌려준다. UI는 fixture와 같은
+   wire 계약으로 이를 받으며 별도의 Tauri 전용 Graph 사실을 만들지 않는다.
+4. Step 선택은 현재 scope와 canonical `StepRef`를 함께 전달해 `NodeDetailV1`을 요청한다. scope가
+   바뀌었거나 Step이 없으면 다른 Project나 가까운 Step으로 물러서지 않는다.
+5. 수동 refresh는 현재 선택 Project의 완전한 `MonitorViewV1`을 다시 요청한다. 기존 View에 파일
+   변화나 부분 event를 합쳐 새 사실을 만들지 않는다.
+6. refresh가 실패하면 마지막으로 검증된 View를 그대로 보존하고, 그것이 최신이라고 가장하지 않은 채
+   실패 이유를 별도로 표시한다. 실패를 `dirty`, 빈 Graph 또는 Project 제거로 바꾸지 않는다.
+7. Project 없음, GIL Project가 아님, 지원하지 않는 저장 판, 잠금 경쟁, 손상과 관측 실패는 서로 다른
+   typed refusal로 보존한다. UI는 오류 문자열을 파싱해 의미를 추측하지 않는다.
+8. folder picker 취소는 상태 변화 없는 취소다. 현재 Project와 마지막 View를 폐기하지 않는다.
+
+이 adapter의 모든 동작은 read-only다. project open, View 조회, detail 조회, refresh와 거절은
+`.gil`의 Graph·Report·Journey·Memory·Will, Artifact 파일, Snapshot 창고와 작업 파일을 쓰지 않는다.
+관측이 객체를 확정하거나 `state.yaml`을 다시 저장해서도 안 된다. 실제 GIL Project를 선택해 View와
+detail을 읽고 refresh한 뒤에도 이 바이트와 객체 수가 전부 같다는 시험이 첫 조각의 합격 조건이다.
+
+fixture는 제거하지 않는다. fixture는 공용 UI bundle의 결정적 표현 회귀 시험이며, 실제 adapter는
+같은 `MonitorViewV1`·`NodeDetailV1` 경계에 새로운 사실 공급원으로만 붙는다.
+
+#### 9.1.2 Companion-local settings
+
+Companion이 재시작 뒤에도 Project 목록과 창의 자리를 복원하려면 Project 밖의 **앱 전용 설정**을
+사용한다. 이 설정은 Monitor 사실도 Journey의 일부도 아니며 다른 Host가 따라야 하는 wire 계약도
+아니다.
+
+v0 설정이 기억하는 것은 다음뿐이다.
+
+```text
+CompanionSettings v1
+├─ 등록한 Project[]
+│  ├─ canonical root                 native adapter 안에서만 쓰는 비공개 위치
+│  ├─ stable scope identity
+│  ├─ display name
+│  └─ last used order
+├─ 마지막으로 선택한 scope identity | null
+└─ 창 geometry
+   ├─ position | null
+   ├─ size
+   └─ maximized
+```
+
+- 설정은 OS가 이 앱에 배정한 app-config directory 한 곳에 저장한다. `.gil`, Project root, cwd와
+  사용자의 임의 문서 폴더에 두지 않는다.
+- canonical root는 재실행 뒤 native registry를 복원하는 데만 사용한다. JS·DOM·tooltip·View·detail
+  JSON·오류 receipt로 보내지 않는다. UI 명령은 계속 scope identity만 사용한다.
+- 설정의 scope identity를 믿어 Project를 합치지 않는다. root를 canonicalize해 identity를 다시
+  계산하고, 저장된 값과 다르면 그 항목을 unavailable로 표시한다.
+- 앱 시작은 등록됐다는 이유로 모든 Project의 GIL Graph나 Artifact 세계를 읽지 않는다. 설정만
+  복원한 뒤 마지막으로 선택했던 Project 하나만 foreground read adapter로 연다.
+- 마지막 Project가 없거나 열리지 않으면 다른 Project를 임의로 선택하지 않는다. 목록은 유지하고
+  실패한 항목을 unavailable로 표시하며 사용자가 선택하게 한다.
+- Project를 목록에서 제거하는 것은 Companion 설정의 항목만 지운다. Project directory, `.gil`,
+  Artifact, Snapshot과 Report는 삭제하거나 수정하지 않는다.
+- display name이 같은 항목이 둘 이상이면 UI에서만 stable scope identity의 짧은 suffix를 덧붙여
+  구분한다. suffix는 표시일 뿐 identity가 아니며 Host 요청에는 전체 scope를 사용한다.
+- 마지막 선택은 View를 성공적으로 읽은 뒤에만 바꾼다. 열지 못한 Project나 취소된 picker가 마지막
+  정상 선택을 덮어쓰지 않는다.
+- 창 position과 size는 logical pixel로 저장한다. 복원 시 현재 연결된 display의 보이는 영역과 최소
+  크기에 맞춰 제한하며, 사라진 monitor의 좌표 때문에 창이 화면 밖에 놓이지 않게 한다.
+- Step 선택, Cycle 접기, scroll과 열린 detail은 이 판에서 저장하지 않는다. Project별 presentation
+  state는 창이 살아 있는 동안의 임시 상태다.
+
+설정 저장은 앱 설정 파일 하나를 대상으로 하는 atomic replace다. 완전한 새 내용을 임시 파일에 쓰고
+동기화한 뒤 기존 파일을 교체한다. 중간 실패 시 마지막 정상 설정을 보존하며 Project 파일에는 손대지
+않는다. 여러 UI event가 연달아 발생하면 debounce할 수 있지만, 정상 종료 전에 마지막 값을 flush한다.
+
+지원하지 않는 settings schema나 읽을 수 없는 설정은 빈 설정으로 가장하거나 자동으로 덮어쓰지 않는다.
+원본 파일을 그대로 보존하고, 이번 실행은 설정이 저장되지 않는 임시 상태로 열며 사람에게 typed
+settings refusal을 표시한다. 명시적 reset UX는 이 조각의 범위 밖이다.
+
+Companion settings를 쓰는 동안에도 GIL read adapter의 read-only 불변식은 그대로다. 시험은 설정
+파일만 바뀌고 등록한 모든 Project의 파일 수·바이트·Artifact 객체 수는 전혀 바뀌지 않음을 확인한다.
 
 ### 9.2 2026-09-08 Host surface 실측
 

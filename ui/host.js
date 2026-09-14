@@ -12,6 +12,13 @@
 (() => {
   "use strict";
 
+  // **누가 이미 문을 달아 두었으면 물러선다.**
+  //
+  // Tauri 창은 페이지보다 먼저 제 문을 세운다(실제 GIL Project 를 읽는 문이다). 그 위에
+  // fixture 를 덮어쓰면 창이 늘 가짜 사실만 보게 된다. bundle 은 어느 Host 인지 모르지만,
+  // **문이 이미 있는지**는 알 수 있다.
+  if (window.GIL_HOST) return;
+
   const read = async (path) => {
     const answer = await fetch(path, { cache: "no-store" });
     if (!answer.ok) throw new Error(`${path} 을 읽지 못했다 (${answer.status})`);

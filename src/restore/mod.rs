@@ -595,12 +595,15 @@ fn finish(area: &Area, active: &Path) -> Result<(), RestoreFailure> {
 /// ```
 ///
 /// 복구가 실패하면 **원래 명령을 실행하지 않는다.**
-pub(crate) fn recover(root: &Path, gil: &Path) -> Result<(), RestoreFailure> {
-    let area = Area::at(gil);
+/// restore 영역에 남아 있는 것들 — **이름만 모은다. 아무것도 건드리지 않는다.**
+///
+/// `recover` 와 [`left_behind`] 가 이 한 자리를 함께 쓴다. 「무엇이 남았는가」를 두 군데서
+/// 세면 한쪽이 낡아, 복구하는 쪽과 복구가 필요하다고 말하는 쪽의 판단이 갈린다.
+fn area_entries(area: &Area) -> Result<Vec<(String, PathBuf)>, RestoreFailure> {
     let entries = match fs::read_dir(area.root()) {
         Ok(entries) => entries,
         // 아직 아무도 복원한 적이 없다. 정상이다.
-        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(source) => {
             return Err(RestoreFailure::Io {
                 stage: Stage::Recovery,
@@ -610,7 +613,6 @@ pub(crate) fn recover(root: &Path, gil: &Path) -> Result<(), RestoreFailure> {
             });
         }
     };
-
     // 이름을 먼저 전부 모은다 — 지우면서 읽으면 무엇을 보았는지 흔들린다.
     let mut found: Vec<(String, PathBuf)> = Vec::new();
     for entry in entries {
@@ -621,6 +623,31 @@ pub(crate) fn recover(root: &Path, gil: &Path) -> Result<(), RestoreFailure> {
             said: source.to_string(),
         })?;
         found.push((entry.file_name().to_string_lossy().into_owned(), entry.path()));
+    }
+    Ok(found)
+}
+
+/// 미완의 복원이 남아 있는가 — **보기만 한다.**
+///
+/// 읽기만 하는 열기가 쓰는 문이다. 여기서 `Some` 이 나오면 그 Project 는 **아무도 확정한 적
+/// 없는 세계** 위에 서 있으므로, 읽는 쪽은 복구하지 않고 그 사실을 그대로 거절해야 한다
+/// (Host UI Model §9.1.1). 무엇이 남았는지 사람이 읽을 수 있게 이름으로 돌려준다.
+pub(crate) fn left_behind(gil: &Path) -> Result<Option<String>, RestoreFailure> {
+    let area = Area::at(gil);
+    let found = area_entries(&area)?;
+    if found.is_empty() {
+        return Ok(None);
+    }
+    let mut names: Vec<String> = found.into_iter().map(|(name, _)| name).collect();
+    names.sort();
+    Ok(Some(names.join(", ")))
+}
+
+pub(crate) fn recover(root: &Path, gil: &Path) -> Result<(), RestoreFailure> {
+    let area = Area::at(gil);
+    let mut found = area_entries(&area)?;
+    if found.is_empty() {
+        return Ok(());
     }
 
     // **active 를 먼저 처리한다.** 잔해를 치우다 실패해 rollback 을 못 하는 일이 없게.

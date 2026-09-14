@@ -336,20 +336,38 @@ check("14. UI 에 쓰기 길이 없다 — .gil·Artifact·Journey·Will 을 건
   await wait(340);
   C().collapseCycle("cycle:C3");
   await wait(60);
+
+  // ① Host 로 가는 문에 **읽는 동사만** 있다. 이름이 쓰기를 뜻하는 것이 하나도 없다.
+  //
+  //    `addProject` 는 이 창이 **어느 Project 를 볼지**를 정할 뿐 Project 를 만들지도
+  //    바꾸지도 않는다. fixture Host 에는 아예 없다.
+  const readOnly = [
+    "addProject", "forgetProject", "listProjects", "loadDetail", "loadView", "opening",
+  ];
   const door = Object.keys(window.GIL_HOST).sort();
-  const allowed = ["listProjects", "loadDetail", "loadView"];
-  if (door.join(",") !== allowed.join(","))
-    throw new Error(`Host 문이 ${door.join(",")} 이다 — 읽기 셋뿐이어야 한다`);
-  const writes = all("button").filter((b) => b.matches(".node, .fold") === false);
-  if (writes.length) throw new Error(`쓰기로 보이는 button 이 ${writes.length}개 있다`);
-  if (all("form, input, textarea").length)
-    throw new Error("입력 요소가 있다");
-  // Project 고르개 하나 말고는 사람이 값을 넣을 자리가 없다.
+  for (const verb of door) {
+    if (!readOnly.includes(verb)) throw new Error(`Host 문에 모르는 동사 ${verb} 가 있다`);
+  }
+  for (const verb of door) {
+    // `forgetProject` 는 **이 창의 목록**에서 빼는 일이라 지우는 낱말이 아니다.
+    if (/save|write|delete|remove|close|approve|reject|revisit|restore|commit|open_/i.test(verb))
+      throw new Error(`Host 문의 ${verb} 가 쓰기를 뜻한다`);
+  }
+
+  // ② 사람이 누를 수 있는 것은 **읽는 손잡이**뿐이다.
+  // `목록에서 빼기` 도 읽는 손잡이다 — 이 창의 설정에서 한 칸을 지울 뿐, Project 의
+  // 파일은 하나도 건드리지 않는다(§9.1.2). Rust 시험이 그 바이트를 지킨다.
+  const allowed = [".node", ".fold", ".scope .open", ".scope .refresh", ".scope .forget"];
+  for (const button of all("button")) {
+    if (!allowed.some((one) => button.matches(one)))
+      throw new Error(`쓰기로 보이는 button 이 있다: .${button.className}`);
+  }
+  if (all("form, input, textarea").length) throw new Error("입력 요소가 있다");
   const selects = all("select");
   if (selects.length !== 1 || selects[0].id !== "scope")
     throw new Error("Project 고르개 말고 다른 입력이 있다");
-  // bundle 이 **데이터를 얻으러 가는 곳**은 fixture 뿐이다. 제 파일을 들이는 것은
-  // 데이터 요청이 아니다(시험 장치가 `index.html` 을 가져오는 것도 여기 든다).
+
+  // ③ 데이터를 얻으러 간 곳은 fixture 뿐이다. bundle 이 제 파일을 들이는 것은 요청이 아니다.
   const fixture = /\/fixtures\/(projects\.json|[\w-]+\/(view|details)\.json)$/;
   const own = /\/(index|selftest)\.html$|\/(companion|host|layout|selftest)\.js$/;
   const sent = performance.getEntriesByType("resource")
@@ -360,7 +378,7 @@ check("14. UI 에 쓰기 길이 없다 — .gil·Artifact·Journey·Will 을 건
       throw new Error(`fixture 가 아닌 곳에 다녀왔다: ${one.name}`);
   }
   if (!data.length) throw new Error("아무것도 읽지 않았다 — 잴 것이 없다");
-  return `읽기 문 셋 · 쓰기 button 0 · 데이터 요청 ${data.length}건 모두 fixture`;
+  return `읽는 동사 ${door.length} · 읽는 손잡이만 · 데이터 요청 ${data.length}건 모두 fixture`;
 });
 
 check("15. Project 마다 server·port·capability URL 이 없다", async () => {
@@ -934,21 +952,38 @@ check("33. 화면 밖 Step 을 고르면 그 자리와 카드가 viewport 안으
   return `${far.ref} 까지 scrollTop 0→${moved.top} · scrollLeft 0→${moved.left}`;
 });
 
-check("34. 이미 보이는 Step 을 고르면 scroll 을 건드리지 않는다", async () => {
+check("34. 이미 자리와 카드가 다 보이면 scroll 을 건드리지 않는다", async () => {
   await show("fixture:dense");
   at(".map").scrollTop = 0;
   at(".map").scrollLeft = 0;
   await wait(60);
-  // 처음 화면 안에 있고, 카드까지 들어오는 자리를 고른다.
-  const near = C().plan().nodes.find((n) => n.kind === "step" && showsAll(at(`[data-step="${n.ref}"]`)));
-  if (!near) throw new Error("화면 안에 있는 Step 이 없다");
+
+  // 첫 선택은 **카드까지** 보이게 하려고 조금 움직일 수 있다 — 그것이 규칙이다.
+  // 여기서 재는 것은 그다음이다: 이미 둘 다 보이는데도 또 움직이는가.
+  const near = C().plan().nodes.find((n) => n.kind === "step");
   await C().selectStep(near.ref);
   await wait(340);
+  const node = at(`[data-step="${near.ref}"]`);
+  if (!showsAll(node)) throw new Error("고른 자리가 보이지 않는다");
+  if (!showsAll(at(".card"))) throw new Error("카드가 보이지 않는다");
+  const settled = viewport();
+
+  // 같은 것을 다시 고른다. 이미 다 보이므로 **한 픽셀도 움직이면 안 된다.**
+  await C().selectStep(near.ref);
+  await wait(340);
+  const again = viewport();
+  if (again.top !== settled.top || again.left !== settled.left)
+    throw new Error(`화면이 튀었다 — (${settled.left}, ${settled.top}) → (${again.left}, ${again.top})`);
+
+  // 다시 그려도 마찬가지다 — 접기 하나를 넣었다 빼도 제자리로 돌아온다.
+  C().collapseCycle("cycle:C6");
+  await wait(80);
+  C().expandCycle("cycle:C6");
+  await wait(80);
   const after = viewport();
-  if (!showsAll(at(`[data-step="${near.ref}"]`))) throw new Error("보이던 것이 밀려났다");
-  if (after.top !== 0 || after.left !== 0)
-    throw new Error(`화면이 튀었다 — scrollTop ${after.top} · scrollLeft ${after.left}`);
-  return `${near.ref} 를 골라도 scroll (0, 0) 그대로`;
+  if (after.top !== settled.top || after.left !== settled.left)
+    throw new Error(`재배치가 화면을 옮겼다 — (${after.left}, ${after.top})`);
+  return `${near.ref} · (${settled.left}, ${settled.top}) 에서 움직이지 않는다`;
 });
 
 check("35. 접기 재배치로 밀려난 선택이 다시 보인다", async () => {
@@ -1023,10 +1058,709 @@ check("37. 고르개에 적힌 Cycle·Step 수가 실제 View 와 같다", async
   return told.join(" | ");
 });
 
+// ── ⑬ 실제 adapter 가 붙는 자리 ────────────────────────────────────
+//
+// 창을 띄우지 않고도 잴 수 있는 것만 여기서 잰다. **Host 문을 잠깐 갈아 끼우고** bundle 이
+// 그 문을 어떻게 쓰는지를 본다 — Tauri 쪽 사실은 Rust 시험이 따로 지킨다.
+
+/** 문을 잠깐 바꾸고, 끝나면 반드시 되돌린다. */
+const withHost = async (door, body) => {
+  const was = window.GIL_HOST;
+  window.GIL_HOST = door;
+  try {
+    return await body();
+  } finally {
+    window.GIL_HOST = was;
+    C().seats.clear();
+    await C().listScopes();
+  }
+};
+/** fixture 를 그대로 흉내 내되, 시험이 실패를 주입할 수 있는 문. */
+const stubHost = (over = {}) => ({
+  listProjects: () => window.GIL_HOST_REAL.listProjects(),
+  loadView: (scope) => window.GIL_HOST_REAL.loadView(scope),
+  loadDetail: (scope, step) => window.GIL_HOST_REAL.loadDetail(scope, step),
+  ...over,
+});
+
+check("38. 새로고침이 완전한 View 로 통째로 갈아 끼운다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:dense");
+  const before = C().plan().nodes.length;
+  let asked = 0;
+  await withHost(stubHost({
+    loadView: async (scope) => {
+      asked += 1;
+      // 새로고침이 받는 것은 **또 하나의 완결된 View** 다 — 옛 것의 조각이 아니다.
+      const view = await window.GIL_HOST_REAL.loadView(scope);
+      view.timeline = view.timeline.slice(0, 2);
+      view.current = { ...view.current, cycle_ref: view.timeline[1].cycle_ref,
+                       step_ref: view.timeline[1].steps.at(-1).step_ref };
+      return view;
+    },
+  }), async () => {
+    await C().refresh();
+    await wait(120);
+    const after = C().plan().nodes.length;
+    if (asked !== 1) throw new Error(`새로고침이 조회를 ${asked}번 했다`);
+    if (after >= before) throw new Error("새 View 가 화면을 갈아 끼우지 못했다");
+    if (at(".stale")?.dataset.shown === "true") throw new Error("성공했는데 낡았다고 적혔다");
+  });
+  await show("fixture:dense");
+  return `node ${before} → 새 View 로 교체 · 조회 1회`;
+});
+
+check("39. 새로고침이 실패하면 마지막 View 를 지키고 오류를 따로 세운다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:reading-one");
+  await C().selectStep("step:C2/S3");
+  await wait(340);
+  const kept = {
+    nodes: C().plan().nodes.length,
+    detail: at(".detail h2").textContent,
+    intro: at(".intro h1").textContent,
+  };
+  await withHost(stubHost({
+    loadView: async () => {
+      const refusal = new Error("다른 GIL 명령이 이 Project 를 쥐고 있다");
+      refusal.code = "busy";
+      refusal.said = refusal.message;
+      throw refusal;
+    },
+  }), async () => {
+    await C().refresh();
+    await wait(120);
+    // ① 마지막으로 검증된 화면이 그대로다.
+    if (C().plan().nodes.length !== kept.nodes) throw new Error("Graph 가 지워졌다");
+    if (at(".detail h2").textContent !== kept.detail) throw new Error("상세가 지워졌다");
+    if (at(".intro h1").textContent !== kept.intro) throw new Error("현재 자리가 바뀌었다");
+    if (!at(".card")) throw new Error("선택이 사라졌다");
+    // ② 그리고 **최신이라고 가장하지 않는다.**
+    const banner = at(".stale");
+    if (banner.dataset.shown !== "true") throw new Error("낡았다는 사실이 보이지 않는다");
+    if (!banner.textContent.includes("다시 읽지 못했다")) throw new Error("이유가 없다");
+    // ③ 실패를 dirty 나 빈 Graph 로 바꾸지 않는다.
+    if (at(".intro .world").textContent.includes("dirty"))
+      throw new Error("실패가 dirty 로 둔갑했다");
+  });
+  await show("fixture:reading-one");
+  return `Graph·상세·선택 유지 · 낡음 표시 분리`;
+});
+
+check("40. 성공한 조회는 낡음 표시를 걷어 간다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:dense");
+  let fail = true;
+  await withHost(stubHost({
+    loadView: async (scope) => {
+      if (fail) {
+        const refusal = new Error("잠시 막혔다");
+        refusal.code = "busy";
+        throw refusal;
+      }
+      return window.GIL_HOST_REAL.loadView(scope);
+    },
+  }), async () => {
+    await C().refresh();
+    await wait(100);
+    if (at(".stale").dataset.shown !== "true") throw new Error("실패가 표시되지 않았다");
+    fail = false;
+    await C().refresh();
+    await wait(120);
+    if (at(".stale").dataset.shown === "true") throw new Error("성공했는데 낡음이 남았다");
+  });
+  await show("fixture:dense");
+  return "실패 → 표시 · 성공 → 걷힘";
+});
+
+check("41. 폴더 고르기 취소는 아무것도 바꾸지 않는다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:reading-one");
+  await C().selectStep("step:C1/S2");
+  await wait(340);
+  C().collapseCycle("cycle:C1");
+  await wait(80);
+  const kept = {
+    scope: C().scopeId(),
+    height: C().plan().height,
+    detail: at(".detail h2").textContent,
+    options: all(".scope select option").length,
+    notice: at(".notice").dataset.shown,
+  };
+  let asked = 0;
+  await withHost(stubHost({
+    // 사람이 고르개를 닫았다 — `null` 이 곧 「아무 일도 없었다」다.
+    addProject: async () => { asked += 1; return null; },
+  }), async () => {
+    await C().openProject();
+    await wait(120);
+    if (asked !== 1) throw new Error("고르개를 부르지 않았다");
+    if (C().scopeId() !== kept.scope) throw new Error("취소가 Project 를 바꿨다");
+    if (C().plan().height !== kept.height) throw new Error("취소가 접힘을 풀었다");
+    if (at(".detail h2").textContent !== kept.detail) throw new Error("취소가 상세를 지웠다");
+    if (all(".scope select option").length !== kept.options)
+      throw new Error("취소가 목록을 바꿨다");
+    if (at(".notice").dataset.shown !== kept.notice) throw new Error("취소가 오류로 보였다");
+  });
+  await show("fixture:reading-one");
+  return "Project·접힘·상세·목록·알림 모두 그대로";
+});
+
+check("42. 거절은 종류로 갈리고 글을 뜯어 뜻을 짐작하지 않는다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:dense");
+  const told = [];
+  for (const code of ["not_a_project", "unsupported_format", "busy", "needs_recovery", "scope_collision", "damaged"]) {
+    await withHost(stubHost({
+      loadView: async () => {
+        const refusal = new Error("HOST 가 준 원문 그대로");
+        refusal.code = code;
+        refusal.said = refusal.message;
+        throw refusal;
+      },
+    }), async () => {
+      await C().refresh();
+      await wait(80);
+      const said = at(".stale").textContent;
+      if (!said.includes("HOST 가 준 원문 그대로"))
+        throw new Error(`${code}: Host 의 말이 사라졌다`);
+      told.push(`${code}✓`);
+    });
+  }
+  // 네 갈래가 서로 **다른 말**로 보인다 — 한 덩이로 뭉개지 않는다.
+  const shown = new Set();
+  for (const code of ["not_a_project", "unsupported_format", "busy", "needs_recovery", "scope_collision", "damaged"]) {
+    await withHost(stubHost({
+      loadView: async () => { const e = new Error("x"); e.code = code; throw e; },
+    }), async () => {
+      await C().refresh();
+      await wait(60);
+      shown.add(at(".stale").textContent);
+    });
+  }
+  if (shown.size !== 6) throw new Error(`여섯 갈래가 ${shown.size}가지 말로만 보인다`);
+  await show("fixture:dense");
+  return told.join(" ") + " · 여섯 갈래가 서로 다른 말";
+});
+
+check("43. 폴더 열기 손잡이는 그 문이 할 수 있을 때만 보인다", async () => {
+  // fixture Host 에는 `addProject` 가 없다 — 그러면 손잡이도 없다.
+  if (typeof window.GIL_HOST.addProject === "function")
+    throw new Error("fixture Host 에 폴더 고르기가 생겼다");
+  if (!at(".scope .open").hidden) throw new Error("할 수 없는 일의 손잡이가 보인다");
+  // 새로고침은 어느 Host 에서나 뜻이 있다 — 완전한 View 를 다시 읽는 것뿐이다.
+  if (at(".scope .refresh").hidden) throw new Error("새로고침 손잡이가 없다");
+  if (at(".scope .refresh").tagName !== "BUTTON") throw new Error("눌릴 수 있는 것이 아니다");
+  return "폴더 열기 숨김 · 새로고침 보임";
+});
+
+check("44. 화면 어디에도 Project 의 경로가 없다", async () => {
+  // fixture 는 scope 이름이 곧 폴더 이름이라(이 Host 의 사정이다) 폴더 이름은 빼고,
+  // **경로처럼 생긴 것**이 화면에 실렸는지를 본다. 실제 adapter 는 이름조차 한 조각뿐이다.
+  await show("fixture:dense");
+  await C().selectStep("step:C2/S1");
+  await wait(340);
+
+  const suspicious = /(^|[\s"'(])(\/[\w.-]+){2,}/;
+  for (const one of all(".scope select option")) {
+    if (one.title) throw new Error(`고르개가 tooltip 으로 무언가를 흘린다: ${one.title}`);
+    if (suspicious.test(one.textContent)) throw new Error(`고르개에 경로가 있다: ${one.textContent}`);
+    for (const name of one.getAttributeNames()) {
+      if (name.startsWith("data-")) throw new Error(`고르개에 data 속성 ${name} 이 있다`);
+    }
+  }
+  // DOM 전체에도 절대경로 모양이 없다.
+  const painted = at("#gil-companion").innerHTML;
+  const found = painted.match(suspicious);
+  if (found) throw new Error(`화면에 경로처럼 보이는 것이 있다: ${found[0]}`);
+
+  // scope 이름은 **주소**다. UI 가 그것으로 자리를 지어내지 않는다.
+  const scope = C().scopeId();
+  if (scope.includes("/")) throw new Error(`scope 에 경로가 들어 있다: ${scope}`);
+  return `고르개 ${all(".scope select option").length}칸 · tooltip 없음 · data 속성 없음`;
+});
+
+check("45. UI 가 Host 에 건네는 것은 scope 와 StepRef 뿐이다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  const seen = [];
+  await withHost(stubHost({
+    loadView: (scope, ...rest) => {
+      seen.push(["loadView", scope, ...rest]);
+      return window.GIL_HOST_REAL.loadView(scope);
+    },
+    loadDetail: (scope, step, ...rest) => {
+      seen.push(["loadDetail", scope, step, ...rest]);
+      return window.GIL_HOST_REAL.loadDetail(scope, step);
+    },
+  }), async () => {
+    await C().showScope("fixture:reading-one");
+    await wait(120);
+    await C().selectStep("step:C1/S2");
+    await wait(340);
+    await C().refresh();
+    await wait(200);
+  });
+
+  if (!seen.length) throw new Error("아무것도 부르지 않았다");
+  // 둘 다 **주소**다. scope 에는 `/` 가 없고, StepRef 의 `/` 는 Cycle 과 Step 사이의 한 칸이라
+  // 폴더 구분이 아니다. 그래서 「`/` 가 있는가」가 아니라 **그 모양인가**로 잰다.
+  const isScope = (said) => /^[A-Za-z][\w.-]*:[\w.-]+$/.test(said);
+  const isStep = (said) => /^step:[\w.-]+\/[\w.-]+$/.test(said);
+  for (const [name, ...args] of seen) {
+    if (name === "loadView" && args.length !== 1)
+      throw new Error(`loadView 에 인자가 ${args.length}개 갔다`);
+    if (name === "loadDetail" && args.length !== 2)
+      throw new Error(`loadDetail 에 인자가 ${args.length}개 갔다`);
+    for (const arg of args) {
+      if (typeof arg !== "string") throw new Error(`${name} 에 글자가 아닌 것이 갔다`);
+      if (arg.startsWith("/") || arg.startsWith("~") || arg.includes(".."))
+        throw new Error(`${name} 에 경로가 갔다: ${arg}`);
+    }
+    if (!isScope(args[0])) throw new Error(`${name} 의 첫 인자가 scope 모양이 아니다: ${args[0]}`);
+    if (name === "loadDetail" && !isStep(args[1]))
+      throw new Error(`loadDetail 의 둘째 인자가 StepRef 모양이 아니다: ${args[1]}`);
+  }
+  await show("fixture:reading-one");
+  return `${seen.length}번 · scope 와 StepRef 만`;
+});
+
+check("46. 이름이 같은 두 Project 가 View 와 상세를 섞지 않는다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  // 같은 이름, 다른 주소 — 실제 adapter 에서 `~/a/일감` 과 `~/b/일감` 이 그렇다.
+  const twins = [
+    { scope_id: "project:aaaa", label: "일감", from: "fixture:reading-one" },
+    { scope_id: "project:bbbb", label: "일감", from: "fixture:dense" },
+  ];
+  await withHost(stubHost({
+    listProjects: async () => twins.map(({ scope_id, label }) => ({ scope_id, label })),
+    loadView: async (scope) => {
+      const one = twins.find((t) => t.scope_id === scope);
+      if (!one) throw Object.assign(new Error("모르는 주소"), { code: "unknown_scope" });
+      return window.GIL_HOST_REAL.loadView(one.from);
+    },
+    loadDetail: async (scope, step) => {
+      const one = twins.find((t) => t.scope_id === scope);
+      if (!one) throw Object.assign(new Error("모르는 주소"), { code: "unknown_scope" });
+      return window.GIL_HOST_REAL.loadDetail(one.from, step);
+    },
+  }), async () => {
+    await C().listScopes();
+    const options = all(".scope select option");
+    if (options.length !== 2) throw new Error("두 칸이 아니다");
+    if (options[0].textContent === options[1].textContent === false) { /* 이름은 같아도 된다 */ }
+    if (options[0].value === options[1].value) throw new Error("주소까지 같아졌다");
+
+    await C().showScope("project:aaaa");
+    await wait(120);
+    const first = C().plan().nodes.length;
+    await C().selectStep("step:C1/S2");
+    await wait(340);
+    const firstDetail = at(".detail h2").textContent;
+
+    await C().showScope("project:bbbb");
+    await wait(120);
+    const second = C().plan().nodes.length;
+    if (second === first) throw new Error("두 Project 가 같은 Graph 를 보여 준다");
+    if (at(".detail h2")) throw new Error("앞 Project 의 상세가 넘어왔다");
+    await C().selectStep("step:C6/S1");
+    await wait(340);
+    const secondDetail = at(".detail h2").textContent;
+    if (secondDetail === firstDetail) throw new Error("상세가 섞였다");
+
+    // 되돌아가면 제 것이 그대로다.
+    await C().showScope("project:aaaa");
+    await wait(160);
+    if (C().plan().nodes.length !== first) throw new Error("돌아오니 Graph 가 달라졌다");
+    if (at(".detail h2").textContent !== firstDetail) throw new Error("돌아오니 상세가 달라졌다");
+  });
+  await show("fixture:reading-one");
+  return "같은 이름 · 다른 주소 · Graph 와 상세가 갈린다";
+});
+
+// ── ⑭ 기다리는 동안에도 창은 살아 있다 ──────────────────────────────
+//
+// 2026-09-12 실측: 고르개를 **기다리는 자리**가 event loop 위에 앉아 창이 통째로 멈췄다.
+// Rust 쪽은 worker 로 옮겨 고쳤고, 여기서는 **화면이 그동안 무엇을 하는지**를 잰다.
+
+/** 한참 뒤에야 답하는 문 — 기다리는 동안 무슨 일이 되는지 보려고. */
+const slowHost = (over, delay = 900) => stubHost(Object.fromEntries(
+  Object.entries(over).map(([name, make]) => [name, async (...args) => {
+    await wait(delay);
+    return make(...args);
+  }]),
+));
+
+check("47. 고르개를 기다리는 동안에도 화면이 응답한다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:reading-one");
+  const before = C().plan().nodes.length;
+  await withHost(stubHost({
+    addProject: async () => { await wait(900); return null; },
+  }), async () => {
+    const picking = C().openProject();           // 기다리게 둔다
+    await wait(180);
+    // ① 기다리는 중이라고 **적혀 있다**.
+    if (at(".working").dataset.shown !== "true") throw new Error("진행 상태가 없다");
+    if (C().working() !== "폴더를 고르는 중") throw new Error(`"${C().working()}" 라고 적혔다`);
+    // ② 그 손잡이만 막힌다. 창 전체가 잠기지 않는다.
+    if (!at(".scope .open").disabled) throw new Error("중복 눌림이 막히지 않는다");
+    if (at(".scope select").disabled) throw new Error("고르개까지 잠갔다");
+    // ③ **Graph 가 그대로 있다** — 기다린다고 지우지 않는다.
+    if (C().plan().nodes.length !== before) throw new Error("기다리는 동안 Graph 가 사라졌다");
+    // ④ 그리고 화면은 여전히 움직인다 — 같은 순간에 다른 일이 끝난다.
+    let painted = 0;
+    await new Promise((go) => requestAnimationFrame(() => { painted += 1; go(); }));
+    if (!painted) throw new Error("화면이 다시 그려지지 않는다");
+    C().collapseCycle("cycle:C1");
+    await wait(60);
+    if (!at('[data-cycle="cycle:C1"].node.cycle')) throw new Error("기다리는 동안 조작이 막혔다");
+    C().expandCycle("cycle:C1");
+    await picking;
+  });
+  await show("fixture:reading-one");
+  return `Graph 유지 · 진행 표시 · 그 손잡이만 disabled · 기다리는 중에도 접기가 된다`;
+});
+
+check("48. 느린 조회를 기다리는 동안 다른 일이 끝난다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:dense");
+  const kept = C().plan().nodes.length;
+  await withHost(slowHost({
+    loadView: (scope) => window.GIL_HOST_REAL.loadView(scope),
+  }), async () => {
+    const reading = C().refresh();
+    await wait(180);
+    if (C().working() !== "다시 읽는 중") throw new Error(`"${C().working()}" 라고 적혔다`);
+    if (!at(".scope .refresh").disabled) throw new Error("중복 눌림이 막히지 않는다");
+    if (C().plan().nodes.length !== kept) throw new Error("읽는 동안 Graph 가 사라졌다");
+
+    // **기다리는 그 시간 안에** 다른 일이 처음부터 끝까지 끝난다.
+    const done = [];
+    for (let i = 0; i < 5; i += 1) {
+      await new Promise((go) => requestAnimationFrame(go));
+      done.push(i);
+    }
+    if (done.length !== 5) throw new Error("그동안 아무것도 끝나지 못했다");
+    await reading;
+  });
+  if (at(".working").dataset.shown === "true") throw new Error("끝났는데 진행 표시가 남았다");
+  await show("fixture:dense");
+  return "다시 읽는 중 · Graph 유지 · 그사이 5프레임 완주";
+});
+
+check("49. 취소·실패 어느 길로 끝나도 진행 표시와 손잡이가 돌아온다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await show("fixture:reading-one");
+  await C().selectStep("step:C2/S3");
+  await wait(340);
+  const kept = { nodes: C().plan().nodes.length, detail: at(".detail h2").textContent };
+
+  // ① 취소.
+  await withHost(stubHost({ addProject: async () => { await wait(300); return null; } }), async () => {
+    await C().openProject();
+  });
+  if (at(".working").dataset.shown === "true") throw new Error("취소 뒤 진행 표시가 남았다");
+  if (at(".scope .open").disabled) throw new Error("취소 뒤 손잡이가 잠긴 채다");
+  if (at(".notice").dataset.shown === "true") throw new Error("취소가 오류로 보인다");
+
+  // ② 고르개 자체가 거절.
+  await withHost(stubHost({
+    addProject: async () => {
+      await wait(200);
+      throw Object.assign(new Error("잠그지 못했다"), { code: "unreadable" });
+    },
+  }), async () => {
+    await C().openProject();
+  });
+  if (at(".working").dataset.shown === "true") throw new Error("실패 뒤 진행 표시가 남았다");
+  if (at(".scope .open").disabled) throw new Error("실패 뒤 손잡이가 잠긴 채다");
+
+  // ③ 조회 실패 — 마지막 검증 View 는 그대로.
+  await withHost(stubHost({
+    loadView: async () => {
+      await wait(200);
+      throw Object.assign(new Error("쥐고 있다"), { code: "busy" });
+    },
+  }), async () => {
+    await C().refresh();
+  });
+  if (at(".working").dataset.shown === "true") throw new Error("조회 실패 뒤 진행 표시가 남았다");
+  if (at(".scope .refresh").disabled) throw new Error("조회 실패 뒤 손잡이가 잠긴 채다");
+  if (C().plan().nodes.length !== kept.nodes) throw new Error("실패가 Graph 를 지웠다");
+  if (at(".detail h2").textContent !== kept.detail) throw new Error("실패가 상세를 지웠다");
+  if (at(".stale").dataset.shown !== "true") throw new Error("낡음이 표시되지 않았다");
+
+  await show("fixture:reading-one");
+  return "취소 · 고르개 거절 · 조회 실패 — 셋 다 원상 복구";
+});
+
+check("50. 연 Project 가 없으면 곧바로 그 사실이 보인다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await withHost(stubHost({ listProjects: async () => [] }), async () => {
+    await C().listScopes();
+    await wait(60);
+    if (at(".empty").hidden) throw new Error("빈 상태가 보이지 않는다");
+    if (!at(".empty").textContent.includes("아직 연 Project 가 없다"))
+      throw new Error("빈 상태의 말이 다르다");
+    // **「불러오는 중…」이 남아 있으면 안 된다** — 오지 않는 것을 기다리게 만든다.
+    const painted = at("#gil-companion").innerText;
+    if (painted.includes("불러오는 중")) throw new Error("불러오는 중이 남아 있다");
+    if (!at(".intro").hidden) throw new Error("빈 화면에 현재 자리가 떠 있다");
+    if (!at(".map").hidden) throw new Error("빈 화면에 Graph 자리가 떠 있다");
+    if (!at(".detail").hidden) throw new Error("빈 화면에 상세 자리가 떠 있다");
+    if (!at(".scope select").hidden) throw new Error("빈 고르개가 떠 있다");
+  });
+  // 그리고 Project 가 생기면 그 자리들이 돌아온다.
+  await show("fixture:dense");
+  if (!at(".empty").hidden) throw new Error("Project 가 있는데 빈 상태가 남았다");
+  if (at(".map").hidden) throw new Error("Graph 가 돌아오지 않았다");
+  return "빈 상태 즉시 · Project 가 생기면 되돌아옴";
+});
+
+// ── ⑮ 이 창의 사정 ──────────────────────────────────────────────────
+//
+// 설정 자체는 Rust 가 지닌다(파일·원자적 교체·손상 보존). 여기서 재는 것은 **화면이 그
+// 사정을 어떻게 다루는가**다 — 마지막 하나만 열고, 못 여는 것은 못 연다고 말하고, 같은
+// 이름을 구별하고, 목록에서 빼면 빈 선택으로 가는 것.
+
+check("51. 시작할 때 마지막으로 보던 하나만 읽는다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  const asked = [];
+  await withHost(stubHost({
+    listProjects: async () => [
+      { scope_id: "fixture:reading-one", label: "하나" },
+      { scope_id: "fixture:dense", label: "둘" },
+      { scope_id: "fixture:first-interview", label: "셋" },
+    ],
+    opening: async () => ({ last_selected: "fixture:dense" }),
+    loadView: async (scope) => {
+      asked.push(scope);
+      return window.GIL_HOST_REAL.loadView(scope);
+    },
+  }), async () => {
+    C().seats.clear();
+    await C().start();
+    await wait(300);
+    // **한 번뿐이다.** 등록됐다는 이유로 나머지를 읽지 않는다(§9.1.2).
+    if (asked.length !== 1) throw new Error(`${asked.length}개를 읽었다: ${asked}`);
+    if (asked[0] !== "fixture:dense") throw new Error(`${asked[0]} 를 읽었다`);
+    if (C().scopeId() !== "fixture:dense") throw new Error("마지막 선택이 열리지 않았다");
+    if (at(".scope select").value !== "fixture:dense") throw new Error("고르개가 따라오지 않았다");
+  });
+  await show("fixture:reading-one");
+  return `Project 3개 등록 · 조회 1회 (${asked[0]})`;
+});
+
+check("52. 마지막 선택이 없거나 못 열리면 다른 Project 를 고르지 않는다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  for (const [what, opened] of [
+    ["마지막 선택 없음", { last_selected: null }],
+    ["목록에 없는 것", { last_selected: "project:사라진주소" }],
+  ]) {
+    const asked = [];
+    await withHost(stubHost({
+      listProjects: async () => [{ scope_id: "fixture:dense", label: "하나" }],
+      opening: async () => opened,
+      loadView: async (scope) => {
+        asked.push(scope);
+        return window.GIL_HOST_REAL.loadView(scope);
+      },
+    }), async () => {
+      C().seats.clear();
+      await C().start();
+      await wait(250);
+      if (asked.length) throw new Error(`${what}: 아무거나 열었다 — ${asked}`);
+      if (C().scopeId()) throw new Error(`${what}: 무언가를 골랐다`);
+    });
+  }
+
+  // 못 여는 자리라면 **그렇다고 말하고** 물러서지 않는다.
+  const asked = [];
+  await withHost(stubHost({
+    listProjects: async () => [
+      { scope_id: "project:사라진것", label: "사라진 것", unavailable: "project_missing" },
+      { scope_id: "fixture:dense", label: "멀쩡한 것" },
+    ],
+    opening: async () => ({ last_selected: "project:사라진것" }),
+    loadView: async (scope) => {
+      asked.push(scope);
+      return window.GIL_HOST_REAL.loadView(scope);
+    },
+  }), async () => {
+    C().seats.clear();
+    await C().start();
+    await wait(250);
+    if (asked.length) throw new Error(`못 여는 자리인데 무언가를 읽었다: ${asked}`);
+    if (C().scopeId()) throw new Error("옆의 멀쩡한 Project 로 물러섰다");
+    if (at(".notice").dataset.shown !== "true") throw new Error("못 연다고 말하지 않았다");
+    const said = at(".notice").textContent;
+    if (!said.includes("찾을 수 없다")) throw new Error(`"${said}" 라고만 말했다`);
+    // 목록에서 지우지도 않는다.
+    const options = all(".scope select option");
+    if (options.length !== 2) throw new Error("못 여는 항목을 목록에서 지웠다");
+    if (!options[0].dataset.unavailable) throw new Error("못 연다는 표시가 없다");
+  });
+  await show("fixture:reading-one");
+  return "선택 없음 · 없는 주소 · 못 여는 자리 — 셋 다 아무것도 고르지 않는다";
+});
+
+check("53. 이름이 같으면 보이는 데에만 짧은 꼬리를 붙이고 요청은 전체 scope 로 한다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  const asked = [];
+  const twins = [
+    { scope_id: "project:aaaaaaaaaaaaaaaa1111", label: "일감" },
+    { scope_id: "project:bbbbbbbbbbbbbbbb2222", label: "일감" },
+    { scope_id: "project:cccccccccccccccc3333", label: "다른 것" },
+  ];
+  await withHost(stubHost({
+    listProjects: async () => twins,
+    loadView: async (scope) => {
+      asked.push(scope);
+      return window.GIL_HOST_REAL.loadView("fixture:dense");
+    },
+    loadDetail: async (scope, step) => {
+      asked.push(scope);
+      return window.GIL_HOST_REAL.loadDetail("fixture:dense", step);
+    },
+  }), async () => {
+    await C().listScopes();
+    const options = all(".scope select option");
+    const shown = options.map((one) => one.textContent);
+    // 같은 이름 둘은 서로 다르게 보인다.
+    if (shown[0] === shown[1]) throw new Error(`둘이 같은 글자로 보인다: ${shown[0]}`);
+    if (!shown[0].includes("일감") || !shown[1].includes("일감"))
+      throw new Error("이름이 사라졌다");
+    // 혼자인 이름에는 꼬리가 붙지 않는다.
+    if (shown[2] !== "다른 것") throw new Error(`혼자인데 꼬리가 붙었다: ${shown[2]}`);
+    // **값은 언제나 전체 scope 다.**
+    for (const [at_, one] of options.entries()) {
+      if (one.value !== twins[at_].scope_id) throw new Error(`고르개 값이 잘렸다: ${one.value}`);
+    }
+    await C().showScope(twins[1].scope_id);
+    await wait(200);
+    await C().selectStep("step:C2/S1");
+    await wait(340);
+    for (const said of asked) {
+      if (said !== twins[1].scope_id) throw new Error(`잘린 주소로 청했다: ${said}`);
+    }
+  });
+  await show("fixture:reading-one");
+  return `"${twins[0].label}" 둘이 꼬리로 갈리고 요청은 전체 scope ${asked.length}건`;
+});
+
+check("54. 목록에서 빼면 빈 선택으로 가고 다른 Project 를 열지 않는다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  const gone = [];
+  let known = [
+    { scope_id: "fixture:dense", label: "볼 것" },
+    { scope_id: "fixture:reading-one", label: "남을 것" },
+  ];
+  const asked = [];
+  await withHost(stubHost({
+    listProjects: async () => known,
+    loadView: async (scope) => {
+      asked.push(scope);
+      return window.GIL_HOST_REAL.loadView(scope);
+    },
+    forgetProject: async (scope) => {
+      gone.push(scope);
+      known = known.filter((one) => one.scope_id !== scope);
+    },
+  }), async () => {
+    await C().listScopes();
+    await C().showScope("fixture:dense");
+    await wait(200);
+    await C().selectStep("step:C2/S1");
+    await wait(340);
+    const read = asked.length;
+
+    await C().forgetProject();
+    await wait(200);
+
+    if (gone.length !== 1 || gone[0] !== "fixture:dense")
+      throw new Error(`무엇을 뺐는지 이상하다: ${gone}`);
+    // **빈 선택**이다 — 남은 Project 를 추측해 열지 않는다(§9.1.2).
+    if (C().scopeId()) throw new Error(`남은 Project 를 열어 버렸다: ${C().scopeId()}`);
+    if (asked.length !== read) throw new Error("빼면서 다른 Project 를 읽었다");
+    if (at(".detail h2")) throw new Error("뺀 Project 의 상세가 남았다");
+    if (at(".card")) throw new Error("뺀 Project 의 카드가 남았다");
+    const options = all(".scope select option");
+    if (options.length !== 1 || options[0].value !== "fixture:reading-one")
+      throw new Error("목록이 맞지 않다");
+  });
+  await show("fixture:reading-one");
+  return "뺀 뒤 빈 선택 · 남은 것을 읽지 않는다";
+});
+
+check("55. 설정을 읽지 못하면 그 사실을 말하고 화면은 계속 돈다", async () => {
+  window.GIL_HOST_REAL = window.GIL_HOST;
+  await withHost(stubHost({
+    listProjects: async () => [{ scope_id: "fixture:dense", label: "하나" }],
+    opening: async () => ({
+      last_selected: null,
+      settings_refusal: {
+        code: "settings_unsupported",
+        said: "이 Companion 이 모르는 설정 판이다 — 원본을 그대로 두고 이번 실행은 저장하지 않는다",
+      },
+    }),
+  }), async () => {
+    C().seats.clear();
+    await C().start();
+    await wait(250);
+    const banner = at(".settings-say");
+    if (banner.dataset.shown !== "true") throw new Error("설정 거절이 보이지 않는다");
+    if (!banner.textContent.includes("저장하지 않는다"))
+      throw new Error(`"${banner.textContent}" 라고만 적혔다`);
+    if (banner.textContent.includes("/")) throw new Error("설정 거절에 자리가 실렸다");
+    // 그래도 창은 쓸 수 있다 — 목록도 손잡이도 살아 있다.
+    if (!all(".scope select option").length) throw new Error("목록이 비었다");
+    if (at(".scope .refresh").disabled) throw new Error("새로고침이 잠겼다");
+    await C().showScope("fixture:dense");
+    await wait(200);
+    if (!C().plan()) throw new Error("설정이 없으면 Graph 도 못 그리나");
+  });
+  at(".settings-say").dataset.shown = "false";
+  at(".settings-say").textContent = "";
+  await show("fixture:reading-one");
+  return "임시 상태를 알리되 창은 그대로 쓸 수 있다";
+});
+
+check("56. 헤더 표식은 소문자 `gil` 워드마크이고 단독 `G` 가 아니다", async () => {
+  await show("fixture:reading-one");
+  const mark = at(".mark");
+  if (!mark) throw new Error("표식이 없다");
+  const said = mark.textContent.trim();
+  // **정확히 `gil`** 이다 — 따옴표도 대문자도 없다(§9.1).
+  if (said !== "gil") throw new Error(`표식이 "${said}" 다`);
+  if (/[A-Z]/.test(said)) throw new Error(`표식에 대문자가 있다: ${said}`);
+  if (/['"`]/.test(said)) throw new Error(`표식에 따옴표가 있다: ${said}`);
+  // 그리고 화면 어디에도 단독 `G` 를 브랜드 표식으로 두지 않는다.
+  for (const node of all("#gil-companion *")) {
+    if (node.children.length) continue;
+    if (node.textContent.trim() === "G")
+      throw new Error(`단독 G 가 남아 있다: .${node.className}`);
+  }
+  // 세 글자가 상자 안에 들어간다 — `l` 의 키도 `g` 의 꼬리도 잘리지 않는다.
+  const box = boxOf(mark);
+  const style = getComputedStyle(mark);
+  if (box.width < 20 || box.height < 20) throw new Error("표식 상자가 너무 작다");
+  if (mark.scrollWidth > Math.ceil(box.width) + 1)
+    throw new Error(`글자가 상자를 넘는다 (${mark.scrollWidth} > ${box.width})`);
+  if (mark.scrollHeight > Math.ceil(box.height) + 1)
+    throw new Error(`글자가 상자 아래로 넘친다 (${mark.scrollHeight} > ${box.height})`);
+  return `"${said}" · ${style.fontSize}/${style.letterSpacing} · ${box.width}×${box.height}px`;
+});
+
 export async function run() {
   await C().ready;
   const results = [];
   for (const { name, body } of checks) {
+    // 어디서 멈췄는지 밖에서 볼 수 있게. 멈춘 시험을 추측으로 찾지 않는다.
+    window.GIL_SELFTEST_AT = name;
+    // `elementFromPoint` 와 화면 안팎 판정은 **창 기준**이다. 앞선 시험이 `focus()` 나
+    // `scrollIntoView()` 로 문서를 굴려 두면 그다음 시험이 엉뚱하게 실패한다 —
+    // 제품이 아니라 시험 장치가 만든 실패다. 매번 처음으로 되돌리고 시작한다.
+    window.scrollTo(0, 0);
     try {
       results.push({ name, ok: true, note: (await body()) || "" });
     } catch (error) {

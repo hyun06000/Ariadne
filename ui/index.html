@@ -9,28 +9,41 @@
 <body>
 <main id="gil-companion">
   <header class="top">
-    <div class="mark">G</div>
+    <div class="mark">gil</div>
     <div class="title"><b>GIL Companion</b><small>현재 여정 · read only</small></div>
     <div class="scope">
       <label for="scope">Project</label>
       <select id="scope"></select>
+      <button class="open" type="button" hidden>폴더 열기</button>
+      <button class="refresh" type="button" title="완전한 View 를 다시 읽는다">새로고침</button>
+      <button class="forget" type="button" hidden>목록에서 빼기</button>
     </div>
   </header>
   <div class="notice"></div>
-  <section class="intro">
+  <!-- 마지막으로 검증된 View 가 최신이 아닐 수 있다는 사실. 화면을 지우지 않는다. -->
+  <div class="stale" role="status"></div>
+  <!-- 지금 무엇을 기다리는가. 기다리는 동안에도 아래 Graph 는 그대로 있다. -->
+  <div class="working" role="status" aria-live="polite"></div>
+  <!-- 이 창의 설정을 읽지 못했다. 이번 실행은 아무것도 적지 않는다(§9.1.2). -->
+  <div class="settings-say" role="status"></div>
+  <div class="empty" hidden>
+    <p>아직 연 Project 가 없다.</p>
+    <p class="how">위의 <b>폴더 열기</b>로 GIL Project 의 root 를 고른다.</p>
+  </div>
+  <section class="intro" hidden>
     <small>지금</small>
-    <h1>불러오는 중…</h1>
+    <h1></h1>
     <p></p>
     <span class="world"></span>
   </section>
-  <section class="map" aria-label="Step DAG">
+  <section class="map" aria-label="Step DAG" hidden>
     <div class="stage">
       <svg class="wires" aria-hidden="true"></svg>
       <div class="layer"></div>
       <div class="cards" aria-hidden="true"></div>
     </div>
   </section>
-  <section class="detail" aria-live="polite"></section>
+  <section class="detail" aria-live="polite" hidden></section>
   <footer class="status"><i></i><span></span></footer>
 </main>
 <!-- Host 가 `window.GIL_HOST` 를 채운다. bundle 은 어느 Host 인지 모른다. -->

@@ -1162,26 +1162,49 @@ Host-neutral Snapshot/Intent contract
 
 2026-09-11 실제 macOS Tauri 창에서 Step DAG, 절대 방향 edge 문법, 선택 요약과 상세, Cycle
 접기·펼치기와 재배치, Project별 표현 상태 복원, 밀도 fixture와 자동 scroll을 검수했다. 첫 fixture
-조각은 닫혔고 다음 조각은 Companion-local settings와 실제 GIL read adapter다.
+조각은 닫혔다. 2026-09-12에는 실제 GIL Project를 OS folder picker로 열어 DAG·상세·수동
+refresh를 확인했고, picker와 읽기를 비동기 경계로 옮긴 뒤 창이 멈추지 않는 것도 실측했다.
+2026-09-14에는 Companion-local settings와 실행·수명 UX를 닫았다. 창은 닫아도 숨을 뿐이고
+menu bar에 남으며, 설치된 app bundle을 터미널 없이 실행하고 Agent가 같은 창을 앞으로 가져온다.
+
+남은 것은 **선택 Project watcher와 reconciliation**이다. 지금 갱신은 사람이 누르는 새로고침
+하나뿐이며, watcher가 붙어도 hint는 완전한 View 재조회만 부른다.
 
 - [x] Tauri app shell과 공용 UI bundle 연결
 - [x] 기존 `reading_one` fixture로 Cycle DAG·현재 Cycle·detail interaction 표시
 - [x] Project switcher에서 두 fixture scope를 전환하고 Project별 선택·detail을 격리해 복원
-- [ ] 최근 Project 목록·마지막 선택·창 위치를 Companion 설정에만 저장
+- [x] 최근 Project 목록·마지막 선택·창 위치를 Companion 설정에만 저장
+- [x] 앱 재시작 뒤 Project 목록을 복원하되 마지막 선택 하나만 foreground에서 읽음
+- [x] 사라진 Project와 다른 identity를 unavailable로 남기고 다른 Project를 추측하지 않음
+- [x] 같은 display name은 표시용 scope suffix로 구분하고 Host 요청에는 전체 scope 사용
+- [x] 창 geometry를 현재 display의 보이는 영역 안으로 제한해 복원
+- [x] 손상·미지원 settings를 보존하고 자동 덮어쓰기 없이 임시 상태로 실행
+- [x] Project 제거가 Companion 설정만 바꾸고 Project 파일은 전혀 바꾸지 않음
 - [x] `.gil`·Artifact·Journey를 쓰지 않는다는 증거
-- [ ] GIL read adapter로 실제 `MonitorViewV1`과 `NodeDetailV1` 연결
+- [x] GIL read adapter로 실제 `MonitorViewV1`과 `NodeDetailV1` 연결
+- [x] OS folder picker로 Project를 명시적으로 선택하고 취소 시 현재 상태 유지
+- [x] 수동 refresh가 완전한 View만 다시 읽고 실패 시 마지막 검증 View와 오류를 구분
+- [x] 실제 Project의 open·View·detail·refresh가 `.gil`·Artifact·Snapshot 창고를 쓰지 않음
 - [ ] 현재 선택 Project의 변화 hint → 완전한 View 재조회
 - [x] Project별 server·port·capability URL 없이 동작
-- [ ] 앱 하나로 Project 추가·제거·전환
-- [ ] Codex 또는 Claude session이 종료되어도 창과 마지막 검증 View 유지
+- [x] 앱 하나로 Project 추가·제거·전환
+- [x] Codex 또는 Claude session이 종료되어도 창과 마지막 검증 View 유지
+- [x] 창 닫기가 창을 파괴하지 않고 숨기며 tray·Dock·재실행이 같은 창을 되살림
+- [x] `⌘Q`와 tray 종료만 process를 끝내고 그 전에 설정을 flush
+- [x] menu bar 표식으로 숨은 Companion을 찾아 열고 현재 Project·새로고침·종료를 제공
+- [x] 로그인 시 시작을 OS 정식 자리로 등록하고 실패를 성공으로 표시하지 않음
+- [x] 터미널 없이 실행할 수 있는 macOS app bundle과 사용자 영역 dogfood 설치
+- [x] Agent의 `show_gil_companion`이 native 창을 열거나 앞으로 가져오고 결과를 typed로 구분
+- [x] 사용자에게 보이는 표식을 소문자 `gil` 워드마크로 통일
 
 M5-C 구현 순서는 다음과 같다.
 
 ```text
-Tauri shell + fixture
-→ Project scope switcher
-→ Companion-local settings
-→ 실제 GIL read adapter
+Tauri shell + fixture          (닫힘)
+→ Project scope switcher        (닫힘)
+→ 실제 GIL read adapter          (닫힘)
+→ Companion-local settings      (닫힘)
+→ 실행·수명과 native packaging   (닫힘)
 → 선택 Project watcher와 reconciliation
 → 인간 판독·장시간 관찰 실험
 ```

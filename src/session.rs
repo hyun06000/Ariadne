@@ -85,6 +85,57 @@ impl ProjectSession {
         })
     }
 
+    /// 이미 있는 프로젝트를 **읽기만 하려고** 연다.
+    ///
+    /// # [`open`](Self::open) 과 무엇이 다른가
+    ///
+    /// ```text
+    ///                       open        open_read_only
+    ///   잠근다               ○           ○   ← 읽는 동안 남이 바꾸지 못하게
+    ///   미완의 복원을 되돌린다  ○           ×   ← 있으면 그 사실을 거절로 말한다
+    ///   tmp 잔해를 치운다      ○           ×   ← 그냥 둔다. 참조되지 않는 것들이다
+    ///   state 를 읽고 검증한다  ○           ○
+    ///   저장한다              commit 으로   **불가능**
+    /// ```
+    ///
+    /// 복구와 잔해 회수는 **파일을 옮기고 지우는 일**이다. 관찰하는 표면이 그것을 하면,
+    /// 「보기만 했는데 프로젝트가 달라졌다」가 된다. 그래서 여기서는 하지 않고, 복구가
+    /// 필요한 상태를 만나면 [`SessionError::NeedsRecovery`] 로 돌려준다.
+    ///
+    /// 돌려주는 [`ReadOnlySession`] 에는 `commit` 도 `project_mut` 도 없다 — **타입이
+    /// 쓰기를 막는다.** 규율로 지키면 언젠가 한 줄이 새어 나간다.
+    pub fn open_read_only(
+        rules: RuleSet,
+        state_path: impl AsRef<Path>,
+    ) -> Result<ReadOnlySession, SessionError> {
+        let state_path = state_path.as_ref().to_path_buf();
+        let gil = gil_dir(&state_path)?;
+
+        // 잠금은 여기서도 먼저다. 읽는 도중에 남이 상태를 갈아 끼우면, 읽어 낸 것은
+        // 아무 시점의 사실도 아니게 된다.
+        let lock = ProjectLock::acquire(&gil).map_err(SessionError::from)?;
+
+        // **되돌리지 않는다. 있다는 사실만 말한다.**
+        if let Some(found) =
+            restore::left_behind(&gil).map_err(SessionError::Restore)?
+        {
+            return Err(SessionError::NeedsRecovery {
+                path: project_root(&gil)?.display().to_string(),
+                found,
+            });
+        }
+        // tmp 잔해는 **치우지 않는다.** 아무도 참조하지 않는 것들이라 읽기를 해치지 않고,
+        // 지우는 것은 쓰기다.
+
+        let project = store::load_within(&lock, rules, &state_path).map_err(SessionError::Store)?;
+
+        Ok(ReadOnlySession(ProjectSession {
+            project,
+            state_path,
+            _lock: lock,
+        }))
+    }
+
     /// 새 프로젝트를 세운다 — **잠근 다음에 무엇이 이미 있는지 본다.**
     ///
     /// 잠그기 전에 보면 두 `gil start` 가 나란히 「비어 있다」를 읽고 각자 다른 최초 상태를
@@ -735,6 +786,12 @@ pub enum SessionError {
     NotEmpty { path: String, found: String },
     /// `state.yaml` 의 자리에 부모가 없다.
     NoProjectDir { path: String },
+    /// **미완의 복원이 남아 있다** — 읽기만 하는 열기가 만난 상태다.
+    ///
+    /// 쓰는 명령은 이것을 만나면 제자리로 돌려놓고 계속한다. 읽기만 하는 열기는 그럴 수
+    /// 없다 — 복구는 파일을 옮기는 일이고, 그것은 쓰기다. 그래서 고치지 않고 **있다는
+    /// 사실만** 말한다. 사람이 GIL 명령 하나를 실행하면 그때 제자리로 돌아간다.
+    NeedsRecovery { path: String, found: String },
     /// 내부 저장소를 들여다보지 못했다.
     Unreadable { path: String, source: String },
     /// 상태를 읽거나 쓰지 못했다.
@@ -880,6 +937,11 @@ impl fmt::Display for SessionError {
             SessionError::NoProjectDir { path } => {
                 write!(f, "{path} 는 프로젝트 안의 자리가 아니다.")
             }
+            SessionError::NeedsRecovery { path, found } => write!(
+                f,
+                "{path} 에 끝나지 않은 복원이 남아 있다 ({found}) — 읽기만 하는 열기는 \
+                 그것을 건드리지 않는다. GIL 명령 하나를 실행하면 제자리로 돌아간다."
+            ),
             SessionError::Unreadable { path, source } => {
                 write!(f, "{path} 를 들여다보지 못했다 — {source}.")
             }
@@ -1142,5 +1204,40 @@ mod tests {
         let session = ProjectSession::open(rules(), state_in(&root)).expect("연다");
         assert_eq!(session.state_path(), state_in(&root));
         session.commit().expect("같은 자리에 눕힌다");
+    }
+}
+
+/// **읽기만 하는 session** — 쓰는 문이 하나도 달려 있지 않다.
+///
+/// [`ProjectSession::open_read_only`] 가 만든다. `commit` 도 `project_mut` 도 `close_step` 도
+/// 없으므로, 이것을 쥔 코드는 프로젝트를 바꿀 방법이 **없다**. Companion 처럼 관찰만 하는
+/// 표면이 실수로도 쓰지 못하게 하는 자리다(Host UI Model §9.1.1).
+///
+/// 잠금은 이 값이 사는 동안만 쥔다. 떨어뜨리면 곧바로 풀린다 — 창이 떠 있다는 이유로 사람의
+/// `gil` 명령이 막히지 않는다.
+pub struct ReadOnlySession(ProjectSession);
+
+impl ReadOnlySession {
+    /// 검증된 Project. **빌려줄 뿐 바꿀 수 없다.**
+    pub fn project(&self) -> &Project {
+        self.0.project()
+    }
+
+    /// 읽어 온 그 파일의 자리.
+    pub fn state_path(&self) -> &Path {
+        self.0.state_path()
+    }
+
+    /// 지금의 Snapshot — 세계를 한 번 보고 짓는다. 객체를 확정하지 않는다.
+    pub fn monitor(&self) -> Result<crate::MonitorSnapshot, SessionError> {
+        self.0.monitor()
+    }
+
+    /// 고른 Step 하나의 상세. 없으면 없다.
+    pub fn node_detail_v1(
+        &self,
+        step: crate::StepRef,
+    ) -> Result<crate::NodeDetailV1, crate::DetailError> {
+        self.0.node_detail_v1(step)
     }
 }
