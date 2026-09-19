@@ -7,7 +7,10 @@
 
 ## 1. 목적
 
-Monitor는 터미널이나 `.gil/state.yaml`을 직접 읽지 않는 사람을 위한 관찰 표면이다.
+Monitor는 터미널이나 `.gil/state.yaml`을 직접 읽지 않는 사람을 위한 필수 관찰 표면이다. GIL의
+주 사용자가 비개발자라는 전제에서, Agent가 기록할 수 있어도 인간이 지속형 Monitor를 열 수 없다면
+제품 설치가 완료된 것으로 보지 않는다. 설치와 surface fallback은 `GIL Distribution Model v0.1`이
+소유한다.
 
 사람은 Monitor만 보고 최소한 다음 질문에 답할 수 있어야 한다.
 
@@ -744,6 +747,10 @@ loopback server는 인간 사용자의 기본 진입점이 아니다. GIL의 직
 경로는 **현재 대화와 같은 Host 안에서 열리는 지속형 Monitor 표면**이다. 현재 Host가 그 수명을
 제공하지 않는 동안에는 하나의 Tauri Companion을 v0 기본 경로로 사용한다.
 
+inline 카드와 text projection은 미리보기·접근성·진단에 쓸 수 있지만 지속 관찰 표면은 아니다.
+Host가 PiP를 요청받았다는 사실만으로 충분하지 않다. 실제 persistent mode와 수명 계약이 확인되지
+않으면 Companion으로 물러난다.
+
 ```text
 Human
   → Agent Host의 chat
@@ -808,6 +815,8 @@ receipt를 그대로 지난다. 화면의 button이 domain 규칙을 복제하�
 - Host가 지속형 embedded UI를 제공하지 않으면 하나의 Tauri Companion으로 물러난다. loopback
   browser는 개발·진단용 최후 fallback이다. fallback이 기본 계약을 더 약하게 만들거나 다른 사실을
   보여서는 안 된다.
+- persistent Host surface와 Companion 중 하나는 인간에게 사용 가능해야 한다. 둘 다 없으면
+  Monitor unavailable 상태이며 설치 안내로 돌아간다.
 
 첫 embedded Monitor는 관찰 전용이다. write action button은 Human Checkpoint의 domain 계약과
 Host의 명시적 승인 경계가 모두 생긴 뒤에만 추가한다.
@@ -1006,3 +1015,5 @@ focus panel은 아래 순서를 둔다.
 > **인간의 이상적인 Monitor는 Agent와 대화하는 Host의 지속형 surface에 열린다. 현재 Host가 그
 > surface를 제공하지 않으므로 v0의 기준 구현은 여러 Project를 전환할 수 있는 하나의 Tauri
 > Companion이며, browser는 개발·진단용 fallback이다.**
+
+> **Monitor는 선택 기능이 아니다. inline text와 카드만 보이는 상태는 인간용 설치 완료가 아니다.**

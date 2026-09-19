@@ -1135,7 +1135,8 @@ Host 안에서 대화와 같은 Project의 Monitor를 연다. loopback server와
 - [x] port·capability URL 없이 Codex inline prototype을 열 수 있음
 - [x] fixture UI가 `.gil`을 직접 읽거나 수정하지 않음
 - [x] write action은 Human Checkpoint domain 계약 전까지 노출하지 않음
-- [x] Codex Plugin UI에서 버튼·초기 자동 PiP 요청을 실측하고 실제 모드가 `inline`임을 확인
+- [x] 기존 inline 진단이 정식 `ui://` capability 시험이 아니어서 PiP 지원 여부를 확정할 수 없음을 확인
+- [ ] 실제 `ui://` probe에서 앱 선언·Host 광고·요청 반환값·최신 실제 mode를 함께 기록
 - [x] 지속형 Host surface 부재 시 Tauri Companion을 v0 기준 fallback으로 확정
 - [x] 같은 canonical fixture Snapshot을 Tauri Companion에 표시
 - [ ] 처음 보는 사용자를 대상으로 판독·탐색 실험
@@ -1238,7 +1239,7 @@ Tauri shell + fixture          (닫힘)
 - [x] inline 카드와 text는 preview·진단이며 설치 완료가 아님을 확정
 - [x] AI가 설치를 조율하되 사용자 승인과 OS 신뢰 경계를 우회하지 않는 원칙 확정
 - [ ] `persistent_host | native_companion | unavailable` capability 판정 구현
-- [ ] PiP 요청 뒤 실제 mode·수명 계약을 확인하는 Host adapter 시험
+- [ ] 실제 `ui://` 앱의 `availableDisplayModes` 선언부터 PiP 요청 결과·실제 mode·수명까지 확인하는 Host adapter 시험
 - [ ] Companion `missing | stopped | outdated | ready` handshake 구현
 - [ ] 설치·업데이트 완료 재감지와 원래 Monitor 요청 자동 재개
 - [ ] Companion 없이도 GIL text loop가 동작하는 degraded mode 시험

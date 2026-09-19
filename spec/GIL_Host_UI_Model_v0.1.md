@@ -4,13 +4,17 @@
 > 범위: GIL Core의 Monitor 사실을 Agent Host와 지속형 Desktop Companion의 공용 UI에 전달하는 계약  
 > 비범위: 특정 Host SDK, Tauri component 구현, SVG 좌표, domain write action
 
+설치 완료 조건, persistent Host surface 판정과 Native Companion 배포·설치 fallback은
+`GIL Distribution Model v0.1`이 소유한다.
+
 ---
 
 ## 1. 목적
 
 GIL의 인간 사용자는 Codex·Claude Desktop 같은 Agent Host 안에서 Agent와 협업한다. 그러나
-Monitor는 대화가 길어져도 밀려나지 않고 계속 보여야 한다. Host가 지속형 panel이나 PiP surface를
-제공하면 그 안에 싣고, 제공하지 않으면 하나의 Tauri Companion이 같은 UI를 지속형 창으로 제공한다.
+Monitor는 선택 기능이 아니며 대화가 길어져도 밀려나지 않고 계속 보여야 한다. Host가 실제 수명
+계약을 만족하는 지속형 panel이나 PiP surface를 제공하면 그 안에 싣고, 제공하지 않거나 요청 뒤
+`inline`에 머물면 하나의 Tauri Companion이 같은 UI를 지속형 창으로 제공한다.
 어느 경우에도 GIL의 내부 Rust 타입이나 특정 Host API에 결합하지 않아야 한다.
 
 이 문서는 다음 두 경계를 고정한다.
@@ -353,8 +357,9 @@ Host adapter는 다음만 책임진다.
 1. 현재 대화가 명시적으로 가리키는 Project scope 연결
 2. View와 detail의 전달 및 수명 관리
 3. refresh hint를 받으면 완전한 View 재조회
-4. 공용 UI bundle을 Host panel 또는 inline surface에 탑재
+4. 공용 UI bundle을 Host의 persistent surface 또는 inline preview에 탑재
 5. 지원하지 않는 schema를 사람에게 명시적으로 표시
+6. 요청 성공이 아니라 실제 display mode와 수명 계약으로 persistent surface 지원 여부 판정
 
 Host adapter는 다음을 하지 않는다.
 
@@ -387,6 +392,7 @@ Host가 지속형 surface를 제공하지 않는 동안 v0의 기준 adapter는 
 
 Tauri는 v0 packaging 결정이지 wire 계약이 아니다. 장차 Agent Host가 지속형 panel을 제공하면 같은
 UI bundle과 View/detail 계약을 그 adapter에 싣고, Tauri를 필수 설치에서 다시 내릴 수 있다.
+단, inline 카드만 제공하거나 PiP 요청 뒤 실제 mode가 `inline`이면 지속형 surface로 세지 않는다.
 
 #### 9.1.1 실제 GIL read adapter의 첫 조각
 
@@ -472,19 +478,33 @@ settings refusal을 표시한다. 명시적 reset UX는 이 조각의 범위 밖
 Companion settings를 쓰는 동안에도 GIL read adapter의 read-only 불변식은 그대로다. 시험은 설정
 파일만 바뀌고 등록한 모든 Project의 파일 수·바이트·Artifact 객체 수는 전혀 바뀌지 않음을 확인한다.
 
-### 9.2 2026-09-08 Host surface 실측
+### 9.2 2026-09-08 Host surface 예비 진단
 
-Codex Desktop의 Plugin UI에서 fixture 기반 GIL Companion을 열고
-`requestDisplayMode({ mode: "pip" })`를 버튼과 초기 자동 요청 두 경로로 실행했다. 두 경우 모두 API
-호출은 가능했지만 Host가 보고한 실제 `displayMode`는 `inline`이었다. 따라서 다음을 확정한다.
+Codex Desktop의 inline Plugin UI에서 fixture 기반 GIL Companion을 열고
+`requestDisplayMode({ mode: "pip" })`를 버튼과 초기 자동 요청 두 경로로 실행했으나 화면은
+`inline`에 머물렀다. 그러나 이 진단은 실제 `ui://` MCP App의 `ui/initialize`에서
+`appCapabilities.availableDisplayModes`를 선언하고 Host가 광고한 capability와 요청 반환값을 함께
+기록한 시험이 아니었다. 따라서 이 결과는 해당 진단 카드가 PiP로 전환되지 않았다는 증거일 뿐,
+Codex Host의 PiP 미지원이나 실제 적용 mode를 확정하는 증거가 아니다.
+
+정식 판정은 장차 실제 `ui://` probe에서 다음을 함께 기록한 뒤 내린다.
+
+1. 앱이 `ui/initialize`에서 선언한 `availableDisplayModes`
+2. Host context가 광고한 `availableDisplayModes`
+3. 사용자 동작에 묶인 `requestDisplayMode({ mode: "pip" })`의 원문 반환값
+4. `openai:set_globals`로 관측한 최신 실제 mode와 surface 수명
+
+그때까지 다음 제품 결정을 유지한다.
 
 1. Codex inline Plugin UI는 공용 UI bundle과 interaction의 시제품·회귀 표면으로 유지한다.
-2. 현재 Codex Host에서 PiP를 지속형 Monitor의 전제로 삼지 않는다.
+2. 검증되지 않은 PiP를 지속형 Monitor의 전제로 삼지 않는다.
 3. 같은 세션마다 loopback server를 새로 띄우는 browser 경로를 기본 UX로 삼지 않는다.
 4. 지속 관찰의 v0 기준 구현은 Tauri Companion이다.
+5. 장차 PiP가 생겨도 대화에 밀리지 않음·명시적 종료 전 유지·Project scope 복구·완전한 View 갱신을
+   실측한 뒤에만 persistent surface로 판정한다.
 
-이 판정은 Codex가 앞으로 PiP를 영원히 지원하지 않는다는 주장이 아니다. capability가 생기면 adapter
-시험을 다시 수행하며, GIL Core와 `MonitorViewV1`은 바꾸지 않는다.
+이 판정은 현재 또는 미래의 Codex가 PiP를 지원하지 않는다는 주장이 아니다. 정식 probe를 수행할
+때 adapter 시험을 다시 수행하며, GIL Core와 `MonitorViewV1`은 바꾸지 않는다.
 
 ---
 
@@ -536,7 +556,7 @@ Codex Desktop의 Plugin UI에서 fixture 기반 GIL Companion을 열고
 
 ## 13. 아직 정하지 않는 것
 
-- Codex·Claude Desktop이 장차 제공할 지속형 UI SDK와 packaging 방법
+- Codex·Claude Desktop이 장차 제공할 지속형 UI SDK와 packaging 방법 및 출시 시점
 - 공용 UI bundle의 구체 framework와 배포 단위
 - Tauri Companion과 GIL Core 사이 View/detail transport의 구체 선택
 - GIL Grammar v0.1 밖의 사용자 정의 Grammar를 Host UI에서 지원하는 방식
@@ -559,3 +579,5 @@ Codex Desktop의 Plugin UI에서 fixture 기반 GIL Companion을 열고
 
 > **지속형 surface가 없는 Host에 Monitor의 수명을 억지로 맡기지 않는다. v0 Companion은 한 번 뜬
 > 창에서 여러 Project를 명시적으로 전환하며, Host가 그 수명을 제공하게 되면 같은 계약을 옮긴다.**
+
+> **inline UI는 공용 bundle의 미리보기일 수 있지만 설치 완료를 이루는 지속형 Monitor는 아니다.**

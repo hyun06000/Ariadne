@@ -24,6 +24,11 @@ Interview Cycle을 연다. 설계상 사용자 Relation과 프로젝트 목표�
 format 4 Artifact Snapshot, dirty gate, 중단 복구 가능한 `gil restore`, 그리고 필요한 규칙
 하나만 조회하는 bundled Manual이 동작한다.
 
+GIL의 주 사용자는 비개발자다. 인간은 명령과 저장 형식을 외우는 대신 지속형 **GIL Monitor**에서
+현재 실험, 실패한 시도와 다음 방향을 본다. Monitor는 선택 부가기능이 아니다. 장차 Agent Host가
+진짜 persistent PiP를 제공하면 같은 Host 안에 열고, 그렇지 않으면 현재 구현된 Native Companion이
+같은 UI를 지속형 창으로 제공한다. 대화 안의 inline 카드는 미리보기이지 설치 완료 상태가 아니다.
+
 전체 명세를 미리 읽지 않은 새 Agent 세션이 `gil context`와 주소 가능한 Help Topic만으로
 실제 작업과 GIL Cycle을 완주하는 것을 Claude와 Codex 계열에서 각각 확인했다. 실패한 Cycle에서
 유효한 Closed ancestor로 돌아가 그 아래에 새 시도를 여는 **Cycle-level revisit**도 CLI와
@@ -163,6 +168,8 @@ GIL은 모델의 비공개 chain-of-thought를 저장하려는 시스템이 아�
 - 관측 실패를 stale로 표시하고 사건 없이도 재시도해 회복하는 갱신 상태기계
 - 같은 Snapshot에서 그리는 결정적 inline SVG Cycle Graph (parent 실선 · revisit 점선)
 - `지금 / 지금 할 일 / 여정 / 왜 여기 왔는가` 순서의 focus panel과 접어 둔 상세 기록
+- 여러 Project를 전환하고 변화에 자동 수렴하는 macOS Native GIL Companion
+- Agent가 설치된 Companion을 열거나 앞으로 가져오는 로컬 Plugin 경로
 
 ### 확인됨
 
@@ -178,6 +185,8 @@ GIL은 모델의 비공개 chain-of-thought를 저장하려는 시스템이 아�
   우선순위였다)
 - Interview Cycle과 Chain
 - 백엔드·데이터 분석·프론트엔드·기획서 작성 시나리오
+- persistent MCP PiP capability 판정과 Companion 자동 fallback
+- 터미널 없는 macOS·Windows 설치, 서명·업데이트·clean-machine 검증
 
 상세 진행 상황과 합격 조건은 [GIL Living Roadmap](spec/GIL_Roadmap.md)에서 추적한다.
 
@@ -308,6 +317,7 @@ layer를 목표로 한다.
 - [GIL Storage Model v0.1](spec/GIL_Storage_Model_v0.1.md)
 - [GIL Monitor Model v0.1](spec/GIL_Monitor_Model_v0.1.md)
 - [GIL Host UI Model v0.1](spec/GIL_Host_UI_Model_v0.1.md)
+- [GIL Distribution Model v0.1](spec/GIL_Distribution_Model_v0.1.md)
 - [Machine-readable grammar](spec/gil-spec.yaml)
 - [Living Roadmap](spec/GIL_Roadmap.md)
 
@@ -318,7 +328,7 @@ layer를 목표로 한다.
 
 ## Project status
 
-**2026-08-31 — Rust dogfood 구현을 진행 중이다.**
+**2026-09-19 — Rust dogfood와 macOS Native Companion 검증을 진행 중이다.**
 
 앞선 Go 구현과 문서·릴리스는 이 저장소의 옛 branch와 commit history에 남아 있다. 현재 구현은
 Rust로 작성하며, Git wrapper가 아니라 GIL의 개념과 불변식을 먼저 세우는 방향으로 진행한다.

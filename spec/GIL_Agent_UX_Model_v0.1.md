@@ -491,7 +491,33 @@ Dogfood에서는 다음을 확인한다.
 
 ---
 
-## 11. 아직 결정하지 않는 것
+## 11. 비개발자 설치와 Monitor 진입
+
+GIL의 주 사용자는 package manager, terminal, port와 설정 파일을 모른다고 가정한다. 사용자는
+Agent Host에서 Plugin을 설치하고 자연어로 Monitor를 요청한다.
+
+```text
+Plugin 설치
+→ Agent가 persistent Monitor surface를 확인
+→ Host PiP가 실제로 지속되면 그 표면을 사용
+→ 그렇지 않으면 Companion 없음·꺼짐·낡음·호환됨을 구분
+→ 필요한 경우 설치 이유를 설명하고 사용자 승인을 받음
+→ OS의 신뢰된 설치 표면
+→ Agent가 설치 완료를 재감지
+→ 원래 Monitor 열기 요청을 자동 재개
+```
+
+Agent는 사용자의 승인을 대신하지 않고 OS의 설치 보호를 우회하지 않는다. 대신 사용자가 download
+folder, binary path, terminal command와 JSON 설정을 다루지 않게 한다. 설치 완료를 사용자가 다시
+채팅으로 보고하게 하지 않는다.
+
+Companion 설치가 거절되거나 실패해도 GIL의 text loop는 동작한다. 다만 inline 카드나 text만으로
+인간용 Monitor 설치가 완료됐다고 말하지 않는다. 구체 계약은 `GIL Distribution Model v0.1`이
+소유한다.
+
+---
+
+## 12. 아직 결정하지 않는 것
 
 - 자연어 검색, embedding 또는 LLM 위키 색인
 - 사용자·프로젝트별 Manual 확장과 override
@@ -499,13 +525,16 @@ Dogfood에서는 다음을 확인한다.
 - 출력별 구체적인 최대 token 수
 - 현재 가능한 Node Kind가 여러 개일 때의 선택 UI
 - 오류 code의 namespace와 안정성 정책
-- GUI Monitor에서 같은 nudge를 표현하는 방식
+- GUI Monitor에서 domain-changing nudge를 승인받아 실행하는 방식
 
 ---
 
-## 12. 핵심 문장
+## 13. 핵심 문장
 
 > **평상시에는 명령 출력이 다음 행동을 가르치고, 연속성이 끊겼을 때만 `gil context`가 작업을
 > 복원한다.**
 
 > **GIL의 내부 개념 수가 늘어나도 AI가 외워야 하는 공개 명령 수는 함께 늘어나지 않는다.**
+
+> **비개발자에게 설치 명령을 가르치지 않는다. Agent가 상태를 감지하고 설치를 조율하며, 사용자와
+> 운영체제는 신뢰 경계에서 승인한다.**
