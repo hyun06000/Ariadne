@@ -98,6 +98,31 @@ ready         호환판이 설치됐고 열 수 있다
 경로 존재 여부 하나로 판정하지 않는다. 서명된 app identity, protocol handshake와 호환 version을
 사용한다. `ready`가 아니면 기존 Project를 임의로 열거나 오래된 wire를 해석하지 않는다.
 
+### 5.1 Handshake v1
+
+설치된 Companion binary는 `--gil-companion-handshake`에 Project·창·Tauri runtime을 열지 않고
+compact JSON 하나로 답한다.
+
+```json
+{"schema_version":1,"product":"gil_companion","bundle_id":"dev.ariadne.gil.companion","app_version":"0.1.0","protocol":{"min":1,"max":1},"monitor_view_schema":{"min":1,"max":1},"node_detail_schema":{"min":1,"max":1}}
+```
+
+경로·PID·Project scope·사용자 이름은 싣지 않는다. launcher가 요구하는 protocol과 두 wire schema가
+모두 응답 범위 안에 있고 identity가 정확히 같아야 호환판이다. 응답이 없거나 모양·identity·범위가
+다르면 실행 중처럼 보여도 `outdated`로 판정한다.
+
+```text
+bundle 없음                                  → missing
+bundle 있음 + handshake 없음·불일치          → outdated
+호환 handshake + 실행 중 아님                → stopped
+호환 handshake + 실행 중 protocol challenge  → ready
+```
+
+binary descriptor가 identity와 호환 범위를 밝히고, 실행 중인 process는 사용자 전용 local IPC에서
+매번 새 challenge를 그대로 돌려준다. `ready`는 두 응답이 같은 descriptor를 말할 때만 성립하며,
+PID·process 이름만으로 대신하지 않는다. macOS의 첫 transport는 권한 `0600` Unix socket이고
+포트·URL을 만들지 않는다. Windows transport는 달라도 challenge와 응답의 의미는 같아야 한다.
+
 ---
 
 ## 6. AI가 조율하는 설치

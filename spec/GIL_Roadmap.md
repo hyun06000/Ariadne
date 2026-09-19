@@ -1240,7 +1240,8 @@ Tauri shell + fixture          (닫힘)
 - [x] AI가 설치를 조율하되 사용자 승인과 OS 신뢰 경계를 우회하지 않는 원칙 확정
 - [ ] `persistent_host | native_companion | unavailable` capability 판정 구현
 - [ ] 실제 `ui://` 앱의 `availableDisplayModes` 선언부터 PiP 요청 결과·실제 mode·수명까지 확인하는 Host adapter 시험
-- [ ] Companion `missing | stopped | outdated | ready` handshake 구현
+- [x] macOS Companion `missing | stopped | outdated | ready` handshake — binary descriptor와 실행 중
+      process의 fresh challenge를 함께 확인하며 PID·process 이름으로 호환성을 추측하지 않음
 - [ ] 설치·업데이트 완료 재감지와 원래 Monitor 요청 자동 재개
 - [ ] Companion 없이도 GIL text loop가 동작하는 degraded mode 시험
 - [ ] macOS Developer ID 서명·공증 또는 Store sandbox feasibility 확정

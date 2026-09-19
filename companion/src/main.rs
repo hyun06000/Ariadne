@@ -46,6 +46,7 @@ mod adapter;
 mod appmenu;
 mod autostart;
 mod geometry;
+mod handshake;
 mod lifetime;
 mod live;
 mod settings;
@@ -55,6 +56,19 @@ mod window;
 use tauri::Manager;
 
 fn main() {
+    // 설치 판정은 창을 띄우거나 Project를 읽기 전에 끝난다. launcher가 이 문으로
+    // identity·protocol·wire 호환성을 확인한다.
+    if let Some(answered) = handshake::answer_cli(std::env::args_os()) {
+        match answered {
+            Ok(said) => println!("{said}"),
+            Err(said) => {
+                eprintln!("{said}");
+                std::process::exit(2);
+            }
+        }
+        return;
+    }
+
     tauri::Builder::default()
         // **가장 먼저 선다.** plugin 의 setup 은 등록 차례대로 돌고, 이미 창이 하나 떠
         // 있으면 이 plugin 이 그 자리에서 프로세스를 끝낸다. 그래서 둘째 실행은 `Desk` 도
@@ -86,6 +100,10 @@ fn main() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // 실행 중인 process만 답할 수 있는 challenge 문. 포트도 URL도 없고, 사용자 전용
+            // local IPC 하나만 앱 수명 동안 연다.
+            app.manage(handshake::RuntimeHandshake::start()?);
 
             // ① 설정을 읽는다. 읽지 못하면 **원본을 그대로 두고** 임시 상태로 선다.
             let dir = app.path().app_config_dir()?;
@@ -127,6 +145,7 @@ fn main() {
             }
             // 정말 끝나기 직전. 지켜보던 것을 멈추고 미뤄 둔 마지막 자리를 거둔다.
             tauri::RunEvent::Exit => {
+                app.state::<handshake::RuntimeHandshake>().stop();
                 app.state::<live::Live>().stop();
                 window::flush_now(app);
             }
