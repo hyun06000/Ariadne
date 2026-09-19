@@ -551,8 +551,41 @@ function markFresh() {
   stale.dataset.shown = "false";
 }
 
+/**
+ * 조회가 도는 중인가, 그리고 **끝나면 한 번 더 봐야 하는가.**
+ *
+ * 자동 갱신과 손으로 누른 새로고침이 같은 자리를 쓴다. 둘이 따로 놀면 백 개의 event 가
+ * 백 개의 완전한 조회를 만든다.
+ *
+ * 도는 중에 온 것은 **한 비트**로만 남긴다 — 지금 조회를 취소하지도, 결과를 합치지도
+ * 않는다. 끝난 뒤 딱 한 번 더 본다(§5).
+ */
+let reading = null;
+let readAgain = false;
+
 /** 사람이 누르는 새로고침 — **완전한 View** 를 다시 읽는다. 부분 갱신은 없다(§8). */
 async function refresh() {
+  if (!current) return;
+  // 이미 돌고 있으면 그 한 비트만 남기고 그 조회에 얹힌다.
+  if (reading) {
+    readAgain = true;
+    return reading;
+  }
+  reading = readOnce().finally(() => {
+    reading = null;
+  });
+  const first = reading;
+  await first;
+  // 도는 동안 무언가 왔다면 **정확히 한 번** 더 본다.
+  if (readAgain) {
+    readAgain = false;
+    await refresh();
+  }
+  return first;
+}
+
+/** 완전한 View 하나를 읽어 화면을 통째로 간다. */
+async function readOnce() {
   if (!current) return;
   const scopeId = current.scopeId;
   busyOn("refreshing", refreshButton);
@@ -569,6 +602,22 @@ async function refresh() {
     markFresh();
     renderIntro();
     renderGraph();
+
+    // 고른 Step 이 새 View 에도 있으면 그 자리의 상세를 다시 읽는다. 없어졌으면 **다른
+    // Step 을 추측하지 않고** 선택과 상세를 비운다(§7). 접힘은 그대로 둔다 — 그것은
+    // 이 창의 표현 상태이지 Project 의 사실이 아니다.
+    const chosen = current.seat.selectedStep;
+    if (chosen) {
+      const still = view.timeline.some((one) => one.steps.some((s) => s.step_ref === chosen));
+      if (still) {
+        await selectStep(chosen);
+      } else {
+        current.seat.selectedStep = null;
+        current.seat.detail = null;
+        renderGraph();
+        renderDetail(null);
+      }
+    }
   } catch (error) {
     // 마지막으로 검증된 View 는 그대로 둔다.
     markStale(error);
@@ -746,7 +795,14 @@ async function start() {
     });
     // 이 창의 사정. Graph 를 건드리지 않고 한 줄로 알린다.
     window.GIL_HOST.listen("gil://say", (said) => {
-      if (said && said.said) say(said.said);
+      if (!said) return;
+      // 자동 갱신이 (다시) 섰다 — 앞서 적어 둔 그 말만 걷는다. 남의 알림은 건드리지
+      // 않는다. 성공했다고 따로 알리지도 않는다(토스트를 쌓지 않는다).
+      if (said.code === "watch_live") {
+        if (notice.textContent.includes("자동 갱신을 시작하지 못했다")) clearNotice();
+        return;
+      }
+      if (said.said) say(said.said);
     });
   }
 

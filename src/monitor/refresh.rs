@@ -56,12 +56,17 @@ use super::html;
 /// 벽시계의 글자도, [`MonitorSnapshot::captured_at`] 도 아니다. 그 둘은 표시용이고, 여기서
 /// 필요한 것은 **얼마나 지났는가**뿐이다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Moment(Duration);
+pub struct Moment(Duration);
 
 impl Moment {
     /// 시작점에서 이만큼 흐른 순간.
-    pub(crate) fn at(millis: u64) -> Moment {
+    pub fn at(millis: u64) -> Moment {
         Moment(Duration::from_millis(millis))
+    }
+
+    /// 시작점에서 몇 밀리초인가. 밖에서 순간을 셈할 때 쓴다.
+    pub fn millis(self) -> u64 {
+        self.0.as_millis() as u64
     }
 
     /// 그 사이에 흐른 시간. 뒤로 흐른 시각은 **0 으로 본다** — 시계가 뒤로 가더라도
@@ -71,23 +76,68 @@ impl Moment {
     }
 }
 
+/// **연속으로 실패할 때 얼마나 기다렸다 다시 볼 것인가.**
+///
+/// 고정 주기로 되풀이하면, 오래 가는 실패(손상·권한) 앞에서 큰 Project 를 영원히 같은
+/// 간격으로 다시 훑는다. `world_state()` 가 Artifact 세계를 두 번 훑으므로 그 비용은
+/// 프로젝트 크기에 비례해 계속 나간다.
+///
+/// 그래서 **사다리를 적어 둔다.** 곱셈에 기대지 않는 까닭은 둘이다 — 넘침을 걱정할 자리가
+/// 없어지고, 상한이 코드에 글자로 보인다.
+#[derive(Debug, Clone, Copy)]
+pub struct Backoff {
+    /// 연속 실패 횟수마다 이 차례. **마지막 칸에 닿으면 그대로 머문다.**
+    steps: &'static [Duration],
+}
+
+impl Backoff {
+    /// 적어 둔 사다리를 그대로.
+    ///
+    /// 칸이 하나면 **늘어날 곳이 없다** — 늘 같은 간격이다. 옛 뜻을 그대로 두려는 자리가
+    /// 그렇게 쓴다.
+    ///
+    /// 빈 사다리는 만들 수 없다 — 기다릴 시간이 없다는 말이 되기 때문이다.
+    pub const fn ladder(steps: &'static [Duration]) -> Backoff {
+        assert!(!steps.is_empty(), "backoff 사다리가 비었다");
+        Backoff { steps }
+    }
+
+    /// `failures` 번 **연속으로** 실패한 뒤 얼마나 기다리는가.
+    ///
+    /// `0` 은 실패한 적이 없다는 뜻이고, 그때는 첫 칸을 쓴다. 끝을 넘어가면 **마지막 칸에
+    /// 머문다** — 상한이다.
+    pub fn after(&self, failures: usize) -> Duration {
+        let last = self.steps.len() - 1;
+        self.steps[failures.saturating_sub(1).min(last)]
+    }
+
+    /// 상한. 아무리 실패해도 이보다 오래 기다리지 않고, 이보다 자주 보지도 않는다.
+    pub fn ceiling(&self) -> Duration {
+        self.steps[self.steps.len() - 1]
+    }
+}
+
 /// 얼마나 자주 다시 볼 것인가 — **성능 parameter이지 도메인 계약이 아니다**(§8.3).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Pace {
+pub struct Pace {
     /// 첫 hint 뒤 이만큼은 더 모았다가 한 번에 본다.
-    pub(crate) debounce: Duration,
+    pub debounce: Duration,
     /// hint 가 하나도 없어도 이만큼 지나면 다시 본다 — watcher 가 놓쳐도 수렴한다.
-    pub(crate) reconcile: Duration,
-    /// 실패한 뒤 이만큼 지나면 다시 본다 — 새 hint 가 없어도.
-    pub(crate) retry: Duration,
+    pub reconcile: Duration,
+    /// 실패한 뒤 얼마나 기다렸다 다시 볼 것인가.
+    pub retry: Backoff,
 }
+
+/// `gil monitor --serve` 가 쓰던 그대로 — **2초 고정**이다.
+const SERVE_RETRY: &[Duration] = &[Duration::from_secs(2)];
 
 impl Default for Pace {
     fn default() -> Pace {
         Pace {
             debounce: Duration::from_millis(200),
             reconcile: Duration::from_secs(30),
-            retry: Duration::from_secs(2),
+            // 사다리가 한 칸이면 늘어날 곳이 없다 — 옛 뜻 그대로다.
+            retry: Backoff::ladder(SERVE_RETRY),
         }
     }
 }
@@ -101,14 +151,19 @@ impl Default for Pace {
 ///
 /// 오류를 글로 받는 까닭도 같다 — 이 계층은 무엇이 잘못됐는지 판정하지 않고, 화면에 그대로
 /// 보일 **신뢰하지 않는 글** 하나로 다룬다.
-pub(crate) trait Observe {
-    /// 완전한 새 Snapshot 하나. **부분 결과를 돌려주지 않는다.**
-    fn observe(&mut self) -> Result<MonitorSnapshot, String>;
+/// `T` 는 **한 번의 관측이 낳는 완전한 값**이다.
+///
+/// `gil monitor --serve` 에서는 `MonitorSnapshot` 이고, Desktop Companion 에서는 「창에
+/// 다시 읽으라고 알렸다」는 사실 하나다. 상태기계는 그 값이 무엇인지 알 필요가 없다 —
+/// 아는 순간 debounce 규칙이 값의 모양에 매인다.
+pub trait Observe<T> {
+    /// 완전한 새 값 하나. **부분 결과를 돌려주지 않는다.**
+    fn observe(&mut self) -> Result<T, String>;
 }
 
 /// 무엇이 깨웠는가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Wake {
+pub enum Wake {
     /// 파일 시스템이 무언가 바뀌었을지 모른다고 알렸다 — **사실이 아니라 hint 다.**
     ChangeHint,
     /// 시간이 흘렀다. 기한이 됐는지만 본다.
@@ -127,17 +182,17 @@ pub(crate) enum Wake {
 /// **진실 공급원이 아니다.** 화면 응답을 싸게 하려고 들고 있는 파생 값이고, Graph 에 쓰지
 /// 않으며 다음 판정의 입력으로도 쓰지 않는다(§8.4).
 #[derive(Debug, Clone)]
-pub(crate) enum Cached {
+pub enum Cached<T> {
     /// 마지막 관측이 성공했다.
     Current {
-        snapshot: MonitorSnapshot,
+        snapshot: T,
         /// 그 관측이 성공한 시각.
         at: Moment,
     },
     /// 새 관측이 실패했다 — **지금 보이는 것은 그 전의 사실이다.**
     Stale {
         /// 마지막으로 **성공한** Snapshot. 실패가 이것을 고치지 않는다.
-        snapshot: MonitorSnapshot,
+        snapshot: T,
         /// 그 Snapshot 이 성공한 시각.
         succeeded_at: Moment,
         /// 가장 최근 실패의 이유 — 신뢰하지 않는 글이다.
@@ -148,9 +203,9 @@ pub(crate) enum Cached {
     Unavailable { error: String, failed_at: Moment },
 }
 
-impl Cached {
+impl<T> Cached<T> {
     /// 지금 보여 줄 수 있는 Snapshot. `Unavailable` 이면 없다.
-    pub(crate) fn snapshot(&self) -> Option<&MonitorSnapshot> {
+    pub fn snapshot(&self) -> Option<&T> {
         match self {
             Cached::Current { snapshot, .. } | Cached::Stale { snapshot, .. } => Some(snapshot),
             Cached::Unavailable { .. } => None,
@@ -158,7 +213,7 @@ impl Cached {
     }
 
     /// 지금 보이는 것이 최신인가.
-    pub(crate) fn is_current(&self) -> bool {
+    pub fn is_current(&self) -> bool {
         matches!(self, Cached::Current { .. })
     }
 }
@@ -167,9 +222,9 @@ impl Cached {
 
 /// 언제 다시 볼지 정하고, 마지막 사실을 지키는 자리.
 #[derive(Debug)]
-pub(crate) struct Refresh {
+pub struct Refresh<T> {
     pace: Pace,
-    cached: Cached,
+    cached: Cached<T>,
     /// 아직 합쳐지지 않은 hint 들 중 **첫 번째**가 온 시각.
     ///
     /// 매 hint 마다 다시 세지 않는다. 그렇게 하면 편집이 계속되는 동안 기한이 영원히
@@ -177,14 +232,19 @@ pub(crate) struct Refresh {
     hinted: Option<Moment>,
     /// 마지막으로 관측을 **시도한** 시각. 성공이든 실패든 같다.
     looked: Moment,
+    /// **연속으로** 실패한 횟수. 성공하면 0 으로 돌아간다.
+    ///
+    /// 이것이 다음 재시도까지의 간격을 정한다. 성공이 사다리를 처음으로 되돌리는 까닭은,
+    /// 한 번 통했다면 다음 실패는 새 사정이기 때문이다.
+    failures: usize,
 }
 
-impl Refresh {
+impl<T> Refresh<T> {
     /// **첫 관측을 하고** 상태기계를 세운다.
     ///
     /// 「아직 아무것도 모른다」는 네 번째 상태를 만들지 않는다. 그런 자리를 두면 화면과
     /// 시험이 그것을 어떻게 그릴지 매번 물어야 하는데, 첫 관측의 답은 이미 셋 중 하나다.
-    pub(crate) fn start(pace: Pace, now: Moment, observer: &mut (impl Observe + ?Sized)) -> Refresh {
+    pub fn start(pace: Pace, now: Moment, observer: &mut (impl Observe<T> + ?Sized)) -> Refresh<T> {
         let cached = match observer.observe() {
             Ok(snapshot) => Cached::Current { snapshot, at: now },
             Err(error) => Cached::Unavailable {
@@ -192,15 +252,17 @@ impl Refresh {
                 failed_at: now,
             },
         };
+        let failures = usize::from(!cached.is_current());
         Refresh {
             pace,
             cached,
             hinted: None,
             looked: now,
+            failures,
         }
     }
 
-    pub(crate) fn cached(&self) -> &Cached {
+    pub fn cached(&self) -> &Cached<T> {
         &self.cached
     }
 
@@ -209,12 +271,12 @@ impl Refresh {
     /// 무엇이 깨웠든 판정은 하나다 — [`Refresh::due`]. 깨운 이유마다 다른 규칙을 두면
     /// 「hint 로 깨면 보는데 시간으로 깨면 안 본다」 같은 자리가 생기고, 그러면 watcher 가
     /// 조용한 프로젝트에서 화면이 영원히 낡는다.
-    pub(crate) fn wake(
+    pub fn wake(
         &mut self,
         now: Moment,
         why: Wake,
-        observer: &mut (impl Observe + ?Sized),
-    ) -> &Cached {
+        observer: &mut (impl Observe<T> + ?Sized),
+    ) -> &Cached<T> {
         if why == Wake::ChangeHint {
             // 첫 hint 만 시각을 남긴다 — 뒤따르는 것들은 여기에 합쳐진다.
             self.hinted.get_or_insert(now);
@@ -235,19 +297,25 @@ impl Refresh {
     /// debounce 가 끝나는 순간을 놓치지도 않는다.
     ///
     /// `0` 은 「지금 이미 기한이다」라는 뜻이다.
-    pub(crate) fn quiet_for(&self, now: Moment) -> Duration {
+    pub fn quiet_for(&self, now: Moment) -> Duration {
         // hint 를 모으는 중이면 그 기한이 언제나 더 이르다.
         let by_hint = self
             .hinted
             .map(|first| self.pace.debounce.saturating_sub(now.since(first)));
-        let deadline = match self.cached.is_current() {
-            true => self.pace.reconcile,
-            false => self.pace.retry,
-        };
+        let deadline = self.deadline();
         let by_deadline = deadline.saturating_sub(now.since(self.looked));
         match by_hint {
             Some(by_hint) => by_hint.min(by_deadline),
             None => by_deadline,
+        }
+    }
+
+    /// 다음 기한까지의 간격 — 성공했으면 reconciliation, 실패 중이면 **연속 실패 횟수가
+    /// 정하는 backoff** 다.
+    fn deadline(&self) -> Duration {
+        match self.cached.is_current() {
+            true => self.pace.reconcile,
+            false => self.pace.retry.after(self.failures),
         }
     }
 
@@ -259,16 +327,12 @@ impl Refresh {
             return true;
         }
         // ② hint 가 없어도 기한은 온다. 어느 기한인지는 지금 상태가 정한다 —
-        //    성공해서 쉬는 중이면 느린 reconciliation, 실패해서 낡았으면 빠른 retry.
-        let deadline = match self.cached.is_current() {
-            true => self.pace.reconcile,
-            false => self.pace.retry,
-        };
-        now.since(self.looked) >= deadline
+        //    성공해서 쉬는 중이면 느린 reconciliation, 실패해서 낡았으면 backoff.
+        now.since(self.looked) >= self.deadline()
     }
 
     /// **한 번 본다.** 성공하면 통째로 갈고, 실패해도 사실을 버리지 않는다.
-    fn look(&mut self, now: Moment, observer: &mut (impl Observe + ?Sized)) {
+    fn look(&mut self, now: Moment, observer: &mut (impl Observe<T> + ?Sized)) {
         // 보기로 한 순간 hint 는 소진된다 — 보는 도중에 온 것은 다음 몫이다.
         self.hinted = None;
         self.looked = now;
@@ -276,8 +340,13 @@ impl Refresh {
         match observer.observe() {
             // **통째로 갈아 끼운다.** 절마다 합치면 화면의 두 칸이 다른 시점을 말한다.
             // 옛 오류도 여기서 함께 사라진다 — 지나간 실패를 현재처럼 보이지 않게.
-            Ok(snapshot) => self.cached = Cached::Current { snapshot, at: now },
+            Ok(snapshot) => {
+                // **성공은 사다리를 처음으로 되돌린다.**
+                self.failures = 0;
+                self.cached = Cached::Current { snapshot, at: now };
+            }
             Err(error) => {
+                self.failures = self.failures.saturating_add(1);
                 self.cached = match std::mem::replace(
                     &mut self.cached,
                     Cached::Unavailable {
@@ -319,7 +388,7 @@ impl Refresh {
 ///
 /// `Current` 일 때는 standalone `gil monitor --html` 과 **같은 문서**다. 자동 갱신 표지도,
 /// 시각도 붙이지 않는다 — 그것이 두 표현이 갈리지 않는다는 뜻이고, 시험이 그것을 잰다.
-pub(crate) fn render_cached_html(cached: &Cached) -> String {
+pub(crate) fn render_cached_html(cached: &Cached<MonitorSnapshot>) -> String {
     render_cached_page(cached, None, None)
 }
 
@@ -328,7 +397,7 @@ pub(crate) fn render_cached_html(cached: &Cached) -> String {
 /// **표지는 사실 영역을 한 글자도 바꾸지 않는다.** 붙는 자리는 문서의 머리뿐이고, 그 아래
 /// 절들은 표지가 있든 없든 같다.
 pub(crate) fn render_cached_page(
-    cached: &Cached,
+    cached: &Cached<MonitorSnapshot>,
     refresh: Option<(u64, &str)>,
     blind: Option<&str>,
 ) -> String {
@@ -423,7 +492,7 @@ mod tests {
         }
     }
 
-    impl Observe for Fake {
+    impl Observe<MonitorSnapshot> for Fake {
         fn observe(&mut self) -> Result<MonitorSnapshot, String> {
             self.calls += 1;
             match self.answers.len() {
@@ -491,7 +560,10 @@ mod tests {
         Pace {
             debounce: Duration::from_millis(100),
             reconcile: Duration::from_millis(1000),
-            retry: Duration::from_millis(300),
+            retry: Backoff::ladder({
+                const RETRY_300MS: &[Duration] = &[Duration::from_millis(300)];
+                RETRY_300MS
+            }),
         }
     }
 

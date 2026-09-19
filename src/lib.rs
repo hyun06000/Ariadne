@@ -154,6 +154,10 @@ pub use monitor::{
 };
 // Host UI 로 나가는 판 있는 읽기 모델(GIL Host UI Model v0.1 §3).
 pub use monitor::view::SCHEMA_VERSION;
+/// 변화 hint 와 「언제 다시 볼까」의 규칙 — `gil monitor --serve` 와 Desktop Companion 이
+/// **같은 것**을 쓴다. 두 벌로 두면 한쪽의 debounce 만 고쳐지는 날이 온다.
+pub use monitor::refresh::{Backoff, Cached, Moment, Observe, Pace, Refresh, Wake};
+pub use monitor::watch::{Watching, watch_hints};
 pub use monitor::{DetailError, NodeDetailV1, ReportFieldV1, ReportV1};
 pub use monitor::{
     WireError, decode_detail_v1, decode_view_v1, encode_detail_v1, encode_view_v1,

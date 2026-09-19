@@ -64,7 +64,7 @@ use gil::{
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::State;
+use tauri::{Manager, State};
 use tauri::async_runtime;
 use tauri_plugin_dialog::DialogExt;
 
@@ -513,6 +513,10 @@ pub fn forget_project(
     if !registry.holds(&scope_id) {
         return Err(Refusal::new("unknown_scope", "이 창이 연 Project 가 아니다"));
     }
+    // 빼는 Project 를 보고 있었다면 그 감시부터 끝낸다.
+    if app.state::<crate::live::Live>().following().as_deref() == Some(scope_id.as_str()) {
+        app.state::<crate::live::Live>().stop();
+    }
     registry.forget(&scope_id);
     let wrote = desk.change(|settings| {
         settings.forget(&scope_id);
@@ -565,7 +569,16 @@ pub async fn load_view(
 ) -> Result<String, Refusal> {
     // 자리만 복제하고 잠금을 놓는다. `root_of` 안에서 guard 가 떨어진다.
     let root = registry.root_of(&scope_id)?;
-    let view = off_the_loop(move || view_of(&root)).await?;
+    let asked = off_the_loop(move || view_of(&root)).await;
+
+    // **조회의 결과를 지켜보는 쪽에 알린다.** 연속 실패면 다시 청하는 간격이 늘고,
+    // 성공하면 처음으로 돌아간다. 지금 보고 있는 Project 의 것만 센다.
+    let live = app.state::<crate::live::Live>();
+    match &asked {
+        Ok(_) => live.fetch_worked(&scope_id),
+        Err(_) => live.fetch_failed(&scope_id),
+    }
+    let view = asked?;
 
     // **여기까지 왔을 때만** 마지막 선택과 차례를 갈아 끼운다(§9.1.2).
     //
@@ -578,6 +591,22 @@ pub async fn load_view(
         });
         // menu bar 가 말하는 이름도 따라간다 — 두 자리가 다른 말을 하면 안 된다.
         crate::tray::say_current(&app);
+
+        // **지금 보는 것 하나만** 지켜본다(§9.1). 같은 것을 다시 읽어도 감시는 하나다.
+        //
+        // 감시를 세우지 못해도 거절하지 않는다 — watcher 는 가속기이지 사실의 공급원이
+        // 아니다. 그 사실만 창에 한 번 알리고, 수동 새로고침은 그대로 쓴다(Monitor §8.6.1).
+        match live.follow(&app, &scope_id, &seat) {
+            Err(said) => crate::window::tell(
+                &app,
+                "watch_unavailable",
+                &format!("자동 갱신을 시작하지 못했다 — 새로고침은 그대로 쓸 수 있다 ({said})"),
+            ),
+            // 섰다면 앞서 「시작하지 못했다」고 적어 둔 말을 걷는다. 다시 고른 것이
+            // 성공했는데 그 글이 남아 있으면 사람은 여전히 안 된다고 믿는다.
+            Ok(()) if live.sees() => crate::window::tell(&app, "watch_live", ""),
+            Ok(()) => {}
+        }
     }
     Ok(view)
 }

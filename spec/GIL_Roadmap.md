@@ -23,7 +23,7 @@ dogfood로 통과**해야 `[x]`가 된다.
 
 ## 2. 현재 위치
 
-마지막 갱신: **2026-09-11**
+마지막 갱신: **2026-09-19**
 
 ```text
 전체 이정표 10개
@@ -42,17 +42,20 @@ Later    1  성공 가지 Merge
 > **사고의 시간선과 결과물의 세계는 format 4에서 연결됐고, 중단 후에도 복구 가능한 방식으로
 > 되돌아갈 수 있다. 그리고 두 계열의 새 Agent 세션이 전체 명세 없이 `gil context`와 주소
 > 가능한 Help Topic만으로 실제 작업과 Cycle을 완주했다. M3·M3.5·M4는 닫혔다.
-> 이제 같은 Graph를 사람이 읽는 M5 read-only Monitor로 간다.**
+> macOS Native Companion과 실제 Project 자동 갱신까지 동작한다. 이제 Monitor를 필수 인간 표면으로
+> 고정하고 persistent Host PiP 우선·Native Companion fallback·비개발자 무터미널 설치를 배포
+> 계약으로 닫는다.**
 
 현재 초점:
 
-- M5의 검증된 MonitorSnapshot을 지속형 Tauri Companion의 인터랙티브 인간 표면으로 투영한다.
-- Codex inline UI는 시제품으로, loopback browser는 개발·진단 fallback으로 유지한다.
+- M5의 인간 판독·장시간 관찰 실험을 마친다.
+- persistent Host PiP와 Native Companion을 같은 필수 Monitor의 두 adapter로 정렬한다.
+- macOS·Windows 비개발자가 Plugin 설치에서 Monitor까지 terminal 없이 도달하는 배포 경로를 만든다.
 
 바로 다음 목표:
 
-> **Tauri shell에 공용 Step DAG fixture와 Project switcher를 싣고, 세션별 server·port 없이 하나의
-> 읽기 전용 창에서 Project scope를 전환한다.**
+> **M5-D의 capability 판정·Companion 설치 상태·승인 기반 설치 계약을 시험 가능한 adapter 경계로
+> 만들고, Windows feasibility build로 macOS 전용 결합을 조기에 드러낸다.**
 
 ---
 
@@ -997,7 +1000,7 @@ Experiment Cycle failure Report의 `revisit`은 **기록할 수 있고 실행할
 
 ## 10. M5 — Human Monitor
 
-상태: `[~] 진행 중 — M5-A 완료, Host UI 계약·Tauri fixture 단계 검증, 실제 GIL read adapter 전`
+상태: `[~] 진행 중 — M5-A 완료, M5-C는 실제 Project 자동 갱신까지 닫힘, M5-B의 filter·scope 이어받기와 판독 실험이 남음`
 
 목표:
 
@@ -1167,8 +1170,11 @@ refresh를 확인했고, picker와 읽기를 비동기 경계로 옮긴 뒤 창�
 2026-09-14에는 Companion-local settings와 실행·수명 UX를 닫았다. 창은 닫아도 숨을 뿐이고
 menu bar에 남으며, 설치된 app bundle을 터미널 없이 실행하고 Agent가 같은 창을 앞으로 가져온다.
 
-남은 것은 **선택 Project watcher와 reconciliation**이다. 지금 갱신은 사람이 누르는 새로고침
-하나뿐이며, watcher가 붙어도 hint는 완전한 View 재조회만 부른다.
+2026-09-16에는 선택 Project watcher를 닫았다. 실제 GIL Project에서 파일을 만들고 지우자
+`clean`과 `dirty`가 사람의 새로고침 없이 오갔다. hint는 완전한 View 재조회 하나만 부르며,
+경로도 사건의 종류도 화면으로 나가지 않는다.
+
+남은 것은 **인간 판독·장시간 관찰 실험**이다.
 
 - [x] Tauri app shell과 공용 UI bundle 연결
 - [x] 기존 `reading_one` fixture로 Cycle DAG·현재 Cycle·detail interaction 표시
@@ -1185,7 +1191,7 @@ menu bar에 남으며, 설치된 app bundle을 터미널 없이 실행하고 Age
 - [x] OS folder picker로 Project를 명시적으로 선택하고 취소 시 현재 상태 유지
 - [x] 수동 refresh가 완전한 View만 다시 읽고 실패 시 마지막 검증 View와 오류를 구분
 - [x] 실제 Project의 open·View·detail·refresh가 `.gil`·Artifact·Snapshot 창고를 쓰지 않음
-- [ ] 현재 선택 Project의 변화 hint → 완전한 View 재조회
+- [x] 현재 선택 Project의 변화 hint → 완전한 View 재조회
 - [x] Project별 server·port·capability URL 없이 동작
 - [x] 앱 하나로 Project 추가·제거·전환
 - [x] Codex 또는 Claude session이 종료되어도 창과 마지막 검증 View 유지
@@ -1205,7 +1211,7 @@ Tauri shell + fixture          (닫힘)
 → 실제 GIL read adapter          (닫힘)
 → Companion-local settings      (닫힘)
 → 실행·수명과 native packaging   (닫힘)
-→ 선택 Project watcher와 reconciliation
+→ 선택 Project watcher와 reconciliation   (닫힘)
 → 인간 판독·장시간 관찰 실험
 ```
 
@@ -1215,6 +1221,49 @@ Tauri shell + fixture          (닫힘)
 - 여러 Project의 Graph를 한 화면에 합성
 - 모든 등록 Project를 항상 전체 해상도로 background 관측
 - Tauri 전용 사실 schema 또는 Graph 의미 생성
+
+### M5-D Monitor Availability & Zero-terminal Distribution
+
+상태: `[~] 명세 확정 · 구현 대기`
+
+목표:
+
+> 비개발자가 Plugin 설치 뒤 terminal·port·설정 파일 없이 지속형 GIL Monitor를 열며, Host가 진짜
+> persistent PiP를 제공하지 않으면 AI의 안내와 OS 승인만으로 Native Companion을 준비한다.
+
+설치 완료 조건과 Host별 fallback의 규범은 `GIL Distribution Model v0.1`이 소유한다.
+
+- [x] Monitor를 선택 기능이 아닌 설치 완료의 필수 인간 표면으로 확정
+- [x] persistent Host surface 우선·Native Companion fallback 순서 확정
+- [x] inline 카드와 text는 preview·진단이며 설치 완료가 아님을 확정
+- [x] AI가 설치를 조율하되 사용자 승인과 OS 신뢰 경계를 우회하지 않는 원칙 확정
+- [ ] `persistent_host | native_companion | unavailable` capability 판정 구현
+- [ ] PiP 요청 뒤 실제 mode·수명 계약을 확인하는 Host adapter 시험
+- [ ] Companion `missing | stopped | outdated | ready` handshake 구현
+- [ ] 설치·업데이트 완료 재감지와 원래 Monitor 요청 자동 재개
+- [ ] Companion 없이도 GIL text loop가 동작하는 degraded mode 시험
+- [ ] macOS Developer ID 서명·공증 또는 Store sandbox feasibility 확정
+- [ ] Windows 10/11 feasibility build — watcher·locking·tray·single-instance·autostart
+- [ ] Windows Store/MSIX 또는 signed installer 기본 채널 확정
+- [ ] Plugin·Core·Companion·wire compatibility와 update rollback 계약
+- [ ] macOS·Windows clean-machine 설치·업데이트·제거 시험
+- [ ] 처음 보는 비개발자가 한 문장 요청으로 3분 안에 Monitor를 여는 설치 실험
+
+배포 순서:
+
+```text
+Host capability probe
+→ persistent PiP 실측
+→ Companion handshake
+→ trusted installer handoff
+→ install completion re-detection
+→ original request resume
+→ macOS·Windows clean-machine 검증
+```
+
+공개 Plugin/MCP 제출은 이 조각의 끝이 아니라 후속 release gate다. 원격 MCP가 기본인 Host에서도
+사용자의 로컬 Project는 remote server가 대신 읽지 않는다. public HTTPS MCP, 인증·도메인 검증과
+심사 자료는 GIL의 시나리오 일반성이 M7에서 확인된 뒤 제출한다.
 
 ### M5 후속 — 선행 domain 계약 뒤 수행
 
@@ -1567,3 +1616,17 @@ scenario/
   먼저 온다.
 - `gil restore`의 확인 절차를 확정. **명령 실행 자체가 복원 의사**이며 대화형 확인·`--force`·
   `--yes`·별도 confirm 명령을 만들지 않는다. 안전성은 구조적 유도와 원자성에서 온다.
+- selftest 장치의 Host 기준점을 **module 평가 시 한 번만** 고정한다. 검사마다 다시 잡으면
+  앞선 검사가 남긴 스텁이 기준점이 되어 스텁이 스스로에게 위임한다.
+
+### 2026-09-19
+
+- GIL의 주 사용자를 비개발자로 다시 고정하고, **지속형 Monitor를 선택 기능이 아니라 설치 완료의
+  필수 인간 표면**으로 확정했다.
+- Agent Host가 실제 persistent panel·PiP 수명 계약을 만족하면 그 표면을 우선하고, 요청 뒤
+  `inline`에 머물거나 계약을 확인할 수 없으면 같은 UI의 Native Companion으로 물러난다.
+- AI는 Companion 없음·꺼짐·낡음·호환됨을 구분하고 설치를 끝까지 조율하지만, 사용자 승인과
+  macOS·Windows의 서명·공증·Store 신뢰 경계를 우회하지 않는다.
+- 설치 뒤 사용자가 완료를 다시 보고하지 않는다. adapter가 재감지하고 원래 Monitor 요청을
+  자동으로 이어간다.
+- 이 계약의 단일 소유자를 `GIL Distribution Model v0.1`로 두고 M5-D를 새 실행 조각으로 열었다.

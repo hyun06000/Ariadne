@@ -47,6 +47,7 @@ mod appmenu;
 mod autostart;
 mod geometry;
 mod lifetime;
+mod live;
 mod settings;
 mod tray;
 mod window;
@@ -73,6 +74,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(adapter::Registry::default())
         .manage(window::LastSeen::default())
+        .manage(live::Live::default())
         .invoke_handler(tauri::generate_handler![
             adapter::pick_project,
             adapter::list_projects,
@@ -123,8 +125,9 @@ fn main() {
                     api.prevent_exit();
                 }
             }
-            // 정말 끝나기 직전. 미뤄 둔 마지막 자리를 여기서 거둔다.
+            // 정말 끝나기 직전. 지켜보던 것을 멈추고 미뤄 둔 마지막 자리를 거둔다.
             tauri::RunEvent::Exit => {
+                app.state::<live::Live>().stop();
                 window::flush_now(app);
             }
             _ => {}

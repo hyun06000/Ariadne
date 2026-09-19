@@ -30,7 +30,8 @@
 
 mod graph;
 mod html;
-mod refresh;
+pub mod refresh;
+pub mod watch;
 mod say;
 mod serve;
 mod svg;

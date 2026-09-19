@@ -1181,3 +1181,141 @@ fn the_settings_file_never_lands_inside_a_project() {
         "Project 안에 설정이 생겼다"
     );
 }
+
+// ── 감시는 프로젝트를 붙들지 않는다 ─────────────────────────────────────
+//
+// Host UI Model §8 · Monitor Model §8.3. watcher 가 보내는 것은 hint 한 마디이고, 그
+// 갈래는 Project 를 열지도 잠그지도 않는다. 붙들기 시작하면 사람이 `gil` 명령 하나를
+// 쓸 수 없게 된다.
+
+#[test]
+fn a_running_watcher_never_holds_the_project_lock() {
+    let dir = reading_one("watch-no-lock");
+    let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let watching = gil::watch_hints(&dir, {
+        let seen = seen.clone();
+        move || {
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .expect("감시를 세운다");
+
+    // **감시가 도는 동안에도** 사람의 명령이 프로젝트를 연다 — 읽는 것도 쓰는 것도.
+    for _ in 0..3 {
+        let session = ProjectSession::open(spec(), state_in(&dir)).expect("쓰는 열기");
+        drop(session);
+        let session =
+            ProjectSession::open_read_only(spec(), state_in(&dir)).expect("읽는 열기");
+        drop(session);
+    }
+    drop(watching);
+}
+
+#[test]
+fn watching_a_project_changes_not_one_byte() {
+    let dir = reading_one("watch-read-only");
+    let objects = |at: &Path| -> usize { every_file(&at.join(".gil").join("artifacts")).len() };
+    let before = every_file(&dir);
+    let before_objects = objects(&dir);
+
+    let hints = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let watching = gil::watch_hints(&dir, {
+        let hints = hints.clone();
+        move || {
+            hints.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .expect("감시를 세운다");
+
+    // 사람이 Artifact 를 만진다. 감시는 그것을 **hint 한 마디**로만 받는다.
+    fs::write(dir.join("사람이-고친-것.txt"), "바뀌었다").expect("적는다");
+    // 그리고 우리가 읽는다 — 감시가 도는 동안에도 읽기는 읽기다.
+    let _ = adapter_view(&dir);
+
+    drop(watching);
+
+    // 우리가 만든 파일 하나 말고는 **바이트 하나 다르지 않다.**
+    fs::remove_file(dir.join("사람이-고친-것.txt")).expect("치운다");
+    let after = every_file(&dir);
+    assert_eq!(before.len(), after.len(), "파일 수가 달라졌다");
+    assert_eq!(before_objects, objects(&dir), "객체 수가 달라졌다");
+    for (name, bytes) in &before {
+        assert_eq!(Some(bytes), after.get(name), "{name} 의 바이트가 달라졌다");
+    }
+    // 그리고 잠금이 남지 않았다.
+    assert!(ProjectSession::open(spec(), state_in(&dir)).is_ok(), "잠금이 남았다");
+}
+
+#[test]
+fn dropping_the_watch_really_stops_it() {
+    let dir = reading_one("watch-stops");
+    let hints = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let watching = gil::watch_hints(&dir, {
+        let hints = hints.clone();
+        move || {
+            hints.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .expect("감시를 세운다");
+
+    // 변화가 hint 로 닿는 것을 먼저 본다 — 감시가 정말 서 있었다는 증거다.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    fs::write(dir.join("하나.txt"), "가").expect("적는다");
+    while hints.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        assert!(std::time::Instant::now() < deadline, "감시가 변화를 알리지 못했다");
+        std::thread::yield_now();
+    }
+
+    // **놓으면 멈춘다.**
+    drop(watching);
+    let after_stop = hints.load(std::sync::atomic::Ordering::SeqCst);
+    for at in 0..5 {
+        fs::write(dir.join(format!("뒤-{at}.txt")), "나").expect("적는다");
+    }
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    assert_eq!(
+        hints.load(std::sync::atomic::Ordering::SeqCst),
+        after_stop,
+        "놓은 뒤에도 hint 가 왔다"
+    );
+}
+
+#[test]
+fn the_graph_file_and_ordinary_files_are_both_worth_a_hint() {
+    let dir = reading_one("watch-both");
+    let hints = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let watching = gil::watch_hints(&dir, {
+        let hints = hints.clone();
+        move || {
+            hints.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .expect("감시를 세운다");
+
+    let wait_for = |want: usize| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while hints.load(std::sync::atomic::Ordering::SeqCst) < want {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "hint {want} 개를 기다리다 지쳤다 (지금 {})",
+                hints.load(std::sync::atomic::Ordering::SeqCst)
+            );
+            std::thread::yield_now();
+        }
+    };
+
+    // ① 일반 Artifact 파일.
+    fs::write(dir.join("보통-파일.txt"), "가").expect("적는다");
+    wait_for(1);
+    let after_ordinary = hints.load(std::sync::atomic::Ordering::SeqCst);
+
+    // ② `state.yaml` 의 원자적 교체 — GIL 이 상태를 눕히는 그 모양.
+    let state = state_in(&dir);
+    let beside = dir.join(".gil").join("state.yaml.swap");
+    fs::copy(&state, &beside).expect("옆에 적는다");
+    fs::rename(&beside, &state).expect("제자리로 옮긴다");
+    wait_for(after_ordinary + 1);
+
+    drop(watching);
+}
