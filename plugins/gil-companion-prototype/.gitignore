@@ -1,0 +1,2 @@
+# 설치 의존성은 lockfile 로 재현한다 — 23MB 를 역사에 넣지 않는다.
+node_modules/

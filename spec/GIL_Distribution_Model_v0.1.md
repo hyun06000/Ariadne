@@ -123,6 +123,38 @@ binary descriptor가 identity와 호환 범위를 밝히고, 실행 중인 proce
 PID·process 이름만으로 대신하지 않는다. macOS의 첫 transport는 권한 `0600` Unix socket이고
 포트·URL을 만들지 않는다. Windows transport는 달라도 challenge와 응답의 의미는 같아야 한다.
 
+### 5.2 Monitor 요청의 조율
+
+「GIL Monitor 열기」 하나를 끝까지 책임지는 자리는 하나다. 표면 선택과 Companion 상태를 따로
+물으면 두 답이 어긋나고, 어긋난 자리에서 사람이 같은 말을 두 번 하게 된다.
+
+조율의 결과는 값으로 가른다. 문장을 뜯어 뜻을 짐작하지 않는다.
+
+```text
+opened_persistent_host         확인된 지속형 Host surface에 열었다
+focused_existing_companion     이미 열려 있던 창을 앞으로 가져왔다
+started_and_opened_companion   꺼져 있던 것을 실행하고 handshake를 확인한 뒤 열었다
+needs_companion_install        설치가 필요하다 — 승인 없이 설치하지 않는다
+needs_companion_update         호환되지 않는 판이 있다 — 그 판을 열지 않는다
+monitor_unavailable            지금은 어느 표면도 열 수 없다
+```
+
+`stopped`에서는 실행 명령의 성공을 완료로 삼지 않는다. 실행한 뒤 **새 challenge로 다시 확인**하고,
+`ready`가 된 뒤에야 원래 요청을 이어서 수행한다. 확인되지 않으면 `monitor_unavailable`이며 원래
+요청을 성공으로 표시하지 않는다.
+
+재확인은 유한하다. 무한 polling이나 background busy loop를 만들지 않는다.
+
+원래 요청은 **그 요청이 살아 있는 동안 메모리에만** 둔다. Graph·Journey·Memory·Will·Project 어디에도
+적지 않는다. 적어 두면 다음 실행이 사람이 지금 원하지 않는 창을 열 수 있다.
+
+Host surface는 `verified`와 `unverified` 둘로만 적는다. `unverified`는 미지원이라는 뜻이 아니라
+§3이 요구한 네 증거로 아직 확인하지 않았다는 뜻이다. 어느 쪽이든 판정은 같다 — 확인되지 않았으면
+`persistent_host`로 세지 않는다. 확인하지 못한 것을 미지원으로 단정하지도 않는다.
+
+사용자에게 가는 문장에는 경로·PID·socket·port가 없다. 실패한 OS 명령의 오류 문구를 그대로 잇지
+않는다. 그 안에 경로가 들어 있다.
+
 ---
 
 ## 6. AI가 조율하는 설치

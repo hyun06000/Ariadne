@@ -1,0 +1,22 @@
+{
+  "name": "gil-companion-prototype",
+  "version": "0.2.0+codex.20260921051928",
+  "description": "Open or focus the installed native GIL Companion window.",
+  "author": {
+    "name": "Ariadne"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "GIL Companion",
+    "shortDescription": "Keep the current GIL journey visible while you work.",
+    "longDescription": "Brings the installed native GIL Companion window to the front. Read-only: it never reads or writes your project.",
+    "developerName": "Ariadne",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "brandColor": "#566FE8",
+    "defaultPrompt": "Open the GIL Companion window and keep it visible while we continue."
+  },
+  "mcpServers": "./.mcp.json"
+}

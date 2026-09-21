@@ -1238,12 +1238,14 @@ Tauri shell + fixture          (닫힘)
 - [x] persistent Host surface 우선·Native Companion fallback 순서 확정
 - [x] inline 카드와 text는 preview·진단이며 설치 완료가 아님을 확정
 - [x] AI가 설치를 조율하되 사용자 승인과 OS 신뢰 경계를 우회하지 않는 원칙 확정
-- [ ] `persistent_host | native_companion | unavailable` capability 판정 구현
+- [x] `persistent_host | native_companion | unavailable` capability 판정 구현 — 단일 coordinator가
+      표면 선택·Companion 상태·원래 요청 재개를 하나의 typed 결과로 답한다
 - [ ] 실제 `ui://` 앱의 `availableDisplayModes` 선언부터 PiP 요청 결과·실제 mode·수명까지 확인하는 Host adapter 시험
 - [x] macOS Companion `missing | stopped | outdated | ready` handshake — binary descriptor와 실행 중
       process의 fresh challenge를 함께 확인하며 PID·process 이름으로 호환성을 추측하지 않음
 - [ ] 설치·업데이트 완료 재감지와 원래 Monitor 요청 자동 재개
-- [ ] Companion 없이도 GIL text loop가 동작하는 degraded mode 시험
+- [x] Companion 없이도 GIL text loop가 동작하는 degraded mode 시험 — 없음·실행 실패·낡음·handshake
+      무응답 넷 모두에서 Project와 `.gil` 바이트가 그대로다
 - [ ] macOS Developer ID 서명·공증 또는 Store sandbox feasibility 확정
 - [ ] Windows 10/11 feasibility build — watcher·locking·tray·single-instance·autostart
 - [ ] Windows Store/MSIX 또는 signed installer 기본 채널 확정
@@ -1262,6 +1264,12 @@ Host capability probe
 → original request resume
 → macOS·Windows clean-machine 검증
 ```
+
+Plugin의 정본은 저장소 안(`plugins/gil-companion-prototype`)에 있고, 저장소 밖의 경로와 Codex
+cache는 설치 산출물이다. `stopped`에서 실행한 뒤 새 challenge로 재확인하고 원래 요청을 재개하는
+경로는 닫혔다. 설치·업데이트
+**실행** 자체는 아직 없으므로 `missing`·`outdated`는 typed next action까지만 답하며, 그 완료
+재감지 항목은 열린 채 둔다. PiP는 정식 `ui://` probe 전까지 미래 과제로 남는다.
 
 공개 Plugin/MCP 제출은 이 조각의 끝이 아니라 후속 release gate다. 원격 MCP가 기본인 Host에서도
 사용자의 로컬 Project는 remote server가 대신 읽지 않는다. public HTTPS MCP, 인증·도메인 검증과
