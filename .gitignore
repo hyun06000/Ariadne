@@ -2,3 +2,8 @@
 /target
 # tauri-build 가 매 빌드마다 다시 만든다 — 소스가 아니다.
 /companion/gen
+# release 가 1024px 원본에서 지을 때마다 만든다 — 생성물이다.
+/companion/icons/icon.icns
+# release 가 배포용 화면만 골라 담는 자리 — 생성물이다.
+/target/release-ui
+/target/release-macos-build

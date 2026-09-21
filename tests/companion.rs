@@ -1319,3 +1319,187 @@ fn the_graph_file_and_ordinary_files_are_both_worth_a_hint() {
 
     drop(watching);
 }
+
+// ── 배포 설정의 불변식 ──────────────────────────────────────────────────
+//
+// 여기서 재는 것은 코드가 아니라 **배포 계약**이다. 서명 인증서가 없어도 잴 수 있는
+// 것들이 있고, 그것들이 어긋난 채로는 공증까지 가 봐야 소용이 없다.
+
+fn at_root(one: &str) -> String {
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(one))
+        .unwrap_or_else(|_| panic!("{one} 을 읽지 못했다"))
+}
+
+/// `tauri.conf.json` 에서 한 겹 아래 문자열 값을 꺼낸다 — 작은 읽기라 serde 를 들이지 않는다.
+fn conf_value(body: &str, key: &str) -> String {
+    let at = body
+        .find(&format!("\"{key}\""))
+        .unwrap_or_else(|| panic!("{key} 가 설정에 없다"));
+    let rest = &body[at + key.len() + 2..];
+    let open = rest.find('"').expect("값의 시작");
+    let tail = &rest[open + 1..];
+    tail[..tail.find('"').expect("값의 끝")].to_string()
+}
+
+#[test]
+fn the_release_bundle_and_the_handshake_say_the_same_identity_and_version() {
+    let conf = at_root("companion/tauri.conf.json");
+    // handshake 가 말하는 것은 Rust 상수다. 설정이 다른 것을 말하면 설치된 앱과
+    // launcher 의 판정이 어긋난다 — 그러면 `ready` 가 영원히 서지 않는다.
+    let handshake = at_root("companion/src/handshake.rs");
+    let bundle_id = conf_value(&conf, "identifier");
+    assert_eq!(bundle_id, "dev.ariadne.gil.companion");
+    assert!(
+        handshake.contains(&format!("BUNDLE_ID: &str = \"{bundle_id}\"")),
+        "bundle id 가 handshake 와 다르다: {bundle_id}"
+    );
+
+    // app_version 은 handshake 가 `CARGO_PKG_VERSION` 으로 말한다.
+    let cargo = at_root("companion/Cargo.toml");
+    let crate_version = cargo
+        .lines()
+        .find_map(|line| line.strip_prefix("version = \""))
+        .map(|rest| rest.trim_end_matches('"').to_string())
+        .expect("crate version");
+    assert_eq!(
+        conf_value(&conf, "version"),
+        crate_version,
+        "bundle version 과 crate version 이 다르다 — handshake 의 app_version 이 어긋난다"
+    );
+}
+
+#[test]
+fn the_release_bundle_hardens_the_runtime_and_asks_for_no_entitlement() {
+    let conf = at_root("companion/tauri.conf.json");
+    assert!(conf.contains("\"hardenedRuntime\": true"), "hardened runtime 이 꺼져 있다");
+    assert!(conf.contains("\"entitlements\""), "entitlements 파일을 가리키지 않는다");
+
+    let entitlements = at_root("companion/entitlements.plist");
+    // **비어 있어야 한다.** 편의로 넣은 권한은 쓰지 않아도 공격면이다.
+    for asked in [
+        "com.apple.security.cs.allow-unsigned-executable-memory",
+        "com.apple.security.cs.disable-library-validation",
+        "com.apple.security.cs.allow-dyld-environment-variables",
+        "com.apple.security.app-sandbox",
+    ] {
+        assert!(!entitlements.contains(asked), "쓰지 않는 권한을 미리 넣었다: {asked}");
+    }
+    // 디버깅 구멍은 배포판에 없다. 기본값에 기대지 않고 명시적으로 거짓이다.
+    let hole = entitlements
+        .find("com.apple.security.get-task-allow")
+        .expect("get-task-allow 를 명시하지 않았다");
+    assert!(
+        entitlements[hole..].contains("<false/>"),
+        "get-task-allow 가 거짓이 아니다"
+    );
+}
+
+#[test]
+fn no_signing_identity_or_credential_lives_in_a_tracked_file() {
+    // identity 도 key 도 source 에 박지 않는다. 박으면 그 파일이 비밀의 자리가 된다.
+    for (name, body) in [
+        ("tauri.conf.json", at_root("companion/tauri.conf.json")),
+        ("release-macos.sh", at_root("companion/release-macos.sh")),
+        ("make-app.sh", at_root("companion/make-app.sh")),
+        ("entitlements.plist", at_root("companion/entitlements.plist")),
+    ] {
+        assert!(
+            !body.contains("\"signingIdentity\""),
+            "{name} 이 signing identity 를 설정에 박았다"
+        );
+        assert!(
+            !body.contains("-----BEGIN") && !body.to_lowercase().contains("p8\ncontent"),
+            "{name} 에 private key 로 보이는 것이 있다"
+        );
+        // 진짜 identity 는 "Developer ID Application: 이름 (TEAMID)" 이고 TEAMID 는 대문자
+        // 숫자 열 자다. **형태를 알려 주는 주석은 비밀이 아니다** — 실제 team id 가 적힌
+        // 것만 잡는다. 그렇지 않으면 문서가 시험에 걸려 사람이 문서를 지우게 된다.
+        let real_team_id = body.as_bytes().windows(12).any(|w| {
+            w[0] == b'(' && w[11] == b')'
+                && w[1..11].iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                && w[1..11].iter().any(|c| c.is_ascii_digit())
+        });
+        assert!(!real_team_id, "{name} 에 실제 team id 로 보이는 것이 박혀 있다");
+    }
+}
+
+#[test]
+fn the_development_bundle_never_claims_to_be_a_release() {
+    let dev = at_root("companion/make-app.sh");
+    assert!(
+        dev.contains("GILBuildChannel") && dev.contains("<string>development</string>"),
+        "개발 bundle 이 자기가 무엇인지 적지 않는다"
+    );
+    assert!(dev.contains("배포물이 아니다"), "개발 경로가 그 사실을 말하지 않는다");
+    // 개발 경로는 서명·공증을 흉내 내지 않는다.
+    for pretend in ["notarytool", "stapler", "Developer ID"] {
+        assert!(!dev.contains(pretend), "개발 경로가 배포 단계를 흉내 낸다: {pretend}");
+    }
+}
+
+#[test]
+fn the_release_entry_point_never_falls_back_to_a_development_build() {
+    let release = at_root("companion/release-macos.sh");
+    // 공식 bundler 가 없으면 **멈춘다.** 손으로 조립한 bundle 로 물러서지 않는다.
+    assert!(release.contains("cargo-tauri"), "공식 bundler 를 쓰지 않는다");
+    assert!(
+        release.contains("손으로 .app 을 조립하지 않는다"),
+        "bundler 가 없을 때 무엇을 하는지 말하지 않는다"
+    );
+    assert!(!release.contains("make-app.sh\"") , "release 가 개발 script 를 부른다");
+
+    // 상태가 자리를 정한다 — 배포 가능한 것만 그 이름의 자리에 산다.
+    for state in ["release_unsigned", "release_signed_unnotarized", "release_signed_notarized"] {
+        assert!(release.contains(state), "{state} 상태를 가르지 않는다");
+    }
+    // 공증이 실패하면 배포 자리에 두지 않는다.
+    assert!(
+        release.contains("실패한 것을 배포 자리에 두지 않는다"),
+        "실패한 공증물의 처리를 말하지 않는다"
+    );
+    // credential 은 환경에서만 온다.
+    for env in ["APPLE_SIGNING_IDENTITY", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH"] {
+        assert!(release.contains(env), "{env} 경계를 다루지 않는다");
+    }
+    // API key 를 Apple ID 비밀번호보다 먼저 본다.
+    let key_at = release.find("APPLE_API_KEY_PATH").expect("api key");
+    let id_at = release.find("APPLE_ID:-").expect("apple id");
+    assert!(key_at < id_at, "Apple ID 비밀번호를 API key 보다 먼저 쓴다");
+}
+
+#[test]
+fn the_release_bundle_names_its_executable_what_the_launcher_looks_for() {
+    // launcher 는 `Contents/MacOS/GIL Companion` 을 연다. Tauri 는 기본으로 crate 이름
+    // (`gil-companion`)을 쓰므로, 이것을 맞춰 두지 않으면 **제대로 서명된 배포판이**
+    // handshake 에 답하지 못하고 `outdated` 로 판정된다. 실측으로 잡은 어긋남이다.
+    let conf = at_root("companion/tauri.conf.json");
+    assert_eq!(conf_value(&conf, "mainBinaryName"), "GIL Companion");
+    assert_eq!(conf_value(&conf, "productName"), "GIL Companion");
+
+    let launcher = at_root("plugins/gil-companion-prototype/server.mjs");
+    assert!(
+        launcher.contains(r#"const APP_NAME = "GIL Companion""#),
+        "launcher 가 찾는 이름이 바뀌었다 — bundle 설정과 함께 고쳐야 한다"
+    );
+}
+
+#[test]
+fn the_release_ships_the_product_screen_without_the_test_harness() {
+    let release = at_root("companion/release-macos.sh");
+    // 시험 장치와 fixture Host 를 사용자에게 주지 않는다 — 그것은 제품 안에 가짜 사실을
+    // 만들 수 있는 문이다. 배포판은 고른 조각만 싣는다.
+    for shipped in ["index.html", "companion.js", "companion.css", "layout.js"] {
+        assert!(release.contains(shipped), "배포할 조각을 고르지 않는다: {shipped}");
+    }
+    for kept_out in ["selftest", "host.js", "fixtures"] {
+        assert!(
+            !release.contains(&format!("cp \"$root/ui/{kept_out}")),
+            "시험 장치를 배포판에 싣는다: {kept_out}"
+        );
+    }
+    // 개발자의 home 이 binary 에 박히지 않게 한다.
+    assert!(
+        release.contains("--remap-path-prefix"),
+        "의존성 source 경로를 그대로 싣는다 — 거기에 개발자 home 이 있다"
+    );
+}

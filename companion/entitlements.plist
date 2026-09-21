@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  **배포판이 요구하는 권한 — 없다.**
+
+  Companion 이 하는 일은 읽기 전용 창 하나다. 폴더 고르개·파일 watcher·tray·로그인 시 시작·
+  단일 실행·사용자 전용 Unix socket handshake 는 hardened runtime 아래에서 **추가 권한 없이**
+  동작한다. Developer ID 직접 배포에는 App Sandbox 가 필수가 아니므로 켜지 않는다 — Store 심사는
+  별개의 판단이고, 그때 다시 정한다.
+
+  편의를 위해 권한을 미리 넣지 않는다. 넣어 둔 권한은 쓰지 않아도 공격면이고, 심사에서 근거를
+  대야 하는 빚이다. 필요해지면 그때 **그 기능과 함께** 한 줄을 추가한다.
+
+  `get-task-allow` 만 명시적으로 거짓이다. 이것이 참이면 아무 프로세스나 이 앱에 붙어 메모리를
+  읽을 수 있고, 공증도 거절된다. 기본값에 기대지 않고 적어 두어 시험이 이 사실을 잴 수 있게 한다.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.get-task-allow</key>
+  <false/>
+</dict>
+</plist>

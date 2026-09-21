@@ -1246,7 +1246,10 @@ Tauri shell + fixture          (닫힘)
 - [ ] 설치·업데이트 완료 재감지와 원래 Monitor 요청 자동 재개
 - [x] Companion 없이도 GIL text loop가 동작하는 degraded mode 시험 — 없음·실행 실패·낡음·handshake
       무응답 넷 모두에서 Project와 `.gil` 바이트가 그대로다
-- [ ] macOS Developer ID 서명·공증 또는 Store sandbox feasibility 확정
+- [~] macOS Developer ID 서명·공증 feasibility — Tauri 공식 bundler 로 DMG 까지 재현 가능하고
+      hardened runtime 에서 창·tray·socket handshake 가 동작함을 실측. **인증서와 공증
+      credential 이 없어 서명·공증·staple·`spctl` 은 수행하지 못했다.** 배포 계약과 비밀
+      경계는 `companion/RELEASE-macos.md`
 - [ ] Windows 10/11 feasibility build — watcher·locking·tray·single-instance·autostart
 - [ ] Windows Store/MSIX 또는 signed installer 기본 채널 확정
 - [ ] Plugin·Core·Companion·wire compatibility와 update rollback 계약
@@ -1266,7 +1269,9 @@ Host capability probe
 ```
 
 Plugin의 정본은 저장소 안(`plugins/gil-companion-prototype`)에 있고, 저장소 밖의 경로와 Codex
-cache는 설치 산출물이다. `stopped`에서 실행한 뒤 새 challenge로 재확인하고 원래 요청을 재개하는
+cache는 설치 산출물이다. macOS 배포물은 `companion/release-macos.sh` 하나가 짓고, 상태가 자리를
+정한다 — 지금 만들 수 있는 것은 `release_unsigned`까지이며 배포 가능한 것이 아니다. 지원 대상은
+실측한 Apple Silicon 하나뿐이고 universal은 아직 주장하지 않는다. `stopped`에서 실행한 뒤 새 challenge로 재확인하고 원래 요청을 재개하는
 경로는 닫혔다. 설치·업데이트
 **실행** 자체는 아직 없으므로 `missing`·`outdated`는 typed next action까지만 답하며, 그 완료
 재감지 항목은 열린 채 둔다. PiP는 정식 `ui://` probe 전까지 미래 과제로 남는다.

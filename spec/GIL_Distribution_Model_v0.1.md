@@ -178,6 +178,35 @@ AI는 설치를 수행하는 주체가 아니라 설치 과정을 끝까지 조�
 “알아서 설치한다”는 OS 승인과 사용자 의사를 우회한다는 뜻이 아니다. 사용자가 download folder,
 terminal, JSON 설정과 실행 파일 위치를 다루지 않아도 된다는 뜻이다.
 
+### 6.1 macOS 배포물의 상태
+
+배포물은 **이름으로** 상태를 말한다. 서명되지 않은 것을 배포 자리에 두지 않는다.
+
+```text
+development                 개발용 bundle — 격리 표식을 손으로 뗀다. 배포 불가
+release_unsigned            packaging 확인용. 배포 불가
+release_signed_unnotarized  공증 전. 배포 불가
+release_signed_notarized    사용자에게 줄 수 있는 것
+```
+
+최초 설치는 Developer ID Application 으로 서명하고 공증한 DMG 하나다. 업데이트는 장차 별도
+서명 artifact 를 쓰며, Mac App Store 와 PKG 는 이 판의 범위가 아니다.
+
+hardened runtime 을 켜고 **권한은 요구하지 않는다.** 편의로 넣은 권한은 쓰지 않아도 공격면이고
+심사에서 근거를 대야 하는 빚이다. `get-task-allow` 만 명시적으로 거짓이다. App Sandbox 는
+Developer ID 직접 배포에 필수가 아니므로 켜지 않으며, Store 심사는 별개로 판단한다.
+
+서명 identity 와 공증 credential 은 **환경에서만** 온다. 설정 파일·저장소·로그·산출물 어디에도
+값이 남지 않는다. 공증은 계정 비밀번호보다 App Store Connect API key 를 먼저 쓴다 — 권한이 좁고
+회수가 사람 계정과 무관하기 때문이다.
+
+배포물에는 제품 화면만 싣는다. 시험 장치와 fixture Host 는 제품 안에 가짜 사실을 만들 수 있는
+문이므로 싣지 않는다. 의존성 source 경로는 remap 해서 만든 사람의 home 이 binary 에 남지 않게
+한다.
+
+지원한다고 적는 architecture 는 **실제로 지어 확인한 것**뿐이다. 확인하지 않은 판을 목록에
+올리지 않는다.
+
 ---
 
 ## 7. 비개발자용 설치 UX

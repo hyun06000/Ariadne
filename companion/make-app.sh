@@ -1,11 +1,23 @@
 #!/bin/sh
-# **`GIL Companion.app` 을 짓고 `~/Applications` 에 놓는다.**
+# **개발용 `GIL Companion.app` 을 짓고 `~/Applications` 에 놓는다.**
+#
+# ## 이것은 배포물이 아니다
+#
+# 여기서 나온 bundle 은 **사용자에게 줄 수 없다.** 서명이 ad-hoc 이고 공증이 없어
+# Gatekeeper 가 거절하며, 이 script 는 그것을 우회하려고 격리 표식을 손으로 뗀다.
+# 그 우회가 바로 이 산출물이 배포물이 아니라는 증거다.
+#
+#   development               여기                  우리가 쓰는 dogfood
+#   release_unsigned          release-macos.sh      packaging 확인용
+#   release_signed_notarized  release-macos.sh      사용자에게 줄 수 있는 것
+#
+# 배포물은 `companion/release-macos.sh` 가 Tauri 공식 bundler 로 짓는다. 그쪽은 손으로
+# `.app` 을 조립하지 않고, 산출물도 `target/release-macos/` 에 상태별로 따로 놓는다.
+# 두 경로를 섞지 않는다.
 #
 # `cargo-tauri` 를 요구하지 않는다. macOS 의 `.app` 은 정해진 모양의 폴더일 뿐이고,
 # 프런트엔드는 이미 실행 파일 안에 들어 있다(`generate_context!`). 아이콘 변환도 OS 에
 # 딸려 오는 `sips`·`iconutil` 로 한다 — 따로 설치할 것이 없다.
-#
-# 서명·공증·공개 배포는 이 판의 몫이 아니다. 우리가 쓰는 dogfood 다.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -55,6 +67,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>10.15</string>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- 이 bundle 이 스스로 무엇인지 적는다. 배포물은 이 값이 release 다. -->
+  <key>GILBuildChannel</key><string>development</string>
 </dict>
 </plist>
 PLIST
@@ -64,5 +78,5 @@ echo "4/4  격리 표식을 뗀다"
 xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
 
 echo
-echo "놓았다: $app"
+echo "놓았다: $app  (개발용 — 배포물이 아니다)"
 echo "Finder 에서 두 번 누르거나:  open '$app'"
