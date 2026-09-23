@@ -10,7 +10,7 @@ use std::process::ExitCode;
 
 use gil::{
     ActionContract, CloseContract, CycleKind, NodeKind, ProjectSession, Refusal, Report, RuleSet,
-    SessionError, StoreError, Usage, WorldState, context, next_moves, render_monitor_html,
+    SessionError, StoreError, Usage, context, render_monitor_html,
     render_monitor_text, story, with_help,
 };
 
@@ -72,6 +72,7 @@ fn run() -> Result<String, String> {
             Ok(context(session.project()))
         }
         "monitor" => monitor(args.get(1)),
+        "mcp" => mcp(args.get(1).map(String::as_str)),
         "cycle" => cycle(args.get(1).map(String::as_str), args.get(2)),
         other => Err(format!(
             "{other:?} 는 gil 이 아는 명령이 아니다.\n\n{}",
@@ -909,6 +910,28 @@ fn watch_here() -> Result<String, String> {
     Ok(String::new())
 }
 
+/// `gil mcp --serve` — **Agent 가 부를 MCP stdio 표면.**
+///
+/// 여기서 돌아오면 프로세스가 끝난다. stdout 은 이미 JSON-RPC 가 다 썼으므로 **빈 글자**를
+/// 준다 — 한 글자라도 더 적으면 마지막 frame 뒤에 쓰레기가 붙는다.
+fn mcp(sub: Option<&str>) -> Result<String, String> {
+    match sub {
+        Some("--serve") => gil::mcp::serve_stdio().map(|()| String::new()),
+        Some(other) => Err(refusal(
+            &format!("{other:?} 는 `gil mcp` 가 아는 것이 아니다."),
+            "`gil mcp` 는 `--serve` 하나만 안다.",
+            "이 문은 Agent 가 stdio 로 부르는 자리다. 사람이 읽을 것은 여기서 나오지 않는다.",
+            "gil mcp --serve",
+        )),
+        None => Err(refusal(
+            "`gil mcp` 뒤에 무엇을 할지 적지 않았다.",
+            "이 명령은 스스로 서서 stdin 을 기다리는 자리라, 실수로 서면 터미널이 멈춘 것처럼 보인다.",
+            "그래서 명시적으로 적게 한다.",
+            "gil mcp --serve",
+        )),
+    }
+}
+
 fn status() -> Result<String, String> {
     // 이름 있는 변수로 받는다 — 임시 값으로 두면 잠금이 언제 떨어지는지가 식(式)의 모양에
     // 달리게 된다. 읽기만 하는 명령도 같은 exclusive 잠금을 **짧게** 쓴다.
@@ -1320,143 +1343,12 @@ fn here_ref(cycle: &gil::Cycle) -> Option<gil::StepRef> {
 ///
 /// 기록이 **서 있는 자리에 없으면** 어느 파일인지를 먼저 말한다. 있으면 말하지 않는다 —
 /// 예사로운 일에 줄을 쓰면 정작 알려야 할 때 그 줄이 안 읽힌다.
-fn where_now(session: &Session) -> String {
-    let cycles = session.project().cycles();
-    let cycle = cycles.current();
-    let walk = cycle.steps();
-    let mut out = String::new();
-
-    if found_above(session.state_path()) {
-        out.push_str(&format!("기록: {}\n", gil::said_path(session.state_path())));
-    }
-
-    // ① 어느 Cycle 인가 — 이름·종류·상태, 그리고 어디에서 이어받았는가.
-    let state = match cycle.report().and_then(|report| report.get("verdict")) {
-        Some(verdict) => format!("닫힘 · {verdict}"),
-        None => "열림".to_string(),
-    };
-    out.push_str(&format!("{} {} ({state})", cycle.id(), cycle.kind()));
-    match cycle.parent() {
-        Some(parent) => out.push_str(&format!(" · 부모 {parent}\n")),
-        None => out.push_str(" · 뿌리\n"),
-    }
-    // **되돌아온 자리인가.** 지금 서 있는 것은 닫힌 조상이고, 다음 수가 평소와 다르다.
-    if let Some(from) = cycles.pending_revisit() {
-        out.push_str(&format!(
-            "되돌아옴: {} 에서 갈라져 여기 섰다 — 아직 새 Cycle 을 열지 않았다\n",
-            from.to_ref()
-        ));
-    }
-    // 갈래로 난 Cycle 이면 그 출처를 말한다 — 부모만 보면 평범히 이어 난 것과 같아 보인다.
-    if let Some(from) = cycle.revisit_from() {
-        out.push_str(&format!("갈래 출처: {} (계보의 변이 아니다)\n", from.to_ref()));
-    }
-
-    // ② 무엇을 이어받았는가. **원본은 부모에게 있다** — 여기서는 있다는 사실만 말한다.
-    if let Some(parent) = cycle.parent() {
-        match cycles.inherited_report(cycle.id()).is_some() {
-            true => out.push_str(&format!(
-                "이어받음: {parent} 의 Cycle Report — 그 내용은 `gil story` 에 있다\n"
-            )),
-            false => out.push_str(&format!("이어받음: {parent} (Cycle Report 가 없다)\n")),
-        }
-    }
-
-    // ③ 그 Cycle 안에서 어느 Step 에 서 있는가.
-    let here = walk.current().and_then(|id| walk.node(id));
-    match here {
-        Some(node) => out.push_str(&format!("자리: {} {} ({})\n", node.id, node.kind, node.status)),
-        None => out.push_str("자리: 아직 아무것도 열지 않았다\n"),
-    }
-    out.push_str(&format!(
-        "걸어온 것: Cycle {}개 · 이 Cycle 의 Step {}개 (닫힘 {})\n",
-        cycles.nodes().len(),
-        walk.nodes().len(),
-        walk.history().count()
-    ));
-
-    // ④ 지금 누가 행동하며 무엇을 하려는가 — **짧게.** 전체 Journey 는 펼치지 않는다.
-    let existence = session.project().current_existence();
-    out.push_str(&format!(
-        "존재: {} · {}\n",
-        existence.id(),
-        existence.current_journey()
-    ));
-    match session.project().active_will() {
-        Some(will) => out.push_str(&format!(
-            "하려는 것: {} · {} — {}\n",
-            will.id(),
-            will.target(),
-            first_line(will.next_action())
-        )),
-        None => out.push_str("하려는 것: 걸린 행동이 없다\n"),
-    }
-
-    // ⑤ 지금 세계는 기준과 같은가 — **짧은 nudge 하나.**
-    out.push_str(&world_nudge(session));
-
-    // ⑥ 다음에 무엇을 할 수 있는가. **안내는 실행과 같은 자리에서 나온다.**
-    out.push_str(&next_moves(cycles));
-    out
-}
-
-/// 지금 Artifact 세계 — 기준이 무엇이고, 같은가 다른가, 다르면 지금 무엇을 할 수 있는가.
+/// 지금 자리를 사람의 말로 — **문장을 짓는 자리는 lib 하나**(`gil::where_now`).
 ///
-/// **전체 목록도 내부 주소도 내지 않는다.** 공개 표면은 `snapshot:A*` 하나이고, 여기서
-/// 필요한 것은 네 가지 물음의 답뿐이다 — 기준·상태·확정 가능 여부·지금 밟을 수 있는 수.
-fn world_nudge(session: &Session) -> String {
-    let state = match session.world_state() {
-        Ok(state) => state,
-        // 세계를 읽는 것 자체가 안 되면(창고 손상 등) status 를 통째로 실패시키지 않는다 —
-        // 서 있는 자리는 이미 위에서 말했고, 그것은 여전히 참이다.
-        Err(err) => {
-            return format!("\n현재 세계\n  읽지 못했다\n\n이유\n{}\n\n현재 상태는 변경하지 않았다.\n", indent(&err.to_string()));
-        }
-    };
-
-    match state {
-        WorldState::Clean { world } => format!("\n현재 세계\n  {world} · clean\n\n"),
-        WorldState::Unknown { world, said } => format!(
-            "\n현재 세계\n  기준: {world}\n  상태: 확인하지 못했다\n\n이유\n{}\n\n\
-             현재 상태는 변경하지 않았다.\n\n",
-            indent(&said)
-        ),
-        WorldState::Dirty { world, .. } => {
-            let mut out = format!("\n현재 세계\n  기준: {world}\n  상태: dirty\n\n");
-            out.push_str(&match open_verify(session) {
-                // 세계를 확정할 권한은 Verify 에만 있다(Artifact Model §5).
-                true => String::from(
-                    "이 Verify 를 닫으면 바뀐 세계를 관측해 Snapshot 으로 확정한다.\n\n",
-                ),
-                // **밟을 수 있는 길만 말한다.** Interview 안에는 verify 가 없고, 이 Cycle 을
-                // 닫는 것도 같은 gate 에 막힌다 — 그러니 먼저 되돌리는 수뿐이다.
-                false => String::from(
-                    "이 자리에서는 Artifact 변경을 확정할 수 없다.\n\
-                     먼저 `gil restore` 로 기준 세계를 복원한다.\n\
-                     현재 Step 과 Active Will 은 그대로 열린 채 남는다.\n\n",
-                ),
-            });
-            out
-        }
-    }
-}
-
-/// 지금 열려 있는 자리가 Verify 인가.
-fn open_verify(session: &Session) -> bool {
-    let cycle = session.project().cycles().current();
-    cycle
-        .step_now_open()
-        .and_then(|at| cycle.steps().node(at))
-        .is_some_and(|node| node.kind == NodeKind::Verify)
-}
-
-/// 여러 줄이면 첫 줄만 — `gil status` 는 세 줄로 답하는 자리다.
-fn first_line(text: &str) -> String {
-    match text.lines().next() {
-        Some(first) if first.len() < text.len() => format!("{first} …"),
-        Some(first) => first.to_string(),
-        None => String::new(),
-    }
+/// CLI 는 서 있는 자리에서 조상을 거슬러 Project 를 찾으므로, 기록이 여기가 아닌 경우를
+/// 여기서 판정해 넘긴다. MCP 는 project_root 가 곧 그 자리라 이 물음이 없다.
+fn where_now(session: &Session) -> String {
+    gil::where_now(session, found_above(session.state_path()))
 }
 
 // ── stdin 에서 Report 를 받는다 ────────────────────────────────────────────

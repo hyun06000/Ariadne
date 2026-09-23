@@ -1359,16 +1359,42 @@ rmcp stdio server 최소 spike
 → macOS 배포를 닫은 뒤 Windows adapter
 ```
 
-- [ ] `rmcp` stdio server 최소 spike — tool 하나를 붙여 Host 가 실제로 잡는지 확인한다
-- [ ] 기존 Core descriptor 와 도구 하나 연결 — identity·protocol·action surface 판정을 그대로 쓰고
-      새 진실 공급원을 만들지 않는다
-- [ ] 성공하면 JS bridge 를 Rust MCP 단일 실행 파일로 이전 — tool 의 이름·입력·출력·거절·다음
-      행동이 바뀌지 않는다는 것이 이전의 합격 조건이다
-- [ ] `node` 전제 제거 확인 — Node 없는 기계에서 tool 이 붙는다
+- [x] `rmcp` stdio server 최소 spike — `gil mcp --serve` 가 rmcp 3.4 stdio transport 위에 서고,
+      initialize·tools/list·tools/call 이 실제 frame 으로 오간다. **transport 만 닫혔다**
+- [x] 기존 domain·renderer 와 도구 하나 연결 — `gil_status` 가 CLI 와 **같은** `where_now` 를
+      쓴다. 같은 Project 에서 두 진입점의 `said` 가 byte 로 같다. MCP 전용 문구를 만들면
+      시험이 막는다
+- [x] 진입 계약 분리 — CLI 는 cwd 조상 탐색, MCP 는 `<project_root>/.gil/state.yaml` 정확 열기.
+      자식 자리를 받고 부모 Project 로 물러서지 않으며, cwd 를 읽지 않고 `chdir` 하지 않는다
+- [ ] **12개 도구 전부를 `gil mcp --serve` 가 제공** — 지금은 하나다. Core 10 개는 domain 과
+      renderer 를 직접 쓰고, Companion 2 개(`gil_companion_status`·`show_gil_companion`)는
+      capability 판정·handshake·launch·focus·오류 분류를 Rust 로 옮기거나 기존 Rust Companion
+      경계에 잇는다
+- [ ] `node` 전제 제거 확인 — Node 없는 기계에서 **12개 전부**가 붙는다. Core 10 개만 옮기고
+      Companion 2 개를 JS 에 남기면 두 번째 MCP server 나 JS proxy 가 남아 이 항목은 닫히지
+      않는다. Tauri Companion 앱은 별도 프로세스로 남아도 되지만, **Agent 가 연결하는 MCP
+      server 와 Node runtime 은 하나도 남기지 않는다**
+- [ ] Host 별 manifest 가 같은 Rust 실행 파일 하나만 시작하도록 교체 — 이전이 끝난 뒤에 한다
 - [ ] self-contained remote marketplace artifact — 설치본만으로 서고 clone·cargo 를 요구하지 않는다
 - [ ] release pipeline — 짓기·서명·공증·게시가 한 자리에서 재현되고 비밀은 환경에서만 온다
 - [ ] macOS 배포를 닫는다 (Developer ID 서명·공증·staple·`spctl`)
 - [ ] 그 뒤 Windows adapter — feasibility build 와 기본 채널 확정
+
+#### 지금까지 닫힌 것 — transport spike 하나
+
+이 조각에서 확인된 것은 **transport 가 선다**는 사실이다. 그 이상을 닫힌 것으로 세지 않는다.
+
+```text
+닫힘    rmcp stdio transport · domain/renderer 공유 · 정확 경로 진입 계약
+열림    나머지 11개 도구 · Node 제거 · manifest 교체 · remote artifact · release pipeline
+```
+
+`ACTION_SURFACE` 는 **1 을 유지한다.** 그 수는 Agent 가 부를 수 있는 domain action 계약의
+판이지 transport 나 CLI subcommand 목록의 판이 아니다. 이 조각은 이미 있는 `gil_status` 에
+문 하나를 더 냈을 뿐 새 action 을 만들지 않았다. 올렸다면 설치된 Plugin 이 즉시
+`outdated_agent` 로 판정됐을 것이다.
+
+JS Plugin·두 Host manifest·설치본은 이 조각에서 **고치지 않았다.**
 
 하지 않는 것:
 

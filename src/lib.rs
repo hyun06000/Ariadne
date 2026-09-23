@@ -127,9 +127,12 @@ mod project;
 mod refs;
 mod report;
 mod restore;
+pub mod mcp;
+mod root;
 mod rules;
 mod session;
 mod store;
+mod status;
 mod story;
 mod validate;
 mod walk;
@@ -183,6 +186,8 @@ pub use restore::{RestoreFailure, Restored, Stage};
 pub use session::{
     CycleRevisited, Gate, ProjectSession, ReadOnlySession, SessionError, WorldState,
 };
+pub use root::{RootError, open_project_root};
+pub use status::where_now;
 pub use story::story;
 pub use store::{FORMAT, LEGACY_WALK_PATH, STATE_PATH, StoreError, load, said_path, save};
 pub use validate::{GrammarError, Subject};
