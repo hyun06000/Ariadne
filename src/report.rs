@@ -46,6 +46,7 @@ pub(crate) mod field {
     // Step 하나를 한 줄로 대표하는 칸들. 어느 Step kind 가 어느 칸을 쓰는지는
     // [`crate::monitor::summary_field`] 한 자리가 정한다.
     pub(crate) const QUESTION: &str = "question";
+    pub(crate) const RESPONSE: &str = "response";
     pub(crate) const INTERPRETATION: &str = "interpretation";
     pub(crate) const STATEMENT: &str = "statement";
     pub(crate) const HYPOTHESIS: &str = "hypothesis";

@@ -58,7 +58,17 @@ pub(super) const NO_STEP_YET: &str = "아직 아무것도 열지 않았다";
 pub(super) const NO_MOVE: &str = "지금 밟을 수 있는 GIL 명령이 없다.";
 
 /// 아직 실험이 정의되지 않았다 — **없는 질문을 지어내지 않는다.**
+///
+/// **Experiment 에만 쓴다.** Interview 에 이 말을 붙이면 이미 닫힌 Question 이 있는데도
+/// 화면이 「질문이 없다」고 말하게 된다 — 실제로 그렇게 말한 적이 있다.
 pub(super) const NO_DEFINITION: &str = "아직 이 Cycle 의 질문이 정의되지 않았다";
+
+/// Interview 가 아직 Question 을 열지 않았다.
+pub(super) const NOT_ASKED: &str = "아직 이 Cycle 의 질문을 열지 않았다";
+/// Question 이 열려 있고 질문 글은 닫을 때 적힌다.
+pub(super) const ASKING: &str = "질문을 열어 두었다 — 묻고 답을 받는 중이다";
+/// 사람이 준 답. 질문 아래 붙는다.
+pub(super) const RESPONSE: &str = "응답";
 
 /// 지금 걸린 행동이 없다.
 pub(super) const NO_WILL: &str = "지금 걸린 작업 행동이 없다";

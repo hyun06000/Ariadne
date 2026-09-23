@@ -29,6 +29,13 @@ fn main() -> ExitCode {
 
 fn run() -> Result<String, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // **Agent Core handshake 가 먼저다.** Plugin 이 이 binary 를 믿어도 되는지 묻는 문이며,
+    // Project 를 열지도 잠그지도 않는다. 평범한 명령은 이 문을 지나지 않는다.
+    if let Some(said) = gil::agent::answer_cli(&args) {
+        return said;
+    }
+
     let command = args.first().map(String::as_str).unwrap_or("--help");
 
     match command {
@@ -168,7 +175,7 @@ fn open_session() -> Result<Session, String> {
         Some(Found::State(path)) => path,
         Some(Found::Legacy(path)) => {
             return Err(StoreError::LegacyFormat {
-                path: path.display().to_string(),
+                path: gil::said_path(&path),
             }
             .to_string());
         }
@@ -183,7 +190,7 @@ fn open_session() -> Result<Session, String> {
     ProjectSession::open(rules()?, &path).map_err(|err| match err {
         // 방금 있는 것을 보고 왔다. 그새 사라졌다면 그건 다른 이야기다.
         SessionError::Store(StoreError::NotFound { .. }) => {
-            format!("저장된 것이 사라졌다: {}", path.display())
+            format!("저장된 것이 사라졌다: {}", gil::said_path(&path))
         }
         other => say(other),
     })
@@ -212,7 +219,7 @@ fn start() -> Result<String, String> {
         Some(Found::State(existing)) => {
             return Err(refusal(
                 "여기서 새로 시작할 수 없다.",
-                &format!("이미 걷고 있다 ({}).", existing.display()),
+                &format!("이미 걷고 있다 ({}).", gil::said_path(&existing)),
                 "여기서 따로 시작하면 한 프로젝트에 기록이 둘이 된다.\n\
                  정말 다시 시작하려면 그 파일을 직접 치워라 — gil 은 적힌 사고를 지우지 않는다.",
                 "gil status",
@@ -220,7 +227,7 @@ fn start() -> Result<String, String> {
         }
         Some(Found::Legacy(path)) => {
             return Err(StoreError::LegacyFormat {
-                path: path.display().to_string(),
+                path: gil::said_path(&path),
             }
             .to_string());
         }
@@ -252,7 +259,7 @@ fn start() -> Result<String, String> {
          기록: {}\n",
         cycle.id().to_ref(),
         cycle.kind(),
-        session.state_path().display()
+        gil::said_path(session.state_path())
     ))
 }
 
@@ -866,7 +873,7 @@ fn watch_here() -> Result<String, String> {
         Some(Found::State(path)) => path,
         Some(Found::Legacy(path)) => {
             return Err(StoreError::LegacyFormat {
-                path: path.display().to_string(),
+                path: gil::said_path(&path),
             }
             .to_string());
         }
@@ -1320,7 +1327,7 @@ fn where_now(session: &Session) -> String {
     let mut out = String::new();
 
     if found_above(session.state_path()) {
-        out.push_str(&format!("기록: {}\n", session.state_path().display()));
+        out.push_str(&format!("기록: {}\n", gil::said_path(session.state_path())));
     }
 
     // ① 어느 Cycle 인가 — 이름·종류·상태, 그리고 어디에서 이어받았는가.

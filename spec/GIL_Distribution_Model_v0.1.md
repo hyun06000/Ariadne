@@ -8,8 +8,8 @@
 
 ## 1. 목적
 
-GIL의 주 사용자는 터미널과 패키지 관리자를 다루는 개발자가 아니다. 사용자는 Codex·Claude
-Desktop 같은 Agent Host에서 Agent와 협업하고, GIL의 복잡한 버전 Graph는 인간용 Monitor로
+GIL의 주 사용자는 터미널과 패키지 관리자를 다루는 개발자가 아니다. 사용자는 Codex·Claude Code
+같은 Agent Host에서 Agent와 협업하고, GIL의 복잡한 버전 Graph는 인간용 Monitor로
 이해한다.
 
 따라서 다음 상태는 완전한 설치가 아니다.
@@ -155,6 +155,90 @@ Host surface는 `verified`와 `unverified` 둘로만 적는다. `unverified`는 
 사용자에게 가는 문장에는 경로·PID·socket·port가 없다. 실패한 OS 명령의 오류 문구를 그대로 잇지
 않는다. 그 안에 경로가 들어 있다.
 
+### 5.3 Agent Core 의 자리
+
+Plugin 과 Companion 은 **다른 것을 소유한다.**
+
+```text
+Plugin      Agent 용 GIL Core · MCP bridge · Manual/Skill · Companion coordinator
+Companion   읽기 전용 Monitor · DAG·Report UI · Project watcher · 지속형 창
+```
+
+Companion 에 Agent 의 write 명령을 넣지 않는다. Plugin 에 사람이 볼 지속 창을 넣지 않는다.
+
+Agent Core 의 정본은 **Rust GIL** 이다. 옛 Go 도구는 packaging 대상이 아니다.
+
+Plugin 은 platform 별 Core 실행 파일을 자기 안에 싣는다. 설치본만으로 서야 하며 저장소·Cargo·
+전역 `gil` 에 기대지 않는다. 실린 파일이 거기 있다는 사실은 증거가 아니다 — **실행해 보고**
+identity·protocol·action surface·platform 이 맞을 때만 쓴다.
+
+```text
+Core 없음 · 실행 불가 · 다른 기계        → unavailable
+identity 불일치                          → unavailable
+protocol·action surface 범위 불일치      → outdated_agent
+fresh challenge 에 답하고 범위가 맞음    → ready
+```
+
+저장 format 범위는 descriptor 가 싣고 나르되 Plugin 이 문지기로 쓰지 않는다. 그것은 Core 가
+Project 를 열 때 스스로 거절할 일이고, Plugin 이 따라 적으면 판정이 두 자리에 살게 된다.
+
+`agent_surface` 는 이 probe 에서 **유도된다.** 호출자가 넘긴 값이나 상수로 정하지 않으며,
+Monitor 판정과 서로 독립이다 — 한쪽이 없어도 다른 쪽은 그대로 돈다.
+
+#### 경계의 모양
+
+```text
+typed MCP 인자
+→ 고정된 실행 파일과 argv          (shell 없음 · 문자열 조립 없음)
+→ 필요한 본문을 stdin 으로
+→ Rust GIL 실행
+→ 종료 코드로 성패 판정
+→ stdout·stderr 산문을 **해석·요약·재작성 없이** 그대로 전달
+```
+
+tool 하나가 허용된 subcommand 하나에만 대응한다. 자유 형식 command 를 받는 문은 만들지 않으며,
+사용자 입력이 실행 파일·subcommand·flag 이름이 되지 않는다. Core 산문 안의 문장을 substring 으로
+검사해 domain 상태로 해석하지 않는다 — 성패는 종료 코드 하나다.
+
+Core action 의 stdout 은 **아직 공개 JSON 계약이 아니다.** typed 인 것은 MCP 입력과 handshake 다.
+
+Project 자리는 Host 가 검증한 workspace 나 사람이 명시한 scope 에서만 온다. cwd·최근 폴더·
+Companion 이 보여 주는 선택을 Agent action 의 대상으로 짐작하지 않는다 — 사람이 보는 것과
+Agent 가 고치는 것이 달라도 되어야 한다.
+
+### 5.4 하나의 MCP, 두 Host Plugin
+
+GIL Agent surface의 실행 계약은 **하나의 로컬 MCP server**다. Rust Core, JS bridge, 열두 tool의
+이름·입력·출력, Bootstrap Capsule, Manual Topic과 Companion availability protocol을 Host마다
+다시 구현하지 않는다.
+
+```text
+공통 GIL MCP
+├─ Rust Core sidecar
+├─ JS MCP bridge · 12 tools
+├─ Bootstrap · Skill · Manual
+└─ Companion coordinator
+        ├─ Codex Plugin adapter
+        └─ Claude Code Plugin adapter
+```
+
+Codex와 Claude Code의 차이는 **설치 manifest와 Host가 요구하는 경로 변수**뿐이다. Codex adapter는
+`.codex-plugin/plugin.json`, Claude Code adapter는 `.claude-plugin/plugin.json`을 가지며, 둘 다
+같은 `skills/`, server source와 platform Core를 싣는다. MCP 등록 JSON의 외형이 Host마다 다르면
+얇은 adapter나 한 정본에서 만든 생성물로 두되, 한쪽의 server·tool 표·안내문을 복사해 두 번째
+정본으로 만들지 않는다.
+
+사용자에게 두 adapter는 모두 **GIL Plugin**이다. MCP namespace, sidecar, bridge와 package 확장자는
+진단 문서의 말이지 정상 설치 UX의 말이 아니다. 두 Host에서 설치 뒤 보이는 명령의 의미, 거절,
+다음 행동, Monitor 요청과 degraded mode가 같아야 한다.
+
+**tool namespace 는 Host 내부 사실이며 공통 사용자 계약이 아니다.** 두 Host 가 같은 prefix 를
+쓴다고 전제하지 않는다. 실측한 Claude Code 의 자리는 설치 식별자와 server 이름을 함께 엮은
+`mcp__plugin_gil-companion-prototype_gil-companion__*` 이고, Codex 는 자기 규칙으로 다르게 짓는다.
+동등성은 prefix 의 같음이 아니라 **tool 의 이름·입력·출력·거절·다음 행동의 같음**으로 정의한다.
+문서·Skill·Manual 은 prefix 를 사용자 계약으로 적지 않으며, 시험도 prefix 문자열로 동등성을
+판정하지 않는다.
+
 ---
 
 ## 6. AI가 조율하는 설치
@@ -232,21 +316,51 @@ Companion은 Host가 지속형 Monitor를 제공하지 못할 때만 이름을 �
 
 ## 8. Host별 packaging
 
-### 8.1 로컬 bundle을 지원하는 Host
+### 8.1 Codex와 Claude Code
 
-Host가 MCP bundle이나 동등한 로컬 package를 지원하면 GIL Core와 로컬 MCP bridge를 self-contained
-binary로 함께 배포할 수 있다. 수동 runtime 설치와 JSON 편집을 요구하지 않는다.
+현재의 우선 배포 대상은 Codex Plugin과 Claude Code Plugin이다. 둘은 각 Host의 Plugin UI에서
+설치되며 Skill과 공통 MCP server를 한 설치 단위로 제공한다. 사용자는 runtime을 설치하거나 JSON을
+편집하거나 server command를 등록하지 않는다.
+
+Plugin은 platform Core와 server 의존성을 self-contained하게 싣는다. 설치 cache의 위치가 달라도
+Host가 제공하는 Plugin root에서만 상대경로를 해석하며 개발자의 저장소·home·전역 `gil`에 기대지
+않는다.
+
+설치 경로는 둘이며 **같은 자리가 아니다.**
+
+```text
+local Plugin upload    개발 인수 경로 — 지은 묶음을 Host 에 직접 올린다. 받는 쪽도 개발자다
+remote marketplace     사용자 배포 경로 — self-contained artifact 와 release pipeline 이 선다
+```
+
+source clone 은 어느 쪽에서도 비개발자 설치의 완성본이 아니다. `make-core.sh` 와 Rust·cargo 가
+필요하기 때문이다. Desktop UI 에서 로컬 디렉터리를 marketplace 로 더할 수 있다고 전제하지
+않는다 — 확인된 개발 경로는 local Plugin upload 하나다.
+
+현재 server 는 manifest 에 `node` 를 실행 명령으로 적는다. 이것은 **Node runtime 이 그 기계에
+있다는 전제**이며 clean machine 에서 성립한다고 가정하지 않는다. 없으면 Plugin 은 설치된 것처럼
+보이면서 tool 이 붙지 않는다. 이 전제를 없애는 것이 Rust MCP 단일 실행 파일이다.
 
 독립 창, tray, 로그인 시 시작과 Agent session 밖의 수명을 bundle Host가 보장하지 않으면
 Companion은 별도 native surface로 남는다.
 
-### 8.2 원격 MCP가 기본인 Host
+### 8.2 MCPB와 일반 Claude Desktop
+
+MCPB는 별도의 GIL 구현이 아니라 **같은 MCP server를 Claude Desktop Extension으로 포장하는 후속
+adapter**다. Claude Code Plugin 경로가 닫히기 전에는 제품의 필수 배포물이 아니며, Node probe나
+MCPB manifest를 현재 설치 완료 조건으로 세지 않는다.
+
+일반 Claude Desktop 대화, Extension Directory 또는 파일 더블클릭 설치를 지원할 필요가 확인되면
+MCPB를 추가한다. 그때도 Rust Core·bridge·tool·Manual을 복제하지 않고 공통 Plugin 정본에서
+package를 만든다. MCPB의 유무는 Codex와 Claude Code의 기능 동등성을 바꾸지 않는다.
+
+### 8.3 원격 MCP가 기본인 Host
 
 공개 HTTPS MCP만 배포할 수 있는 Host에서는 remote plugin이 Companion의 존재·호환성을 조율한다.
 remote server가 사용자의 로컬 Project 파일을 대신 보관하거나 읽지 않는다. 로컬 Project 접근은
 사용자 장치의 검증된 GIL Core와 Companion 경계에 남는다.
 
-### 8.3 공용 계약
+### 8.4 공용 계약
 
 어느 Host에서도 GIL domain state, 저장 schema, `MonitorViewV1`, `NodeDetailV1`, 공용 UI bundle,
 설치 상태의 의미와 사용자 승인 경계는 같다.
@@ -278,6 +392,8 @@ remote server가 사용자의 로컬 Project 파일을 대신 보관하거나 �
 9. Companion 없이도 Agent의 text loop와 GIL 기록은 동작한다.
 10. macOS와 Windows의 clean machine에서 설치·업데이트·제거를 재현한다.
 11. 처음 보는 비개발자가 설명서 없이 한 문장 요청으로 3분 안에 Monitor를 연다.
+12. Codex와 Claude Code에서 같은 인수 시나리오가 같은 GIL 사실과 다음 행동을 만든다.
+13. Host별 Plugin을 제거하면 Agent surface만 사라지고 Companion과 Project 기록은 남는다.
 
 ---
 
@@ -287,6 +403,8 @@ remote server가 사용자의 로컬 Project 파일을 대신 보관하거나 �
 - Mac App Store sandbox build와 Developer ID direct build 중 최종 기본 채널
 - Windows Store package와 별도 signed installer 중 최종 기본 채널
 - public Plugin directory의 심사 일정과 국가별 출시 순서
+- 일반 Claude Desktop용 MCPB adapter의 구현·출시 시점
+- remote marketplace artifact 의 호스팅 자리와 release pipeline 의 서명 단계
 - Host 사이에서 Companion 설치 상태를 공유하는 방식
 - remote MCP와 로컬 Companion 사이의 pairing protocol
 

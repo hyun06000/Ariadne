@@ -38,6 +38,8 @@ import {
   COMPANION_STATE, DEFAULT_POLICY, HOST_SURFACE, OUTCOME,
   installationOf, openMonitor,
 } from "./capability.mjs";
+import { ACTIONS, argvFor } from "./actions.mjs";
+import { callCore, probeCore } from "./core.mjs";
 import { assertNoLeak, sayOutcome, sayState } from "./say.mjs";
 
 const run = promisify(execFile);
@@ -122,7 +124,9 @@ export function realPorts() {
   let found = null;
 
   return {
-    agentReady: true,   // 이 tool 이 답하고 있다는 것 자체가 Agent 표면의 증거다
+    // 이 tool 이 답한다는 사실은 **Companion launcher 가 살아 있다**는 뜻일 뿐,
+    // Agent 가 GIL 을 부를 수 있다는 뜻이 아니다. 실린 Core 에게 직접 묻는다.
+    agent: { state: async () => (await probeCore()).state },
     clock: { sleep: (ms) => new Promise((go) => setTimeout(go, ms)) },
     host: {
       // 정식 `ui://` probe 가 앱 선언·Host 광고·요청 반환값·mode 변경 event 를 함께
@@ -189,6 +193,7 @@ server.registerTool(
       agent_surface: z.enum(["ready", "unavailable"]),
       monitor_surface: z.enum(["persistent_host", "native_companion", "unavailable"]),
       companion_state: z.enum(["missing", "stopped", "outdated", "ready"]),
+      agent_state: z.enum(["ready", "outdated_agent", "unavailable"]),
       appVersion: z.string().nullable(),
       said: z.string(),
     }),
@@ -198,16 +203,14 @@ server.registerTool(
     const ports = realPorts();
     const hostSurface = await ports.host.surface();
     const seen = await ports.companion.state();
-    const installation = installationOf({
-      agentReady: ports.agentReady,
-      hostSurface,
-      companionState: seen.state,
-    });
+    const agentState = await ports.agent.state();
+    const installation = installationOf({ agentState, hostSurface, companionState: seen.state });
     const appVersion = seen.descriptor?.app_version ?? null;
     const said = assertNoLeak(sayState(seen.state, appVersion));
     const structuredContent = {
       ...installation,
       companion_state: seen.state,
+      agent_state: agentState,
       appVersion,
       said,
     };
@@ -254,6 +257,106 @@ server.registerTool(
     };
   },
 );
+
+
+// ── Agent 가 부르는 GIL ──────────────────────────────────────────────
+//
+// 명령표는 `actions.mjs` 에 있고, 여기서는 그 표를 **그대로** MCP 로 편다. tool 하나가
+// 허용된 subcommand 하나에만 대응하며, 자유 형식 command 를 받는 문은 만들지 않는다.
+
+/** Project 자리는 **명시적으로** 받는다. cwd 나 최근 폴더를 짐작하지 않고,
+ *  Companion 이 사람에게 보여 주는 선택을 몰래 빌리지도 않는다 — 사람이 보는 것과
+ *  Agent 가 고치는 것이 달라도 되어야 한다. */
+const PROJECT_ROOT_SAID =
+  "Absolute path of the GIL project to act on. The host-verified workspace root, or a path the user named. It is never guessed.";
+
+async function usableDirectory(root) {
+  if (typeof root !== "string" || root.length === 0) return "Project 자리가 비었다";
+  try {
+    const { stat } = await import("node:fs/promises");
+    const seen = await stat(root);
+    if (!seen.isDirectory()) return "Project 자리가 폴더가 아니다";
+  } catch {
+    return "Project 자리를 열 수 없다";
+  }
+  return null;
+}
+
+function refusal(text) {
+  // 우리가 만든 거절이다. Core 가 한 말과 섞이지 않게 `exit_code` 를 비워 둔다.
+  return {
+    structuredContent: { ok: false, exit_code: null, said: "", problem: text },
+    content: [{ type: "text", text }],
+    isError: true,
+  };
+}
+
+for (const action of ACTIONS) {
+  const shape = {};
+  if (action.project) shape.project_root = z.string().describe(PROJECT_ROOT_SAID);
+  else shape.project_root = z.string().optional().describe(PROJECT_ROOT_SAID);
+  for (const slot of action.positional) {
+    const one = z.string();
+    shape[slot.key] = slot.required ? one : one.optional();
+  }
+  if (action.stdin) {
+    // 본문은 사람이나 Agent 가 쓴 **글**이다. command 문자열이 아니다. 어떤 칸이
+    // 필요한지는 Grammar 가 정하고 Core 가 판정한다 — 여기 베껴 적지 않는다.
+    shape[action.stdin] = z.string().optional().describe(
+      "Body text passed to GIL on stdin, exactly as written. GIL validates it.",
+    );
+  }
+
+  server.registerTool(
+    action.name,
+    {
+      title: action.title,
+      description: `${action.summary} Runs the GIL core bundled with this plugin; never a global or repository build.`,
+      inputSchema: z.object(shape),
+      outputSchema: z.object({
+        ok: z.boolean(),
+        exit_code: z.number().int().nullable(),
+        said: z.string(),
+        problem: z.string(),
+      }),
+      annotations: {
+        readOnlyHint: action.stdin === null && ["status", "context", "story", "help"].includes(action.subcommand),
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const seen = await probeCore();
+      if (seen.state !== "ready") {
+        // 부를 수 없으면 **부르지 않는다.** 성공을 가장하지 않고, 다른 gil 로 물러서지도 않는다.
+        return refusal(
+          `GIL core is not usable here (${seen.why}). GIL actions are unavailable until the plugin ships a core for this machine.`,
+        );
+      }
+      const root = input?.project_root;
+      if (action.project || root !== undefined) {
+        const wrong = await usableDirectory(root);
+        if (wrong) return refusal(wrong);
+      }
+      const built = argvFor(action, input);
+      if (built.error) return refusal(built.error);
+
+      const body = action.stdin ? input?.[action.stdin] : undefined;
+      const got = await callCore(seen.exe, built.argv, {
+        input: body === undefined ? null : String(body),
+        cwd: root,
+      });
+      if (!got.ran) return refusal("GIL core did not run.");
+      // Core 가 한 말을 **그대로** 나른다. 요약하지도 다시 쓰지도 않는다.
+      // 성공은 종료 코드 하나로만 가른다 — 문장을 읽고 판단하지 않는다.
+      return {
+        structuredContent: { ok: got.ok, exit_code: got.exit_code, said: got.said, problem: got.problem },
+        content: [{ type: "text", text: got.said + got.problem }],
+        isError: !got.ok,
+      };
+    },
+  );
+}
 
 if (process.env.GIL_COMPANION_NO_SERVE !== "1") {
   await server.connect(new StdioServerTransport());

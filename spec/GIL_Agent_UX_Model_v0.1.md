@@ -496,6 +496,16 @@ Dogfood에서는 다음을 확인한다.
 GIL의 주 사용자는 package manager, terminal, port와 설정 파일을 모른다고 가정한다. 사용자는
 Agent Host에서 Plugin을 설치하고 자연어로 Monitor를 요청한다.
 
+Codex와 Claude Code에서 이 경험은 같은 이름과 같은 순서를 쓴다. 내부적으로 Codex manifest와
+Claude Code manifest가 달라도 사용자는 둘 다 **GIL Plugin**으로 설치한다. 두 Plugin은 하나의
+MCP server·Skill·Manual·Companion coordinator를 공유하며, 어느 Host에서도 MCPB·MCP namespace·
+sidecar·bridge를 정상 사용법으로 가르치지 않는다.
+
+tool namespace 는 **Host 내부 사실**이다. 두 Host 가 같은 prefix 를 준다고 전제하지 않으며,
+실측한 Claude Code 의 자리는 `mcp__plugin_gil-companion-prototype_gil-companion__*` 로 설치
+식별자를 품는다. 사용자에게 가는 문장에 prefix 를 적지 않고, 같음은 tool 의 이름·입력·출력·
+거절·다음 행동에서 확인한다.
+
 ```text
 Plugin 설치
 → Agent가 persistent Monitor surface를 확인
@@ -514,6 +524,9 @@ folder, binary path, terminal command와 JSON 설정을 다루지 않게 한다.
 Companion 설치가 거절되거나 실패해도 GIL의 text loop는 동작한다. 다만 inline 카드나 text만으로
 인간용 Monitor 설치가 완료됐다고 말하지 않는다. 구체 계약은 `GIL Distribution Model v0.1`이
 소유한다.
+
+일반 Claude Desktop용 MCPB는 후속 배포 adapter다. Claude Code와 Codex의 일상 loop를 서로 다르게
+만드는 이유로 쓰지 않으며, 필요해질 때도 같은 MCP와 Manual을 포장한다.
 
 ---
 

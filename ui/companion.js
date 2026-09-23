@@ -454,16 +454,39 @@ function renderGraph() {
   revealSelection();
 }
 
+/** 이 Cycle 이 **무엇을 묻고 있는가** — 종류마다 근거가 다르다.
+ *
+ *  Experiment 는 Define 에서, Interview 는 제 첫 Question 에서 읽는다. 예전에는 둘 다
+ *  `experiment_definition` 하나로 판단해서, 닫힌 Question 이 있는 Interview 에도
+ *  「아직 질문이 정의되지 않았다」가 떴다 — 화면이 **있는 것을 없다고** 말했다.
+ *
+ *  Report 를 여기서 뒤지지 않는다. 무엇을 물었는지는 read model 이 이미 정해 보낸다. */
+function askedNow(here) {
+  const define = here && here.experiment_definition;
+  if (define) {
+    return { title: define.problem, under: `성공 기준 · ${define.success_condition}` };
+  }
+  const asked = here && here.interview_question;
+  if (asked && asked.state === "asked") {
+    return { title: asked.question, under: asked.response ? `응답 · ${asked.response}` : null };
+  }
+  if (asked && asked.state === "asking") {
+    return { title: "질문을 열어 두었다 — 묻고 답을 받는 중이다", under: null };
+  }
+  if (asked && asked.state === "not_asked") {
+    return { title: "아직 이 Cycle 의 질문을 열지 않았다", under: null };
+  }
+  return { title: "아직 이 Cycle 의 질문이 정의되지 않았다", under: null };
+}
+
 function renderIntro() {
   const view = current.view;
   const here = cycleOf(view.current.cycle_ref);
-  const define = here && here.experiment_definition;
-  intro.querySelector("h1").textContent = define
-    ? define.problem
-    : "아직 이 Cycle 의 질문이 정의되지 않았다";
-  intro.querySelector("p").textContent = define
-    ? `성공 기준 · ${define.success_condition}`
-    : `${cycleName(view.current.cycle_ref, here ? here.kind : "")} 안에 서 있다`;
+  const asked = askedNow(here);
+  intro.querySelector("h1").textContent = asked.title;
+  // 질문과 **지금 서 있는 자리**를 섞지 않는다. 자리는 아래 줄과 status 가 따로 말한다.
+  intro.querySelector("p").textContent =
+    asked.under ?? `${cycleName(view.current.cycle_ref, here ? here.kind : "")} 안에 서 있다`;
   intro.querySelector(".world").textContent = word(WORLD, view.world.state);
   status.textContent =
     `${view.current.cycle_ref} · ${view.current.step_ref || "Cycle 경계"} · 읽기 전용`;

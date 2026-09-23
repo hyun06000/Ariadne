@@ -1,0 +1,29 @@
+{
+  "name": "ariadne-local",
+  "owner": {
+    "name": "Ariadne"
+  },
+  "metadata": {
+    "description": "Local development marketplace for this repository. Install from a source clone only — this is not a public distribution channel, and installing from it does not produce a working plugin on its own.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "gil-companion-prototype",
+      "source": "./plugins/gil-companion-prototype",
+      "description": "GIL for Claude Code — local development install. Requires a source clone and a locally built GIL Core: run plugins/gil-companion-prototype/make-core.sh before installing, which needs Rust and cargo. Without that build the plugin installs but reports agent_surface: unavailable.",
+      "version": "0.2.0",
+      "author": {
+        "name": "Ariadne"
+      },
+      "category": "productivity",
+      "keywords": [
+        "gil",
+        "reasoning",
+        "journey",
+        "monitor",
+        "local-development"
+      ]
+    }
+  ]
+}

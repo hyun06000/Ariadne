@@ -435,8 +435,13 @@ fn starting_below_an_existing_walk_is_refused_and_says_where_it_is() {
 
     let said = refused(&deep, &["start"], None);
     assert!(
-        said.contains(&root.join(gil::STATE_PATH).display().to_string()),
-        "이미 있는 걷기가 어디인지 말하지 않는다:\n{said}"
+        said.contains(gil::STATE_PATH),
+        "이미 있는 걷기가 어느 파일인지 말하지 않는다:\n{said}"
+    );
+    // **어느 파일인지는 말하되 집 이름은 적지 않는다.** 그 한 줄이 화면·기록·대화로 옮겨 간다.
+    assert!(
+        !said.contains(&root.display().to_string()),
+        "거절에 Project 의 절대 경로가 실렸다:\n{said}"
     );
     assert!(!deep.join(gil::STATE_PATH).exists(), "거절하면서 파일은 만들었다");
 }
@@ -457,8 +462,17 @@ fn a_walk_that_is_not_here_says_where_it_is() {
 
     let from_below = ok(&deep, &["status"], None);
     assert!(
-        from_below.contains(&root.join(gil::STATE_PATH).display().to_string()),
+        from_below.contains(gil::STATE_PATH),
         "다른 자리의 걷기를 이어 걸으면서 어느 것인지 말하지 않는다:\n{from_below}"
+    );
+    // 위에 있다는 사실이 남아야 한다 — 그것이 이 줄을 쓰는 이유다.
+    assert!(
+        from_below.contains(".."),
+        "기록이 여기 없다는 사실이 사라졌다:\n{from_below}"
+    );
+    assert!(
+        !from_below.contains(&root.display().to_string()),
+        "화면에 Project 의 절대 경로가 실렸다:\n{from_below}"
     );
 }
 
@@ -887,7 +901,16 @@ fn the_previous_format_is_not_silently_read() {
 
     let said = refused(&dir, &["status"], None);
     assert!(said.contains("형식 1"), "앞 형식이라고 말하지 않는다:\n{said}");
-    assert!(said.contains("2"), "지금 형식을 말하지 않는다:\n{said}");
+    // **지금 형식**을 말해야 한다. 예전에는 `"2"` 를 찾았는데, 그 글자는 임시 폴더 이름의
+    // 숫자에서 우연히 걸린 것이었다 — 경로를 빼자 드러났다. 이제 실제 판을 묻는다.
+    assert!(
+        said.contains(&gil::FORMAT.to_string()),
+        "지금 형식을 말하지 않는다:\n{said}"
+    );
+    assert!(
+        !said.contains(&dir.display().to_string()),
+        "거절에 Project 의 절대 경로가 실렸다:\n{said}"
+    );
     assert!(path.exists(), "앞 형식 파일을 도구가 치웠다");
 }
 
@@ -1966,4 +1989,42 @@ fn a_step_choice_reads_its_one_line_from_the_grammar() {
             "{kind} 의 설명이 문법에서 오지 않았다:\n{said}"
         );
     }
+}
+
+/// 같은 일을 **서로 다른 두 자리**에서 하면 글자까지 같아야 한다.
+///
+/// 다르다면 그 차이가 곧 사람의 집 이름이다. 그 한 줄은 화면에만 머물지 않는다 — Plugin 을
+/// 거쳐 Agent 의 응답으로, 거기서 대화와 기록으로 옮겨 간다. 그래서 **표현의 원천**에서
+/// 막는다. 내부 I/O 는 그대로 절대 경로를 쓴다.
+#[test]
+fn what_gil_says_never_carries_the_project_root() {
+    let one = scratch("cli-said-one");
+    let two = scratch("cli-said-two-longer-name");
+
+    // 같은 순서를 두 자리에서 밟는다 — 만들고, 다시 만들려 하고, 하위에서 본다.
+    for (a, b) in [
+        (ok(&one, &["start"], None), ok(&two, &["start"], None)),
+        (
+            refused(&one, &["start"], None),
+            refused(&two, &["start"], None),
+        ),
+        (
+            ok(&below(&one), &["status"], None),
+            ok(&below(&two), &["status"], None),
+        ),
+    ] {
+        assert_eq!(a, b, "자리에 따라 말이 달라진다");
+        for root in [&one, &two] {
+            assert!(
+                !a.contains(&root.display().to_string()),
+                "Project 의 절대 경로가 실렸다:\n{a}"
+            );
+        }
+    }
+
+    // 그러면서 **무엇인지**는 남는다 — 사라지면 다음 행동을 고를 수 없다.
+    let started = ok(&scratch("cli-said-three"), &["start"], None);
+    assert!(started.contains(gil::STATE_PATH), "기록이 무엇인지 말하지 않는다:\n{started}");
+    let below_said = ok(&below(&one), &["status"], None);
+    assert!(below_said.contains(".."), "기록이 여기 없다는 사실이 사라졌다:\n{below_said}");
 }

@@ -34,6 +34,7 @@ use super::{
     CycleFacts, CycleReportFacts, InactiveCycle, MonitorSnapshot, NextAction, StepFacts, WillFacts,
     WorldFacts,
 };
+use crate::{CycleKind, InterviewQuestion};
 
 /// 문서가 스스로에게 거는 자물쇠.
 ///
@@ -212,8 +213,13 @@ fn focus_now(out: &mut String, seen: &MonitorSnapshot) {
     let cycle = &seen.current_cycle.facts;
     out.push_str("<section class=\"focus\">\n");
     heading(out, "지금");
-    if cycle.experiment_definition.is_none() {
+    // **Cycle 종류마다 근거가 다르다.** Experiment 는 Define 에서, Interview 는 제 첫
+    // Question 에서 읽는다. 한쪽 규칙을 다른 쪽에 적용하면 화면이 있는 것을 없다고 말한다.
+    if cycle.kind == CycleKind::Experiment && cycle.experiment_definition.is_none() {
         note(out, say::NO_DEFINITION);
+    }
+    if let Some(InterviewQuestion::NotAsked) = &cycle.interview_question {
+        note(out, say::NOT_ASKED);
     }
     out.push_str("<dl>\n");
     match &cycle.experiment_definition {
@@ -224,6 +230,16 @@ fn focus_now(out: &mut String, seen: &MonitorSnapshot) {
         // 없는 질문을 지어내지 않는다. **이름표조차 붙이지 않는다** — `질문:` 이라고
         // 적는 순간 없는 것에 자리가 생기고, 그 자리는 언젠가 채워지고 싶어 한다.
         None => {}
+    }
+    match &cycle.interview_question {
+        Some(InterviewQuestion::Asked { question, response }) => {
+            pair(out, say::PROBLEM, question);
+            if let Some(response) = response {
+                pair(out, say::RESPONSE, response);
+            }
+        }
+        Some(InterviewQuestion::Asking) => pair(out, say::PROBLEM, say::ASKING),
+        Some(InterviewQuestion::NotAsked) | None => {}
     }
     match &seen.current_step {
         Some(step) => pair(out, "여기", &format!("{} · {}", say::here_title(cycle.kind), step_line(step))),

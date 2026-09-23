@@ -1,7 +1,42 @@
 ---
 name: gil-companion
-description: Open or focus the persistent GIL Monitor when the user asks to show, open, pin, keep visible, or monitor GIL, its journey, Step DAG, or current Cycle.
+description: Use GIL from this plugin — open and close steps, read context and status, restore or revisit — and open the persistent GIL Monitor when the user asks to show, pin, or keep the journey visible.
 ---
+
+# GIL
+
+This plugin carries two doors. **GIL itself**, which the agent calls, and the **GIL Monitor**,
+which a human watches.
+
+## Calling GIL
+
+The GIL core ships inside this plugin. Do not look for a global `gil`, a repository build, or
+cargo — they are not what these tools use, and their absence is not a problem.
+
+`gil_start` · `gil_open` · `gil_close` · `gil_restore` · `gil_revisit` ·
+`gil_status` · `gil_story` · `gil_context` · `gil_cycle` · `gil_help`
+
+Every one of them needs `project_root`: the absolute path of the project to act on, taken from
+the host-verified workspace or from what the user named. **Never guess it** — not from the
+working directory, not from a recent folder, and not from whatever the Monitor happens to be
+showing. The human may be watching one project while the agent works in another.
+
+`gil_open` and `gil_close` carry their body on stdin (`contract`, `report`). Write the fields the
+current grammar asks for; GIL validates them and refuses with its own words when they are wrong.
+Do not invent the field list from memory — `gil_help` and GIL's own refusals tell you.
+
+Each tool answers with `ok`, `exit_code`, `said` (what GIL printed) and `problem` (what GIL
+refused with). **`ok` is the only success signal.** Read `said`/`problem` as GIL's own words and
+pass them on; do not reword them into a verdict of your own.
+
+**Run GIL actions on one project one at a time.** GIL takes a short exclusive lock on the
+project while it works, so two calls fired in parallel — even two reads like `gil_status` and
+`gil_context` — will have one of them refused. Wait for each answer before sending the next.
+A refusal that says the project is busy means exactly this; retry it after the one in flight
+returns, and do not treat it as a broken project.
+
+If `gil_companion_status` reports `agent_surface: unavailable`, GIL actions cannot run here.
+Say so plainly rather than falling back to a shell.
 
 # GIL Monitor
 

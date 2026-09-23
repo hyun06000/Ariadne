@@ -33,6 +33,7 @@ use super::{
     WorldFacts,
 };
 use super::say;
+use crate::InterviewQuestion;
 
 /// 절 안의 한 칸이 들어가는 깊이.
 const INDENT: &str = "  ";
@@ -81,6 +82,22 @@ fn write_here(out: &mut String, seen: &MonitorSnapshot) {
     if let Some(define) = &cycle.experiment_definition {
         field(out, say::PROBLEM, &define.problem);
         field(out, say::SUCCESS_CONDITION, &define.success_condition);
+    }
+
+    // Interview 는 **제 질문**으로 말한다. Define 이 없다는 사실은 Interview 에 대해
+    // 아무것도 말해 주지 않으므로, Experiment 의 규칙을 빌려 오지 않는다.
+    match &cycle.interview_question {
+        Some(InterviewQuestion::Asked { question, response }) => {
+            field(out, say::PROBLEM, question);
+            if let Some(response) = response {
+                field(out, say::RESPONSE, response);
+            }
+        }
+        Some(InterviewQuestion::Asking) => field(out, say::PROBLEM, say::ASKING),
+        // 아직 묻지 않았으면 **이름표조차 붙이지 않는다** — `질문:` 이라고 적는 순간
+        // 없는 것에 자리가 생기고, 그 자리는 언젠가 채워지고 싶어 한다. 「아직 묻지
+        // 않았다」는 제목 자리가 말할 몫이지 이 절이 말할 몫이 아니다.
+        Some(InterviewQuestion::NotAsked) | None => {}
     }
 
     // 되돌아온 자리라면 **새 Cycle 이 아직 없다**는 사실을 여기서 말한다.

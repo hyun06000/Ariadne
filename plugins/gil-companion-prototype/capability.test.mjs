@@ -12,20 +12,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  AGENT_SURFACE, COMPANION_STATE, HOST_SURFACE, MONITOR_SURFACE, OUTCOME,
+  AGENT_CORE_STATE, AGENT_SURFACE, COMPANION_STATE, HOST_SURFACE, MONITOR_SURFACE, OUTCOME,
   installationOf, isComplete, openMonitor,
 } from "./capability.mjs";
 import { assertNoLeak, sayOutcome, sayState } from "./say.mjs";
 
 /** 무엇이 실제로 불렸는지 세는 가짜 문. 시계는 잠들지 않고 **센다**. */
-function fakePorts({ host = HOST_SURFACE.unverified, state, readyAfter = 0, canLaunch = true } = {}) {
+function fakePorts({ host = HOST_SURFACE.unverified, state, readyAfter = 0, canLaunch = true,
+                     agent = AGENT_CORE_STATE.ready } = {}) {
   const log = [];
   let probes = 0;
   return {
     log,
     slept: [],
     ports: {
-      agentReady: true,
+      agent: { state: async () => { log.push("agent.state"); return agent; } },
       clock: {
         sleep(ms) {
           this.owner.slept.push(ms);
@@ -68,7 +69,7 @@ test("1. 확인된 Host surface 가 있으면 Companion 을 조회하지도 실�
 
   assert.equal(settled.outcome, OUTCOME.openedPersistentHost);
   assert.equal(settled.installation.monitor_surface, MONITOR_SURFACE.persistentHost);
-  assert.deepEqual(made.log, ["host.surface", "host.open"]);
+  assert.deepEqual(made.log, ["agent.state", "host.surface", "host.open"]);
   assert.ok(!made.log.some((one) => one.startsWith("companion.")), "Companion 을 건드렸다");
 });
 
@@ -78,7 +79,7 @@ test("2. Host surface 가 없고 Companion 이 ready 이면 기존 창을 focus 
 
   assert.equal(settled.outcome, OUTCOME.focusedExistingCompanion);
   assert.equal(settled.installation.monitor_surface, MONITOR_SURFACE.nativeCompanion);
-  assert.deepEqual(made.log, ["host.surface", "companion.state", "companion.focus"]);
+  assert.deepEqual(made.log, ["agent.state", "host.surface", "companion.state", "companion.focus"]);
   assert.equal(made.log.filter((one) => one === "companion.launch").length, 0, "이미 떠 있는데 또 띄웠다");
 });
 
@@ -88,7 +89,7 @@ test("3. stopped 이면 실행하고 fresh handshake 를 다시 한 뒤 자동�
 
   assert.equal(settled.outcome, OUTCOME.startedAndOpenedCompanion);
   assert.deepEqual(made.log, [
-    "host.surface", "companion.state", "companion.launch",
+    "agent.state", "host.surface", "companion.state", "companion.launch",
     "companion.probeReady", "companion.probeReady", "companion.probeReady",
     "companion.focus",
   ]);
@@ -140,7 +141,7 @@ test("6. outdated 를 missing 이나 stopped 로 뭉개지 않는다", async () 
   assert.ok(!made.log.includes("companion.launch"));
   assert.ok(!made.log.includes("companion.focus"));
   assert.equal(
-    installationOf({ agentReady: true, hostSurface: HOST_SURFACE.unverified, companionState: COMPANION_STATE.outdated })
+    installationOf({ agentState: AGENT_CORE_STATE.ready, hostSurface: HOST_SURFACE.unverified, companionState: COMPANION_STATE.outdated })
       .monitor_surface,
     MONITOR_SURFACE.unavailable,
   );
@@ -151,7 +152,7 @@ test("7. missing 에서는 사용자 승인 없는 설치를 시작하지 않는
   const settled = await openMonitor(made.ports);
 
   assert.equal(settled.outcome, OUTCOME.needsCompanionInstall);
-  assert.deepEqual(made.log, ["host.surface", "companion.state"]);
+  assert.deepEqual(made.log, ["agent.state", "host.surface", "companion.state"]);
   // 설치·내려받기·실행 어느 것도 하지 않는다. 다음 행동만 제안한다.
   assert.ok(!made.log.includes("companion.launch"));
   assert.match(sayOutcome(settled.outcome), /승인/);
@@ -297,14 +298,15 @@ test("설치 완료는 Agent 표면과 지속형 Monitor 둘 다 있어야 한�
     [HOST_SURFACE.unverified, COMPANION_STATE.missing, MONITOR_SURFACE.unavailable, false],
   ];
   for (const [hostSurface, companionState, surface, complete] of table) {
-    const installation = installationOf({ agentReady: true, hostSurface, companionState });
+    const installation = installationOf({ agentState: AGENT_CORE_STATE.ready, hostSurface, companionState });
     assert.equal(installation.monitor_surface, surface, `${hostSurface}+${companionState}`);
     assert.equal(isComplete(installation), complete, `${hostSurface}+${companionState}`);
   }
   // Agent 표면이 없으면 Monitor 가 있어도 완료가 아니다.
   assert.equal(
     isComplete(installationOf({
-      agentReady: false, hostSurface: HOST_SURFACE.verified, companionState: COMPANION_STATE.ready,
+      agentState: AGENT_CORE_STATE.unavailable, hostSurface: HOST_SURFACE.verified,
+      companionState: COMPANION_STATE.ready,
     })),
     false,
   );

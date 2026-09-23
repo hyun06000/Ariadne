@@ -22,6 +22,14 @@ export const MONITOR_SURFACE = {
   unavailable: "unavailable",
 };
 
+/** Agent Core probe 가 가르는 세 값. Companion 의 네 값과 **뜻이 다르다** —
+ *  그쪽은 "사람이 볼 창이 떠 있는가", 이쪽은 "Agent 가 부를 Core 가 이 판과 맞는가". */
+export const AGENT_CORE_STATE = {
+  ready: "ready",
+  outdatedAgent: "outdated_agent",
+  unavailable: "unavailable",
+};
+
 /** Companion handshake가 가르는 네 값. 이 밖의 값을 만들지 않는다. */
 export const COMPANION_STATE = {
   missing: "missing",
@@ -63,9 +71,14 @@ export const DEFAULT_POLICY = Object.freeze({
  *  `monitor_surface`는 **지금 창이 떠 있는가**가 아니라 **사람이 지속형 Monitor를 열 수
  *  있는가**를 말한다. 그래서 호환판이 설치됐지만 꺼져 있는 `stopped`도 `native_companion`이다
  *  — 열면 되기 때문이다. 반대로 `outdated`는 설치는 됐어도 열어서는 안 되므로 표면이 없다. */
-export function installationOf({ agentReady, hostSurface, companionState }) {
+export function installationOf({ agentState, hostSurface, companionState }) {
   return {
-    agent_surface: agentReady ? AGENT_SURFACE.ready : AGENT_SURFACE.unavailable,
+    // **호출자가 넘긴 boolean 이 아니다.** 실린 Core 가 지금 답했을 때만 ready 다.
+    // `outdated_agent` 도 부를 수 없으므로 표면으로는 unavailable 이다 — 다만 왜
+    // 못 쓰는지는 `agent_state` 가 따로 말한다.
+    agent_surface: agentState === AGENT_CORE_STATE.ready
+      ? AGENT_SURFACE.ready
+      : AGENT_SURFACE.unavailable,
     monitor_surface: monitorSurfaceOf(hostSurface, companionState),
   };
 }
@@ -109,7 +122,9 @@ export function monitorIntent() {
 export async function openMonitor(ports) {
   const policy = { ...DEFAULT_POLICY, ...(ports.policy || {}) };
   const intent = monitorIntent();
-  const agentReady = ports.agentReady !== false;
+  // Agent 와 Monitor 는 **서로 독립이다.** Core 가 없어도 이미 열린 창은 그대로 두고,
+  // 창이 없어도 Agent 의 text loop 는 돈다. 여기서는 보고를 위해 물어보기만 한다.
+  const agentState = await ports.agent.state();
 
   // ① 지속형 Host surface를 **확인된 경우에만** 쓴다. 확인되지 않았으면 Companion으로 간다.
   //    여기서 PiP를 새로 요청하거나 지원 여부를 짐작하지 않는다.
@@ -117,7 +132,7 @@ export async function openMonitor(ports) {
   if (hostSurface === HOST_SURFACE.verified) {
     await ports.host.open(intent);
     return settled(OUTCOME.openedPersistentHost, {
-      agentReady,
+      agentState,
       hostSurface,
       companionState: null,
     });
@@ -127,23 +142,23 @@ export async function openMonitor(ports) {
   const seen = await ports.companion.state();
 
   if (seen.state === COMPANION_STATE.missing) {
-    return settled(OUTCOME.needsCompanionInstall, { agentReady, hostSurface, companionState: seen.state });
+    return settled(OUTCOME.needsCompanionInstall, { agentState, hostSurface, companionState: seen.state });
   }
   // `outdated`를 `missing`이나 `stopped`로 뭉개지 않는다. 지금 판을 ready처럼 열지도 않는다.
   if (seen.state === COMPANION_STATE.outdated) {
-    return settled(OUTCOME.needsCompanionUpdate, { agentReady, hostSurface, companionState: seen.state });
+    return settled(OUTCOME.needsCompanionUpdate, { agentState, hostSurface, companionState: seen.state });
   }
 
   if (seen.state === COMPANION_STATE.ready) {
     await ports.companion.focus(intent);
-    return settled(OUTCOME.focusedExistingCompanion, { agentReady, hostSurface, companionState: seen.state });
+    return settled(OUTCOME.focusedExistingCompanion, { agentState, hostSurface, companionState: seen.state });
   }
 
   // ③ `stopped` — 실행하고, 다시 확인하고, 원래 요청을 이어서 수행한다.
   const launched = await ports.companion.launch(intent);
   if (launched === false) {
     return settled(OUTCOME.monitorUnavailable, {
-      agentReady,
+      agentState,
       hostSurface,
       companionState: seen.state,
       why: "launch_failed",
@@ -154,7 +169,7 @@ export async function openMonitor(ports) {
   if (!became) {
     // 실행 명령은 성공했지만 handshake가 오지 않았다. 원래 요청을 성공으로 표시하지 않는다.
     return settled(OUTCOME.monitorUnavailable, {
-      agentReady,
+      agentState,
       hostSurface,
       companionState: COMPANION_STATE.stopped,
       why: "not_ready_after_launch",
@@ -164,7 +179,7 @@ export async function openMonitor(ports) {
   // 여기서 **원래 요청이 재개된다.** 사람이 같은 말을 두 번 하지 않는다.
   await ports.companion.focus(intent);
   return settled(OUTCOME.startedAndOpenedCompanion, {
-    agentReady,
+    agentState,
     hostSurface,
     companionState: COMPANION_STATE.ready,
   });

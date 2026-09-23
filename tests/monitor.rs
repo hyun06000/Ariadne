@@ -2991,8 +2991,9 @@ fn each_timeline_entry_carries_the_very_same_cycle_facts() {
                         state: cycle.state,
                         parent_cycle_ref: cycle.parent_cycle_ref,
                         revisit_from_cycle_ref: cycle.revisit_from_cycle_ref,
-                        // 계보 밖 목록은 정의를 지니지 않는다 — 그 칸만 견주지 않는다.
+                        // 계보 밖 목록은 정의도 질문도 지니지 않는다 — 그 칸만 견주지 않는다.
                         experiment_definition: entry.facts.experiment_definition.clone(),
+                        interview_question: entry.facts.interview_question.clone(),
                         report: cycle.report.clone(),
                     })
             })
@@ -3410,4 +3411,178 @@ fn a_boundary_shaped_address_that_does_not_exist_is_still_not_found() {
         }
     }
     assert!(counted >= 10, "본 Step 이 너무 적다: {counted}");
+}
+
+// ── Cycle 이 무엇을 묻고 있는가 ────────────────────────────────────────────
+//
+// Experiment 는 Define 에서, Interview 는 제 첫 Question 에서 읽는다. 한쪽 규칙을 다른 쪽에
+// 적용하면 화면이 **있는 것을 없다고** 말한다 — 실제로 그렇게 말한 적이 있다. 실측 프로젝트를
+// fixture 로 박아 넣지 않고 같은 domain 상태를 여기서 만들어 잰다.
+
+/// 지금 서 있는 Cycle 의 질문 상태.
+fn asked(session: &ProjectSession) -> Option<gil::InterviewQuestion> {
+    session
+        .monitor()
+        .expect("본다")
+        .current_cycle
+        .facts
+        .interview_question
+        .clone()
+}
+
+fn just_started(label: &str) -> (ProjectSession, PathBuf) {
+    let dir = bare(label);
+    write(&dir, "work.txt", "처음");
+    let session = ProjectSession::start(spec(), state_in(&dir)).expect("시작한다");
+    (session, dir)
+}
+
+#[test]
+fn an_interview_that_has_not_asked_yet_says_so_without_inventing_a_question() {
+    let (session, _dir) = just_started("ask-not-yet");
+    assert_eq!(asked(&session), Some(gil::InterviewQuestion::NotAsked));
+}
+
+#[test]
+fn an_open_question_is_being_asked_not_missing() {
+    // 질문 글은 **닫을 때** 적힌다. 열려 있는 동안 글이 없다는 사실을 「묻지 않았다」와
+    // 뭉치면, 사람이 방금 연 질문을 화면이 없다고 말한다.
+    let (mut session, _dir) = just_started("ask-open");
+    opened(session.project_mut(), NodeKind::Question);
+    assert_eq!(asked(&session), Some(gil::InterviewQuestion::Asking));
+}
+
+#[test]
+fn a_closed_question_is_what_the_cycle_is_asking() {
+    let (mut session, _dir) = just_started("ask-closed");
+    opened(session.project_mut(), NodeKind::Question);
+    let mut report = full_report(&spec(), CycleKind::Interview, NodeKind::Question);
+    report.insert("question", "무엇을 만들고 싶은가");
+    report.insert("response", "설치가 제대로 됐는지 확인하고 싶다");
+    common::close_here(session.project_mut(), report).expect("닫는다");
+
+    assert_eq!(
+        asked(&session),
+        Some(gil::InterviewQuestion::Asked {
+            question: "무엇을 만들고 싶은가".into(),
+            response: Some("설치가 제대로 됐는지 확인하고 싶다".into()),
+        })
+    );
+}
+
+#[test]
+fn the_opening_question_survives_the_steps_that_come_after_it() {
+    // Interpretation·Synthesis 를 지나도 **출발 질문**은 그대로다. 지금 어디에 서 있는지는
+    // 다른 사실이라 섞지 않는다.
+    let (mut session, _dir) = just_started("ask-later");
+    let asked_at = opened(session.project_mut(), NodeKind::Question);
+    let mut first = full_report(&spec(), CycleKind::Interview, NodeKind::Question);
+    first.insert("question", "출발 질문");
+    first.insert("response", "그 답");
+    common::close_here(session.project_mut(), first).expect("닫는다");
+
+    for kind in [NodeKind::Interpretation, NodeKind::Synthesis] {
+        opened(session.project_mut(), kind);
+        let mut report = full_report(&spec(), CycleKind::Interview, kind);
+        // Synthesis 는 **실재하는 근거**를 요구한다 — 자리표시자로는 닫히지 않는다.
+        if kind == NodeKind::Synthesis {
+            report.insert("basis_refs", asked_at.to_string());
+        }
+        common::close_here(session.project_mut(), report).expect("닫는다");
+        assert_eq!(
+            asked(&session),
+            Some(gil::InterviewQuestion::Asked {
+                question: "출발 질문".into(),
+                response: Some("그 답".into()),
+            }),
+            "{kind} 뒤에 출발 질문이 흔들렸다"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_report_field_does_not_shake_the_question() {
+    let (mut session, _dir) = just_started("ask-extra");
+    opened(session.project_mut(), NodeKind::Question);
+    let mut report = full_report(&spec(), CycleKind::Interview, NodeKind::Question);
+    report.insert("question", "진짜 질문");
+    report.insert("response", "진짜 답");
+    report.insert("custom_field", "낯선 칸");
+    common::close_here(session.project_mut(), report).expect("닫는다");
+
+    assert_eq!(
+        asked(&session),
+        Some(gil::InterviewQuestion::Asked {
+            question: "진짜 질문".into(),
+            response: Some("진짜 답".into()),
+        })
+    );
+}
+
+#[test]
+fn an_experiment_never_borrows_the_interview_rule() {
+    // Experiment 에는 질문 상태가 **없다.** Define 이 없다는 사실은 Interview 에 대해
+    // 아무것도 말해 주지 않고, 그 반대도 마찬가지다.
+    let (session, dir) = started("ask-experiment");
+    drop(session);
+    let seen = monitor(&dir);
+    assert_eq!(seen.current_cycle.facts.kind, CycleKind::Experiment);
+    assert_eq!(seen.current_cycle.facts.interview_question, None);
+}
+
+#[test]
+fn the_same_snapshot_says_the_same_thing_every_time() {
+    let (mut session, _dir) = just_started("ask-deterministic");
+    opened(session.project_mut(), NodeKind::Question);
+    let mut report = full_report(&spec(), CycleKind::Interview, NodeKind::Question);
+    report.insert("question", "같은 물음");
+    report.insert("response", "같은 답");
+    common::close_here(session.project_mut(), report).expect("닫는다");
+
+    let once = session.monitor().expect("본다");
+    let twice = session.monitor().expect("본다");
+    assert_eq!(once.current_cycle.facts, twice.current_cycle.facts);
+    assert_eq!(
+        render_monitor_text(&once),
+        render_monitor_text(&twice),
+        "같은 Snapshot 이 다른 문장을 만든다"
+    );
+}
+
+#[test]
+fn every_renderer_says_the_question_the_read_model_carries() {
+    // text·HTML·wire 가 **같은 사실**을 말해야 한다. 한 renderer 만 고치면 다음에 보는
+    // 사람이 어느 화면을 믿어야 할지 알 수 없다.
+    let (mut session, _dir) = just_started("ask-renderers");
+    opened(session.project_mut(), NodeKind::Question);
+    let mut report = full_report(&spec(), CycleKind::Interview, NodeKind::Question);
+    report.insert("question", "무엇을 만들고 싶은가");
+    report.insert("response", "설치 검증");
+    common::close_here(session.project_mut(), report).expect("닫는다");
+    let seen = session.monitor().expect("본다");
+
+    let text = render_monitor_text(&seen);
+    assert!(text.contains("무엇을 만들고 싶은가"), "text 가 질문을 말하지 않는다:\n{text}");
+    assert!(
+        !text.contains("아직 이 Cycle 의 질문이 정의되지 않았다"),
+        "있는 질문을 없다고 말한다:\n{text}"
+    );
+
+    let html = render_monitor_html(&seen);
+    assert!(html.contains("무엇을 만들고 싶은가"), "HTML 이 질문을 말하지 않는다");
+    assert!(
+        !html.contains("아직 이 Cycle 의 질문이 정의되지 않았다"),
+        "HTML 이 있는 질문을 없다고 말한다"
+    );
+
+    // 공용 UI bundle 이 읽는 자리 — Companion 도 같은 칸을 본다.
+    let wire = gil::monitor_view_v1(&seen).expect("wire");
+    let here = wire
+        .timeline
+        .iter()
+        .find(|one| one.cycle_ref == wire.current.cycle_ref)
+        .expect("지금 Cycle");
+    let asked = here.interview_question.as_ref().expect("질문 상태");
+    assert_eq!(asked.question.as_deref(), Some("무엇을 만들고 싶은가"));
+    assert_eq!(asked.response.as_deref(), Some("설치 검증"));
 }

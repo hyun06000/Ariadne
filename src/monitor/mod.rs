@@ -65,7 +65,7 @@ use crate::refs::{CycleRef, ExistenceRef, JourneyRef, SnapshotRef, StepRef, Will
 use crate::report::Report;
 use crate::report::field::{
     HANDOFF_SUMMARY, HYPOTHESIS, INTERPRETATION, LESSON, NEXT_ACTION, NEXT_REASON, PROBLEM,
-    QUESTION, RESULT, STATEMENT, SUCCESS_CONDITION, VERDICT,
+    QUESTION, RESPONSE, RESULT, STATEMENT, SUCCESS_CONDITION, VERDICT,
 };
 use crate::session::{ProjectSession, SessionError, WorldState};
 
@@ -155,6 +155,11 @@ pub struct CycleFacts {
     pub revisit_from_cycle_ref: Option<CycleRef>,
     /// Experiment 이고 유일한 Define 이 닫혔을 때만. 없는 것은 정상이다.
     pub experiment_definition: Option<ExperimentDefinition>,
+    /// Interview 일 때만. 이 Cycle 이 **무엇을 묻고 있는가**를 세 상태로 가른다.
+    ///
+    /// Experiment 의 `experiment_definition` 과 짝이다 — 한 Cycle 에 둘 중 하나만 산다.
+    /// 읽는 쪽이 Step 목록을 뒤져 질문을 찾아내지 않도록 **여기서 정한다.**
+    pub interview_question: Option<InterviewQuestion>,
     /// 닫힌 Cycle 의 Report 투영. 열려 있으면 없다.
     pub report: Option<CycleReportFacts>,
 }
@@ -175,6 +180,23 @@ pub struct CurrentCycleFacts {
 pub struct ExperimentDefinition {
     pub problem: String,
     pub success_condition: String,
+}
+
+/// 이 Interview 가 무엇을 묻고 있는가 — **첫 Question 에서 읽는다.**
+///
+/// 세 상태를 가린다. 「아직 묻지 않았다」와 「묻는 중」은 다른 사실이고, 둘을 뭉치면 화면이
+/// 존재하는 질문을 없다고 말하게 된다. 그것이 이 타입이 생긴 까닭이다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterviewQuestion {
+    /// Question Step 을 아직 열지 않았다.
+    NotAsked,
+    /// Question 이 열려 있고 아직 Report 가 없다 — 질문 글은 닫을 때 적힌다.
+    Asking,
+    /// 닫힌 Question 이 있다. `response` 는 그 Report 가 지닌 답이다.
+    Asked {
+        question: String,
+        response: Option<String>,
+    },
 }
 
 /// 닫힌 Cycle 의 요약 — Cycle Report 의 **선택적 투영**(Monitor Model §4.5).
@@ -577,6 +599,7 @@ fn cycle_facts(cycles: &Cycles, cycle: &Cycle) -> CycleFacts {
         parent_cycle_ref: cycle.parent().map(CycleId::to_ref),
         revisit_from_cycle_ref: cycle.revisit_from().map(CycleId::to_ref),
         experiment_definition: definition(cycle),
+        interview_question: interview_question(cycle),
         report: report_facts(cycles, cycle),
     }
 }
@@ -655,6 +678,31 @@ fn definition(cycle: &Cycle) -> Option<ExperimentDefinition> {
         problem: define.get(PROBLEM)?.to_string(),
         success_condition: define.get(SUCCESS_CONDITION)?.to_string(),
     })
+}
+
+/// Interview 의 **출발 질문**을 세 상태로 읽는다. Experiment 이면 없다.
+///
+/// Experiment 의 규칙을 Interview 에 적용하지 않는다 — Define 이 없다는 사실은 Interview 에
+/// 대해 아무것도 말해 주지 않는다.
+fn interview_question(cycle: &Cycle) -> Option<InterviewQuestion> {
+    if cycle.kind() != CycleKind::Interview {
+        return None;
+    }
+    let Some(node) = cycle.opening_question() else {
+        return Some(InterviewQuestion::NotAsked);
+    };
+    let Some(report) = node.report.as_ref() else {
+        // 열려 있다 — 질문 글은 닫을 때 적히므로 아직 없다. 지어내지 않는다.
+        return Some(InterviewQuestion::Asking);
+    };
+    match report.get(QUESTION) {
+        Some(question) => Some(InterviewQuestion::Asked {
+            question: question.to_string(),
+            response: report.get(RESPONSE).map(str::to_string),
+        }),
+        // 닫혔는데 질문 칸이 없다 — 문법이 막는 자리다. 빈 글을 지어내느니 묻는 중으로 둔다.
+        None => Some(InterviewQuestion::Asking),
+    }
 }
 
 /// 닫힌 Cycle 의 Report 투영. 열려 있으면 없다.

@@ -107,6 +107,7 @@
 // **필요한 만큼만 연다.** 관측기·창고·codec·registry 는 안에 남고, 밖으로 나가는 것은
 // [`ManifestAddress`] 와 [`RegistryError`] 뿐이다 — 세계를 여는 문이 세계의 주소를 받아야
 // 하기 때문이다. 그 주소는 **사람이 보는 이름이 아니다**: 공개 표면은 `snapshot:A1` 이다.
+pub mod agent;
 mod artifact;
 mod context;
 mod contract;
@@ -147,7 +148,8 @@ pub use manual::{HelpError, Refusal, Usage, help_here, help_outside, help_topic,
 pub use manual::TopicId;
 pub use monitor::{
     ActionKind, CapturedAt, CurrentCycleFacts, CycleFacts, CycleRelation, CycleReportFacts,
-    ExistenceFacts, ExperimentDefinition, InactiveCycle, MonitorError, MonitorSnapshot,
+    ExistenceFacts, ExperimentDefinition, InactiveCycle, InterviewQuestion, MonitorError,
+    MonitorSnapshot,
     MonitorServer, NextAction, NextDirection, PendingRevisit, StepFacts, WillFacts, WorldFacts,
     TimelineCycleFacts, TimelineRelation, WorldMark, render_monitor_html, render_monitor_text,
     serve_monitor,
@@ -182,7 +184,7 @@ pub use session::{
     CycleRevisited, Gate, ProjectSession, ReadOnlySession, SessionError, WorldState,
 };
 pub use story::story;
-pub use store::{FORMAT, LEGACY_WALK_PATH, STATE_PATH, StoreError, load, save};
+pub use store::{FORMAT, LEGACY_WALK_PATH, STATE_PATH, StoreError, load, said_path, save};
 pub use validate::{GrammarError, Subject};
 pub use walk::{NextDirectionError, NodeId, RestoreError, StepNode, Walk, WalkError};
 pub use will::{ActionContract, ContractError, DONE_WHEN, NEXT_ACTION, OBJECTIVE, Will};

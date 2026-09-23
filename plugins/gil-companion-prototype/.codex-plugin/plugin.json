@@ -1,22 +1,31 @@
 {
   "name": "gil-companion-prototype",
-  "version": "0.2.0+codex.20260921051928",
-  "description": "Open or focus the installed native GIL Companion window.",
+  "version": "0.2.0+codex.20260922094331",
+  "description": "Record reasoning with GIL, and keep the journey visible in the GIL Monitor.",
   "author": {
     "name": "Ariadne"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "GIL Companion",
-    "shortDescription": "Keep the current GIL journey visible while you work.",
-    "longDescription": "Brings the installed native GIL Companion window to the front. Read-only: it never reads or writes your project.",
+    "shortDescription": "Record your reasoning with GIL and keep the journey visible.",
+    "longDescription": "Carries GIL itself \u2014 open and close steps, read context and status, restore or revisit \u2014 and opens the persistent GIL Monitor so a human can watch the journey. The Monitor is read-only: it never writes to your project.",
     "developerName": "Ariadne",
     "category": "Productivity",
     "capabilities": [
-      "Read"
+      "Read",
+      "Write"
     ],
     "brandColor": "#566FE8",
     "defaultPrompt": "Open the GIL Companion window and keep it visible while we continue."
   },
-  "mcpServers": "./.mcp.json"
+  "mcpServers": {
+    "gil-companion": {
+      "command": "node",
+      "args": [
+        "./server.mjs"
+      ],
+      "cwd": "."
+    }
+  }
 }

@@ -141,6 +141,13 @@ wire_words! {
         Unknown => "unknown",
     }
 
+    /// 이 Interview 가 무엇을 묻고 있는가. **셋은 상호 배타적이다.**
+    InterviewStateV1 {
+        NotAsked => "not_asked",
+        Asking => "asking",
+        Asked => "asked",
+    }
+
     /// 닫힌 Cycle 의 판정.
     VerdictV1 {
         Success => "success",
@@ -206,6 +213,8 @@ pub struct TimelineCycleV1 {
     /// **부모와 다른 관계다.** 되돌아감을 parent 로 바꾸지 않는다.
     pub revisit_from_cycle_ref: Option<String>,
     pub experiment_definition: Option<DefinitionV1>,
+    /// Interview 일 때만. Experiment 이면 없다.
+    pub interview_question: Option<InterviewQuestionV1>,
     /// 닫힌 Cycle 의 선택적 투영. 열려 있으면 없다.
     pub report: Option<CycleReportV1>,
     /// 그 Cycle 이 만든 순서 그대로. 비어 있으면 빈 목록이다.
@@ -217,6 +226,17 @@ pub struct TimelineCycleV1 {
 pub struct DefinitionV1 {
     pub problem: String,
     pub success_condition: String,
+}
+
+/// 이 Interview 의 출발 질문. `state` 가 무엇이 있는지 말한다.
+///
+/// `asked` 일 때만 `question` 이 있다. 읽는 쪽이 Step 목록을 뒤져 질문을 찾지 않도록
+/// 여기에 실어 보낸다 — Experiment 의 `experiment_definition` 과 같은 이유다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterviewQuestionV1 {
+    pub state: InterviewStateV1,
+    pub question: Option<String>,
+    pub response: Option<String>,
 }
 
 /// 닫힌 Cycle 이 남긴 것.
@@ -435,6 +455,7 @@ fn cycle(entry: &TimelineCycleFacts) -> Result<TimelineCycleV1, ViewError> {
         parent_cycle_ref: facts.parent_cycle_ref.map(|at| at.to_string()),
         revisit_from_cycle_ref: facts.revisit_from_cycle_ref.map(|at| at.to_string()),
         experiment_definition: facts.experiment_definition.as_ref().map(definition),
+        interview_question: facts.interview_question.as_ref().map(interview_question),
         report: facts
             .report
             .as_ref()
@@ -604,6 +625,27 @@ fn relation(relation: TimelineRelation) -> TimelineRelationV1 {
 ///
 /// 모르는 낱말이면 거절한다. Grammar 는 프로젝트마다 다를 수 있고, 지어낸 값을 실으면
 /// 화면이 없는 사실을 말하게 된다.
+/// 읽기 모델의 세 상태를 그대로 옮긴다. 여기서 뜻을 더하지 않는다.
+fn interview_question(one: &crate::InterviewQuestion) -> InterviewQuestionV1 {
+    match one {
+        crate::InterviewQuestion::NotAsked => InterviewQuestionV1 {
+            state: InterviewStateV1::NotAsked,
+            question: None,
+            response: None,
+        },
+        crate::InterviewQuestion::Asking => InterviewQuestionV1 {
+            state: InterviewStateV1::Asking,
+            question: None,
+            response: None,
+        },
+        crate::InterviewQuestion::Asked { question, response } => InterviewQuestionV1 {
+            state: InterviewStateV1::Asked,
+            question: Some(question.clone()),
+            response: response.clone(),
+        },
+    }
+}
+
 fn verdict(cycle_ref: &str, said: &str) -> Result<VerdictV1, ViewError> {
     VerdictV1::ALL_WORDS
         .iter()
@@ -928,6 +970,25 @@ mod tests {
         }
         assert_eq!(WorldStateV1::ALL.len(), 3);
 
+        // Interview 의 세 상태가 **상호 배타적**으로 남아 있는가. 값이 늘면 renderer 가
+        // 모르는 상태를 만나게 되므로, 여기서 수를 못 박아 그 변화를 드러낸다.
+        assert_eq!(InterviewStateV1::ALL.len(), 3);
+        for (one, word) in [
+            (crate::InterviewQuestion::NotAsked, "not_asked"),
+            (crate::InterviewQuestion::Asking, "asking"),
+            (
+                crate::InterviewQuestion::Asked {
+                    question: "물음".into(),
+                    response: None,
+                },
+                "asked",
+            ),
+        ] {
+            assert_eq!(interview_question(&one).state.as_wire(), word);
+        }
+        // 글은 `asked` 일 때만 실린다 — 없는 질문을 빈 글로 낮추지 않는다.
+        assert_eq!(interview_question(&crate::InterviewQuestion::Asking).question, None);
+
         // 두 낱말 표는 Grammar 가 허용하는 글자와 짝이 맞는다.
         assert_eq!(VerdictV1::ALL.len(), 2);
         for (word, value) in VerdictV1::ALL_WORDS {
@@ -1211,9 +1272,11 @@ mod tests {
         let allowed = [
             "action", "baseline_snapshot_ref", "captured_at_unix_ms", "command", "current",
             "current_will", "cycle_kind", "cycle_ref", "done_when", "existence_ref",
-            "experiment_definition", "handoff_summary", "help_ref", "journey_ref", "kind",
+            "experiment_definition", "handoff_summary", "help_ref", "interview_question",
+            "journey_ref", "kind",
             "next_action", "next_actions", "next_direction", "objective", "outcome_lesson",
             "parent_cycle_ref", "problem", "reason", "relation_to_current", "report",
+            "question", "response",
             "revisit_from_cycle_ref", "schema_version", "state", "step_kind", "step_ref",
             "steps", "success_condition", "summary", "target_cycle_ref", "target_step_ref",
             "timeline", "verdict", "verify_can_confirm", "will_ref", "world",

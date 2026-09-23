@@ -1,0 +1,24 @@
+{
+  "name": "gil-companion-prototype",
+  "version": "0.2.0",
+  "description": "Record reasoning with GIL, and keep the journey visible in the GIL Monitor.",
+  "author": {
+    "name": "Ariadne"
+  },
+  "license": "MIT",
+  "keywords": [
+    "gil",
+    "reasoning",
+    "journey",
+    "monitor"
+  ],
+  "mcpServers": {
+    "gil-companion": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/server.mjs"
+      ],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}"
+    }
+  }
+}

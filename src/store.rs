@@ -53,6 +53,63 @@ use crate::will::Will;
 /// 그래야 앞 형식을 만났을 때 파서 오류가 아니라 **앞 형식이라고** 말할 수 있다.
 pub const FORMAT: u32 = 4;
 
+/// **사람에게 보일 때의 자리.** 절대 경로를 적지 않는다.
+///
+/// 기록은 Project 안에 살고 사람은 대개 그 안에 서 있다. 그러니 서 있는 자리에서 본 상대
+/// 경로가 가장 짧으면서 정확하다 — 여기면 `.gil/state.yaml`, 위면 `../.gil/state.yaml`.
+///
+/// 절대 경로를 적으면 그 한 줄이 **사람의 집 이름**을 담고, 그대로 화면·기록·대화·Agent 의
+/// 응답으로 옮겨 간다. 내부 I/O 는 계속 절대 경로를 쓴다 — 바뀌는 것은 **말하는 방식**뿐이다.
+///
+/// 상대로 만들 수 없으면(다른 볼륨 등) Project 뿌리 기준의 이름만 남긴다.
+pub fn said_path(path: &Path) -> String {
+    let here = std::env::current_dir().ok();
+    match here.and_then(|here| relative_to(&here, path)) {
+        Some(said) => said,
+        // 자리를 알 수 없으면 **무엇인지**라도 말한다. 어디인지는 말하지 않는다.
+        None => STATE_PATH.to_string(),
+    }
+}
+
+/// `from` 에 서서 `to` 를 부르는 이름. 둘 다 실제 자리로 펴 놓고 견준다 —
+/// macOS 의 `/var` 와 `/private/var` 처럼 같은 곳이 다른 이름을 갖기 때문이다.
+fn relative_to(from: &Path, to: &Path) -> Option<String> {
+    let from = fs::canonicalize(from).ok()?;
+    // 대상은 아직 없을 수 있다(만들기 전에 말하는 자리도 있다). 있는 조상까지만 편다.
+    let to = match fs::canonicalize(to) {
+        Ok(real) => real,
+        Err(_) => {
+            let parent = fs::canonicalize(to.parent()?).ok()?;
+            parent.join(to.file_name()?)
+        }
+    };
+
+    let mut mine = from.components();
+    let mut theirs = to.components();
+    loop {
+        let (a, b) = (mine.clone().next(), theirs.clone().next());
+        match (a, b) {
+            (Some(a), Some(b)) if a == b => {
+                mine.next();
+                theirs.next();
+            }
+            _ => break,
+        }
+    }
+    let up = mine.count();
+    let down: PathBuf = theirs.collect();
+    let mut said = PathBuf::new();
+    for _ in 0..up {
+        said.push("..");
+    }
+    said.push(&down);
+    // 같은 자리면 이름이 비어 버린다 — 그때는 부를 이름이 없다.
+    match said.as_os_str().is_empty() {
+        true => None,
+        false => Some(said.display().to_string()),
+    }
+}
+
 /// 저장소 안에서 상태가 눕는 자리.
 pub const STATE_PATH: &str = ".gil/state.yaml";
 
@@ -100,7 +157,7 @@ pub fn save(project: &Project, path: impl AsRef<Path>) -> Result<(), StoreError>
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent).map_err(|source| StoreError::Write {
-            path: parent.display().to_string(),
+            path: said_path(parent),
             source,
         })?;
     }
@@ -113,19 +170,19 @@ pub fn save(project: &Project, path: impl AsRef<Path>) -> Result<(), StoreError>
     // 끊겼을 때 이름은 새것인데 내용은 비어 있는 파일이 남는다.
     {
         let mut file = File::create(&temp).map_err(|source| StoreError::Write {
-            path: temp.display().to_string(),
+            path: said_path(&temp),
             source,
         })?;
         file.write_all(text.as_bytes())
             .and_then(|()| file.flush())
             .and_then(|()| file.sync_all())
             .map_err(|source| StoreError::Write {
-                path: temp.display().to_string(),
+                path: said_path(&temp),
                 source,
             })?;
     }
     fs::rename(&temp, path).map_err(|source| StoreError::Write {
-        path: path.display().to_string(),
+        path: said_path(path),
         source,
     })?;
     sync_dir(path.parent())
@@ -146,7 +203,7 @@ fn sync_dir(at: Option<&Path>) -> Result<(), StoreError> {
     File::open(at)
         .and_then(|dir| dir.sync_all())
         .map_err(|source| StoreError::Write {
-            path: at.display().to_string(),
+            path: said_path(at),
             source,
         })
 }
@@ -168,10 +225,10 @@ pub fn load(rules: RuleSet, path: impl AsRef<Path>) -> Result<Project, StoreErro
     let path = path.as_ref();
     let text = fs::read_to_string(path).map_err(|source| match source.kind() {
         io::ErrorKind::NotFound => StoreError::NotFound {
-            path: path.display().to_string(),
+            path: said_path(path),
         },
         _ => StoreError::Read {
-            path: path.display().to_string(),
+            path: said_path(path),
             source,
         },
     })?;
@@ -184,7 +241,7 @@ pub fn load(rules: RuleSet, path: impl AsRef<Path>) -> Result<Project, StoreErro
             return Err(StoreError::PreviousFormat {
                 found: head.format,
                 current: FORMAT,
-                path: path.display().to_string(),
+                path: said_path(path),
             });
         }
         std::cmp::Ordering::Greater => {

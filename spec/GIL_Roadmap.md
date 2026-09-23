@@ -1110,7 +1110,7 @@ Experiment Cycle failure Report의 `revisit`은 **기록할 수 있고 실행할
 
 ### M5-B Host-Embedded Interactive Monitor
 
-기본 사용자는 별도 `GIL.app`이나 browser를 먼저 열지 않는다. Codex·Claude Desktop 같은 Agent
+기본 사용자는 별도 `GIL.app`이나 browser를 먼저 열지 않는다. Codex·Claude Code 같은 Agent
 Host 안에서 대화와 같은 Project의 Monitor를 연다. loopback server와 standalone shell은 개발,
 진단 또는 Host가 embedded UI를 지원하지 않을 때의 fallback이다.
 
@@ -1252,6 +1252,42 @@ Tauri shell + fixture          (닫힘)
       경계는 `companion/RELEASE-macos.md`
 - [ ] Windows 10/11 feasibility build — watcher·locking·tray·single-instance·autostart
 - [ ] Windows Store/MSIX 또는 signed installer 기본 채널 확정
+- [x] Agent 용 GIL Core 의 self-contained Plugin packaging — Rust Core 를 sidecar 로 싣고
+      typed MCP 인자·고정 argv·stdin 본문·종료 코드 경계로 부른다. 저장소·Cargo·전역 `gil`
+      없이 설치본만으로 동작함을 실측 (macOS arm64 development packaging)
+- [x] Agent surface의 정본을 하나의 Rust Core·JS MCP bridge·12 tools로 확정 — Host별로 domain
+      동작·Manual·Companion 판정을 다시 구현하지 않는다
+- [x] MCP 등록을 Host manifest 안으로 — plugin root `.mcp.json`을 없애고 Codex는 상대 경로와
+      `cwd`, Claude Code는 `${CLAUDE_PLUGIN_ROOT}`로 각자 말한다. Host 하나가 server를 정확히
+      하나만 등록하고, 두 manifest가 같은 `server.mjs`·Skill·Core로 내려앉으며, manifest와
+      marketplace에 개발자 절대 경로가 없다는 것을 시험이 지킨다
+- [x] Claude Code Plugin adapter — `.claude-plugin/plugin.json`과 저장소 최상위
+      `.claude-plugin/marketplace.json`. 개발 인수에 실제로 쓴 설치 경로는 **local Plugin
+      upload** 하나이며 Host 가 `local-desktop-app-uploads` 아래에 설치본을 둔다. Desktop UI 에서
+      로컬 디렉터리를 marketplace 로 더하는 문은 확인하지 않았으므로 절차의 전제로 쓰지 않는다.
+      설치 registry는 손으로 고치지 않는다. source clone 은 어느 쪽에서도 비개발자 설치의
+      완성본이 아니다 — `make-core.sh`·Rust·cargo 가 필요하다
+- [x] Claude Code Plugin 실측 — 설치 뒤 새 session에서 공용 Skill 하나와 12 tools가 붙고
+      `${CLAUDE_PLUGIN_ROOT}` 아래의 공용 server와 Core가 실제로 실행됨을 확인. 실측한 tool
+      namespace 는 `mcp__plugin_gil-companion-prototype_gil-companion__*` 이며, 이는 **Host 내부
+      사실**이지 Codex 와 공유하는 사용자 계약이 아니다
+- [x] Codex·Claude Code 동등성 인수 — 같은 Project에서 사용자 문구·GIL 사실·다음 행동이 같음을
+      확인. 동등성의 기준은 tool prefix 의 같음이 아니라 이름·입력·출력·거절·다음 행동의 같음이다
+- [ ] 동등성 인수 뒤의 이름 이전 — `gil-companion-prototype` → `gil-companion`(장기적으로 `gil`).
+      두 Host의 설치 식별자와 marketplace 항목이 함께 움직이는 **별도 조각**이며, 그 전에는 표시
+      이름만 GIL / GIL Companion이다. tool namespace 는 Host 가 설치 식별자에서 파생시키는
+      내부 사실이므로 이 조각의 **결과**이지 목표 문자열이 아니다
+- [x] Host별 Plugin 비활성화·재활성화 — 비활성화한 새 session 에서 GIL Skill 0개·MCP tool 0개로
+      Agent surface만 사라지고 Companion 창과 Project·`.gil` 은 남으며, 재활성화한 새 session 에서
+      Skill 1개·tool 12개가 돌아오고 `gil_context` 가 같은 존재(`journey:X1@J1`)와 기존 Report 를
+      그대로 복원한다. Codex Plugin 은 영향받지 않는다
+- [ ] Host별 Plugin 제거·재설치 — 제거 뒤 Project·`.gil` 보존과 재설치 뒤 여정 잇기는 아직
+      실측하지 않았다 (비활성화·재활성화만 닫혔다)
+- [ ] public marketplace 용 Core binary publication — sidecar 는 로컬에서 짓는 개발 artifact라
+      git 에 없다. **source clone 만으로는 설치가 완성되지 않으며** 받는 쪽에 Rust·cargo 가
+      필요하다. 서명·배포 자리·platform 별 artifact 가 정해져야 비개발자 경로가 닫힌다 → M5-E
+- [ ] `node` 전제 제거 — 두 manifest 가 `"command": "node"` 로 말하는 한 설치는 그 기계에 Node
+      runtime 이 있다는 전제 위에 선다. clean machine 에서 성립한다고 가정하지 않는다 → M5-E
 - [ ] Plugin·Core·Companion·wire compatibility와 update rollback 계약
 - [ ] macOS·Windows clean-machine 설치·업데이트·제거 시험
 - [ ] 처음 보는 비개발자가 한 문장 요청으로 3분 안에 Monitor를 여는 설치 실험
@@ -1269,7 +1305,14 @@ Host capability probe
 ```
 
 Plugin의 정본은 저장소 안(`plugins/gil-companion-prototype`)에 있고, 저장소 밖의 경로와 Codex
-cache는 설치 산출물이다. macOS 배포물은 `companion/release-macos.sh` 하나가 짓고, 상태가 자리를
+cache는 설치 산출물이다. 이 정본은 Codex와 Claude Code가 함께 쓰는 MCP server·Skill·Core를
+소유하고 Host별 manifest만 나눈다. 나뉘는 것은 **plugin root를 부르는 이름 하나**뿐이고,
+adapter 디렉터리는 자기 `plugin.json` 말고 아무것도 담지 않는다. 디렉터리 이름에 남은
+`prototype`은 설치 식별자라 아직 움직이지 않았을 뿐이며, 사용자에게 보이는 이름은 이미
+GIL / GIL Companion이다. Agent Core 의 정본은 Rust GIL 이며 옛 Go 도구는 packaging
+대상이 아니다.
+실린 Core 는 개발 artifact 이고 서명·공증하지 않았다 — 공개 배포판이 아니다. 실측한 것은
+macOS arm64 하나뿐이다. macOS 배포물은 `companion/release-macos.sh` 하나가 짓고, 상태가 자리를
 정한다 — 지금 만들 수 있는 것은 `release_unsigned`까지이며 배포 가능한 것이 아니다. 지원 대상은
 실측한 Apple Silicon 하나뿐이고 universal은 아직 주장하지 않는다. `stopped`에서 실행한 뒤 새 challenge로 재확인하고 원래 요청을 재개하는
 경로는 닫혔다. 설치·업데이트
@@ -1279,6 +1322,59 @@ cache는 설치 산출물이다. macOS 배포물은 `companion/release-macos.sh`
 공개 Plugin/MCP 제출은 이 조각의 끝이 아니라 후속 release gate다. 원격 MCP가 기본인 Host에서도
 사용자의 로컬 Project는 remote server가 대신 읽지 않는다. public HTTPS MCP, 인증·도메인 검증과
 심사 자료는 GIL의 시나리오 일반성이 M7에서 확인된 뒤 제출한다.
+
+일반 Claude Desktop용 `.mcpb`는 **후속 adapter**다. Claude Code Plugin이 Codex Plugin과 같은
+설치·도구·Skill 경험을 제공하는 현재 경로를 대신하지 않으며, MCPB Node probe와 package 구현은
+일반 Desktop 대화나 Extension Directory 배포가 필요해질 때 연다.
+
+### M5-E Rust MCP Single Binary & Remote Distribution
+
+상태: `[ ] 열림 · 다음 조각`
+
+M5-D 가 닫아 준 것은 **Agent surface 의 Host 동등성**이다. 두 Host 에서 같은 Skill 과 같은 열두
+tool 이 붙고, 껐다 켜도 Journey 가 Project 에 남는다. 닫히지 않은 것은 **받는 사람의 자리**다.
+
+지금의 설치는 둘 다 개발 검증용 임시 구조다.
+
+```text
+source clone + make-core.sh   Rust·cargo 를 받는 쪽에 요구한다
+local Plugin upload           지은 묶음을 손으로 올린다 — 올리는 쪽도 받는 쪽도 개발자다
+```
+
+여기에 `"command": "node"` 가 얹혀 Node runtime 전제까지 깔린다. 세 전제(clone·수동 upload·
+Node)를 한 번에 걷어내는 자리가 **Rust MCP 단일 실행 파일**이다.
+
+목표:
+
+> 받는 사람이 clone·cargo·Node·수동 upload 없이 remote marketplace 에서 GIL Plugin 하나를 설치해
+> Agent surface 를 얻는다.
+
+순서:
+
+```text
+rmcp stdio server 최소 spike
+→ 기존 Core descriptor 와 도구 하나 연결
+→ 성공하면 Rust MCP 단일 실행 파일로 이전
+→ self-contained remote marketplace artifact 와 release pipeline
+→ macOS 배포를 닫은 뒤 Windows adapter
+```
+
+- [ ] `rmcp` stdio server 최소 spike — tool 하나를 붙여 Host 가 실제로 잡는지 확인한다
+- [ ] 기존 Core descriptor 와 도구 하나 연결 — identity·protocol·action surface 판정을 그대로 쓰고
+      새 진실 공급원을 만들지 않는다
+- [ ] 성공하면 JS bridge 를 Rust MCP 단일 실행 파일로 이전 — tool 의 이름·입력·출력·거절·다음
+      행동이 바뀌지 않는다는 것이 이전의 합격 조건이다
+- [ ] `node` 전제 제거 확인 — Node 없는 기계에서 tool 이 붙는다
+- [ ] self-contained remote marketplace artifact — 설치본만으로 서고 clone·cargo 를 요구하지 않는다
+- [ ] release pipeline — 짓기·서명·공증·게시가 한 자리에서 재현되고 비밀은 환경에서만 온다
+- [ ] macOS 배포를 닫는다 (Developer ID 서명·공증·staple·`spctl`)
+- [ ] 그 뒤 Windows adapter — feasibility build 와 기본 채널 확정
+
+하지 않는 것:
+
+- 두 Host 용으로 tool 표를 두 벌 만드는 것
+- prefix 문자열을 동등성의 기준으로 삼는 것
+- macOS 배포가 닫히기 전에 Windows 를 병행하는 것
 
 ### M5 후속 — 선행 domain 계약 뒤 수행
 

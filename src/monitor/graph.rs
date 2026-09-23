@@ -639,6 +639,7 @@ pub(super) mod tests {
             parent_cycle_ref: parent.map(cycle_ref),
             revisit_from_cycle_ref: None,
             experiment_definition: None,
+            interview_question: None,
             report: None,
         }
     }

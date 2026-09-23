@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "gil-companion": {
-      "command": "node",
-      "args": ["./server.mjs"],
-      "cwd": "."
-    }
-  }
-}

@@ -735,6 +735,21 @@ impl Cycle {
             .as_ref()
     }
 
+    /// 이 Interview 가 **처음 던진 질문**. Experiment 의 `define()` 에 대응한다.
+    ///
+    /// 되묻기로 Question 이 여럿이어도 **첫 번째**가 이 Cycle 의 출발 질문이다 — 나중 질문은
+    /// 그 출발에서 갈라져 나온 것이고, Cycle 이 무엇을 묻고 있었는지는 첫 질문이 말한다.
+    /// 지금 어디에 서 있는지는 별개의 사실이라 섞지 않는다.
+    ///
+    /// 열려 있으면 Report 가 아직 없다 — 그때는 `None` 이 아니라 **그 Node** 를 돌려주어,
+    /// 읽는 쪽이 「아직 묻는 중」과 「아직 묻지 않았다」를 가릴 수 있게 한다.
+    pub fn opening_question(&self) -> Option<&crate::walk::StepNode> {
+        self.steps
+            .nodes()
+            .iter()
+            .find(|node| node.kind == NodeKind::Question)
+    }
+
     /// 이 Cycle 의 판정이 **근거로 삼은 그 Outcome** 의 lesson. 열려 있으면 없다.
     ///
     /// 서 있는 자리에서 꺼내지 않고 Cycle Report 에 **적힌 참조**를 따라간다 — 무엇을 근거로
